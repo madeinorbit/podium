@@ -9,7 +9,7 @@ import {
   paceHint,
   paceLabel,
   percentTone,
-  quotaVerdict,
+  quotaPoolVerdict,
   statusNote,
   windowElapsedPercent,
   windowPace,
@@ -33,13 +33,22 @@ export function QuotaPanel({
 }): JSX.Element {
   const ok = groups.filter((g) => g.status === 'ok')
   const degraded = groups.filter((g) => g.status !== 'ok')
-  const verdict = quotaVerdict(groups, now)
+  const verdict = quotaPoolVerdict(groups, now)
   return (
     <>
       <div className="hp-header">
         <span className="hp-title">Agent quota</span>
-        <span className={cn('hp-verdict', `hp-verdict-${verdict.tone}`)}>
-          <i aria-hidden="true" />
+        <span
+          className={cn(
+            'hp-verdict',
+            verdict.mixed ? 'hp-verdict-mixed' : `hp-verdict-${verdict.tone}`,
+          )}
+        >
+          <span className="hp-verdict-dots" aria-hidden="true">
+            {verdict.tones.map((tone) => (
+              <i key={tone} className={`hp-verdict-dot-${tone}`} />
+            ))}
+          </span>
           {verdict.label}
         </span>
       </div>
@@ -100,7 +109,8 @@ function WindowRow({
           )}
         </span>
         <span className="hp-num">
-          {Math.round(w.usedPercent)}% <small>· {formatReset(w.resetsAt, now).replace('resets in ', '')}</small>
+          {Math.round(w.usedPercent)}%{' '}
+          <small>· {formatReset(w.resetsAt, now).replace('resets in ', '')}</small>
         </span>
       </div>
       {/* Pace verdicts only once pinned, and only when they change a decision —

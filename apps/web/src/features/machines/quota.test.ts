@@ -1,20 +1,22 @@
 import type { AgentQuotaWire, MachineQuotaWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import type { AccountQuotaGroup } from './quota'
 import {
   agentLabel,
+  agentShortLabel,
   formatReset,
   groupQuotaByAccount,
   paceHint,
   paceLabel,
   percentTone,
   quotaPace,
+  quotaPoolVerdict,
   quotaVerdict,
   statusNote,
   windowElapsedPercent,
   windowPace,
   windowShortLabel,
 } from './quota'
-import type { AccountQuotaGroup } from './quota'
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 
@@ -42,7 +44,9 @@ describe('percentTone', () => {
 describe('agentLabel / statusNote', () => {
   it('labels known agents and notes non-ok statuses', () => {
     expect(agentLabel('claude-code')).toBe('Claude Code')
+    expect(agentShortLabel('claude-code')).toBe('CC')
     expect(agentLabel('codex')).toBe('Codex')
+    expect(agentShortLabel('codex')).toBe('CX')
     expect(statusNote({ status: 'unauthenticated' })).toBe('Not signed in')
     expect(statusNote({ status: 'ok' })).toBe('')
   })
@@ -109,6 +113,26 @@ describe('quotaVerdict', () => {
 
   it('ignores non-ok accounts and reads ok with no data', () => {
     expect(quotaVerdict([group([window(99, 10)], 'expired')], now).tone).toBe('ok')
+  })
+
+  it('summarizes mixed pools without making the worst one speak for every pool', () => {
+    const constrained = group([window(98, 150)])
+    const healthy = { ...group([window(10, 150)]), key: 'healthy', agent: 'codex' as const }
+    expect(quotaPoolVerdict([constrained, healthy], now)).toEqual({
+      tone: 'crit',
+      label: '1 constrained · 1 healthy',
+      mixed: true,
+      tones: ['crit', 'ok'],
+    })
+  })
+
+  it('keeps the specific window verdict for a single usable pool', () => {
+    expect(quotaPoolVerdict([group([window(95, 150)])], now)).toEqual({
+      tone: 'crit',
+      label: '5h nearly spent',
+      mixed: false,
+      tones: ['crit'],
+    })
   })
 })
 

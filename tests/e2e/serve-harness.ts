@@ -191,6 +191,61 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
 
 let server = await startServer({ port: PORT })
 
+// The ordinary harness must never read authenticated provider quota just to paint
+// a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
+// the explicitly opt-in real-agent lane is running.
+if (!REAL_AGENTS) {
+  server.registry.modules.rpc.agentQuotaAll = async () => {
+    const now = Date.now()
+    return [
+      {
+        machineId: LOCAL_MACHINE_ID,
+        machineName: 'podium-e2e',
+        hostname: 'podium-e2e',
+        agents: [
+          {
+            agent: 'claude-code',
+            status: 'ok',
+            account: { email: 'claude@example.com', plan: 'max' },
+            windows: [
+              {
+                key: '5h',
+                label: '5-hour',
+                usedPercent: 3,
+                resetsAt: new Date(now + 4.6 * 60 * 60_000).toISOString(),
+                windowMinutes: 300,
+              },
+              {
+                key: 'weekly-scoped:model:fable',
+                label: 'Fable',
+                usedPercent: 98,
+                resetsAt: new Date(now + 5 * 24 * 60 * 60_000).toISOString(),
+                windowMinutes: 10080,
+              },
+            ],
+            fetchedAt: new Date(now).toISOString(),
+          },
+          {
+            agent: 'codex',
+            status: 'ok',
+            account: { email: 'codex@example.com', plan: 'plus' },
+            windows: [
+              {
+                key: 'weekly',
+                label: 'Weekly',
+                usedPercent: 10,
+                resetsAt: new Date(now + 6.9 * 24 * 60 * 60_000).toISOString(),
+                windowMinutes: 10080,
+              },
+            ],
+            fetchedAt: new Date(now).toISOString(),
+          },
+        ],
+      },
+    ]
+  }
+}
+
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   // A second online machine with the same repo identity. It answers discovery only;
   // execution remains covered by the coordinated live two-host E2E.

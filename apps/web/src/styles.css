@@ -128,6 +128,24 @@ html[data-podium-platform="macos"] .settings-header {
 .header-quota-chip {
   color: var(--text-dim);
 }
+.header-quota-pools,
+.header-quota-pool {
+  display: inline-flex;
+  align-items: center;
+}
+.header-quota-pools {
+  gap: 8px;
+}
+.header-quota-pool {
+  gap: 4px;
+}
+.header-quota-pool-label {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 .header-meter {
   display: inline-block;
   width: 34px;
@@ -135,6 +153,9 @@ html[data-podium-platform="macos"] .settings-header {
   overflow: hidden;
   border-radius: 2px;
   background: var(--secondary);
+}
+.header-quota-meter {
+  width: 25px;
 }
 .header-machine-chip:hover,
 .header-quota-chip:hover,
@@ -196,12 +217,29 @@ html[data-podium-platform="macos"] .settings-header {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.hp-verdict i {
+.hp-verdict-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.hp-verdict-dots i {
   width: 6px;
   height: 6px;
   flex: none;
   border-radius: 50%;
   background: currentColor;
+}
+.hp-verdict-mixed {
+  color: var(--muted-foreground);
+}
+.hp-verdict-dot-ok {
+  color: var(--success);
+}
+.hp-verdict-dot-warn {
+  color: var(--warning);
+}
+.hp-verdict-dot-crit {
+  color: var(--destructive);
 }
 .hp-verdict-ok {
   color: var(--success);

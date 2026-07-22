@@ -7,7 +7,7 @@
  *  - Quota: the overlay groups by machine so two accounts are both visible.
  */
 import type { MachineQuotaWire } from '@podium/protocol'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
@@ -145,6 +145,37 @@ describe('memory chip is machine-aware', () => {
 })
 
 describe('quota overlay groups by account', () => {
+  it('shows a scoped header meter for each usable subscription', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 98)
+    mixed.agents.push({
+      agent: 'codex',
+      status: 'ok',
+      account: { email: 'codex@example.com', plan: 'plus' },
+      windows: [
+        { key: 'weekly', label: 'Weekly', usedPercent: 10, resetsAt: '', windowMinutes: 10080 },
+      ],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
+    })
+    expect(within(chip).getByText('CC')).toBeTruthy()
+    expect(within(chip).getByText('CX')).toBeTruthy()
+    const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
+    expect(meters).toHaveLength(2)
+    expect(meters[0]?.style.width).toBe('98%')
+    expect(meters[1]?.style.width).toBe('10%')
+    expect(meters[0]?.className).toContain('bg-destructive')
+    expect(meters[1]?.className).toContain('bg-success')
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('1 constrained · 1 healthy')).toBeTruthy())
+  })
+
   it('shows a card per distinct account, each labeled with its email + machine', async () => {
     quotaSummary.mockResolvedValue([
       machineQuota('podium-host', 'podium-host', 'podium-host', 'lud@example.com', 30),

@@ -42,6 +42,28 @@ export function agentLabel(agent: AgentKind): string {
   return AGENT_LABELS[agent] ?? agent
 }
 
+/** Two-character provider mark for scoped meters in the constrained top bar. */
+const AGENT_SHORT_LABELS: Record<string, string> = {
+  'claude-code': 'CC',
+  codex: 'CX',
+  grok: 'GR',
+  opencode: 'OC',
+  cursor: 'CU',
+  shell: 'SH',
+}
+export function agentShortLabel(agent: AgentKind): string {
+  return (
+    AGENT_SHORT_LABELS[agent] ??
+    agent
+      .split(/[^a-z0-9]+/i)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
+  )
+}
+
 export function statusNote(a: Pick<AgentQuotaWire, 'status' | 'error'>): string {
   switch (a.status) {
     case 'unauthenticated':
@@ -192,6 +214,37 @@ export function quotaVerdict(groups: AccountQuotaGroup[], nowMs: number): QuotaV
   if (spent) return { tone: 'crit', label: `${windowShortLabel(spent.label)} nearly spent` }
   if (hot) return { tone: 'warn', label: `${windowShortLabel(hot.label)} window won't last` }
   return { tone: 'ok', label: 'lasts until reset' }
+}
+
+/**
+ * A multi-pool summary must not let one exhausted subscription speak for every
+ * other usable one. Single-pool quota keeps the specific window verdict; two or
+ * more pools report the count in each health class (for example,
+ * "1 constrained · 1 healthy").
+ */
+export interface QuotaPoolVerdict extends QuotaVerdict {
+  mixed: boolean
+  tones: QuotaTone[]
+}
+
+export function quotaPoolVerdict(groups: AccountQuotaGroup[], nowMs: number): QuotaPoolVerdict {
+  const usable = groups.filter((g) => g.status === 'ok' && g.windows.length > 0)
+  if (usable.length <= 1) {
+    const verdict = quotaVerdict(usable, nowMs)
+    return { ...verdict, mixed: false, tones: [verdict.tone] }
+  }
+
+  const counts: Record<QuotaTone, number> = { ok: 0, warn: 0, crit: 0 }
+  for (const group of usable) counts[quotaVerdict([group], nowMs).tone] += 1
+
+  const parts = [
+    counts.crit > 0 ? `${counts.crit} constrained` : '',
+    counts.warn > 0 ? `${counts.warn} watch` : '',
+    counts.ok > 0 ? `${counts.ok} healthy` : '',
+  ].filter(Boolean)
+  const tones: QuotaTone[] = (['crit', 'warn', 'ok'] as const).filter((tone) => counts[tone] > 0)
+  const tone: QuotaTone = counts.crit > 0 ? 'crit' : counts.warn > 0 ? 'warn' : 'ok'
+  return { tone, label: parts.join(' · '), mixed: tones.length > 1, tones }
 }
 
 export function paceHint(pace: QuotaPace, usedPercent: number, elapsedPercent: number): string {

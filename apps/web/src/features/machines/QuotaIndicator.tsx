@@ -11,6 +11,7 @@ import { QuotaPanel } from './QuotaPanel'
 import {
   type AccountQuotaGroup,
   agentLabel,
+  agentShortLabel,
   formatReset,
   groupQuotaByAccount,
   paceHint,
@@ -49,6 +50,12 @@ function worstPercent(groups: AccountQuotaGroup[]): number {
   return worst
 }
 
+/** Highest window utilization for one independently usable quota pool. */
+function poolPercent(group: AccountQuotaGroup): number | null {
+  if (group.status !== 'ok' || group.windows.length === 0) return null
+  return Math.max(...group.windows.map((window) => window.usedPercent))
+}
+
 /** The most-consumed window with its account — drives the inline status-bar label. */
 function worstWindow(
   groups: AccountQuotaGroup[],
@@ -65,9 +72,10 @@ function worstWindow(
 
 /**
  * Agent-quota status item. Lives in the host status strip (HostIndicators),
- * beside the memory and connection glyphs — a gauge icon + a severity-tinted
- * fullness bar of the most-consumed plan window across every account.
- * Hover shows the per-account summary; click opens the full per-window breakdown.
+ * beside the memory and connection glyphs — a compact labeled meter for each
+ * independently usable quota pool, so one constrained plan does not make every
+ * subscription look spent. Hover shows the per-account summary; click pins the
+ * full per-window breakdown.
  * Rate limits are per-account, so the breakdown is grouped by account (with the
  * machine[s] each is used on) and deduped — never the same limit twice. Distinct
  * from Usage & analytics (transcript-harvested token cost) — this is plan
@@ -79,8 +87,8 @@ export function QuotaIndicator({
   header = false,
 }: {
   compact?: boolean
-  /** 44px desktop-header treatment: label + 34×3.5px meter chip whose hover
-   *  previews the quota panel and whose click pins the full breakdown. */
+  /** 44px desktop-header treatment: label + scoped per-pool mini-meters whose
+   *  hover previews the quota panel and whose click pins the full breakdown. */
   header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
@@ -121,13 +129,40 @@ export function QuotaIndicator({
   // Desktop 44px header: hover previews the panel, click pins the breakdown —
   // no tooltip, no modal (POD-173). Other placements keep the legacy pair.
   if (header) {
+    const pools = groups.flatMap((group) => {
+      const percent = poolPercent(group)
+      return percent === null ? [] : [{ group, percent }]
+    })
+    const poolSummary = pools
+      .map(({ group, percent }) => {
+        const account = group.account?.email ? ` (${group.account.email})` : ''
+        return `${agentLabel(group.agent)}${account} ${Math.round(percent)}% used`
+      })
+      .join('; ')
     return (
       <HealthPopover
         trigger={
-          <button type="button" className="header-quota-chip" aria-label="Agent quota">
+          <button
+            type="button"
+            className="header-quota-chip"
+            aria-label={poolSummary ? `Agent quota: ${poolSummary}` : 'Agent quota'}
+          >
             <span>quota</span>
-            <span className="header-meter" role="presentation">
-              <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
+            <span className="header-quota-pools" role="presentation">
+              {pools.map(({ group, percent }) => {
+                const poolTone = TONE[percentTone(percent)]
+                return (
+                  <span key={group.key} className="header-quota-pool">
+                    <span className="header-quota-pool-label">{agentShortLabel(group.agent)}</span>
+                    <span className="header-meter header-quota-meter">
+                      <span
+                        className={cn('block h-full', poolTone.fill)}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </span>
+                  </span>
+                )
+              })}
             </span>
           </button>
         }
