@@ -26,7 +26,7 @@ import type { PodiumClientApi } from '../api'
 import type { Replica, UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { SpawnTarget } from '../spawn-agent'
-import type { DockTab, FileScope, FileTab, PinKind, PinState } from '../viewmodels'
+import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {
@@ -175,8 +175,19 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockVisibleSession: string | null
   setDockVisibleSession: (sessionId: string | null) => void
   fileTabs: FileTab[]
+  /** Recently opened files across all workspaces (POD-149), newest first —
+   *  feeds the "+" menu's Recent-files list so strict issue scoping never
+   *  strands a file. Persisted. */
+  recentFiles: RecentFileEntry[]
   openFile: (sessionId: string, path: string) => void
-  openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void
+  /** `issueId` names the owning issue explicitly (issue pages, legacy
+   *  artifacts); omitted, the open is stamped to the selected issue (POD-149). */
+  openFileInWorktree: (args: {
+    machineId?: string
+    root: string
+    path: string
+    issueId?: string
+  }) => void
   /** Open a permanent artifact snapshot as a read-only file tab ([spec:SP-0fc9]
    *  #441). `path` is the relpath inside the artifact dir (bundle entry or the
    *  artifact's basename). */

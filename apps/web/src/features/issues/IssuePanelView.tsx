@@ -408,10 +408,12 @@ function PanelSections({
                       })
                     } else if (root) {
                       // Artifact paths may be worktree-relative; file tabs need absolute.
+                      // Owned by this issue (POD-149) so the tab stays in its strip.
                       openFileInWorktree({
                         machineId,
                         root,
                         path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        issueId: issue.id,
                       })
                     }
                   }}

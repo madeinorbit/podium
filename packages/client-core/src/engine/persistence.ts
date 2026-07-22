@@ -8,6 +8,7 @@
 
 import type { UiState } from '../replica/replica'
 import type { MainView } from '../router'
+import type { RecentFileEntry } from '../viewmodels/dock-panel'
 
 export const VIEW_KEY = 'podium.view'
 export const WT_KEY = 'podium.selectedWorktree'
@@ -23,6 +24,7 @@ export const SPLIT_KEY = 'podium.split'
 export const SUPER_OPEN_KEY = 'podium.superOpen.v2'
 export const PANEL_MODE_KEY = 'podium.panelMode'
 export const DOCK_SHELLS_KEY = 'podium.dockShells'
+export const RECENT_FILES_KEY = 'podium.recentFiles'
 
 export function readStoredView(ui: UiState): MainView {
   const v = ui.get(VIEW_KEY)
@@ -54,6 +56,37 @@ export function readStoredDockShells(ui: UiState): Record<string, string> {
     return out
   } catch {
     return {}
+  }
+}
+
+/** The persisted Recent-files list (POD-149). A corrupt/missing blob reads as
+ *  empty; malformed entries are dropped individually. */
+export function readStoredRecentFiles(ui: UiState): RecentFileEntry[] {
+  const raw = ui.get(RECENT_FILES_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    const out: RecentFileEntry[] = []
+    for (const e of parsed as Array<Record<string, unknown>>) {
+      if (!e || typeof e !== 'object') continue
+      if (typeof e.path !== 'string' || !e.path) continue
+      if (typeof e.worktreePath !== 'string') continue
+      if (typeof e.openedAt !== 'number') continue
+      const a = e.artifact as Record<string, unknown> | undefined
+      out.push({
+        path: e.path,
+        worktreePath: e.worktreePath,
+        openedAt: e.openedAt,
+        ...(typeof e.machineId === 'string' ? { machineId: e.machineId } : {}),
+        ...(a && typeof a.issueId === 'string' && typeof a.artifactId === 'string'
+          ? { artifact: { issueId: a.issueId, artifactId: a.artifactId } }
+          : {}),
+      })
+    }
+    return out
+  } catch {
+    return []
   }
 }
 

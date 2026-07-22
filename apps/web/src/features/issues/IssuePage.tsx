@@ -891,11 +891,13 @@ function PanelSections({
       return
     }
     if (!root) return
-    // Legacy path-only artifacts open from the live worktree.
+    // Legacy path-only artifacts open from the live worktree, owned by this
+    // issue (POD-149) so the tab lands in — and stays in — its strip.
     openFileInWorktree({
       machineId: issue.machineId,
       root,
       path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+      issueId: issue.id,
     })
   }
 

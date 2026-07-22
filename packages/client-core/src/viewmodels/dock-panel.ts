@@ -9,9 +9,25 @@ export interface FileTab {
   scope: FileScope
   path: string
   worktreePath: string
-  /** The issue an artifact tab belongs to ([spec:SP-0fc9] #441) — keeps the
-   *  dock's Issue panel on the artifact's issue instead of resolving by cwd. */
+  /** The issue that OWNS this tab. Stamped on every open made in an issue
+   *  context (POD-149): the strip shows a tab only under its owning issue, so
+   *  files opened under one issue no longer leak into every issue sharing the
+   *  same checkout. Also keeps the dock's Issue panel on the artifact's issue
+   *  instead of resolving by cwd ([spec:SP-0fc9] #441). Absent = opened outside
+   *  any issue; the tab lives in the worktree-selected workspace only. */
   issueId?: string
+}
+
+/** One entry in the "+"-menu Recent-files list (POD-149): enough to reopen a
+ *  closed-over file tab after strict issue scoping hid it from other issues'
+ *  strips. Artifact snapshots keep their ids so a reopen serves the immutable
+ *  store, not the (possibly gone) live file. */
+export interface RecentFileEntry {
+  path: string
+  worktreePath: string
+  machineId?: string
+  artifact?: { issueId: string; artifactId: string }
+  openedAt: number
 }
 
 /** The four right-dock tabs. Persisted under 'podium.dockTab'. */
@@ -105,9 +121,7 @@ export function issueForPanel(args: {
   issueId?: string
 }): IssueWire | null {
   if (args.issueId !== undefined) {
-    const explicit = args.issues.find(
-      (i) => i.id === args.issueId && !i.archived && !i.deletedAt,
-    )
+    const explicit = args.issues.find((i) => i.id === args.issueId && !i.archived && !i.deletedAt)
     if (explicit) return explicit
   }
   const session = args.sessionId

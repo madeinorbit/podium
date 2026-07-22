@@ -1,6 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { RecentFileEntry } from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/protocol'
-import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
+import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,8 @@ export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }
 const MINI_LIMIT = 8
 // Fewer hits shown inside each machine's submenu to keep it compact.
 const SUB_HIT_LIMIT = 4
+// Recent files shown in the menu (POD-149) — reachability, not a file browser.
+const RECENT_LIMIT = 6
 
 /**
  * The "+" menu: start a fresh agent/shell, or resume from history. The resume
@@ -201,6 +204,7 @@ export function NewPanelMenu({
               {label}
             </DropdownMenuItem>
           ))}
+          <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
           <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
             Resume
           </div>
@@ -314,6 +318,8 @@ export function NewPanelMenu({
           })}
         </TooltipProvider>
 
+        <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
+
         {/* 3. Resume convos — global mini-search, unchanged layout */}
         <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
           Resume
@@ -351,6 +357,76 @@ export function NewPanelMenu({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** The "+" menu's Recent-files section (POD-149): strict issue scoping shows a
+ *  file tab only under its owning issue, so this list is how a file opened
+ *  under another issue (or closed) stays reachable from the current checkout.
+ *  Reopening an ordinary file stamps it to the CURRENT issue; an artifact
+ *  snapshot reopens via its immutable store and reveals its owning issue. */
+function RecentFilesSection({
+  worktree,
+  issueId,
+}: {
+  worktree: WorktreeView
+  issueId?: string
+}): JSX.Element | null {
+  const { recentFiles, openFileInWorktree, openArtifact } = useStoreSelector(
+    (s) => ({
+      recentFiles: s.recentFiles,
+      openFileInWorktree: s.openFileInWorktree,
+      openArtifact: s.openArtifact,
+    }),
+    shallowEqual,
+  )
+  const now = Date.now()
+  const entries = recentFiles.filter((f) => f.worktreePath === worktree.path).slice(0, RECENT_LIMIT)
+  if (entries.length === 0) return null
+
+  const reopen = (f: RecentFileEntry): void => {
+    if (f.artifact) {
+      openArtifact({
+        issueId: f.artifact.issueId,
+        artifactId: f.artifact.artifactId,
+        path: f.path,
+        ...(f.worktreePath ? { worktreePath: f.worktreePath } : {}),
+      })
+      return
+    }
+    openFileInWorktree({
+      ...(f.machineId ? { machineId: f.machineId } : {}),
+      root: f.worktreePath,
+      path: f.path,
+      ...(issueId ? { issueId } : {}),
+    })
+  }
+
+  return (
+    <>
+      <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
+        Recent files
+      </div>
+      {entries.map((f) => (
+        <DropdownMenuItem
+          key={`${f.worktreePath} ${f.path} ${f.artifact?.artifactId ?? ''}`}
+          onClick={() => reopen(f)}
+          className="flex items-baseline gap-2"
+        >
+          <FileText
+            size={13}
+            aria-hidden="true"
+            className="flex-none self-center text-muted-foreground"
+          />
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            {f.path.split('/').pop() || f.path}
+          </span>
+          <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
+            {relativeTime(new Date(f.openedAt).toISOString(), now)}
+          </span>
+        </DropdownMenuItem>
+      ))}
+    </>
   )
 }
 

@@ -64,6 +64,7 @@ import {
   type PinKind,
   type PinState,
   planWorktreeMoves,
+  type RecentFileEntry,
   readStoredDockTab,
   reposToViews,
   tabIdFor,
@@ -87,8 +88,10 @@ import {
   PANE_A_KEY,
   PANE_B_KEY,
   PANEL_MODE_KEY,
+  RECENT_FILES_KEY,
   readStoredDockShells,
   readStoredPanelModes,
+  readStoredRecentFiles,
   readStoredView,
   SPLIT_KEY,
   SUPER_OPEN_KEY,
@@ -179,6 +182,7 @@ interface EngineState {
   drafts: Record<string, string>
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
+  recentFiles: RecentFileEntry[]
   outboxSize: number
 }
 
@@ -359,6 +363,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       drafts: {},
       sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
       fileTabs: [],
+      recentFiles: readStoredRecentFiles(this.ui),
       outboxSize: 0,
     }
     this.statics = this.buildStatics()
@@ -599,6 +604,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.has('dockShells'))
       this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(this.state.dockShells))
     if (changed.has('dockTab')) this.ui.set(DOCK_TAB_KEY, this.state.dockTab)
+    if (changed.has('recentFiles'))
+      this.ui.set(RECENT_FILES_KEY, JSON.stringify(this.state.recentFiles))
     // Session-follows-view policy (old lines 1113-1136): diffs consecutive
     // session snapshots, so it reacts to sessions only.
     if (changed.has('sessions')) this.reactWorktreeFollow()
@@ -1080,6 +1087,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
+  // Remember an opened file for the "+"-menu Recent-files list (POD-149) —
+  // strict issue scoping hides a tab from every other issue's strip, so this
+  // list is how a closed-over file stays reachable across the checkout.
+  private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
+    const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
+      `${e.worktreePath} ${e.path} ${e.artifact?.artifactId ?? ''}`
+    const k = key(entry)
+    const rest = this.state.recentFiles.filter((e) => key(e) !== k)
+    this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })
+  }
+
   // ------------------------------------------------------------------- actions
 
   /** The imperative store actions — the old provider's trpc.* closures, moved
@@ -1225,7 +1243,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const scope: FileScope = { kind: 'session', sessionId }
         const id = tabIdFor(scope, path)
         const st = this.state
-        const cwd = st.sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
+        const session = st.sessions.find((s) => s.sessionId === sessionId)
+        const cwd = session?.cwd ?? ''
         // The known worktree containing the session's cwd (deepest match wins,
         // as in navigateToSession) — a cwd deeper than the worktree root would
         // otherwise select a path the workspace can't render.
@@ -1235,21 +1254,68 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
             .map((w) => w.path)
             .filter((p) => cwd === p || cwd.startsWith(`${p}/`))
             .sort((a, b) => b.length - a.length)[0] ?? cwd
-        const fileTabs = st.fileTabs.some((t) => t.id === id)
+        // Owner (POD-149): the session's explicit issue, else the issue whose
+        // workspace this open happened in. The strip shows the tab only there.
+        // An already-open tab keeps its original owner (reveal must navigate to
+        // the strip that actually lists it, or the pane bounces).
+        const existing = st.fileTabs.find((t) => t.id === id)
+        const issueId = existing
+          ? existing.issueId
+          : (session?.issueId ?? st.selectedIssueId ?? undefined)
+        const fileTabs = existing
           ? st.fileTabs
-          : [...st.fileTabs, { id, scope, path, worktreePath }]
+          : [...st.fileTabs, { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) }]
         this.apply({ fileTabs })
-        this.revealFileTab({ tabId: id, ...(worktreePath ? { worktreePath } : {}) })
+        this.revealFileTab({
+          tabId: id,
+          ...(worktreePath ? { worktreePath } : {}),
+          ...(issueId ? { issueId } : {}),
+        })
+        this.recordRecentFile({
+          path,
+          worktreePath,
+          ...(session?.machineId ? { machineId: session.machineId } : {}),
+        })
       },
-      openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => {
+      openFileInWorktree: (args: {
+        machineId?: string
+        root: string
+        path: string
+        issueId?: string
+      }) => {
         const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
         const id = tabIdFor(scope, args.path)
         const st = this.state
-        const fileTabs = st.fileTabs.some((t) => t.id === id)
+        // Owner (POD-149): an explicit issue from the caller (issue pages,
+        // legacy artifacts) wins; a dock/file-browser open belongs to whatever
+        // issue workspace it happened in. An already-open tab keeps its owner.
+        const existing = st.fileTabs.find((t) => t.id === id)
+        const issueId = existing
+          ? existing.issueId
+          : (args.issueId ?? st.selectedIssueId ?? undefined)
+        const fileTabs = existing
           ? st.fileTabs
-          : [...st.fileTabs, { id, scope, path: args.path, worktreePath: args.root }]
+          : [
+              ...st.fileTabs,
+              {
+                id,
+                scope,
+                path: args.path,
+                worktreePath: args.root,
+                ...(issueId ? { issueId } : {}),
+              },
+            ]
         this.apply({ fileTabs })
-        this.revealFileTab({ tabId: id, worktreePath: args.root })
+        this.revealFileTab({
+          tabId: id,
+          worktreePath: args.root,
+          ...(issueId ? { issueId } : {}),
+        })
+        this.recordRecentFile({
+          path: args.path,
+          worktreePath: args.root,
+          ...(args.machineId ? { machineId: args.machineId } : {}),
+        })
       },
       // Open a permanent artifact snapshot as a file tab ([spec:SP-0fc9] #441):
       // reads ride the server-local artifact store (the source file may be
@@ -1285,6 +1351,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           tabId: id,
           issueId: args.issueId,
           ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
+        })
+        this.recordRecentFile({
+          path: args.path,
+          worktreePath: args.worktreePath ?? '',
+          artifact: { issueId: args.issueId, artifactId: args.artifactId },
         })
       },
       closeFileTab: (id: string) => {

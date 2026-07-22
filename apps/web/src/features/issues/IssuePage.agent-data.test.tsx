@@ -174,6 +174,8 @@ describe('IssuePage agent-saved data', () => {
       machineId: undefined,
       root: '/repo',
       path: '/repo/docs/agent-data.md',
+      // owned by the issue so the tab stays in its strip (POD-149)
+      issueId: issue.id,
     })
 
     fireEvent.click(screen.getByText('Permanent proof'))

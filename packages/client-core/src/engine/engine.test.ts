@@ -1023,7 +1023,9 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
+    engine
+      .getSnapshot()
+      .openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
     expect(engine.getSnapshot().fileTabs).toHaveLength(1)
     engine.dispose()
   })
@@ -1088,9 +1090,7 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.replica.applySnapshot('sessions', [
-      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
-    ])
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
     await settle()
     engine.getSnapshot().openFile('s1', 'notes.md')
     await settle()
@@ -1128,5 +1128,108 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ).rejects.toThrow('artifact snapshots are read-only')
     expect(api.files.write.mutate).not.toHaveBeenCalled()
     engine.dispose()
+  })
+})
+
+describe('file-tab issue ownership + recent files (POD-149)', () => {
+  it('openFile stamps the tab with the selected issue and records a recent file', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_9')
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.fileTabs[0]?.issueId).toBe('iss_9')
+    // reveal keeps the owning issue selected so the strip lists the tab
+    expect(st.selectedIssueId).toBe('iss_9')
+    expect(st.recentFiles[0]).toMatchObject({
+      path: 'notes.md',
+      worktreePath: '/tmp/known-repo/.worktrees/wt1',
+    })
+    engine.dispose()
+  })
+
+  it("openFile prefers the session's explicit issue over the selection", async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [
+      { ...session('s1', '/tmp/known-repo/.worktrees/wt1'), issueId: 'iss_own' } as SessionMeta,
+    ])
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_other')
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.fileTabs[0]?.issueId).toBe('iss_own')
+    // navigated to the OWNING issue's workspace, not the stale selection
+    expect(st.selectedIssueId).toBe('iss_own')
+    engine.dispose()
+  })
+
+  it('openFileInWorktree stamps an explicit caller issue, else the selection, else nothing', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    const snap = engine.getSnapshot()
+    snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: 'iss_1' })
+    engine.getSnapshot().setSelectedIssueId('iss_2')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
+    engine.getSnapshot().setSelectedIssueId(null)
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    const tabs = engine.getSnapshot().fileTabs
+    expect(tabs.map((t) => t.issueId)).toEqual(['iss_1', 'iss_2', undefined])
+    engine.dispose()
+  })
+
+  it('re-opening an existing tab keeps its original owner and reveals THAT issue', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_1')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    engine.getSnapshot().setSelectedIssueId('iss_2')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    const st = engine.getSnapshot()
+    expect(st.fileTabs).toHaveLength(1)
+    expect(st.fileTabs[0]?.issueId).toBe('iss_1')
+    expect(st.selectedIssueId).toBe('iss_1')
+    engine.dispose()
+  })
+
+  it('recent files dedupe by path, cap at 30, persist, and openArtifact keeps its ids', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage })
+    first.engine.start()
+    await settle()
+    for (let i = 0; i < 32; i++) {
+      first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
+    }
+    // duplicate open moves to front instead of adding
+    first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
+    first.engine.getSnapshot().openArtifact({
+      issueId: 'iss_1',
+      artifactId: 'abc',
+      path: 'index.html',
+      worktreePath: '/tmp/known-repo',
+    })
+    const recents = first.engine.getSnapshot().recentFiles
+    expect(recents).toHaveLength(30)
+    expect(recents[0]).toMatchObject({
+      path: 'index.html',
+      artifact: { issueId: 'iss_1', artifactId: 'abc' },
+    })
+    expect(recents[1]?.path).toBe('f31.md')
+    first.engine.dispose()
+    // a fresh engine over the same storage rehydrates the list
+    const second = makeEngine({ storage })
+    second.engine.start()
+    await settle()
+    expect(second.engine.getSnapshot().recentFiles).toHaveLength(30)
+    expect(second.engine.getSnapshot().recentFiles[0]?.path).toBe('index.html')
+    second.engine.dispose()
   })
 })

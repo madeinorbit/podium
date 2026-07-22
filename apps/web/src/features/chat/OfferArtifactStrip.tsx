@@ -87,6 +87,7 @@ export function OfferArtifactStrip({
         ...(machineId ? { machineId } : {}),
         root,
         path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+        issueId: issue.id,
       })
     }
   }

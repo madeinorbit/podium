@@ -75,6 +75,8 @@ describe('IssuePanelView artifact click', () => {
       machineId: undefined,
       root: '/r',
       path: '/r/legacy.html',
+      // owned by the issue so the tab stays in its strip (POD-149)
+      issueId: 'i1',
     })
     expect(openArtifact).not.toHaveBeenCalled()
     expect(open).not.toHaveBeenCalled()
