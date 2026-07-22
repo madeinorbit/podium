@@ -24,7 +24,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useStoreSelector } from '@/app/store'
@@ -357,6 +357,58 @@ export function AgentPanel({
       toast.error('Could not send the suggested action')
     }
   }
+  // Dock <-> PTY resize sync [POD-201]: the 340ms slide used to fight the
+  // mount's debounced ResizeObserver — the PTY re-gridded at an arbitrary
+  // mid-animation size, then again after transitionEnd. Instead the terminal
+  // surface is PINNED at a fixed height for the duration of the slide (its box
+  // never changes mid-animation, so the observer stays quiet) and the PTY fits
+  // exactly once at the synced moment: on OPEN it snaps to its final grid as
+  // the slide starts, and the dock animates into the vacated band; on CLOSE it
+  // grows once at transitionEnd (which also unpins). `dockOpen` lags the offer
+  // by one frame so a freshly mounted dock still gets its enter transition.
+  const dockOpenTarget = Boolean(nativeOffer)
+  const [dockOpen, setDockOpen] = useState(false)
+  const termSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const dockInnerRef = useRef<HTMLDivElement | null>(null)
+  const dockUnpinRef = useRef<(() => void) | null>(null)
+  const dockUnpinFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state
+  useLayoutEffect(() => {
+    if (dockOpen === dockOpenTarget) return
+    const surface = termSurfaceRef.current
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (!surface || reduced || effectiveMode !== 'native') {
+      setDockOpen(dockOpenTarget)
+      return
+    }
+    dockUnpinRef.current?.()
+    const height = surface.getBoundingClientRect().height
+    const dockHeight = dockInnerRef.current?.offsetHeight ?? 0
+    surface.style.flex = 'none'
+    surface.style.height = `${Math.max(0, dockOpenTarget ? height - dockHeight : height)}px`
+    dockUnpinRef.current = () => {
+      dockUnpinRef.current = null
+      surface.style.flex = ''
+      surface.style.height = ''
+    }
+    if (dockOpenTarget) {
+      void surface.offsetHeight // reflow so fit() measures the pinned size
+      const m = mountedRef.current
+      if (m) {
+        const grid = m.view.fit()
+        if (grid) m.connection.sendResize(grid.cols, grid.rows)
+        m.view.scrollToBottom()
+      }
+    }
+    requestAnimationFrame(() => setDockOpen(dockOpenTarget))
+    // Backstop: transitionEnd is the normal unpin; if it never fires (hidden
+    // tab, interrupted transition) release the surface after the slide should
+    // have settled so the terminal doesn't stay frozen at a stale height.
+    if (dockUnpinFallbackRef.current !== undefined) clearTimeout(dockUnpinFallbackRef.current)
+    dockUnpinFallbackRef.current = setTimeout(() => dockUnpinRef.current?.(), 700)
+  }, [dockOpen, dockOpenTarget, effectiveMode])
   // The terminal stays mounted across a chat<->native toggle (Task 6): it's kept
   // alive (hidden under the chat overlay) with eligibility flipped via `active`
   // instead of a remount — see useTerminalSession's own setActive effect.
@@ -922,6 +974,7 @@ export function AgentPanel({
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
           <div
+            ref={termSurfaceRef}
             data-testid="terminal-surface"
             className={cn(
               'relative flex min-h-0 flex-1 flex-col',
@@ -982,7 +1035,7 @@ export function AgentPanel({
               in native mode. Clicking a button sends its prompt as a user turn. */}
           {dockOffer && (
             <div
-              className={cn('offer-dock flex-none', nativeOffer && 'offer-dock--open')}
+              className={cn('offer-dock flex-none', dockOpen && 'offer-dock--open')}
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
               onTransitionEnd={(e) => {
@@ -991,8 +1044,11 @@ export function AgentPanel({
                 // prompt box under the dock. Don't rely on the debounced
                 // ResizeObserver alone: force a fit at the settled size, send
                 // the resize if the grid changed, and re-pin the viewport so
-                // any in-place-repaint ghost frame scrolls away.
+                // any in-place-repaint ghost frame scrolls away. Unpin the
+                // surface FIRST so flex resumes before the settled-size fit
+                // (on open this fit is a no-op — the grid snapped at start).
                 if (e.propertyName !== 'grid-template-rows') return
+                dockUnpinRef.current?.()
                 setTimeout(() => {
                   const m = mountedRef.current
                   if (!m) return
@@ -1003,7 +1059,7 @@ export function AgentPanel({
               }}
             >
               <div className="offer-dock-clip">
-                <div className="offer-dock-inner">
+                <div ref={dockInnerRef} className="offer-dock-inner">
                   <OfferBar
                     offer={dockOffer}
                     disabled={!nativeOffer}
