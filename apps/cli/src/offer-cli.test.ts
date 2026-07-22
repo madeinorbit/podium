@@ -168,6 +168,10 @@ describe('podium offer CLI (behavior)', () => {
   })
 
   it('renders help', async () => {
-    expect(await runOfferCli(['--help'], client())).toContain('podium offer')
+    const help = await runOfferCli(['--help'], client())
+    expect(help).toContain('podium offer')
+    expect(help).toContain('put the best')
+    expect(help).toContain('interactive HTML')
+    expect(help).toContain('first 3 items')
   })
 })

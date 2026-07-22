@@ -112,6 +112,13 @@ with none of your session's context. Five rules:
 Before posting, test it: reading only the first line and the buttons, does the user know
 (a) what happened and (b) what to decide?
 
+Artifact references are explicitly curated and retain their command-line order. Put the single
+best review target first—including an interactive HTML concept when it communicates the behavior
+better than static frames—then add only the most useful supporting screenshots. Offer cards render
+the first three artifact items and summarize any additional references, so treat three as the visual
+budget instead of attaching every frame to the offer. (All published artifacts remain available on
+the issue.)
+
 **Review handoffs ride offers.** The Tray shows review-ready work only through your offer —
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
 post an offer naming the decision you need (merge, send back, discuss).

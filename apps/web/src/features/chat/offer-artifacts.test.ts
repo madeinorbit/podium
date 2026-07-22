@@ -4,7 +4,8 @@ import { resolveOfferArtifacts } from './offer-artifacts'
 
 // Offer→artifact resolution [POD-120]: agent-curated paths resolve against the
 // issue panel's artifact list (newest entry wins, unresolved silently dropped);
-// an offer naming none falls back to artifacts newer than the user's last input.
+// an offer naming none falls back to artifacts newer than the user's last input,
+// promoting an interactive HTML review target ahead of screenshot frames.
 
 const art = (path: string, addedAt: string, artifactId?: string): IssuePanelArtifact => ({
   path,
@@ -75,6 +76,30 @@ describe('resolveOfferArtifacts [POD-120]', () => {
       lastInputAt: '2026-07-21T08:00:00.000Z',
     })
     expect(out.map((a) => a.path)).toEqual(['d.png', 'c.png', 'b.png'])
+  })
+
+  it('promotes a fresh HTML concept in the uncurated fallback', () => {
+    const concept = art('concept/mobile.html', '2026-07-21T09:00:00.000Z')
+    const frames = ['a.png', 'b.png', 'c.png', 'd.png'].map((p, i) =>
+      art(p, `2026-07-21T09:1${i}:00.000Z`),
+    )
+    const out = resolveOfferArtifacts({
+      offer: offerWith(),
+      issue: issueWith([concept, ...frames]),
+      lastInputAt: '2026-07-21T08:00:00.000Z',
+    })
+    expect(out.map((a) => a.path)).toEqual(['concept/mobile.html', 'd.png', 'c.png'])
+  })
+
+  it('never injects an HTML concept into an explicitly curated offer', () => {
+    const concept = art('concept/mobile.html', '2026-07-21T09:00:00.000Z')
+    const frame = art('frame.png', '2026-07-21T09:10:00.000Z')
+    const out = resolveOfferArtifacts({
+      offer: offerWith(['frame.png']),
+      issue: issueWith([concept, frame]),
+      lastInputAt: '2026-07-21T08:00:00.000Z',
+    })
+    expect(out).toEqual([frame])
   })
 
   it('no fallback without a last-input anchor or without an issue', () => {

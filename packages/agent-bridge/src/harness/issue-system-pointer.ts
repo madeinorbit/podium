@@ -52,6 +52,9 @@ export const ISSUE_SYSTEM_POINTER =
   'must use `--action-input "Label::prompt"` instead — the UI collects the user\'s feedback and appends it to the prompt. ' +
   'Attach the evidence: `--artifact <path>` names issue artifacts (added via `podium issue artifact --add` the same turn) ' +
   'that render as thumbnails so the user can judge without opening the session. ' +
+  'Curate review evidence explicitly with repeated `--artifact <path>` in priority order: put the single best review ' +
+  'target first (including an interactive HTML concept when it carries the interaction), then supporting screenshots. ' +
+  'Offer cards render at most three artifact items, so choose the three most useful rather than every frame. ' +
   'Failures are offers too — cause, fix, decision, matter-of-fact; no apologies. ' +
   'The buttons show under the chat and as a card in the Tray; ' +
   'a user turn clears the offer, and so does your own next turn (a stale offer self-clears once the conversation moves on). ' +
