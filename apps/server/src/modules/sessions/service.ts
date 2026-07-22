@@ -3022,31 +3022,45 @@ export class SessionsService {
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  async resurrectSession({
+  resurrectSession({
     sessionId,
   }: {
     sessionId: string
   }): Promise<{ ok: boolean; reason?: string }> {
     const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
+    if (rejected) return Promise.resolve(rejected)
     const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
+    if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed
     // externally) are the same situation here: no process, but the row and the
     // resume ref are intact — both come back with one spawn.
     if (session.status !== 'hibernated' && session.status !== 'exited') {
-      return { ok: false, reason: 'process still running' }
+      return Promise.resolve({ ok: false, reason: 'process still running' })
     }
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one
     // without its ref would silently discard the conversation.
     if (session.agentKind !== 'shell' && !session.resume) {
-      return { ok: false, reason: 'no resume ref' }
+      return Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
     // so the agent has a real cwd. Transcript inspection does not need this.
-    const ensured = await this.ensureSessionWorktree(session)
+    // The common hibernate→wake path resolves synchronously, and the spawn
+    // must too: queueText fire-and-forgets this call and its callers rely on
+    // the spawn being on the wire before queueText returns [POD-197].
+    const ensured = this.ensureSessionWorktree(session)
+    if (ensured instanceof Promise) {
+      return ensured.then((e) => this.finishResurrect(session, e))
+    }
+    return Promise.resolve(this.finishResurrect(session, ensured))
+  }
+
+  private finishResurrect(
+    session: Session,
+    ensured: { ok: boolean; reason?: string; cwd?: string },
+  ): { ok: boolean; reason?: string } {
+    const sessionId = session.sessionId
     if (!ensured.ok) return { ok: false, reason: ensured.reason }
     if (ensured.cwd && ensured.cwd !== session.cwd) {
       session.cwd = ensured.cwd
@@ -3090,11 +3104,15 @@ export class SessionsService {
    * issue worktree it clears the path of record but keeps the branch; resume
    * recreates via worktreeAddExisting [spec:SP-9904]. When worktreePath is
    * still set we trust it (no probe — keeps unit tests daemon-free and avoids
-   * a 35s rpc timeout on the common hibernate→resurrect path).
+   * a 35s rpc timeout on the common hibernate→resurrect path). Returns a
+   * plain value on every path that needs no daemon work so resurrectSession
+   * can spawn synchronously [POD-197]; only the recreate path is async.
    */
-  private async ensureSessionWorktree(
+  private ensureSessionWorktree(
     session: Session,
-  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+  ):
+    | { ok: boolean; reason?: string; cwd?: string }
+    | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
     const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
     if (!issueId) return { ok: true, cwd: session.cwd }
 
@@ -3112,14 +3130,17 @@ export class SessionsService {
       return { ok: true, cwd: session.cwd }
     }
     // Freed by stop (or cleared out-of-band): recreate from the kept branch.
-    const recreated = await this.issues().ensureWorktree(issueId)
-    if (!recreated.ok || !recreated.worktreePath) {
-      return {
-        ok: false,
-        reason: recreated.output || 'failed to recreate worktree from branch',
-      }
-    }
-    return { ok: true, cwd: recreated.worktreePath }
+    return this.issues()
+      .ensureWorktree(issueId)
+      .then((recreated) => {
+        if (!recreated.ok || !recreated.worktreePath) {
+          return {
+            ok: false,
+            reason: recreated.output || 'failed to recreate worktree from branch',
+          }
+        }
+        return { ok: true, cwd: recreated.worktreePath }
+      })
   }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
