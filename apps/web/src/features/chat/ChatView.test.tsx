@@ -250,6 +250,56 @@ describe('ChatView read-then-subscribe', () => {
     expect(container.textContent).toContain('parked history')
     expect(fakeHub.subscribes).toHaveLength(1)
   })
+
+  it('sticks and jumps to the latest user row after collapsed tool blocks', async () => {
+    act(() => {
+      root.render(<ChatView sessionId="s1" />)
+    })
+    const tools: TranscriptItem[] = [
+      { id: 't1', cursor: 'c1', role: 'tool', text: '', toolName: 'Read', toolResult: 'ok' },
+      { id: 't2', cursor: 'c2', role: 'tool', text: '', toolName: 'Grep', toolResult: 'ok' },
+    ]
+    const prompt: TranscriptItem = {
+      id: 'u1',
+      cursor: 'c3',
+      role: 'user',
+      text: 'LATEST PROMPT after tools',
+    }
+    await act(async () => {
+      reads[0]?.resolve({ items: [...tools, prompt], head: 'c1', tail: 'c3', hasMore: false })
+    })
+    await flush()
+
+    const userRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
+      el.textContent?.includes('LATEST PROMPT after tools'),
+    )
+    expect(userRow).toBeDefined()
+    if (!userRow) return
+    // Two transcript tool blocks collapse into row 0, so the user block at
+    // block index 2 is rendered as row 1. Sticky lookup must use that row index.
+    expect(userRow.dataset.block).toBe('1')
+    const scroller = userRow.parentElement as HTMLDivElement
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 500 },
+    })
+    scroller.scrollTop = 250
+    scroller.getBoundingClientRect = () => ({ top: 100 }) as DOMRect
+    userRow.getBoundingClientRect = () => ({ bottom: 140 }) as DOMRect
+
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
+
+    userRow.getBoundingClientRect = () => ({ bottom: 90 }) as DOMRect
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    const sticky = container.querySelector<HTMLButtonElement>('[data-testid="sticky-user-message"]')
+    expect(sticky?.textContent).toContain('LATEST PROMPT after tools')
+
+    const scrollIntoView = vi.fn()
+    userRow.scrollIntoView = scrollIntoView
+    act(() => sticky?.click())
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+  })
 })
 
 describe('ChatView composer', () => {

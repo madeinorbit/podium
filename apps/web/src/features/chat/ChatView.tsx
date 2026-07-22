@@ -289,6 +289,7 @@ export function ChatView({
     })
     return m
   }, [rows])
+  const lastUserRowIndex = lastUserBlockIndex >= 0 ? blockToRow.get(lastUserBlockIndex) : undefined
   const activeRow = activeMatch !== undefined ? blockToRow.get(activeMatch) : undefined
 
   // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
@@ -450,11 +451,20 @@ export function ChatView({
   // or scrolled out the BOTTOM (you scrolled up toward older content), hide it.
   const recomputeStickyUser = () => {
     const el = scrollerRef.current
-    if (!el || lastUserBlockIndex < 0) {
+    if (!el || lastUserRowIndex === undefined) {
       setShowStickyUser(false)
       return
     }
-    const node = el.querySelector<HTMLElement>(`[data-block="${lastUserBlockIndex}"]`)
+    // [data-block] is a ROW index, not a transcript-block index. Consecutive
+    // tool blocks collapse into one row, so using lastUserBlockIndex here can
+    // target an unrelated row (or no row at all). If the prompt has fallen
+    // above the bounded render window, it is necessarily above the viewport and
+    // should remain represented by the sticky copy.
+    if (lastUserRowIndex < renderStart) {
+      setShowStickyUser(true)
+      return
+    }
+    const node = el.querySelector<HTMLElement>(`[data-block="${lastUserRowIndex}"]`)
     if (!node) {
       setShowStickyUser(false)
       return
@@ -467,7 +477,7 @@ export function ChatView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute on list/prompt change
   useEffect(() => {
     recomputeStickyUser()
-  }, [blocks.length, lastUserBlockIndex, active])
+  }, [blocks.length, lastUserRowIndex, renderStart, active])
 
   const processFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))
@@ -542,6 +552,17 @@ export function ChatView({
     scrollerRef.current
       ?.querySelector(`[data-block="${index}"]`)
       ?.scrollIntoView({ block: 'center' })
+  }
+  const jumpToLastUser = () => {
+    if (lastUserRowIndex === undefined) return
+    if (lastUserRowIndex < renderStart) {
+      // Reveal the row first when the latest prompt has fallen above the bounded
+      // DOM window, then jump once React has mounted it.
+      setRenderCount(rows.length - lastUserRowIndex + RENDER_WINDOW)
+      requestAnimationFrame(() => scrollToBlock(lastUserRowIndex))
+      return
+    }
+    scrollToBlock(lastUserRowIndex)
   }
   // Jump to the active search match. A match can sit ABOVE the rendered window
   // (search runs over all loaded blocks, the DOM holds only the trailing window),
@@ -854,8 +875,9 @@ export function ChatView({
         {showStickyUser && lastUserText && (
           <button
             type="button"
-            onClick={() => scrollToBlock(lastUserBlockIndex)}
+            onClick={jumpToLastUser}
             title="Jump to this message"
+            data-testid="sticky-user-message"
             className="absolute top-0 right-[18px] left-0 z-[3] flex items-start gap-2 border-b border-border bg-card/95 px-5 py-1.5 text-left backdrop-blur supports-[backdrop-filter]:bg-card/80"
           >
             <span className="mt-px flex-none font-mono text-[8.5px] font-medium tracking-[0.12em] text-info uppercase">

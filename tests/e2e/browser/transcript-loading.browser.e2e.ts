@@ -1,8 +1,9 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
+import { harnessEnv } from '../harness-env'
 import { newSession, openApp } from './_harness'
 
 /**
@@ -42,6 +43,37 @@ const claudeSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 // it never collides with the developer's real Claude project data. Always removed
 // in afterEach so the test leaves no trace under the real ~/.claude.
 const BUCKET = join(homedir(), '.claude', 'projects', claudeSlug(REPO_ROOT))
+const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+
+/** Bind a keyecho Claude pane to a fixture through the daemon's real hook ingest.
+ * Fresh keyecho sessions have no native resume id, so current transcript routing
+ * correctly refuses to guess a cwd-only file until a hook supplies its path. */
+async function bindTranscript(sessionId: string, transcriptPath: string): Promise<void> {
+  let baseUrl: string | undefined
+  await expect
+    .poll(async () => {
+      const files = await readdir(HOOKS_DIR).catch(() => [])
+      for (const file of files) {
+        const settings = await readFile(join(HOOKS_DIR, file), 'utf8')
+        baseUrl = settings.match(/"url":\s*"([^"]+\/hooks\/[^"]+)"/)?.[1]
+        if (baseUrl) break
+      }
+      return baseUrl
+    })
+    .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\//)
+  const hookUrl = baseUrl?.replace(/\/hooks\/[^/]+$/, `/hooks/${sessionId}`)
+  if (!hookUrl) throw new Error('hook endpoint unavailable')
+  const res = await fetch(hookUrl, {
+    method: 'POST',
+    body: JSON.stringify({
+      hook_event_name: 'SessionStart',
+      session_id: '44444444-4444-4444-8444-444444444444',
+      transcript_path: transcriptPath,
+      cwd: REPO_ROOT,
+    }),
+  })
+  expect(res.ok).toBe(true)
+}
 
 // ---- Fixture transcript builders (real Claude Code JSONL record shapes) ----
 
@@ -61,6 +93,37 @@ function answerRec(uuid: string, text: string, ts: string): string {
     uuid,
     timestamp: ts,
     message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+  })
+}
+/** Two adjacent tool calls + their paired results. They collapse into one chat
+ * row, which is important for exercising block-index → row-index mapping. */
+function toolUseRec(uuid: string, ts: string): string {
+  return JSON.stringify({
+    type: 'assistant',
+    uuid,
+    timestamp: ts,
+    message: {
+      role: 'assistant',
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'sticky-tool-1', name: 'Read', input: { file_path: '/a.ts' } },
+        { type: 'tool_use', id: 'sticky-tool-2', name: 'Grep', input: { pattern: 'needle' } },
+      ],
+    },
+  })
+}
+function toolResultRec(uuid: string, ts: string): string {
+  return JSON.stringify({
+    type: 'user',
+    uuid,
+    timestamp: ts,
+    message: {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'sticky-tool-1', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'sticky-tool-2', content: 'ok' },
+      ],
+    },
   })
 }
 
@@ -130,6 +193,85 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   await expect(
     page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
   ).toHaveCount(0)
+})
+
+test('latest user prompt sticks after collapsed tools and jumps back on click', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 700 })
+
+  const t = '2026-06-20T11:00:00.000Z'
+  const longAnswer = Array.from(
+    { length: 45 },
+    (_, i) => `STICKY_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
+  ).join('\n\n')
+  await seedTranscript('44444444-4444-4444-8444-444444444444', [
+    toolUseRec('tool-call-record', t),
+    toolResultRec('tool-result-record', t),
+    userRec('sticky-user', 'STICKY_USER_PROMPT keep this visible', t),
+    answerRec('sticky-answer', longAnswer, t),
+  ])
+
+  await openApp(page)
+  await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(
+    activeId as string,
+    join(BUCKET, '44444444-4444-4444-8444-444444444444.jsonl'),
+  )
+  const chatMode = page.locator('[data-testid="mode-chat"]:visible')
+  await expect(chatMode).toBeVisible({ timeout: 15_000 })
+  await chatMode.click()
+
+  const promptRow = page
+    .locator('.transcript-row:visible')
+    .filter({ hasText: 'STICKY_USER_PROMPT keep this visible' })
+  await expect(promptRow).toBeAttached({ timeout: 15_000 })
+  const scroller = page
+    .locator('div.overflow-y-auto')
+    .filter({ has: page.locator('.transcript-row') })
+    .locator('visible=true')
+    .first()
+  await scroller.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+
+  // The actual prompt has moved above the viewport, while its sticky copy keeps
+  // the last operator input visible. This failed when block index 2 was used to
+  // query a DOM keyed by collapsed row indices (the prompt is row 1).
+  await expect
+    .poll(async () => {
+      const [prompt, viewport] = await Promise.all([
+        promptRow.boundingBox(),
+        scroller.boundingBox(),
+      ])
+      return !!prompt && !!viewport && prompt.y + prompt.height <= viewport.y + 1
+    })
+    .toBe(true)
+  const sticky = page.locator('[data-testid="sticky-user-message"]:visible')
+  await expect(sticky).toContainText('STICKY_USER_PROMPT keep this visible')
+
+  // Drive the real interaction too: clicking the sticky copy scrolls the real
+  // user row back into view.
+  await sticky.click()
+  await expect
+    .poll(async () => {
+      const [prompt, viewport] = await Promise.all([
+        promptRow.boundingBox(),
+        scroller.boundingBox(),
+      ])
+      return (
+        !!prompt &&
+        !!viewport &&
+        prompt.y + prompt.height > viewport.y &&
+        prompt.y < viewport.y + viewport.height
+      )
+    })
+    .toBe(true)
 })
 
 test('(c) scroll-to-top pages older history off disk with no gaps or duplicates', async ({
