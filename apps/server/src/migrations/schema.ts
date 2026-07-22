@@ -407,6 +407,10 @@ export const issues = sqliteTable("issues", {
 	supersededBy: text("superseded_by").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	duplicateOf: text("duplicate_of").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	pinned: integer().default(0).notNull(),
+	/** Manual order (POD-168): fractional/lexo-rank string, ascending = top.
+	 *  One key space per sibling scope (project-group top level, a parent's
+	 *  children, PINNED); null = legacy row, sorts after keyed rows. */
+	sortKey: text("sort_key"),
 	color: text(),
 	estimateMin: integer("estimate_min"),
 	needsHuman: integer("needs_human").default(0).notNull(),

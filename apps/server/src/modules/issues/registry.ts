@@ -1,3 +1,4 @@
+import { isSortKey } from '@podium/domain'
 import {
   type CommandDef,
   defineCommands,
@@ -808,6 +809,9 @@ const defs = {
         deferUntil: z.string().optional(),
         closedReason: z.string().optional(),
         pinned: z.boolean().optional(),
+        // Manual order (POD-168): fractional key, validated so a malformed key
+        // can never poison a sibling scope's ordering.
+        sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
         // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
         color: IssueColor.nullable().optional(),
         estimateMin: z.number().int().optional(),

@@ -319,6 +319,7 @@ export type IssuePatch = Partial<
     | 'supersededBy'
     | 'duplicateOf'
     | 'pinned'
+    | 'sortKey'
     | 'color'
     | 'estimateMin'
     | 'needsHuman'

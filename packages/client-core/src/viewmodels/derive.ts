@@ -1532,6 +1532,9 @@ export function nestStartedByIssues(
       .map((id) => byId.get(id))
       .filter((child): child is UnifiedIssueRow => child !== undefined)
       .map(attach)
+      // A parent's children are their own sibling scope (POD-168): manual
+      // sortKey order, same comparator as top level.
+      .sort(compareManualOrder)
     const aggregateSessions = [
       ...row.sessions,
       ...children.flatMap((child) => child.aggregateSessions ?? child.sessions),
@@ -1592,16 +1595,34 @@ function compareCreationDesc(a: UnifiedWorkRow, b: UnifiedWorkRow): number {
     : 0
 }
 
+/** Manual order within a band (POD-168, R1): persisted `sortKey` ascending —
+ *  keys are minted above the scope minimum on create, so new-at-top (R2) falls
+ *  out naturally. A keyed row sorts before any unkeyed (legacy) row — a fresh
+ *  issue still lands on top of a scope that predates keys — and unkeyed rows
+ *  keep the old newest-first creation order among themselves. Keys are only
+ *  ever meaningful against SIBLINGS (one key space per scope); cross-scope
+ *  comparisons here are harmless because grouping happens downstream. */
+function compareManualOrder(a: UnifiedWorkRow, b: UnifiedWorkRow): number {
+  if (a.kind === 'issue' && b.kind === 'issue') {
+    const ka = a.issue.sortKey
+    const kb = b.issue.sortKey
+    if (ka && kb && ka !== kb) return ka < kb ? -1 : 1
+    if (ka && !kb) return -1
+    if (!ka && kb) return 1
+  }
+  return compareCreationDesc(a, b)
+}
+
 /** WORK-list order: band asc (pinned/returned top, snoozed bottom — explicit
- *  user actions only), then newest-first creation order. Urgency, activity and
- *  updatedAt deliberately do NOT sort — attention is carried per-row by the
- *  square language / amber pill / motion meta, never by reordering, so rows
- *  hold still while agents work (#64). */
+ *  user actions only), then manual sortKey order (creation-desc fallback).
+ *  Urgency, activity and updatedAt deliberately do NOT sort — attention is
+ *  carried per-row by the square language / amber pill / motion meta, never by
+ *  reordering, so rows hold still while agents work (#64). */
 function sortUnifiedWorkRows(rows: UnifiedWorkRow[], now: number): UnifiedWorkRow[] {
   return [...rows].sort((a, b) => {
     const db = unifiedRowBand(a, now) - unifiedRowBand(b, now)
     if (db !== 0) return db
-    return compareCreationDesc(a, b)
+    return compareManualOrder(a, b)
   })
 }
 

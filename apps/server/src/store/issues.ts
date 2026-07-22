@@ -45,12 +45,12 @@ export class IssuesRepository {
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, closed_at, superseded_by, duplicate_of, pinned, color, estimate_min,
+            defer_until, closed_reason, closed_at, superseded_by, duplicate_of, pinned, sort_key, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at,
             coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
@@ -69,7 +69,7 @@ export class IssuesRepository {
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
            closed_at = excluded.closed_at,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
-           pinned = excluded.pinned, color = excluded.color,
+           pinned = excluded.pinned, sort_key = excluded.sort_key, color = excluded.color,
            estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
            human_question_options = excluded.human_question_options,
@@ -123,6 +123,7 @@ export class IssuesRepository {
         row.supersededBy,
         row.duplicateOf,
         row.pinned ? 1 : 0,
+        row.sortKey ?? null,
         row.color ?? null,
         row.estimateMin,
         row.needsHuman ? 1 : 0,
@@ -185,6 +186,7 @@ export class IssuesRepository {
       supersededBy: (r.superseded_by as string | null) ?? null,
       duplicateOf: (r.duplicate_of as string | null) ?? null,
       pinned: r.pinned === 1,
+      sortKey: (r.sort_key as string | null) ?? null,
       color: isIssueColorSlot(r.color) ? r.color : null,
       estimateMin: (r.estimate_min as number | null) ?? null,
       needsHuman: r.needs_human === 1,

@@ -205,6 +205,11 @@ export const IssueWire = z.object({
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),
+  /** Manual order (POD-168, POD-100 §4 R1): fractional sort key, lexicographic
+   *  ASCENDING = top of the scope. One key space per sibling scope — a project
+   *  group's top level, a parent's children, and PINNED sort independently.
+   *  Absent = legacy row (sorts after keyed rows, in creation order). */
+  sortKey: z.string().optional(),
   /** User-assigned colour slot [spec:SP-b4d1]; absent = no colour = the neutral
    *  slate flow. Additive + tolerant (an unknown value from a newer peer parses
    *  as unset rather than failing the whole issue). */

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { normalizeClosedPatch } from '@podium/domain'
+import { isSortKey, normalizeClosedPatch, sortKeyBetween } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -225,6 +225,26 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     }
   }
 
+  /** Mint a manual-order key ABOVE the sibling scope's current top (POD-168):
+   *  "new appears at top" (R2) is the sort's natural behavior, no special case.
+   *  Scope = a parent's children when parentId is set, else the repo's
+   *  top-level non-pinned rows. Corrupt/legacy keys are ignored for the min. */
+  private mintSortKey(repoId: string, repoPath: string, parentId: string | null): string {
+    let min: string | null = null
+    for (const r of this.rows.values()) {
+      if (r.deletedAt) continue
+      const sameScope = parentId
+        ? r.parentId === parentId
+        : r.parentId == null &&
+          !r.pinned &&
+          (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
+      if (!sameScope) continue
+      const k = r.sortKey
+      if (isSortKey(k) && (min === null || k < min)) min = k
+    }
+    return sortKeyBetween(null, min)
+  }
+
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
@@ -277,6 +297,14 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
+      // Keyed into the scope it will LAND in: the parent's children when this
+      // is a subtask create (parentId is applied after persist via reparent,
+      // so the scope is resolved from the input here).
+      sortKey: this.mintSortKey(
+        repoId,
+        input.repoPath,
+        input.parentId ? this.resolveRef(input.parentId, input.repoPath) : null,
+      ),
       color: input.color ?? null,
       estimateMin: null,
       needsHuman: false,

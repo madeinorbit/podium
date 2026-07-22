@@ -453,6 +453,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
       pinned: cliBool.optional(),
+      // Manual sidebar order (POD-168): fractional key, ascending = top of the
+      // row's sibling scope. Normally written by the sidebar drag; exposed here
+      // so agents/scripts can reorder too.
+      sortKey: z.string().optional(),
       // Colour slot [spec:SP-b4d1]; 'none' clears back to the neutral flow.
       color: z.union([IssueColor, z.literal('none')]).optional(),
       estimateMin: z.coerce.number().int().optional(),
@@ -477,6 +481,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'deferUntil',
         'closedReason',
         'pinned',
+        'sortKey',
         'estimateMin',
       ]
       for (const k of passthrough) if (a[k] != null) patch[k] = a[k]

@@ -208,6 +208,7 @@ export abstract class IssueServiceCore {
       priority: row.priority,
       type: row.type as IssueWire['type'],
       pinned: row.pinned,
+      ...(row.sortKey ? { sortKey: row.sortKey } : {}),
       // Guarded so a corrupt/unknown stored value degrades to "no colour"
       // rather than failing the whole issue's wire parse [spec:SP-b4d1].
       ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),

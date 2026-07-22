@@ -16,7 +16,13 @@ import {
   Search,
   Settings as SettingsIcon,
 } from 'lucide-react'
-import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type {
+  CSSProperties,
+  JSX,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
@@ -56,12 +62,12 @@ import {
   rowUnreadEmphasized,
   rowWaitingCount,
   type SidebarSections,
-  splitPinnedWork,
   sessionsForIssueNav,
   sessionsForWorktree,
   sessionsNeedChildRows,
   sidebarSections,
   spawnTargetForRepo,
+  splitPinnedWork,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   unifiedWorkList,
@@ -73,7 +79,9 @@ import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { planReorderKeys } from './reorder'
 import { GroupedSessionRows, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import { useRowDrag } from './useRowDrag'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
 function agentIconFor(kind: AgentKind) {
@@ -673,6 +681,19 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
     trpc.issues.update.mutate({ id, patch: { color } })
+  // Manual-sort persistence (POD-168): one patch per row whose key changes
+  // (fast path = exactly the dragged row; legacy backfill = the whole scope).
+  const applySortPatches = (
+    patches: Array<{ id: string; sortKey: string; pinned?: boolean }>,
+  ): Promise<unknown> =>
+    Promise.all(
+      patches.map(({ id, sortKey, pinned }) =>
+        trpc.issues.update.mutate({
+          id,
+          patch: { sortKey, ...(pinned === undefined ? {} : { pinned }) },
+        }),
+      ),
+    )
 
   return {
     work,
@@ -691,6 +712,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     openIssuePage,
     renameIssue,
     setIssueColor,
+    applySortPatches,
   }
 }
 
@@ -712,6 +734,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     openIssuePage,
     renameIssue,
     setIssueColor,
+    applySortPatches,
   } = useUnifiedWork(derivation)
 
   // Row arrival one-shot (POD-167): keys derived BEFORE the pinned split, so a
@@ -726,39 +749,77 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   )
   const { arrivals, settle } = useArrivals(workKeys)
 
+  // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
+  // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
+  // holds until the store echoes the new order (settleDrag in the effect below),
+  // and reordering never touches row KEYS — so useArrivals stays silent (no
+  // arrival one-shot on a drag, only on genuinely new rows).
+  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  const { startDrag, settleDrag } = useRowDrag({
+    allowedTargets: (sourceScope, movedId) => {
+      if (sourceScope === 'pinned') {
+        const moved = issueById.get(movedId)
+        return moved ? [`group:${moved.repoId ?? moved.repoPath}`] : []
+      }
+      if (sourceScope.startsWith('group:')) return ['pinned']
+      return [] // children scopes: strictly within the parent
+    },
+    onDrop: ({ sourceScope, targetScope, movedId, order }) => {
+      const patches = planReorderKeys(order, movedId, (id) => issueById.get(id)?.sortKey)
+      const crossedPinned = sourceScope !== targetScope
+      void applySortPatches(
+        patches.map((p) => ({
+          ...p,
+          ...(crossedPinned && p.id === movedId ? { pinned: targetScope === 'pinned' } : {}),
+        })),
+      ).catch(() => settleDrag())
+    },
+  })
+  const onGripDown = (e: ReactPointerEvent, issueId: string) => startDrag(e, issueId)
+  // The mutation round-trips over the ws; when the derived order lands, drop
+  // the held drag preview (transforms) in the same commit.
+  useEffect(() => {
+    // `work` is the trigger: a fresh derived order means the reorder landed.
+    void work
+    settleDrag()
+  }, [work, settleDrag])
+
   const renderWorkRow = (row: UnifiedWorkRow) => {
     const key = row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`
     const arriving = arrivals.has(key)
-    const inner = row.kind === 'issue' ? (
-      <UnifiedIssueRow
-        row={row}
-        allWorktreePaths={allWorktreePaths}
-        sessions={sessions}
-        issues={issues}
-        selectedIssueId={selectedIssueId}
-        paneA={paneA}
-        now={now}
-        onSelectIssue={selectIssue}
-        onSelectPanelForIssue={selectPanelForIssue}
-        onPinned={(sid, p) => void setPinned('panel', sid, p)}
-        onOpenIssue={openIssuePage}
-        onRenameIssue={renameIssue}
-        onColorChangeIssue={setIssueColor}
-      />
-    ) : (
-      <UnifiedWorktreeRow
-        row={row}
-        active={selectedIssueId === null && selectedWorktree === row.worktree.path}
-        paneA={paneA}
-        now={now}
-        onSelect={() => selectWorktree(row.worktree.path)}
-        onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
-        onPinned={(sid, p) => void setPinned('panel', sid, p)}
-      />
-    )
+    const inner =
+      row.kind === 'issue' ? (
+        <UnifiedIssueRow
+          row={row}
+          allWorktreePaths={allWorktreePaths}
+          sessions={sessions}
+          issues={issues}
+          selectedIssueId={selectedIssueId}
+          paneA={paneA}
+          now={now}
+          onSelectIssue={selectIssue}
+          onSelectPanelForIssue={selectPanelForIssue}
+          onPinned={(sid, p) => void setPinned('panel', sid, p)}
+          onOpenIssue={openIssuePage}
+          onRenameIssue={renameIssue}
+          onColorChangeIssue={setIssueColor}
+          onGripDown={onGripDown}
+        />
+      ) : (
+        <UnifiedWorktreeRow
+          row={row}
+          active={selectedIssueId === null && selectedWorktree === row.worktree.path}
+          paneA={paneA}
+          now={now}
+          onSelect={() => selectWorktree(row.worktree.path)}
+          onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
+          onPinned={(sid, p) => void setPinned('panel', sid, p)}
+        />
+      )
     return (
       <div
         key={key}
+        {...(row.kind === 'issue' ? { 'data-drag-key': row.issue.id } : {})}
         className={cn('min-w-0', arriving && 'row-arrive')}
         style={
           arriving && row.kind === 'issue'
@@ -794,7 +855,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   return (
     <>
       {pinned.length > 0 && (
-        <div className="flex min-w-0 flex-col gap-[3px]" data-testid="pinned-section">
+        <div
+          className="flex min-w-0 flex-col gap-[3px]"
+          data-testid="pinned-section"
+          data-drag-scope="pinned"
+        >
           <PinnedSectionLabel />
           {pinned.map(renderWorkRow)}
         </div>
@@ -804,6 +869,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           key={group.key}
           className="flex min-w-0 flex-col gap-[3px]"
           data-testid="project-group"
+          data-drag-scope={`group:${group.key}`}
         >
           <ProjectGroupLabel label={group.label} first={index === 0 && pinned.length === 0} />
           {group.rows.map(renderWorkRow)}
@@ -864,6 +930,7 @@ function WorkRowShell({
   domMark,
   statusExtra,
   gitStamp,
+  onGripDown,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -904,6 +971,9 @@ function WorkRowShell({
   statusExtra?: ReactNode
   /** Line 2's git stamp [POD-98]: dot + commit counters after the status phrase. */
   gitStamp?: ReactNode
+  /** Manual-sort grip (POD-168): when set, a ⠿ handle fades in on the row's
+   *  left edge on hover and pointerdown starts a drag. */
+  onGripDown?: (e: ReactPointerEvent) => void
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -941,6 +1011,19 @@ function WorkRowShell({
         data-selected={active ? 'true' : 'false'}
         {...(domMark ? { 'data-issue-row': domMark } : {})}
       >
+        {onGripDown && (
+          // Manual-sort grip (POD-168, §4): 10px zone on the row's left edge,
+          // visible only on hover — order is the user's, nothing else moves it.
+          <span
+            className="absolute inset-y-0 left-0 z-[1] flex w-[10px] cursor-grab select-none items-center justify-center text-[9px] leading-none text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
+            style={{ touchAction: 'none' }}
+            data-testid="row-grip"
+            aria-hidden="true"
+            onPointerDown={onGripDown}
+          >
+            ⠿
+          </span>
+        )}
         <span className={cn('flex flex-none', morph === 'working' && 'morph-ignite')}>
           {square}
         </span>
@@ -1097,6 +1180,7 @@ function UnifiedIssueRow({
   onOpenIssue,
   onRenameIssue,
   onColorChangeIssue,
+  onGripDown,
   /** Visual nesting depth for started-by children (0 = top-level). */
   startedByDepth = 0,
 }: {
@@ -1115,6 +1199,8 @@ function UnifiedIssueRow({
   onOpenIssue: (id: string) => void
   onRenameIssue: (id: string, title: string) => void
   onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
+  /** Manual-sort drag start (POD-168); absent = row not draggable. */
+  onGripDown?: (e: ReactPointerEvent, issueId: string) => void
   startedByDepth?: number
 }): JSX.Element {
   const { issue, sessions: mine, startedByChildren = [] } = row
@@ -1246,6 +1332,7 @@ function UnifiedIssueRow({
               }
         }
         domMark={issue.id}
+        onGripDown={onGripDown ? (e) => onGripDown(e, issue.id) : undefined}
         statusExtra={
           origin && (
             <span
@@ -1312,25 +1399,30 @@ function UnifiedIssueRow({
               <div
                 className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
                 data-testid="started-by-children"
+                // A parent's children are their own sibling drag scope (POD-168):
+                // children drag within their parent, never across parents.
+                data-drag-scope={`children:${issue.id}`}
               >
                 {startedByChildren.map((child) => (
-                  <UnifiedIssueRow
-                    key={`issue:${child.issue.id}`}
-                    row={child}
-                    allWorktreePaths={allWorktreePaths}
-                    sessions={_all}
-                    issues={issues}
-                    selectedIssueId={selectedIssueId}
-                    paneA={paneA}
-                    now={now}
-                    onSelectIssue={onSelectIssue}
-                    onSelectPanelForIssue={onSelectPanelForIssue}
-                    onPinned={onPinned}
-                    onOpenIssue={onOpenIssue}
-                    onRenameIssue={onRenameIssue}
-                    onColorChangeIssue={onColorChangeIssue}
-                    startedByDepth={startedByDepth + 1}
-                  />
+                  <div key={`issue:${child.issue.id}`} data-drag-key={child.issue.id}>
+                    <UnifiedIssueRow
+                      row={child}
+                      allWorktreePaths={allWorktreePaths}
+                      sessions={_all}
+                      issues={issues}
+                      selectedIssueId={selectedIssueId}
+                      paneA={paneA}
+                      now={now}
+                      onSelectIssue={onSelectIssue}
+                      onSelectPanelForIssue={onSelectPanelForIssue}
+                      onPinned={onPinned}
+                      onOpenIssue={onOpenIssue}
+                      onRenameIssue={onRenameIssue}
+                      onColorChangeIssue={onColorChangeIssue}
+                      onGripDown={onGripDown}
+                      startedByDepth={startedByDepth + 1}
+                    />
+                  </div>
                 ))}
               </div>
             )}
