@@ -447,19 +447,19 @@ export function ChatView({
   useEffect(() => {
     const prev = seenUserIds.current
     const next = new Set<string>()
-    const newUserTexts: string[] = []
+    const newUserItems: TranscriptItem[] = []
     for (const b of blocks) {
       if (b.item.role !== 'user') continue
       next.add(b.item.id)
-      if (!prev.has(b.item.id)) newUserTexts.push(b.item.text)
+      if (!prev.has(b.item.id)) newUserItems.push(b.item)
     }
     seenUserIds.current = next
-    if (newUserTexts.length > 0) {
+    if (newUserItems.length > 0) {
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
       // bubble verbatim — any new user item means the send landed; drop them all.
       if (headless) setPending([])
-      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserTexts)))
+      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
     }
   }, [blocks, headless])
 
@@ -704,6 +704,7 @@ export function ChatView({
         at: Date.now(),
         state: 'sending',
         tags: tags.length > 0 ? tags : undefined,
+        toolPaths: readyPaths.length > 0 ? readyPaths : undefined,
       },
     ])
     setJustSent(true)

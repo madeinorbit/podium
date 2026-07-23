@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -196,6 +196,79 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   await expect(
     page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
   ).toHaveCount(0)
+})
+
+test('an uploaded image turn reconciles its optimistic bubble with the normalized transcript echo', async ({
+  page,
+}) => {
+  const transcriptId = '22222222-2222-4222-8222-222222222222'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
+  const marker = 'ATTACHMENT_RECONCILE_ECHO merge these artifacts'
+  await seedTranscript(transcriptId, [
+    answerRec('attachment-ready', 'Ready for the attachment.', '2026-07-23T08:00:00.000Z'),
+  ])
+
+  await openApp(page)
+  await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
+  await page.locator('[data-testid="mode-chat"]:visible').click()
+
+  await page
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles({
+      name: 'duplicate-proof.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    })
+  await page.locator('textarea:visible').last().fill(marker)
+  const send = page.getByTitle('Send (Enter)').locator('visible=true')
+  await expect(send).toBeEnabled()
+  await send.click()
+
+  const matchingRows = page.locator('.transcript-row:visible').filter({ hasText: marker })
+  await expect(matchingRows).toHaveCount(1)
+  const uploadRoot = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'uploads')
+  let uploadRelative: string | undefined
+  await expect
+    .poll(async () => {
+      uploadRelative = (await readdir(uploadRoot, { recursive: true }).catch(() => [])).find(
+        (name) => name.endsWith('.png'),
+      )
+      return uploadRelative
+    })
+    .toBeTruthy()
+  const uploadPath = join(uploadRoot, uploadRelative as string)
+
+  await appendFile(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'user',
+      uuid: 'attachment-echo',
+      timestamp: '2026-07-23T08:00:01.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: `[Image #1]${marker}\n[Image: source: ${uploadPath}]`,
+          },
+        ],
+      },
+    })}\n`,
+  )
+
+  await expect(matchingRows.getByTitle(/^Open .*\.png$/)).toBeVisible({ timeout: 15_000 })
+  await expect(matchingRows).toHaveCount(1)
 })
 
 test('operator prompts stick in place, push one another, and respect the appearance setting', async ({

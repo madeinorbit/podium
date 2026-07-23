@@ -249,6 +249,10 @@ export interface PendingItem {
   at: number
   state: 'sending' | 'queued' | 'sent' | 'failed'
   tags?: TranscriptTag[]
+  /** Uploaded paths encoded into the submitted prompt. Transcript providers
+   * normalize those paths out of `text`, so they are the stable identity used
+   * to reconcile attachment-bearing turns. */
+  toolPaths?: string[]
 }
 
 /** A human chat message durably held in the unified message ledger until the
@@ -301,15 +305,30 @@ export function withoutOptimisticDuplicates(
 
 /**
  * Remove pending bubbles that the real transcript has now caught up with.
- * `newUserTexts` are the trimmed texts of user blocks that appeared *this* render
- * (caller diffs by block id). Each new occurrence consumes the oldest pending
- * entry with equal trimmed text (FIFO), so duplicate prompts reconcile one-by-one.
+ * `newUserItems` are user blocks that appeared *this* render (caller diffs by
+ * block id). Each new occurrence consumes the oldest matching pending entry
+ * (FIFO), so duplicate prompts reconcile one-by-one. Plain turns match by text;
+ * attachment turns match by their canonical upload paths because transcript
+ * providers normalize raw path-prefixed prompts into image/document blocks.
  */
-export function reconcilePending(pending: PendingItem[], newUserTexts: string[]): PendingItem[] {
+export function reconcilePending(
+  pending: PendingItem[],
+  newUserItems: TranscriptItem[],
+): PendingItem[] {
   if (pending.length === 0) return pending
-  const remaining = [...newUserTexts.map((t) => t.trim())]
+  const remaining = [...newUserItems]
   return pending.filter((p) => {
-    const i = remaining.indexOf(p.text.trim())
+    const pendingPaths = p.toolPaths ?? []
+    const i = remaining.findIndex((item) => {
+      const itemPaths = item.toolPaths ?? []
+      if (pendingPaths.length > 0) {
+        return (
+          itemPaths.length === pendingPaths.length &&
+          pendingPaths.every((path, index) => itemPaths[index] === path)
+        )
+      }
+      return item.text.trim() === p.text.trim()
+    })
     if (i === -1) return true
     remaining.splice(i, 1)
     return false
