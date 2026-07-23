@@ -144,6 +144,7 @@ export function ConnectionIndicator({
       <TooltipTrigger
         render={
           <button
+            data-pressable
             type="button"
             className={cn(
               'relative inline-flex flex-none cursor-pointer items-center self-center border-0 bg-transparent p-0',

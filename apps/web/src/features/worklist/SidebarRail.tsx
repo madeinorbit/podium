@@ -110,6 +110,7 @@ export function SidebarRail(): JSX.Element {
     return (
       <span key={`wt:${worktree.path}`} className="relative flex flex-none">
         <button
+          data-pressable
           type="button"
           data-testid="rail-worktree-square"
           className="phase-surface relative flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] bg-[#25252f]"
@@ -134,6 +135,7 @@ export function SidebarRail(): JSX.Element {
     <>
       {/* Compact new-Claude: the wide spawn row's primary action at 28px. */}
       <button
+        data-pressable
         type="button"
         data-testid="rail-new-agent"
         className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-lg border border-[#3a3a46] bg-[#25252f] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
@@ -178,6 +180,7 @@ export function SidebarRail(): JSX.Element {
       {/* Footer: the rail keeps only search from the four footer tools. */}
       {commandPaletteEnabled && (
         <button
+          data-pressable
           type="button"
           className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]"
           title="Search (⌘K)"

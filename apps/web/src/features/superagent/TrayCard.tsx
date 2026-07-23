@@ -89,6 +89,7 @@ function PrimaryButton({
 }): JSX.Element {
   return (
     <button
+      data-pressable
       type="button"
       title={title}
       disabled={disabled}
@@ -268,6 +269,7 @@ export function TrayCard({
                 }}
               />
               <button
+                data-pressable
                 type="button"
                 className={BTN_TER}
                 onClick={(e) => {
@@ -321,6 +323,7 @@ export function TrayCard({
                   />
                 ) : (
                   <button
+                    data-pressable
                     key={`${action.label}:${action.prompt}`}
                     type="button"
                     title={action.prompt}
@@ -366,6 +369,7 @@ export function TrayCard({
             {/* Answer chips render here once the backend carries options (#53);
                 until then Reply… routes the answer through the composer. */}
             <button
+              data-pressable
               type="button"
               className={BTN_TER}
               onClick={(e) => {
@@ -376,6 +380,7 @@ export function TrayCard({
               Reply…
             </button>
             <button
+              data-pressable
               type="button"
               className={BTN_TER}
               title="Dismiss without answering"

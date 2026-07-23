@@ -202,8 +202,13 @@ export function TelemetryStep({
         <Button type="button" variant="ghost" size="sm" onClick={onBack} disabled={busy}>
           Back
         </Button>
-        <Button type="button" disabled={busy} onClick={() => void finish()}>
-          {busy ? 'Saving…' : usage || crash ? 'Finish' : 'Finish without telemetry'}
+        <Button
+          type="button"
+          pending={busy}
+          pendingLabel="Saving preferences…"
+          onClick={() => void finish()}
+        >
+          {usage || crash ? 'Finish' : 'Finish without telemetry'}
         </Button>
       </div>
     </div>

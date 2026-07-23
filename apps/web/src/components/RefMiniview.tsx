@@ -240,6 +240,7 @@ export function RefCard({
 
   const closeButton = (
     <button
+      data-pressable
       type="button"
       className="flex size-6 flex-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
       title="Close"
@@ -268,6 +269,7 @@ export function RefCard({
           >
             <div className="mb-2 flex items-center justify-between gap-3">
               <button
+                data-pressable
                 type="button"
                 className="cursor-pointer font-mono text-[11px] font-semibold tracking-[0.04em] text-muted-foreground hover:text-foreground"
                 title={`Copy "${refToken}"`}
@@ -317,6 +319,7 @@ export function RefCard({
               "Open issue peek" raises the peek drawer, not the /issues route. */}
           <div className="flex items-center gap-2 p-3">
             <button
+              data-pressable
               type="button"
               className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-muted/40 text-[12px] font-medium text-foreground/85 hover:bg-accent hover:text-foreground"
               onClick={onOpenFull}
@@ -325,6 +328,7 @@ export function RefCard({
               <PanelRight size={12} aria-hidden="true" />
             </button>
             <button
+              data-pressable
               type="button"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 text-[12px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
@@ -355,6 +359,7 @@ export function RefCard({
             </span>
             {target && (
               <button
+                data-pressable
                 type="button"
                 className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                 title="Open full view"
@@ -449,6 +454,7 @@ function RunNowAction({
   return (
     <div className="flex flex-none flex-col items-end gap-1">
       <button
+        data-pressable
         type="button"
         disabled={busy}
         className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"

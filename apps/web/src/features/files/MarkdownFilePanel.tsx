@@ -2,8 +2,9 @@
 import type { EditorView } from '@codemirror/view'
 import { EditorView as CMView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useId, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { Button } from '@/components/ui/button'
 import { type FileScope, scopeKey } from '@/lib/file-scope'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { canSave } from './editor-save'
@@ -33,6 +34,7 @@ export function MarkdownFilePanel({
   onClose: () => void
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
+  const saveFeedbackId = useId()
   const uiState = useStoreSelector((s) => s.uiState)
   const md = isMarkdown(path)
   const mobile = useIsMobile()
@@ -138,24 +140,40 @@ export function MarkdownFilePanel({
             )}
           </div>
         )}
-        <button
+        <span
+          id={saveFeedbackId}
+          role={doc.saveFeedback?.kind === 'error' ? 'alert' : 'status'}
+          className={`w-20 truncate text-right text-[10px] ${
+            doc.saveFeedback?.kind === 'error' ? 'text-destructive' : 'text-success'
+          }`}
+          title={doc.saveFeedback?.message}
+        >
+          {doc.saveFeedback?.message ?? ''}
+        </span>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => void doc.save()}
           disabled={!canSave({ editable: doc.editable, dirty: doc.dirty, saving: doc.saving })}
-          aria-label="Save"
+          pending={doc.saving}
+          pendingLabel={<span className="sr-only">Saving file…</span>}
+          aria-label={doc.saving ? 'Saving file…' : 'Save'}
+          aria-describedby={saveFeedbackId}
           title="Save (⌘S)"
-          className="text-muted-foreground disabled:opacity-30"
         >
           <Save size={14} />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={handleClose}
           aria-label="Close"
-          className="text-muted-foreground"
+          title="Close"
         >
           <X size={16} />
-        </button>
+        </Button>
       </div>
 
       {doc.status === 'error' ? (
@@ -206,6 +224,7 @@ function ModeButton({
 }): JSX.Element {
   return (
     <button
+      data-pressable
       type="button"
       onClick={onClick}
       title={title}

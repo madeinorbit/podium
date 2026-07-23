@@ -162,6 +162,7 @@ export function IssuePage({
         <span className="text-[13px] text-muted-foreground">{repoName}</span>
         <span className="text-[13px] text-muted-foreground">›</span>
         <button
+          data-pressable
           type="button"
           className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
           title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
@@ -287,6 +288,7 @@ export function IssuePage({
               />
             ) : (
               <button
+                data-pressable
                 type="button"
                 className="mb-2 block w-full break-words text-left font-semibold text-[22px] text-foreground leading-snug tracking-tight hover:opacity-80"
                 onClick={() => setEditingTitle(true)}
@@ -321,6 +323,7 @@ export function IssuePage({
                 />
               ) : (
                 <button
+                  data-pressable
                   type="button"
                   className={cn(
                     'block w-full whitespace-pre-wrap break-words text-left text-[13px] leading-relaxed',
@@ -366,6 +369,7 @@ export function IssuePage({
               </SectionHeading>
               {openChildren.map((c) => (
                 <button
+                  data-pressable
                   key={c.id}
                   type="button"
                   className={cn(
@@ -394,6 +398,7 @@ export function IssuePage({
                   <div className="mt-1 flex flex-col gap-1">
                     {doneChildren.map((child) => (
                       <button
+                        data-pressable
                         key={child.id}
                         type="button"
                         className="flex items-center gap-2 rounded px-1 py-1 text-left text-[12px] opacity-65 hover:bg-muted/50"
@@ -718,6 +723,7 @@ function LifecycleBanner({
       <p className="text-[13px] text-foreground">
         {verb}{' '}
         <button
+          data-pressable
           type="button"
           className="font-medium text-primary hover:underline"
           onClick={() => target && onNavigate(id)}
@@ -795,6 +801,7 @@ function LongFormFields({
             />
           ) : (
             <button
+              data-pressable
               type="button"
               className="block w-full whitespace-pre-wrap break-words text-left text-[13px] text-foreground/85 leading-relaxed hover:text-foreground"
               onClick={() => setEditing(field)}
@@ -971,6 +978,7 @@ function PanelSections({
                 return (
                   <figure key={a.path}>
                     <button
+                      data-pressable
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={kind === 'image' ? `View ${label} full size` : `Play ${label}`}

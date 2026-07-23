@@ -230,13 +230,20 @@ export function SessionContextMenu({
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
-      <button type="button" role="menuitem" className={itemCls} onClick={() => run(onRename)}>
+      <button
+        data-pressable
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => run(onRename)}
+      >
         <Pencil size={14} aria-hidden="true" /> Rename
       </button>
       {/* Email-style read toggle (#138): mark a read session unread (or an unread
           one read) — mutually exclusive. Store actions are optimistic. */}
       {canMarkUnread && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -247,6 +254,7 @@ export function SessionContextMenu({
       )}
       {canMarkRead && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -259,6 +267,7 @@ export function SessionContextMenu({
       <div className="my-1 h-px bg-border" role="separator" />
       {snoozed ? (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -272,6 +281,7 @@ export function SessionContextMenu({
             Snooze
           </div>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -280,6 +290,7 @@ export function SessionContextMenu({
             <AlarmClock size={14} aria-hidden="true" /> For 1 hour
           </button>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -288,6 +299,7 @@ export function SessionContextMenu({
             <AlarmClock size={14} aria-hidden="true" /> Until tomorrow
           </button>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -301,6 +313,7 @@ export function SessionContextMenu({
       <div className="my-1 h-px bg-border" role="separator" />
       {canHibernate && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -311,6 +324,7 @@ export function SessionContextMenu({
       )}
       {canResume && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -324,6 +338,7 @@ export function SessionContextMenu({
       {handoffEnabled &&
         (blocker ? (
           <button
+            data-pressable
             type="button"
             role="menuitem"
             disabled
@@ -338,6 +353,7 @@ export function SessionContextMenu({
           </button>
         ) : (
           <button
+            data-pressable
             type="button"
             role="menuitem"
             aria-haspopup="menu"
@@ -351,6 +367,7 @@ export function SessionContextMenu({
           </button>
         ))}
       <button
+        data-pressable
         type="button"
         role="menuitem"
         className={itemCls}
@@ -359,6 +376,7 @@ export function SessionContextMenu({
         <MessageSquareText size={14} aria-hidden="true" /> Ask superagent (BTW)
       </button>
       <button
+        data-pressable
         type="button"
         role="menuitem"
         className={itemCls}
@@ -373,6 +391,7 @@ export function SessionContextMenu({
       </button>
       {canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}
@@ -399,6 +418,7 @@ export function SessionContextMenu({
           {candidates.map(({ machine, rejection }) =>
             rejection ? (
               <button
+                data-pressable
                 key={machine.id}
                 type="button"
                 role="menuitem"
@@ -413,6 +433,7 @@ export function SessionContextMenu({
               </button>
             ) : (
               <button
+                data-pressable
                 key={machine.id}
                 type="button"
                 role="menuitem"

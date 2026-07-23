@@ -45,6 +45,7 @@ export function DockSection({
   return (
     <section className="border-b border-border/60">
       <button
+        data-pressable
         type="button"
         onClick={toggle}
         aria-expanded={open}

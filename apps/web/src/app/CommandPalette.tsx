@@ -503,6 +503,7 @@ function PaletteDialog({
                 const idx = rowIndex++
                 return (
                   <button
+                    data-pressable
                     key={cmd.id}
                     id={`palette-item-${idx}`}
                     type="button"
@@ -533,6 +534,7 @@ function PaletteDialog({
             const idx = flat.length + i
             return (
               <button
+                data-pressable
                 key={target.path}
                 id={`palette-item-${idx}`}
                 type="button"

@@ -654,6 +654,7 @@ function FreshThreadComposer({
             >
               {atHits.map((option, i) => (
                 <button
+                  data-pressable
                   key={`${option.kind}-${option.ref}`}
                   type="button"
                   role="option"
@@ -729,6 +730,7 @@ function FreshThreadComposer({
           />
           {voice.supported && (
             <button
+              data-pressable
               type="button"
               className={cn(
                 'flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground',
@@ -741,6 +743,7 @@ function FreshThreadComposer({
             </button>
           )}
           <button
+            data-pressable
             type="button"
             className="flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
             disabled={busy || !draft.trim()}

@@ -34,7 +34,7 @@ export function MediaLightbox({
     // Backdrop click closes; the media stops propagation so interacting with
     // it (video controls included) never closes. Keyboard close is the Escape
     // listener above plus the explicit X button — the backdrop itself is
-    // presentational, NOT a <button>: a <video controls> may not nest inside
+    // presentational, NOT a <button data-pressable>: a <video controls> may not nest inside
     // interactive content.
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-close; Escape + X button cover keyboard
     <div
@@ -43,6 +43,7 @@ export function MediaLightbox({
       onClick={onClose}
     >
       <button
+        data-pressable
         type="button"
         aria-label="Close preview"
         className="absolute top-4 right-4 rounded-md p-1 text-white/80 hover:text-white"

@@ -434,31 +434,31 @@ export function SettingsView(): JSX.Element {
             aria-label="Settings sections"
           >
             {searchEnabled && (
-            <div className="relative mb-2 hidden md:block">
-              <input
-                ref={filterRef}
-                type="text"
-                value={filter}
-                placeholder="Find a setting"
-                className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[11.5px] text-foreground placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-ring/40"
-                onChange={(e) => setFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const first = visibleGroups[0]?.tabs[0]
-                    if (first) setSettingsTab(first.key)
-                  } else if (e.key === 'Escape') {
-                    setFilter('')
-                    e.currentTarget.blur()
-                    e.stopPropagation()
-                  }
-                }}
-              />
-              {filter === '' && (
-                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[9px] text-text-faint">
-                  /
-                </kbd>
-              )}
-            </div>
+              <div className="relative mb-2 hidden md:block">
+                <input
+                  ref={filterRef}
+                  type="text"
+                  value={filter}
+                  placeholder="Find a setting"
+                  className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[11.5px] text-foreground placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-ring/40"
+                  onChange={(e) => setFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const first = visibleGroups[0]?.tabs[0]
+                      if (first) setSettingsTab(first.key)
+                    } else if (e.key === 'Escape') {
+                      setFilter('')
+                      e.currentTarget.blur()
+                      e.stopPropagation()
+                    }
+                  }}
+                />
+                {filter === '' && (
+                  <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[9px] text-text-faint">
+                    /
+                  </kbd>
+                )}
+              </div>
             )}
             {visibleGroups.map((g) => (
               <div key={g.label} className="contents md:block">
@@ -467,6 +467,7 @@ export function SettingsView(): JSX.Element {
                 </div>
                 {g.tabs.map((t) => (
                   <button
+                    data-pressable
                     key={t.key}
                     type="button"
                     className={cn(
@@ -546,8 +547,14 @@ export function SettingsView(): JSX.Element {
                 </Button>
               )}
               {(dirty || saving || error) && (
-                <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
-                  {saving ? 'Saving…' : 'Save changes'}
+                <Button
+                  type="button"
+                  size="sm"
+                  pending={saving}
+                  pendingLabel="Saving…"
+                  onClick={() => void save()}
+                >
+                  Save changes
                 </Button>
               )}
             </div>

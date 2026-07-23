@@ -353,6 +353,7 @@ export function Workspace(): JSX.Element {
                   viewed issue/worktree actually has any. */}
               {archivedMembers.length > 0 && (
                 <button
+                  data-pressable
                   type="button"
                   className="flex flex-none cursor-pointer items-center gap-1 self-center rounded px-2 py-0.5 text-[10.5px] text-text-dim hover:text-(--issue-muted-bright)"
                   aria-pressed={showArchived}
@@ -380,6 +381,7 @@ export function Workspace(): JSX.Element {
             }}
             trigger={
               <button
+                data-pressable
                 type="button"
                 className="flex cursor-pointer items-center self-stretch rounded px-[9px] text-[13px] text-text-dim hover:text-foreground"
                 title="New panel"
@@ -391,6 +393,7 @@ export function Workspace(): JSX.Element {
           />
           {tabSplittingEnabled && (
             <button
+              data-pressable
               type="button"
               className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
               title="Split"
@@ -522,6 +525,7 @@ function SortableTab({
         </span>
       ) : (
         <button
+          data-pressable
           type="button"
           className={cn(
             'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2 py-1 text-[10.5px] whitespace-nowrap',
@@ -568,6 +572,7 @@ function SortableTab({
         </button>
       )}
       <button
+        data-pressable
         type="button"
         className={cn(
           'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',

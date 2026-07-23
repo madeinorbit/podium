@@ -310,6 +310,7 @@ export function IssueProperties({
               >
                 {label}
                 <button
+                  data-pressable
                   type="button"
                   aria-label={`Remove label ${label}`}
                   title={`Remove ${label}`}
@@ -437,6 +438,7 @@ export function IssueProperties({
           <div className="flex items-center gap-1">
             {parent && (
               <button
+                data-pressable
                 type="button"
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline"
                 onClick={() => onNavigate(parent.id)}
@@ -499,6 +501,7 @@ export function IssueProperties({
                 className="group flex items-center justify-between gap-2"
               >
                 <button
+                  data-pressable
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
                   onClick={() => byId.has(entry.id) && onNavigate(entry.id)}
@@ -508,7 +511,9 @@ export function IssueProperties({
                   <span className="truncate">{issueLabel(entry.id)}</span>
                 </button>
                 <button
+                  data-pressable
                   type="button"
+                  data-hover-reveal
                   aria-label={`Remove relation ${entry.type} ${entry.id}`}
                   title="Remove relation"
                   disabled={busy}

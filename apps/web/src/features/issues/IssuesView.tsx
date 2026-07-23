@@ -423,6 +423,7 @@ export function IssuesView(): JSX.Element {
           className="h-8 w-full max-w-[240px] flex-1"
         />
         <button
+          data-pressable
           type="button"
           className={cn(
             'inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[12px] transition-colors',
@@ -442,6 +443,7 @@ export function IssuesView(): JSX.Element {
         </button>
         {chips.map((c) => (
           <button
+            data-pressable
             key={c.key}
             type="button"
             className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[12px]"
@@ -1088,9 +1090,10 @@ function AssigneeMenu({
         render={
           // A span (not a button): this trigger is nested inside the card's own
           // button, so Base UI adds the menu-trigger semantics without producing
-          // invalid nested-<button> markup.
+          // invalid nested-<button data-pressable> markup.
           // biome-ignore lint/a11y/useSemanticElements: a button would be invalidly nested inside the card button
           <span
+            data-pressable
             role="button"
             tabIndex={0}
             title="Set assignee"
@@ -1164,6 +1167,7 @@ function IssueCard({
       onDragStart={(e) => e.dataTransfer.setData('text/issue-id', issue.id)}
     >
       <button
+        data-pressable
         type="button"
         data-issue-id={issue.id}
         className={cn(

@@ -146,6 +146,7 @@ export function GitStamp({
   if (density === 'chip') {
     return (
       <button
+        data-pressable
         type="button"
         data-testid="git-stamp"
         data-density="chip"

@@ -198,6 +198,7 @@ export function CollapsibleSection({
     <div className="min-w-0 py-1">
       <div className="flex items-center justify-between px-2 pt-2.5 pb-[5px]">
         <button
+          data-pressable
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-semibold tracking-[0.09em] uppercase text-[#7a7a86] hover:text-[#9a9aa8]"
           onClick={toggle}
@@ -240,6 +241,7 @@ export function StaleSection({
   return (
     <div>
       <button
+        data-pressable
         type="button"
         className={cn(
           'flex w-full items-center gap-1 py-[3px] pr-3 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground',
@@ -358,6 +360,7 @@ function ConsumedChildren({
   return (
     <div>
       <button
+        data-pressable
         type="button"
         className="flex w-full items-center gap-1 py-[3px] pr-3 pl-2 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground"
         onClick={() => setOpen((v) => !v)}
@@ -426,6 +429,7 @@ export function AgentRosterBand({
     >
       {onLabelClick ? (
         <button
+          data-pressable
           type="button"
           className={cn(labelClass, 'cursor-pointer hover:text-[#9aa4c0]')}
           onClick={onLabelClick}
@@ -565,6 +569,7 @@ export function PanelRow({
         </div>
       ) : (
         <button
+          data-pressable
           type="button"
           className={cn(
             'flex min-w-0 flex-1 cursor-pointer items-center text-left',
@@ -703,6 +708,7 @@ export function PanelRow({
           dot) so revealing it never reflows the row. Panel-pinning is retired
           (POD-169) — issue-pinning is the only pin concept. */}
       <div
+        data-hover-reveal
         className={cn(
           'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
           roster ? 'bg-[#16223c]' : active ? 'bg-[#232330]' : 'bg-[#20202a]',

@@ -25,6 +25,7 @@ export function FoldedSuperagentBar({
       aria-label="Folded tray and superagent"
     >
       <button
+        data-pressable
         type="button"
         className="folded-superagent-control"
         aria-label="Expand tray and superagent"
@@ -34,6 +35,7 @@ export function FoldedSuperagentBar({
         <ChevronRight size={12} aria-hidden="true" />
       </button>
       <button
+        data-pressable
         type="button"
         className="folded-superagent-cell"
         aria-label={trayCount > 0 ? `Expand tray (${trayCount} waiting)` : 'Expand tray'}
@@ -53,6 +55,7 @@ export function FoldedSuperagentBar({
         )}
       </button>
       <button
+        data-pressable
         type="button"
         className="folded-superagent-cell"
         aria-label="Expand superagent"

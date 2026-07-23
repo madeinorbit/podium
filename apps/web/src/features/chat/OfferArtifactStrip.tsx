@@ -110,6 +110,7 @@ export function OfferArtifactStrip({
         const media = src !== null && (kind === 'image' || kind === 'video')
         return (
           <button
+            data-pressable
             key={`${a.path}@${a.addedAt}`}
             type="button"
             title={label}

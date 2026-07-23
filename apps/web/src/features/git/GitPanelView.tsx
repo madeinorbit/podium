@@ -166,7 +166,11 @@ export function GitPanelView({
           <GitStamp issueBranch={issue.branch} git={issue.gitState} density="panel" />
         ) : (
           <span className="inline-flex flex-wrap items-center gap-1.5 font-mono text-[12.5px] leading-[1.35] text-secondary-foreground">
-            <GitBranch size={13} aria-hidden="true" className="flex-none text-muted-foreground/70" />
+            <GitBranch
+              size={13}
+              aria-hidden="true"
+              className="flex-none text-muted-foreground/70"
+            />
             <span className="break-all font-semibold">{header?.branch ?? '…'}</span>
           </span>
         )}
@@ -212,6 +216,7 @@ export function GitPanelView({
             return (
               <li key={e.path}>
                 <button
+                  data-pressable
                   type="button"
                   title={entryTitle(e)}
                   onClick={() => toggleDiff(e)}

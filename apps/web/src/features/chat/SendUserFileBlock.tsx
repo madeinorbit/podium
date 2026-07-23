@@ -49,6 +49,7 @@ export function SendUserFileBlock({
             // as the fallback when an image fails to load (moved/deleted/denied).
             const chip = (
               <button
+                data-pressable
                 key={p}
                 type="button"
                 onClick={() => openFile(sessionId, abs)}
@@ -98,6 +99,7 @@ export function SentImageThumb({
   if (failed) return fallback
   return (
     <button
+      data-pressable
       type="button"
       onClick={onOpen}
       className="overflow-hidden rounded-md border border-border hover:border-primary"

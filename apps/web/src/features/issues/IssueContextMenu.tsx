@@ -232,6 +232,7 @@ export function IssueContextMenu({
   /** A first-level item that opens a flat second-level flyout on hover/click. */
   const subTrigger = (kind: SubKind, icon: ReactNode, label: string): JSX.Element => (
     <button
+      data-pressable
       type="button"
       role="menuitem"
       aria-haspopup="menu"
@@ -249,13 +250,21 @@ export function IssueContextMenu({
 
   const subItems: Record<SubKind, JSX.Element[]> = {
     stage: ISSUE_STAGES.map((s) => (
-      <button key={s} type="button" role="menuitem" className={itemCls} onClick={() => setStage(s)}>
+      <button
+        data-pressable
+        key={s}
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => setStage(s)}
+      >
         <StageGlyph stage={s} />
         {STAGE_LABELS[s]}
       </button>
     )),
     priority: [0, 1, 2, 3, 4].map((p) => (
       <button
+        data-pressable
         key={p}
         type="button"
         role="menuitem"
@@ -267,6 +276,7 @@ export function IssueContextMenu({
     )),
     agent: issueAgentOptions(first.defaultAgent).map((o) => (
       <button
+        data-pressable
         key={o.value || '__default__'}
         type="button"
         role="menuitem"
@@ -288,6 +298,7 @@ export function IssueContextMenu({
             const allHave = issues.every((i) => i.labels.includes(l))
             return (
               <button
+                data-pressable
                 key={l}
                 type="button"
                 role="menuitem"
@@ -308,6 +319,7 @@ export function IssueContextMenu({
           ]
         : dupMates.map((i) => (
             <button
+              data-pressable
               key={i.id}
               type="button"
               role="menuitem"
@@ -320,6 +332,7 @@ export function IssueContextMenu({
           )),
     defer: [
       <button
+        data-pressable
         key="hour"
         type="button"
         role="menuitem"
@@ -329,6 +342,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> For 1 hour
       </button>,
       <button
+        data-pressable
         key="tomorrow"
         type="button"
         role="menuitem"
@@ -338,6 +352,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> Until tomorrow
       </button>,
       <button
+        data-pressable
         key="week"
         type="button"
         role="menuitem"
@@ -347,6 +362,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> For a week
       </button>,
       <button
+        data-pressable
         key="next-message"
         type="button"
         role="menuitem"
@@ -358,6 +374,7 @@ export function IssueContextMenu({
       ...(elig.canUndefer
         ? [
             <button
+              data-pressable
               key="undefer"
               type="button"
               role="menuitem"
@@ -382,6 +399,7 @@ export function IssueContextMenu({
       ...handoffCandidates.map(({ machine, rejection }) =>
         rejection ? (
           <button
+            data-pressable
             key={machine.id}
             type="button"
             role="menuitem"
@@ -396,6 +414,7 @@ export function IssueContextMenu({
           </button>
         ) : (
           <button
+            data-pressable
             key={machine.id}
             type="button"
             role="menuitem"
@@ -427,6 +446,7 @@ export function IssueContextMenu({
       )}
       {elig.canOpen && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -440,7 +460,14 @@ export function IssueContextMenu({
         </button>
       )}
       {elig.canRename && onRename && (
-        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={rename}>
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={rename}
+        >
           <Pencil size={14} aria-hidden="true" /> Rename
         </button>
       )}
@@ -448,6 +475,7 @@ export function IssueContextMenu({
           read) — mutually exclusive, single-target. Store actions are optimistic. */}
       {elig.canMarkUnread && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -459,6 +487,7 @@ export function IssueContextMenu({
       )}
       {elig.canMarkRead && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -499,6 +528,7 @@ export function IssueContextMenu({
                 : null
           return reason ? (
             <button
+              data-pressable
               type="button"
               role="menuitem"
               disabled
@@ -520,6 +550,7 @@ export function IssueContextMenu({
       )}
       {elig.canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -531,6 +562,7 @@ export function IssueContextMenu({
       )}
       {elig.canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -551,6 +583,7 @@ export function IssueContextMenu({
         elig.canDelete) && <hr className="my-1 h-px border-0 bg-border" />}
       {elig.canPin && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -569,6 +602,7 @@ export function IssueContextMenu({
       )}
       {(elig.canArchive || elig.canUnarchive) && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -593,12 +627,20 @@ export function IssueContextMenu({
       {elig.canDuplicate &&
         subTrigger('duplicate', <Copy size={14} aria-hidden="true" />, 'Duplicate of')}
       {elig.canRestore && (
-        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={restore}>
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={restore}
+        >
           <ArchiveRestore size={14} aria-hidden="true" /> Restore
         </button>
       )}
       {elig.canDelete && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}

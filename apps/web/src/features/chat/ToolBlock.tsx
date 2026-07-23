@@ -29,6 +29,7 @@ export function ToolBlock({
   return (
     <div className="min-w-0">
       <button
+        data-pressable
         type="button"
         className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
         onClick={() => setOpen((v) => !v)}

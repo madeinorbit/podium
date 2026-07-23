@@ -797,9 +797,10 @@ export function ChatView({
       } else {
         await resumeAndSend(sessionId, prompt)
       }
-    } catch {
+    } catch (cause) {
       setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
       setDismissedOfferAt(null) // send failed — let the offer reappear
+      throw cause
     }
   }
 
@@ -1028,6 +1029,7 @@ export function ChatView({
               scroll trigger is missed. */}
           {blocks.length > 0 && moreAbove && (
             <button
+              data-pressable
               type="button"
               onClick={loadOlder}
               disabled={loadingOlder}
@@ -1204,6 +1206,7 @@ export function ChatView({
         {!compact && <Minimap rows={visibleRows} scrollerRef={scrollerRef} />}
         {!atBottom && (
           <button
+            data-pressable
             type="button"
             className="absolute bottom-3 left-1/2 z-[4] inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-muted px-3 py-[5px] text-xs text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:border-primary"
             onClick={jumpToBottom}
@@ -1249,7 +1252,7 @@ export function ChatView({
             <OfferBar
               offer={offer}
               disabled={!composerEnabled}
-              onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+              onAction={sendOfferPrompt}
               {...(session ? { session } : {})}
             />
           </div>
@@ -1387,6 +1390,7 @@ export function ChatView({
                   )}
                   {att.state === 'failed' && <span className="text-destructive">!</span>}
                   <button
+                    data-pressable
                     type="button"
                     className="ml-0.5 text-muted-foreground/70 hover:text-foreground"
                     onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
@@ -1409,6 +1413,7 @@ export function ChatView({
       </div>
       {lightbox && (
         <button
+          data-pressable-exempt
           type="button"
           aria-label="Close image preview"
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6"

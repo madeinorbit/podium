@@ -477,8 +477,14 @@ export function NewIssueDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="button" disabled={!canSubmit} onClick={() => void submit()}>
-              {busy ? 'Creating…' : 'Create'}
+            <Button
+              type="button"
+              disabled={!canSubmit}
+              pending={busy}
+              pendingLabel="Creating task…"
+              onClick={() => void submit()}
+            >
+              Create
             </Button>
           </div>
         </DialogFooter>

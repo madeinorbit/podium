@@ -347,6 +347,7 @@ export function LoginView({
           }}
         />
         <button
+          data-pressable
           type="submit"
           aria-label="Log in"
           style={{

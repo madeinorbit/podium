@@ -48,6 +48,7 @@ export function ToolBatchView({
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body py-0.5">
         <button
+          data-pressable
           type="button"
           className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
           onClick={() => setOpen((v) => !v)}

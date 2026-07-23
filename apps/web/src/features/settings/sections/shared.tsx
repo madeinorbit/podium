@@ -243,8 +243,8 @@ export function RoleBackendEditor({
     accountId === 'native:claude-code' ? (
       <>
         Runs Claude Code&apos;s programmatic mode (<code className="text-[10px]">claude -p</code>)
-        on this account — <span className="text-warning">usage counts against its limits</span>.
-        API users are billed by token; subscribers consume plan usage.
+        on this account — <span className="text-warning">usage counts against its limits</span>. API
+        users are billed by token; subscribers consume plan usage.
       </>
     ) : accountId === 'native:codex' ? (
       <>
@@ -252,9 +252,7 @@ export function RoleBackendEditor({
         server) — no API key; it uses your plan&apos;s included Codex capacity while limits allow.
       </>
     ) : isNative ? (
-      <>
-        Runs a real {harness} agent with its own tool belt, using its local login on this server.
-      </>
+      <>Runs a real {harness} agent with its own tool belt, using its local login on this server.</>
     ) : codingHarnesses.length > 0 ? (
       <>
         Podium runs {managedHarness ? harnessAgentLabel(managedHarness) : 'a'} harness and injects

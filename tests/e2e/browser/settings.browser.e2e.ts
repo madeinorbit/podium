@@ -123,7 +123,7 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await effort.click()
   await page.getByRole('menuitem', { name: 'Extra high' }).click()
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved.')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   const saved = await trpc.settings.get.query()
   expect(saved.roles.coding).toMatchObject({ model: 'auto', effort: 'xhigh' })
@@ -160,7 +160,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
   await expect(composer).toBeVisible()
   await composer.click()
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved.')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   const saved = await trpc.settings.get.query()
   expect(saved.roles.coding).toMatchObject({
@@ -198,13 +198,13 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
   const model = section.getByRole('button', { name: 'Model' })
   await expect(model).toContainText('GPT-5.5')
   await model.click()
-  await page.getByRole('menuitem', { name: 'GPT-5.4' }).click()
+  await page.getByRole('menuitem', { name: 'GPT-5.4', exact: true }).click()
 
   const effort = section.getByRole('button', { name: 'Effort' })
   await effort.click()
   await page.getByRole('menuitem', { name: 'Extra high' }).click()
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved.')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
 
   const saved = await trpc.settings.get.query()
   expect(saved.roles.superagent).toMatchObject({
@@ -255,7 +255,7 @@ test('idle-session convergence target round-trips and renders', async ({ page })
   ).toBeVisible()
   await input.fill('12')
   await settings.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText('Saved.')).toBeVisible()
+  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible()
   expect((await trpc.settings.get.query()).hibernation.maxIdleSessions).toBe(12)
   await settings.screenshot({ path: '/tmp/POD-957-idle-cap-settings.png' })
 })

@@ -124,6 +124,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
   return (
     <div className="native-window-controls" role="group" aria-label="Window controls">
       <button
+        data-pressable
         type="button"
         className="native-window-control"
         aria-label="Minimize window"
@@ -133,6 +134,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
         <Minus size={15} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
+        data-pressable
         type="button"
         className="native-window-control"
         aria-label="Maximize window"
@@ -142,6 +144,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
         <Square size={11} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
+        data-pressable
         type="button"
         className="native-window-control native-window-control-close"
         aria-label="Close window"
@@ -170,6 +173,7 @@ function NavItem({
   const active = view === target
   return (
     <button
+      data-pressable
       type="button"
       onClick={() => onSelect(target)}
       aria-current={active ? 'page' : undefined}

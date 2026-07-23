@@ -76,6 +76,7 @@ function SessionRow({
   return (
     <div className="group/session flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40">
       <button
+        data-pressable
         type="button"
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
         onClick={onOpen}
@@ -89,6 +90,7 @@ function SessionRow({
         </span>
       </button>
       <button
+        data-pressable
         type="button"
         className="inline-flex h-6 flex-none items-center gap-1 rounded px-1.5 text-[10.5px] text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground group-hover/session:opacity-100"
         onClick={() => onArchive(!session.archived)}

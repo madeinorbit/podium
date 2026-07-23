@@ -169,6 +169,7 @@ function AutomationCard({
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
         <button
+          data-pressable
           type="button"
           className="-ml-1 flex size-6 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${a.name} runs`}
@@ -211,6 +212,7 @@ function AutomationCard({
           </div>
         </div>
         <button
+          data-pressable
           type="button"
           className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
           aria-label={`Edit ${a.name}`}
@@ -226,6 +228,7 @@ function AutomationCard({
           aria-label={`${a.enabled ? 'Disable' : 'Enable'} ${a.name}`}
         />
         <button
+          data-pressable
           type="button"
           className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-red-500 disabled:opacity-50"
           aria-label={`Delete ${a.name}`}

@@ -446,6 +446,7 @@ function MachineRow({
           />
         ) : (
           <button
+            data-pressable
             type="button"
             className="cursor-text truncate text-left text-foreground hover:underline"
             title="Click to rename"

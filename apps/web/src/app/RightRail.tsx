@@ -66,6 +66,7 @@ export function RightRail({
         />
       ) : (
         <button
+          data-pressable
           type="button"
           aria-label="Task"
           aria-pressed={rightPanel === 'issue'}
@@ -85,6 +86,7 @@ export function RightRail({
       {RIGHT_PANELS.filter((panel) => panel.id !== 'issue' && panelAllowed(panel.id)).map(
         (panel) => (
           <button
+            data-pressable
             key={panel.id}
             type="button"
             aria-label={panel.label}

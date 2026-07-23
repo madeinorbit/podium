@@ -136,6 +136,7 @@ export function BrowserOpenOverlay(): JSX.Element | null {
                 </div>
               </div>
               <button
+                data-pressable
                 type="button"
                 aria-label="Dismiss pending login"
                 className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"

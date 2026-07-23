@@ -628,6 +628,82 @@
   .input {
     @apply w-full rounded-md border border-input bg-background px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40;
   }
+
+  /* One feedback contract for semantic controls that cannot use the shared
+     Button. Opt-in is deliberate: terminal keys, dismiss layers, and resize
+     handles are not silently restyled by a global button selector. */
+  [data-pressable] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color 120ms ease,
+      background-color 120ms ease,
+      border-color 120ms ease,
+      box-shadow 120ms ease,
+      filter 80ms ease,
+      opacity 120ms ease,
+      transform 80ms ease;
+  }
+  [data-pressable]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ring) 75%, transparent);
+    outline-offset: 2px;
+  }
+  [data-pressable]:where(:disabled, [aria-disabled='true'], [data-disabled]) {
+    cursor: not-allowed;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  [data-pressable][aria-busy='true'] {
+    cursor: progress;
+  }
+  [data-pressable]:where(
+      [aria-pressed='true'],
+      [aria-selected='true'],
+      [aria-expanded='true'],
+      [aria-current='page'],
+      [data-checked],
+      [data-active]
+    ) {
+    filter: brightness(1.08);
+  }
+  [data-pressable]:where(
+      :not(:disabled):not([aria-disabled='true']):not([data-disabled])
+    ):active {
+    filter: brightness(0.92);
+    transform: translateY(1px) scale(0.99);
+  }
+
+  /* Row actions revealed on pointer hover are equally available when keyboard
+     focus enters the row. `data-hover-reveal` is also forced visible on touch. */
+  :where(.group, [class*='group/'], [data-hover-group]):focus-within [data-hover-reveal] {
+    display: flex;
+    visibility: visible;
+    pointer-events: auto;
+    opacity: 1;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-pressable]:where(
+      :not(:disabled):not([aria-disabled='true']):not([data-disabled])
+    ):hover {
+    filter: brightness(1.08);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-hover-reveal] {
+    display: flex;
+    visibility: visible;
+    pointer-events: auto;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pressable] {
+    transition: none;
+  }
 }
 
 /* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────

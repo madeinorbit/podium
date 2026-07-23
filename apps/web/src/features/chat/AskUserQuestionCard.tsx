@@ -89,8 +89,7 @@ export function AskUserQuestionCard({
 
   // A live multi-select (or multi-question) card needs an explicit confirm: the
   // user toggles options, then submits the whole set in one go.
-  const needsConfirmButton =
-    livePending && submitState !== 'sending' && questions.some((q) => q.multiSelect)
+  const needsConfirmButton = livePending && questions.some((q) => q.multiSelect)
   const allAnswered = questions.length > 0 && questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0)
 
   // Flat Field (POD-159): an ANSWERED question collapses to a one-line receipt
@@ -131,6 +130,7 @@ export function AskUserQuestionCard({
       {/* A pending question is a "needs you" surface — it earns the signal
           frame; a parked/unparseable one stays a quiet read-only block. */}
       <div
+        aria-busy={submitState === 'sending' || undefined}
         className={cn(
           'transcript-body',
           livePending && 'rounded-lg border border-primary/45 bg-primary/[0.04] px-3.5 py-2.5',
@@ -142,7 +142,7 @@ export function AskUserQuestionCard({
             <span className="transcript-meta">answer sent…</span>
           )}
           {livePending && submitState === 'failed' && (
-            <span className="transcript-meta text-destructive">not delivered</span>
+            <span className="transcript-meta text-destructive">not delivered — choose again</span>
           )}
         </div>
         <div className="mt-1.5 flex flex-col gap-3">
@@ -183,9 +183,12 @@ export function AskUserQuestionCard({
                   // else stays a plain read-only row.
                   return livePending ? (
                     <button
+                      data-pressable
                       key={`${o.label}-${oi}`}
                       type="button"
                       disabled={locked}
+                      aria-pressed={chosen}
+                      aria-busy={submitState === 'sending' || undefined}
                       onClick={() => onOptionClick(q, qi, oi)}
                       className={cn(
                         baseCls,
@@ -208,12 +211,14 @@ export function AskUserQuestionCard({
           ))}
           {needsConfirmButton && (
             <button
+              data-pressable
               type="button"
-              disabled={!allAnswered}
+              disabled={locked || !allAnswered}
+              aria-busy={submitState === 'sending' || undefined}
               onClick={() => void submit(picks)}
               className="mt-1 self-start rounded-md border border-primary/50 bg-primary/[0.12] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
             >
-              Submit answer
+              {submitState === 'sending' ? 'Sending answer…' : 'Submit answer'}
             </button>
           )}
           {questions.length === 0 && (

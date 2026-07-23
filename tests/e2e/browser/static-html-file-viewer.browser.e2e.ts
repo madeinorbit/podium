@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { expect, type Page, test } from '@playwright/test'
 import { newSession, openApp, podium } from './_harness'
 
@@ -72,30 +72,20 @@ test('native terminal: clicking a static html file opens rendered preview and so
     .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
     .toBeGreaterThan(0)
 
-  await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
-  let cwd = ''
-  await expect
-    .poll(
-      async () => {
-        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
-        if (m) cwd = m[1].trim()
-        return cwd
-      },
-      { timeout: 15_000 },
-    )
-    .toMatch(/^\//)
+  const repoRoot = process.cwd()
+  await sh(page, `cd '${repoRoot}'`)
 
   const relHtml = './e2e_static_viewer.html'
   const relCss = './e2e_static_viewer.css'
-  const htmlAbs = `${cwd}/e2e_static_viewer.html`
-  const cssAbs = `${cwd}/e2e_static_viewer.css`
+  const htmlAbs = `${repoRoot}/e2e_static_viewer.html`
+  const cssAbs = `${repoRoot}/e2e_static_viewer.css`
 
   try {
-    await sh(
-      page,
-      `printf '<link rel="stylesheet" href="${relCss}"><h1>STATIC_HTML_RENDERED</h1>\\n' > ${relHtml}`,
+    await writeFile(
+      htmlAbs,
+      `<link rel="stylesheet" href="${relCss}"><h1>STATIC_HTML_RENDERED</h1>\n`,
     )
-    await sh(page, `printf 'h1 { color: rgb(1, 99, 33); }\\n' > ${relCss}`)
+    await writeFile(cssAbs, 'h1 { color: rgb(1, 99, 33); }\n')
 
     const st = await gridSize(page)
     await openStyledFile(page, relHtml, st)
@@ -131,7 +121,9 @@ test('native terminal: clicking a static html file opens rendered preview and so
     await page.keyboard.type(`${edit} `)
     await page.keyboard.press('Control+s')
 
-    await expect(page.getByText('Saved', { exact: false })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible({
+      timeout: 10_000,
+    })
     await expect
       .poll(async () => await readFile(htmlAbs, 'utf8').catch(() => ''), { timeout: 10_000 })
       .toContain(edit)
@@ -150,20 +142,10 @@ test('worktree Files tree: .superpowers ready.html renders relative assets', asy
     .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
     .toBeGreaterThan(0)
 
-  await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
-  let cwd = ''
-  await expect
-    .poll(
-      async () => {
-        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
-        if (m) cwd = m[1].trim()
-        return cwd
-      },
-      { timeout: 15_000 },
-    )
-    .toMatch(/^\//)
+  const repoRoot = process.cwd()
+  await sh(page, `cd '${repoRoot}'`)
 
-  const dir = `${cwd}/.superpowers/e2e-ready-html`
+  const dir = `${repoRoot}/.superpowers/e2e-ready-html`
   try {
     await sh(page, 'mkdir -p ./.superpowers/e2e-ready-html')
     await sh(

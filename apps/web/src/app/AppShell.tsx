@@ -276,6 +276,7 @@ function AppBody(): JSX.Element {
             (sidebarCollapsed ? (
               <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
                 <button
+                  data-pressable
                   type="button"
                   className="collapsed-sidebar-expand"
                   aria-label="Expand sidebar"
@@ -292,6 +293,7 @@ function AppBody(): JSX.Element {
                   <SidebarUnified />
                 </ResizableAside>
                 <button
+                  data-pressable
                   type="button"
                   className="sidebar-collapse-control"
                   aria-label="Collapse sidebar"

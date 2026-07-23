@@ -139,6 +139,7 @@ export function IssuePeekOverlay(): JSX.Element | null {
             Issue peek
           </span>
           <button
+            data-pressable
             type="button"
             className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Close (esc)"

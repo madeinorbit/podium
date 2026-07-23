@@ -193,6 +193,7 @@ export function LoadPanel({
                   : `Auto-hibernation on: past ${hibernation.memoryPct}% memory, agents idle ${hibernation.idleMinutes} min park themselves. `
                 : 'Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand. '}
               <button
+                data-pressable
                 type="button"
                 className="hp-link"
                 onClick={() => {
@@ -210,7 +211,12 @@ export function LoadPanel({
         <HealthPopoverFooter
           left="sampled every 5s"
           right={
-            <button type="button" className="hp-link hp-link-mono" onClick={onOpenConnection}>
+            <button
+              data-pressable
+              type="button"
+              className="hp-link hp-link-mono"
+              onClick={onOpenConnection}
+            >
               connection ▸
             </button>
           }

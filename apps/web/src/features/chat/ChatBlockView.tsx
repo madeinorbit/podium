@@ -419,6 +419,7 @@ export const ChatBlockView = memo(function ChatBlockView({
                 const name = p.split('/').pop() ?? p
                 const chip = (
                   <button
+                    data-pressable
                     key={p}
                     type="button"
                     onClick={(e) => {

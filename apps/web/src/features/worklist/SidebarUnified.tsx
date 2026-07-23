@@ -393,6 +393,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
         {/* One bordered rounded-lg surface with a leading Claude-clay agent icon;
             the chevron is a borderless hitbox floating inside the same outline. */}
         <button
+          data-pressable
           type="button"
           className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#3a3a46] bg-[#25252f] px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-[#eaeaf0] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
           disabled={!defaultRepo}
@@ -421,6 +422,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           <DropdownMenuTrigger
             render={
               <button
+                data-pressable
                 type="button"
                 className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-[#7a7a86] hover:text-foreground"
                 aria-label="Choose agent and repo"
@@ -528,6 +530,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
   return (
     <div className={cn('flex items-center justify-around', className)}>
       <button
+        data-pressable
         type="button"
         className={btn()}
         title="Add repo"
@@ -536,8 +539,10 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       >
         <FolderPlus size={15} aria-hidden="true" />
       </button>
+
       {commandPaletteEnabled && (
         <button
+          data-pressable
           type="button"
           className={btn()}
           title="Search (⌘K)"
@@ -631,6 +636,7 @@ function ClosedIssueFold<T>({
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
       <button
+        data-pressable
         type="button"
         className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
         aria-expanded={!collapsed}
@@ -658,7 +664,9 @@ function ClosedIssueFold<T>({
               >
                 {renderRow(row)}
                 <button
+                  data-pressable
                   type="button"
+                  data-hover-reveal
                   className="absolute top-1.5 right-1 z-20 flex size-6 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
@@ -1323,6 +1331,7 @@ function WorkRowShell({
         </span>
         {expandable && (
           <button
+            data-pressable
             type="button"
             className="-ml-1.5 flex w-3.5 flex-none cursor-pointer items-center justify-center self-stretch text-muted-foreground/60 hover:text-foreground"
             onClick={onToggle}
@@ -1341,6 +1350,7 @@ function WorkRowShell({
           <div className="flex min-w-0 flex-1 items-center">{editor}</div>
         ) : (
           <button
+            data-pressable
             type="button"
             // leading-[normal]: the handoff rows run the font's natural line
             // height — the preflight 1.5 would grow the two-line block past
@@ -1772,6 +1782,7 @@ function UnifiedIssueRow({
           // faint, still; hover surfaces the affordance; click deep-links to
           // the issue page's subtask tree — no third indent, no camera modes.
           <button
+            data-pressable
             type="button"
             data-testid="subtree-rollup"
             className="group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-[9.5px] leading-[normal] text-muted-foreground/50 hover:bg-white/[.04] hover:text-muted-foreground"
@@ -1780,6 +1791,7 @@ function UnifiedIssueRow({
           >
             └ {rollup.total} deeper · {rollup.done}/{rollup.total} done
             <span
+              data-hover-reveal
               className="ml-auto flex-none text-[8.5px] opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
               aria-hidden="true"
             >

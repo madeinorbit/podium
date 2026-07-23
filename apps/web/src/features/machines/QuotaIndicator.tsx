@@ -143,6 +143,7 @@ export function QuotaIndicator({
       <HealthPopover
         trigger={
           <button
+            data-pressable
             type="button"
             className="header-quota-chip"
             aria-label={poolSummary ? `Agent quota: ${poolSummary}` : 'Agent quota'}
@@ -178,6 +179,7 @@ export function QuotaIndicator({
         <TooltipTrigger
           render={
             <button
+              data-pressable
               type="button"
               className={cn(
                 'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',

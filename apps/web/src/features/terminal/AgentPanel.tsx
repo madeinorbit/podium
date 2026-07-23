@@ -352,9 +352,10 @@ export function AgentPanel({
     setDismissedOfferAt(offerAt)
     try {
       await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
-    } catch {
+    } catch (cause) {
       setDismissedOfferAt(null) // send failed — let the offer reappear
       toast.error('Could not send the suggested action')
+      throw cause
     }
   }
   // Dock <-> PTY resize sync [POD-201]: the 340ms slide used to fight the
@@ -789,6 +790,7 @@ export function AgentPanel({
             >
               {(['chat', 'native'] as const).map((m) => (
                 <button
+                  data-pressable
                   key={m}
                   type="button"
                   role="tab"
@@ -1063,7 +1065,7 @@ export function AgentPanel({
                   <OfferBar
                     offer={dockOffer}
                     disabled={!nativeOffer}
-                    onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+                    onAction={sendOfferPrompt}
                     {...(session ? { session } : {})}
                   />
                 </div>
@@ -1084,6 +1086,7 @@ export function AgentPanel({
             onPointerDown={(e) => e.preventDefault()}
           >
             <button
+              data-pressable
               type="button"
               className="key-act key-submit"
               title="Submit — send the prompt (Enter)"
@@ -1092,6 +1095,7 @@ export function AgentPanel({
               ⏎ Submit
             </button>
             <button
+              data-pressable
               type="button"
               className="key-act"
               title="Newline — insert a line break without submitting (Option+Enter)"
@@ -1100,6 +1104,7 @@ export function AgentPanel({
               Newline
             </button>
             <button
+              data-pressable
               type="button"
               className="key-act"
               title="Paste — insert clipboard text at the prompt"
@@ -1110,6 +1115,7 @@ export function AgentPanel({
             <ArrowSwipeKey onFire={sendKey} />
             {voice.supported && (
               <button
+                data-pressable
                 type="button"
                 className={voice.listening ? 'key-mic active' : 'key-mic'}
                 title={

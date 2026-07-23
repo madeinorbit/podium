@@ -90,6 +90,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
             <TooltipTrigger
               render={
                 <button
+                  data-pressable
                   type="button"
                   className={cn(
                     'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
@@ -196,6 +197,7 @@ export function HeaderHostIndicators(): JSX.Element {
       </span>
       {hostMetrics.length === 0 && (
         <button
+          data-pressable
           type="button"
           className="header-machine-chip"
           aria-label="Host connection — click for details"
@@ -225,6 +227,7 @@ export function HeaderHostIndicators(): JSX.Element {
             key={host.machineId}
             trigger={
               <button
+                data-pressable
                 type="button"
                 className="header-machine-chip"
                 aria-label={`${host.hostname}: ${memory.title}`}
@@ -269,9 +272,7 @@ export function HeaderHostIndicators(): JSX.Element {
                     </div>
                   ) : undefined
                 }
-                onOpenConnection={() =>
-                  setInfo({ tab: 'connection', machineId: host.machineId })
-                }
+                onOpenConnection={() => setInfo({ tab: 'connection', machineId: host.machineId })}
               />
             )}
           </HealthPopover>

@@ -39,8 +39,8 @@ describe('OfferBar', () => {
     expect(container.textContent).toContain('Tests are red on main')
     const buttons = container.querySelectorAll('button')
     expect(buttons.length).toBe(2)
-    expect(buttons[0]?.textContent).toBe('Fix them')
-    expect(buttons[1]?.textContent).toBe('Show failures')
+    expect(buttons[0]?.textContent).toContain('Fix them')
+    expect(buttons[1]?.textContent).toContain('Show failures')
   })
 
   it('reports the clicked action prompt with the offer createdAt', () => {
@@ -53,6 +53,38 @@ describe('OfferBar', () => {
       'Show me the failing test output',
       '2026-07-17T07:00:00.000Z',
     )
+  })
+
+  it('locks duplicate actions, reports pending at the button, and recovers after failure', async () => {
+    let rejectAction: ((cause: Error) => void) | undefined
+    const onAction = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAction = reject
+        }),
+    )
+    await act(async () => {
+      root.render(<OfferBar offer={offer} disabled={false} onAction={onAction} />)
+    })
+    const button = container.querySelector('button')
+    await act(async () => {
+      button?.click()
+      await Promise.resolve()
+    })
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(button?.getAttribute('aria-busy')).toBe('true')
+    expect(button?.disabled).toBe(true)
+    expect(button?.textContent).toContain('Sending…')
+    button?.click()
+    expect(onAction).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      rejectAction?.(new Error('offline'))
+      await Promise.resolve()
+    })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Try again')
+    expect(button?.disabled).toBe(false)
+    expect(button?.hasAttribute('aria-busy')).toBe(false)
   })
 
   it('disabled blocks clicks', () => {
@@ -78,7 +110,8 @@ describe('OfferBar', () => {
     const sendBack = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.startsWith('Send back'),
     )
-    expect(sendBack?.textContent).toBe('Send back✎')
+    expect(sendBack?.textContent).toContain('Send back')
+    expect(sendBack?.textContent).toContain('✎')
     act(() => sendBack?.click())
     // Nothing sent yet — the feedback field is up instead of the button row.
     expect(onAction).not.toHaveBeenCalled()
@@ -87,8 +120,8 @@ describe('OfferBar', () => {
     )
     expect(field).not.toBeNull()
     // The confirm button stays disabled until there is real text.
-    const confirm = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Send back',
+    const confirm = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.startsWith('Send back'),
     )
     expect(confirm?.disabled).toBe(true)
     act(() => {

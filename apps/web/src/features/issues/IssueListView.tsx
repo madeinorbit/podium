@@ -85,6 +85,7 @@ export function IssueListView({
               </span>
               <Button
                 type="button"
+                data-hover-reveal
                 variant="ghost"
                 size="icon-sm"
                 className="ml-auto size-5 opacity-0 group-hover:opacity-100"
@@ -100,6 +101,7 @@ export function IssueListView({
               const epic = isEpic(issue)
               return (
                 <button
+                  data-pressable
                   key={issue.id}
                   type="button"
                   data-issue-id={issue.id}
@@ -115,10 +117,17 @@ export function IssueListView({
                 >
                   {childCount > 0 ? (
                     // biome-ignore lint/a11y/useKeyWithClickEvents: the row button handles keyboard; this is a pointer affordance (nested-button markup is invalid)
-                    // biome-ignore lint/a11y/useSemanticElements: a real <button> here would nest inside the row's <button> (invalid markup) — same pattern as the card's AssigneeMenu trigger
+                    // biome-ignore lint/a11y/useSemanticElements: a real <button data-pressable> here would nest inside the row's <button data-pressable> (invalid markup) — same pattern as the card's AssigneeMenu trigger
                     <span
+                      data-pressable
                       role="button"
-                      tabIndex={-1}
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.currentTarget.click()
+                        }
+                      }}
                       className="-ml-1 flex-none rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
                       aria-expanded={expanded}
                       aria-label={expanded ? `Collapse ${issue.title}` : `Expand ${issue.title}`}
@@ -204,6 +213,7 @@ export function IssueListView({
             })}
             {remaining > 0 && (
               <button
+                data-pressable
                 type="button"
                 className="w-full border-border/50 border-b px-4 py-2 text-left text-[12px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                 onClick={() =>

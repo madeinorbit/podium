@@ -210,6 +210,7 @@ export function IdSquare({
   return (
     <>
       <button
+        data-pressable
         ref={triggerRef}
         type="button"
         data-testid="issue-id-square"
@@ -273,6 +274,7 @@ export function IdSquare({
                 const current = displayColor === slot
                 return (
                   <button
+                    data-pressable
                     key={slot}
                     type="button"
                     title={`${colorName(slot)}${current ? ' — current' : ''}`}
@@ -293,6 +295,7 @@ export function IdSquare({
             </div>
             <div className="mt-2.5 flex items-center border-t border-[#25252f] pt-2">
               <button
+                data-pressable
                 type="button"
                 className="flex cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-[#d7d7e0] focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
                 aria-label="No colour"

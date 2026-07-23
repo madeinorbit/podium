@@ -68,6 +68,7 @@ export function SectionBar({
         </span>
       )}
       <button
+        data-pressable
         type="button"
         className={cn(
           'flex-none cursor-pointer border-0 bg-transparent p-0 text-[11px] leading-none text-text-dim hover:text-text-strong',

@@ -35,6 +35,7 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
       className="rounded-md border border-border/50 bg-background/40 px-2.5 py-1.5"
     >
       <button
+        data-pressable
         type="button"
         className="flex w-full flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-left text-[11px]"
         onClick={() => setOpen((v) => !v)}

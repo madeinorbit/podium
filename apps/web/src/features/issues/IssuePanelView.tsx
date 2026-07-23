@@ -105,6 +105,7 @@ function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
       </div>
       {comments.length > 1 && (
         <button
+          data-pressable
           type="button"
           onClick={() => setShowAll((v) => !v)}
           className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
@@ -129,6 +130,7 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
         <div className="min-w-0">
           <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
             <button
+              data-pressable
               type="button"
               className="cursor-pointer hover:text-foreground"
               title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
@@ -192,6 +194,7 @@ function SubissueRow({ sub, onOpen }: { sub: IssueWire; onOpen: () => void }): J
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
     <button
+      data-pressable
       type="button"
       onClick={onOpen}
       title={`Open ${issueDisplayRef(sub)} ${sub.title}`}
@@ -333,6 +336,7 @@ function PanelSections({
                 return (
                   <figure key={a.path}>
                     <button
+                      data-pressable
                       type="button"
                       className="block w-full cursor-zoom-in"
                       title={`View ${label} full size`}
@@ -356,6 +360,7 @@ function PanelSections({
                     {/* Inline preview only (first frame + play glyph); clicking
                         opens the lightbox, where the video plays with controls. */}
                     <button
+                      data-pressable
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={`Play ${label}`}
@@ -548,6 +553,7 @@ export function IssuePanelView({
                     const target = issueById.get(entry.id)
                     return (
                       <button
+                        data-pressable
                         key={`${group.section}-${entry.direction}-${entry.id}`}
                         type="button"
                         className="flex min-w-0 items-center gap-1.5 truncate text-left text-[11.5px] hover:text-primary hover:underline"

@@ -897,6 +897,7 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
     <>
       <style>{ARROW_SWIPE_STYLES}</style>
       <button
+        data-pressable
         type="button"
         ref={keyRef}
         className={visual.overlayVisible ? 'ask-key holding' : 'ask-key'}
