@@ -83,6 +83,35 @@ describe('PanelRow roster variant', () => {
     expect(screen.getByTestId('coordinator-badge')).toBeTruthy()
   })
 
+  it('uses the issue display ref for a legacy session and never renders its internal ID', () => {
+    render(
+      <PanelRow
+        session={session({ issueId: 'iss_internal-uuid' })}
+        active={false}
+        onSelect={vi.fn()}
+        roster
+        issueDisplayRef="POD-100"
+      />,
+    )
+    const linkage = screen.getByTestId('session-issue-linkage')
+    expect(linkage.textContent).toBe('POD-100')
+    expect(linkage.title).toBe('Attached to issue POD-100')
+    expect(document.body.textContent).not.toContain('iss_internal-uuid')
+  })
+
+  it('renders no ref when a legacy session has no human-facing issue ref', () => {
+    render(
+      <PanelRow
+        session={session({ issueId: 'iss_internal-uuid' })}
+        active={false}
+        onSelect={vi.fn()}
+        roster
+      />,
+    )
+    expect(screen.queryByTestId('session-issue-linkage')).toBeNull()
+    expect(document.body.textContent).not.toContain('iss_internal-uuid')
+  })
+
   it('keeps the Continue control on an errored roster row', () => {
     render(
       <PanelRow

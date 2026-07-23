@@ -764,14 +764,18 @@ export function nativeSubagentLabel(count: number): string {
 
 /**
  * Human-facing issue linkage for a session row: prefer the permanent birth
- * `displayRef` (e.g. `POD-13-A`), fall back to raw `issueId` when present.
- * Null when the session carries no issue attachment data.
+ * `displayRef` (e.g. `POD-13-A`), then the attached issue's human display ref.
+ * Internal issue IDs are never suitable for display, so return null when
+ * neither human-facing ref is available.
  */
-export function sessionIssueLinkage(s: SessionMeta): string | null {
+export function sessionIssueLinkage(
+  s: SessionMeta,
+  attachedIssueDisplayRef?: string,
+): string | null {
   const ref = s.displayRef?.trim()
   if (ref) return ref
-  const id = s.issueId?.trim()
-  return id || null
+  const issueRef = s.issueId ? attachedIssueDisplayRef?.trim() : undefined
+  return issueRef || null
 }
 
 /**

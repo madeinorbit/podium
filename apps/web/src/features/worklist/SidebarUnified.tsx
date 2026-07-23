@@ -1740,6 +1740,7 @@ function UnifiedIssueRow({
       dotRight
       roster
       coordinator={isCoordinatorSession(issue, session.sessionId)}
+      issueDisplayRef={issue.displayRef}
     />
   )
   // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
@@ -1983,6 +1984,9 @@ function UnifiedWorktreeRow({
   const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
   const renderRow = (session: SessionMeta) => {
     const orphan = orphanProvenance(session, issues)
+    const attachedIssueDisplayRef = session.issueId
+      ? issues.find((issue) => issue.id === session.issueId)?.displayRef
+      : undefined
     return (
       <PanelRow
         key={session.sessionId}
@@ -1991,6 +1995,7 @@ function UnifiedWorktreeRow({
         onSelect={() => onSelectPanel(session.sessionId)}
         dotRight
         roster
+        issueDisplayRef={attachedIssueDisplayRef}
         trailingMeta={
           orphan ? (
             <span

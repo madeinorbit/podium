@@ -457,6 +457,7 @@ export function PanelRow({
   trailingMeta,
   coordinator = false,
   roster = false,
+  issueDisplayRef,
 }: {
   session: SessionMeta
   active: boolean
@@ -479,6 +480,9 @@ export function PanelRow({
   /** Roster-band row (POD-170, L2): terracotta glyph, tighter box, chip hover —
    *  the mono-voiced agent grammar. Controls (close/continue/snooze) carry over. */
   roster?: boolean
+  /** Human-facing ref for the session's attached issue. Legacy sessions may
+   *  lack their own minted displayRef, but internal issue IDs must stay hidden. */
+  issueDisplayRef?: string
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -522,7 +526,7 @@ export function PanelRow({
       ? 'finished'
       : null
   // Nested child rows (dotRight) and roster rows: the session's own mono ref.
-  const issueLinkage = dotRight || roster ? sessionIssueLinkage(session) : null
+  const issueLinkage = dotRight || roster ? sessionIssueLinkage(session, issueDisplayRef) : null
   // Email-style unread emphasis (#126), suppressed (#138) for WORKING-section
   // rows AND any currently-working session; also while snoozed. And never on the
   // ACTIVE row (POD-272): that session is the open pane, so its incoming message
@@ -637,7 +641,9 @@ export function PanelRow({
               className="flex-none font-mono text-[10px] text-[#6c6c78] tabular-nums"
               data-testid="session-issue-linkage"
               title={
-                session.issueId ? `Attached to issue ${session.issueId}` : 'Session issue reference'
+                issueDisplayRef?.trim()
+                  ? `Attached to issue ${issueDisplayRef.trim()}`
+                  : 'Session issue reference'
               }
             >
               {issueLinkage}

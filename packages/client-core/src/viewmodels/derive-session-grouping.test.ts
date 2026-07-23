@@ -111,12 +111,14 @@ describe('nativeSubagent helpers', () => {
 })
 
 describe('sessionIssueLinkage', () => {
-  it('prefers displayRef over issueId; null when neither is set', () => {
+  it('prefers the session displayRef, falls back to the issue displayRef, and hides IDs', () => {
     expect(sessionIssueLinkage(sess('a'))).toBeNull()
-    expect(sessionIssueLinkage(sess('b', { issueId: 'iss_1' }))).toBe('iss_1')
+    expect(sessionIssueLinkage(sess('b', { issueId: 'iss_1' }))).toBeNull()
+    expect(sessionIssueLinkage(sess('b', { issueId: 'iss_1' }), 'POD-42')).toBe('POD-42')
     expect(
-      sessionIssueLinkage(sess('c', { issueId: 'iss_1', displayRef: 'POD-42-B' })),
+      sessionIssueLinkage(sess('c', { issueId: 'iss_1', displayRef: 'POD-42-B' }), 'POD-42'),
     ).toBe('POD-42-B')
     expect(sessionIssueLinkage(sess('d', { displayRef: '  ' }))).toBeNull()
+    expect(sessionIssueLinkage(sess('e', { issueId: 'iss_1' }), '  ')).toBeNull()
   })
 })
