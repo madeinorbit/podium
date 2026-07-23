@@ -1,4 +1,4 @@
-import { Inbox, KanbanSquare, Rows3 } from 'lucide-react-native'
+import { Inbox, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { color, font, mono, radius, sans } from '../theme/theme'
@@ -7,7 +7,7 @@ import { Icon } from './Icon'
 const ICONS: Record<string, typeof Inbox> = {
   index: Inbox,
   issues: KanbanSquare,
-  sessions: Rows3,
+  superagent: MessagesSquare,
 }
 
 /** Structural slice of react-navigation's BottomTabBarProps (the package is not

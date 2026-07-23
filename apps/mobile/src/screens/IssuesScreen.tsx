@@ -81,7 +81,7 @@ export function IssuesScreen() {
       <SectionList
         sections={sections}
         keyExtractor={(issue) => issue.id}
-        stickySectionHeadersEnabled={false}
+        stickySectionHeadersEnabled
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           proposals.length === 0 ? null : (
@@ -225,8 +225,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
     paddingHorizontal: space.md + 2,
-    paddingTop: space.lg,
-    paddingBottom: 5,
+    paddingTop: space.md,
+    paddingBottom: 7,
+    backgroundColor: color.bg,
+    zIndex: 1,
   },
   sectionLabel: {
     ...monoLabel(9),

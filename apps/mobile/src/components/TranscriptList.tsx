@@ -1,6 +1,6 @@
 import {
-  type ChatBlock,
   buildChatRows,
+  type ChatBlock,
   failLine,
   formatChurn,
   isAskUserQuestion,
@@ -56,7 +56,12 @@ function buildRows(items: TranscriptItem[]): Row[] {
     if (chatRow.kind === 'tools') {
       const first = chatRow.blocks[0]
       if (!first) continue
-      rows.push({ key: itemKey(first.item), kind: 'tools', item: first.item, blocks: chatRow.blocks })
+      rows.push({
+        key: itemKey(first.item),
+        kind: 'tools',
+        item: first.item,
+        blocks: chatRow.blocks,
+      })
       continue
     }
     const { item } = chatRow.block
@@ -242,8 +247,7 @@ export function TranscriptList({
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-      pinned.current =
-        contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+      pinned.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
       if (contentOffset.y < 200) onLoadOlder?.()
     },
     [onLoadOlder],
