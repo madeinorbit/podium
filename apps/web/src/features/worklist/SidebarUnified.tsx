@@ -48,6 +48,7 @@ import {
   draftIssueLabel,
   groupUnifiedWorkRows,
   isCoordinatorSession,
+  isDraftAgentVessel,
   isIssueSnoozed,
   issueAwaitingMerge,
   issueReturnedFromDefer,
@@ -1586,7 +1587,8 @@ function UnifiedIssueRow({
   const originDep = issue.deps.find((d) => d.type === 'discovered-from')
   const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
   // Draft vessel whose only content is agents → clicking opens the session.
-  const draftAgentOnly = issue.draft && mine.length > 0 && !issue.worktreePath
+  // Shared with the nesting rule so structure and rendering agree (POD-282).
+  const draftAgentOnly = isDraftAgentVessel(issue, mine)
   const first = mine[0]
   const label = issue.draft ? draftIssueLabel(issue, _all, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {

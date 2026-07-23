@@ -1026,6 +1026,15 @@ export function draftIssueLabel(
   return first.name?.trim() || title || 'New agent'
 }
 
+/** A DRAFT vessel whose only content is its agents: no worktree of its own, no
+ *  title the human chose. It is a session container, not work — its sidebar row
+ *  IS the agent (clicking opens the session, nothing folds out beneath it), so
+ *  it can never parent real work either. Both the nesting decision and the row
+ *  rendering read this one predicate so they cannot drift apart (POD-282). */
+export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionMeta[]): boolean {
+  return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
+}
+
 /** Resolve the user's default agent kind for the unified split button. 'auto' (or
  *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
  *  back to claude-code. */
@@ -1500,14 +1509,21 @@ export function nestStartedByIssues(
     // would also bubble its sessions into the origin's aggregate agent count.
     const isSpinOff = issue.deps?.some((dep) => dep.type === 'discovered-from')
     if (!parentId && !issue.parentId && !isSpinOff && issue.startedBySession) {
-      parentId =
-        issueIdOwningSession(
-          issue.startedBySession,
-          sessions,
-          visibleIssues,
-          allWorktreePaths,
-          ownership,
-        ) ?? undefined
+      const candidate = issueIdOwningSession(
+        issue.startedBySession,
+        sessions,
+        visibleIssues,
+        allWorktreePaths,
+        ownership,
+      )
+      const candidateRow = candidate ? byId.get(candidate) : undefined
+      // Nesting under a draft vessel ERASES the issue: that row is the agent
+      // itself and renders no children, so the child has no path to the screen.
+      // Provenance is never worth losing the work — a draft keeps its spawned
+      // issues top-level until it becomes real work of its own (POD-282).
+      if (candidateRow && !isDraftAgentVessel(candidateRow.issue, candidateRow.sessions)) {
+        parentId = candidateRow.issue.id
+      }
     }
     if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
     let walk: string | undefined = parentId

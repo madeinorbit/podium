@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,
   isCoordinatorSession,
+  isDraftAgentVessel,
   issueIdOwningSession,
   issueVisibleInSidebar,
   nestStartedByIssues,
@@ -115,6 +116,19 @@ describe('issueIdOwningSession', () => {
     const s = sess('s1', { cwd: '/r/a/wt' })
     const iss = issue({ id: 'wt-issue', worktreePath: '/r/a/wt' })
     expect(issueIdOwningSession('s1', [s], [iss], ['/r/a', '/r/a/wt'])).toBe('wt-issue')
+  })
+})
+
+describe('isDraftAgentVessel', () => {
+  it('is a draft with agents and no worktree of its own', () => {
+    const draft = issue({ draft: true })
+    const worker = sess('w')
+    expect(isDraftAgentVessel(draft, [worker])).toBe(true)
+    // A draft that earned a worktree is real work; so is any non-draft; and an
+    // agentless draft has no agent row to collapse into.
+    expect(isDraftAgentVessel({ ...draft, worktreePath: '/r/a/wt' }, [worker])).toBe(false)
+    expect(isDraftAgentVessel(issue(), [worker])).toBe(false)
+    expect(isDraftAgentVessel(draft, [])).toBe(false)
   })
 })
 
@@ -286,6 +300,40 @@ describe('nestStartedByIssues', () => {
     ])
     expect(rowMotionPhase(top)).toBe('waiting')
     expect(rowWaitingCount(top)).toBe(1)
+  })
+
+  it('keeps a draft vessel from swallowing the issue it started (POD-282)', () => {
+    // A draft vessel's row IS its agent — it renders no children, so nesting
+    // here would erase the child from the sidebar entirely.
+    const starter = sess('starter', { issueId: 'vessel' })
+    const childSess = sess('worker', { issueId: 'child' })
+    const vessel = row(issue({ id: 'vessel', title: 'Draft', draft: true }), [starter])
+    const childIssue = issue({
+      id: 'child',
+      title: 'Real work',
+      startedBySession: 'starter',
+      origin: 'agent',
+      seq: 2,
+    })
+    const nested = nestStartedByIssues(
+      [vessel, row(childIssue, [childSess])],
+      [starter, childSess],
+      [],
+    )
+    expect(nested.map((r) => (r as UnifiedIssueRow).issue.id)).toEqual(['vessel', 'child'])
+    expect((nested[0] as UnifiedIssueRow).startedByChildren).toBeUndefined()
+
+    // Self-healing: once the vessel becomes real work, nesting resumes.
+    const real = row(issue({ id: 'vessel', title: 'Named work', draft: false }), [starter])
+    const renested = nestStartedByIssues(
+      [real, row(childIssue, [childSess])],
+      [starter, childSess],
+      [],
+    )
+    expect(renested).toHaveLength(1)
+    expect((renested[0] as UnifiedIssueRow).startedByChildren?.map((c) => c.issue.id)).toEqual([
+      'child',
+    ])
   })
 
   it('never leaves an internal issue at top level', () => {
