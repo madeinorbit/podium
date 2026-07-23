@@ -185,3 +185,113 @@ test('closed rows fold locally after their result is read and focus moves away',
     .toBe(true)
   await expect(aside.getByText(betaTitle)).toHaveCount(0)
 })
+
+test('sidebar rows make room, depart, then enter Closed', async ({ page, request }) => {
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos.find((repo) => basename(repo) === `zz-podium-e2e-repo-${PORT}`) ?? repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+
+  const suffix = Date.now()
+  const siblingTitle = `Motion sibling ${suffix}`
+  const movingTitle = `Motion handoff ${suffix}`
+  const anchorTitle = `Motion closed anchor ${suffix}`
+  await createIssue(request, repoPath, siblingTitle, true)
+  const moving = await createIssue(request, repoPath, movingTitle)
+  const anchor = await createIssue(request, repoPath, anchorTitle)
+  await closeIssue(request, anchor, true)
+
+  await openSidebar(page)
+  const aside = page.locator('aside').first()
+  const project = aside.getByTestId('project-group').filter({ hasText: siblingTitle }).first()
+  const fold = project.getByRole('button', { name: /^Closed · \d+$/ })
+  await expect(fold).toBeVisible({ timeout: 30_000 })
+  await fold.click()
+
+  const siblingRow = project
+    .getByTestId('unified-issue-row')
+    .filter({ hasText: siblingTitle })
+    .first()
+  const siblingBefore = await siblingRow.boundingBox()
+  if (!siblingBefore) throw new Error('motion sibling was not measurable')
+
+  const arrivalTitle = `Motion arrival ${suffix}`
+  await createIssue(request, repoPath, arrivalTitle, true)
+  const arrival = project
+    .locator('[data-transition-phase]')
+    .filter({ hasText: arrivalTitle })
+    .first()
+  await expect(arrival).toBeVisible({ timeout: 10_000 })
+  const arrivalAnimations = await arrival.evaluate((element) =>
+    element.getAnimations({ subtree: true }).flatMap((animation) => {
+      if (!(animation instanceof CSSAnimation)) return []
+      const timing = animation.effect?.getTiming()
+      return [
+        {
+          name: animation.animationName,
+          delay: Number(timing?.delay),
+          duration: Number(timing?.duration),
+        },
+      ]
+    }),
+  )
+  expect(arrivalAnimations).toEqual(
+    expect.arrayContaining([
+      { name: 'podium-arrive-h', delay: 0, duration: 420 },
+      { name: 'podium-arrive-in', delay: 120, duration: 300 },
+    ]),
+  )
+  if (process.env.SIDEBAR_MOTION_ARRIVAL_SHOT) {
+    await arrival.evaluate((element) => {
+      for (const animation of element.getAnimations({ subtree: true })) {
+        if (
+          animation instanceof CSSAnimation &&
+          animation.animationName.startsWith('podium-arrive')
+        ) {
+          animation.pause()
+          animation.currentTime = 210
+        }
+      }
+    })
+    await aside.screenshot({ path: process.env.SIDEBAR_MOTION_ARRIVAL_SHOT })
+    await arrival.evaluate((element) => {
+      for (const animation of element.getAnimations({ subtree: true })) {
+        if (
+          animation instanceof CSSAnimation &&
+          animation.animationName.startsWith('podium-arrive')
+        )
+          animation.finish()
+      }
+    })
+  }
+  await expect(arrival).toHaveAttribute('data-transition-phase', 'stable', {
+    timeout: 3_000,
+  })
+  const siblingAfter = await siblingRow.boundingBox()
+  if (!siblingAfter) throw new Error('motion sibling disappeared after arrival')
+  expect(siblingAfter.y).toBeGreaterThan(siblingBefore.y + 20)
+
+  await rpc(request, 'issues.close', { id: moving, reason: 'done' })
+  await rpc(request, 'issues.markRead', { id: moving })
+  const departure = project
+    .locator('[data-transition-phase="exiting"]')
+    .filter({ hasText: movingTitle })
+    .first()
+  await expect(departure).toBeVisible({ timeout: 10_000 })
+  await expect(project.getByTestId('closed-fold-rows').getByText(movingTitle)).toHaveCount(0)
+  const departureNames = await departure.evaluate((element) =>
+    element
+      .getAnimations({ subtree: true })
+      .flatMap((animation) => (animation instanceof CSSAnimation ? [animation.animationName] : [])),
+  )
+  expect(departureNames).toEqual(expect.arrayContaining(['podium-depart-out', 'podium-depart-h']))
+  if (process.env.SIDEBAR_MOTION_DEPARTURE_SHOT)
+    await aside.screenshot({ path: process.env.SIDEBAR_MOTION_DEPARTURE_SHOT })
+
+  const closedArrival = project
+    .getByTestId('closed-fold-rows')
+    .locator('[data-transition-phase="entering"]')
+    .filter({ hasText: movingTitle })
+    .first()
+  await expect(closedArrival).toBeVisible({ timeout: 3_000 })
+  await expect(departure).toHaveCount(0)
+})

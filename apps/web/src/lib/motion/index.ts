@@ -12,3 +12,8 @@ export { PhaseTimer } from './PhaseTimer'
 export { StatusBadge, type StatusBadgeKind } from './StatusBadge'
 export { useArrivals } from './useArrivals'
 export { usePhaseMorph } from './usePhaseMorph'
+export {
+  type RowTransitionItem,
+  type RowTransitionTarget,
+  useRowTransitions,
+} from './useRowTransitions'

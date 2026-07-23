@@ -203,12 +203,13 @@
   animation: podium-lineage 1.6s ease-out;
 }
 
-/* Row arrival (POD-167, §5 'Arrive'): a NEW work row makes room (wrapper
-   height 0→auto — siblings slide down as a consequence, only the new element
-   animates), materializes (fade + 4px settle), and washes its issue tint out
-   over ~1s. Yellow is never used: arrival is information, not a request.
-   `interpolate-size` lets the height keyframe reach auto where supported;
-   elsewhere the height snaps and the fade/wash still carry the arrival. */
+/* Sidebar row flow (POD-167, POD-242): a NEW work row makes room first
+   (wrapper height 0→auto, moving existing rows), then materializes. Departure
+   reverses the factory motion: fade the old surface, collapse its space, and
+   only then allow a moved row to enter Closed. Yellow is never used: this
+   motion communicates structure, not a request. `interpolate-size` lets the
+   height keyframes reach auto where supported; elsewhere the height snaps and
+   the fade/wash still carry the transition. */
 @keyframes podium-arrive-h {
   from {
     height: 0;
@@ -231,16 +232,39 @@
     background: transparent;
   }
 }
+@keyframes podium-depart-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@keyframes podium-depart-h {
+  from {
+    height: auto;
+  }
+  to {
+    height: 0;
+  }
+}
 .row-arrive {
   overflow: hidden;
   interpolate-size: allow-keywords;
-  animation: podium-arrive-h 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: podium-arrive-h 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .row-arrive > * {
   border-radius: 7px;
   animation:
-    podium-arrive-in 0.3s 0.06s cubic-bezier(0.22, 1, 0.36, 1) backwards,
-    podium-arrive-wash 1.1s 0.1s ease-out backwards;
+    podium-arrive-in 0.3s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) backwards,
+    podium-arrive-wash 1.1s 0.1s ease-in-out backwards;
+}
+.row-depart {
+  overflow: hidden;
+  pointer-events: none;
+  interpolate-size: allow-keywords;
+  animation: podium-depart-h 0.32s 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.row-depart > * {
+  animation: podium-depart-out 0.16s ease-in forwards;
 }
 
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
@@ -270,6 +294,8 @@
   .morph-icon-flash,
   .morph-lineage,
   .row-arrive,
+  .row-depart,
+  .row-depart > *,
   .row-arrive > * {
     animation: none;
   }

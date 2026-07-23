@@ -78,7 +78,14 @@ import {
   unifiedWorkList,
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
-import { BrailleSpinner, PhaseTimer, useArrivals, usePhaseMorph } from '@/lib/motion'
+import {
+  BrailleSpinner,
+  PhaseTimer,
+  type RowTransitionItem,
+  type RowTransitionTarget,
+  usePhaseMorph,
+  useRowTransitions,
+} from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
@@ -601,17 +608,36 @@ function PinnedSectionLabel(): JSX.Element {
     </div>
   )
 }
+
+type WorkPlacement =
+  | {
+      lane: 'pinned' | 'open'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedWorkRow
+    }
+  | {
+      lane: 'closed'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedIssueRowView
+    }
+
+type TransitionWorkRow = RowTransitionItem<WorkPlacement>
+
 /** Project-local disclosure for settled top-level closures (POD-183). Rows are
  * derived newest-closed-first; Archive is the explicit removal gesture. */
-function ClosedIssueFold({
+function ClosedIssueFold<T>({
   groupKey,
   rows,
   renderRow,
+  issueForRow,
   onArchive,
 }: {
   groupKey: string
-  rows: UnifiedIssueRowView[]
-  renderRow: (row: UnifiedIssueRowView) => JSX.Element
+  rows: T[]
+  renderRow: (row: T) => JSX.Element
+  issueForRow: (row: T) => UnifiedIssueRowView
   onArchive: (id: string) => void
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:closed-fold:${groupKey}`, true)
@@ -636,29 +662,32 @@ function ClosedIssueFold({
       </button>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
-          {rows.map((row) => (
-            <div
-              key={row.issue.id}
-              className="group/closed relative min-w-0"
-              data-testid="closed-fold-row"
-            >
-              {renderRow(row)}
-              <button
-                type="button"
-                className="absolute top-1.5 right-1 z-20 flex size-6 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
-                aria-label={`Archive ${issueDisplayRef(row.issue)}`}
-                title="Archive — remove from sidebar"
-                data-testid="closed-issue-archive"
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  onArchive(row.issue.id)
-                }}
+          {rows.map((row) => {
+            const issueRow = issueForRow(row)
+            return (
+              <div
+                key={issueRow.issue.id}
+                className="group/closed relative min-w-0"
+                data-testid="closed-fold-row"
               >
-                <Archive size={12} aria-hidden="true" />
-              </button>
-            </div>
-          ))}
+                {renderRow(row)}
+                <button
+                  type="button"
+                  className="absolute top-1.5 right-1 z-20 flex size-6 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
+                  aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
+                  title="Archive — remove from sidebar"
+                  data-testid="closed-issue-archive"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onArchive(issueRow.issue.id)
+                  }}
+                >
+                  <Archive size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -875,17 +904,54 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     )
   }, [selectedIssueId])
 
-  // Row arrival one-shot (POD-167): keys derived BEFORE the pinned split, so a
-  // pin/unpin move (key stays present) never re-arrives — only genuinely new
-  // rows animate, and never on a fresh mount.
-  const workKeys = useMemo(
+  const { pinned, rest } = useMemo(() => splitPinnedWork(work), [work])
+  const targetGroups = useMemo(
     () =>
-      work.map((row) =>
-        row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+      groupUnifiedWorkRows(
+        rest,
+        selectedIssueId,
+        selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded,
       ),
-    [work],
+    [rest, selectedClosedPlacement, selectedIssueId],
   )
-  const { arrivals, settle } = useArrivals(workKeys)
+  const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
+    () => [
+      ...pinned.map((row) => ({
+        key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+        placement: 'active',
+        value: {
+          lane: 'pinned' as const,
+          groupKey: 'pinned',
+          groupLabel: 'Pinned',
+          row,
+        },
+      })),
+      ...targetGroups.flatMap((group) => [
+        ...group.rows.map((row) => ({
+          key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+          placement: 'active',
+          value: {
+            lane: 'open' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+        ...group.closedRows.map((row) => ({
+          key: `issue:${row.issue.id}`,
+          placement: `closed:${group.key}`,
+          value: {
+            lane: 'closed' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+      ]),
+    ],
+    [pinned, targetGroups],
+  )
+  const { items: transitionRows, settle } = useRowTransitions(transitionTargets)
 
   // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
   // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
@@ -922,9 +988,10 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     settleDrag()
   }, [work, settleDrag])
 
-  const renderWorkRow = (row: UnifiedWorkRow, folded = false) => {
-    const key = row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`
-    const arriving = arrivals.has(key)
+  const renderWorkRow = (item: TransitionWorkRow) => {
+    const { row, lane } = item.value
+    const folded = lane === 'closed'
+    const arriving = item.phase === 'entering'
     const inner =
       row.kind === 'issue' ? (
         <UnifiedIssueRow
@@ -961,17 +1028,20 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       )
     return (
       <div
-        key={key}
+        key={`${item.key}:${item.placement}`}
         {...(row.kind === 'issue' ? { 'data-drag-key': row.issue.id } : {})}
         className={cn(
           'min-w-0',
           arriving && 'row-arrive',
+          item.phase === 'exiting' && 'row-depart',
           folded &&
             'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
         )}
         style={
           arriving && row.kind === 'issue'
-            ? ({ '--arrive-tint': issueColorHex(row.issue.color) } as CSSProperties)
+            ? ({
+                '--arrive-tint': issueColorHex(row.issue.color),
+              } as CSSProperties)
             : undefined
         }
         onAnimationEnd={
@@ -979,18 +1049,39 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             ? (e) => {
                 // The wash is the longest of the three one-shots — its end (which
                 // bubbles up from the row) means the arrival is fully over.
-                if (e.animationName === 'podium-arrive-wash') settle(key)
+                if (e.animationName === 'podium-arrive-wash') settle(item.key, item.placement)
               }
             : undefined
         }
-        data-arriving={arriving ? 'true' : undefined}
+        data-transition-phase={item.phase}
       >
         {inner}
       </div>
     )
   }
 
-  if (work.length === 0) {
+  const renderedPinned = transitionRows.filter((item) => item.value.lane === 'pinned')
+  const renderedGroupKeys = targetGroups.map((group) => group.key)
+  for (const item of transitionRows) {
+    if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
+      renderedGroupKeys.push(item.value.groupKey)
+  }
+  const renderedGroups = renderedGroupKeys.map((groupKey) => {
+    const target = targetGroups.find((group) => group.key === groupKey)
+    const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
+    return {
+      key: groupKey,
+      label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
+      rows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'open',
+      ),
+      closedRows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'closed',
+      ),
+    }
+  })
+
+  if (transitionRows.length === 0) {
     return (
       <div className="p-3 text-xs text-muted-foreground/70">
         Nothing yet — start an agent or create an issue above.
@@ -999,37 +1090,36 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   }
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
-  const { pinned, rest } = splitPinnedWork(work)
   return (
     <>
-      {pinned.length > 0 && (
+      {renderedPinned.length > 0 && (
         <div
           className="flex min-w-0 flex-col gap-[3px]"
           data-testid="pinned-section"
           data-drag-scope="pinned"
         >
           <PinnedSectionLabel />
-          {pinned.map((row) => renderWorkRow(row))}
+          {renderedPinned.map(renderWorkRow)}
         </div>
       )}
-      {groupUnifiedWorkRows(
-        rest,
-        selectedIssueId,
-        selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded,
-      ).map((group, index) => (
+      {renderedGroups.map((group, index) => (
         <div
           key={group.key}
           className="flex min-w-0 flex-col gap-[3px]"
           data-testid="project-group"
           data-drag-scope={`group:${group.key}`}
         >
-          <ProjectGroupLabel label={group.label} first={index === 0 && pinned.length === 0} />
-          {group.rows.map((row) => renderWorkRow(row))}
+          <ProjectGroupLabel
+            label={group.label}
+            first={index === 0 && renderedPinned.length === 0}
+          />
+          {group.rows.map(renderWorkRow)}
           {group.closedRows.length > 0 && (
             <ClosedIssueFold
               groupKey={group.key}
               rows={group.closedRows}
-              renderRow={(row) => renderWorkRow(row, true)}
+              renderRow={renderWorkRow}
+              issueForRow={(item) => item.value.row as UnifiedIssueRowView}
               onArchive={archiveIssue}
             />
           )}
