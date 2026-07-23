@@ -19,7 +19,10 @@ export const DISPLAY_KEY = 'podium.issues.display'
 
 export const DEFAULT_DISPLAY: IssuesDisplay = {
   layout: 'board',
-  ordering: 'updated',
+  // Priority-first by default: the board's job is triage, so the most urgent
+  // work sits at the top of each stage column. `updated` also churned the
+  // columns every time an agent touched an issue; priority + seq holds still.
+  ordering: 'priority',
   flatten: false,
   showAgentTasks: false,
   badges: { labels: true, type: true, estimate: true, due: true, sessions: true },

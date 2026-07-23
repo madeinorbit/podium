@@ -23,8 +23,15 @@ describe('readIssuesDisplay', () => {
     expect(readIssuesDisplay(JSON.stringify({ layout: 'gantt' })).layout).toBe('board')
   })
   it('round-trips through write', () => {
-    const d = { ...DEFAULT_DISPLAY, layout: 'list' as const, ordering: 'priority' as const }
+    const d = { ...DEFAULT_DISPLAY, layout: 'list' as const, ordering: 'created' as const }
     expect(readIssuesDisplay(writeIssuesDisplay(d))).toEqual(d)
+  })
+  it('defaults the board to priority ordering', () => {
+    expect(DEFAULT_DISPLAY.ordering).toBe('priority')
+    expect(readIssuesDisplay(null).ordering).toBe('priority')
+  })
+  it('keeps an explicitly persisted ordering over the default', () => {
+    expect(readIssuesDisplay(JSON.stringify({ ordering: 'updated' })).ordering).toBe('updated')
   })
 })
 
