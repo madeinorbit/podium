@@ -121,7 +121,7 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await openShell(page)
   const row = page.getByTestId('unified-issue-row').filter({ hasText: title }).first()
   await expect(row).toBeVisible({ timeout: 30_000 })
-  await expect(row.locator('[data-phase]')).toHaveAttribute('data-phase', 'waiting')
+  await expect(row.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'waiting')
   await expect(row.getByRole('img', { name: '1 waiting on you' })).toBeVisible()
   const chip = row.getByTestId('awaiting-merge-status')
   await expect(chip).toHaveText('ready to merge')
