@@ -398,6 +398,25 @@ describe('tray filtering (human-actionable only)', () => {
     expect(cards?.className).not.toContain('max-h-[42vh]')
   })
 
+  it('folding the chat gives the tray the column and ONE scroller (POD-288)', async () => {
+    uiStateMap.set('podium:superagent:chat', 'false')
+    // A persisted split height belongs to the tray/chat split — it must not
+    // cap the tray once there is no chat below it.
+    uiStateMap.set('podium:tray:height', '200')
+    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
+    await mount()
+    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
+    expect(cards?.className).toContain('flex-1')
+    expect(cards?.className).toContain('overflow-y-auto')
+    expect(cards?.className).not.toContain('max-h-[42vh]')
+    expect(cards?.style.maxHeight).toBe('')
+    // The wrapper grows but never scrolls — nesting a second scroll container
+    // around the card stack is what broke the wheel.
+    const body = cards?.parentElement
+    expect(body?.className).toContain('flex-1')
+    expect(body?.className).not.toContain('overflow-y-auto')
+  })
+
   it('clicking a tray card focuses its native agent tab', async () => {
     storeIssues = [
       makeIssue({

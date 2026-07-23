@@ -52,6 +52,7 @@ export function Tray({
   selectedIssueId,
   actions,
   maxHeight,
+  fill = false,
   dismissedOffers,
 }: {
   issues: IssueWire[]
@@ -60,8 +61,13 @@ export function Tray({
   actions: TrayActions
   /** Set by the tray/chat split handle; null = a default viewport-relative
    *  cap applies instead (the tray must never push the rest of the column
-   *  off screen [POD-198]). */
+   *  off screen [POD-198]). Ignored when `fill` is set. */
   maxHeight: number | null
+  /** The chat section is folded, so the tray owns the whole column below its
+   *  bar: grow into it and be the ONE scroller. Any cap here would leave dead
+   *  space under the cards and stack a second scroll container inside the
+   *  parent's (POD-288). */
+  fill?: boolean
   /** Offer cards optimistically consumed by a click (derive-tray offerKey). */
   dismissedOffers?: ReadonlySet<string>
 }): JSX.Element {
@@ -113,15 +119,17 @@ export function Tray({
     <div
       data-testid="tray-cards"
       className={cn(
-        'flex flex-none flex-col gap-2.5 overflow-y-auto px-3.5 pt-3 pb-3.5',
+        'flex flex-col gap-2.5 overflow-y-auto px-3.5 pt-3 pb-3.5',
+        // Chat folded → take the column, no cap (POD-288).
+        fill ? 'min-h-0 flex-1' : 'flex-none',
         // No split-handle height → a static viewport-relative cap [POD-198]:
         // the card stack scrolls internally instead of pushing the chat and
         // section bars off screen. A CSS max-height, never animated (the
         // repo's height-transition trap); ArrivalWrap's grid-rows unfold
         // works unchanged inside the scroll container.
-        maxHeight === null && 'max-h-[42vh]',
+        !fill && maxHeight === null && 'max-h-[42vh]',
       )}
-      style={maxHeight !== null ? { maxHeight } : undefined}
+      style={!fill && maxHeight !== null ? { maxHeight } : undefined}
     >
       {items.map((item) => {
         const key = itemKey(item)

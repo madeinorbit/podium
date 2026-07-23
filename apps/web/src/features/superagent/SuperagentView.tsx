@@ -344,16 +344,18 @@ export function SuperagentView({
           {trayOpen && (
             <div
               ref={trayBodyRef}
-              className={cn(
-                'min-h-0',
-                chatOpen ? 'flex-none' : 'flex flex-1 flex-col overflow-y-auto',
-              )}
+              // Chat folded: the tray owns the rest of the column and is the
+              // only scroller in it. This wrapper must NOT scroll too — a
+              // second scroll container here swallowed the wheel and left the
+              // card stack capped at its split height (POD-288).
+              className={cn('min-h-0', chatOpen ? 'flex-none' : 'flex flex-1 flex-col')}
             >
               <Tray
                 issues={issues}
                 selectedIssueId={selectedIssueId ?? null}
                 actions={trayActions}
                 maxHeight={chatOpen ? trayHeight : null}
+                fill={!chatOpen}
                 dismissedOffers={dismissedOffers}
               />
             </div>
