@@ -52,6 +52,68 @@ test('optimistic spawn paints one draft row and reconciles to a single live sess
   await page.waitForTimeout(5_000)
   expect(await rows()).toBe(before + 1)
 
+  // Runtime motion: a second task must enter at the TOP of the existing project
+  // group while the settled first row moves down through intermediate positions.
+  const settled = aside.locator('[data-testid="project-group"] > [data-drag-key]').first()
+  await expect(settled).toBeVisible({ timeout: 10_000 })
+  await settled.evaluate((oldRow) => {
+    const group = oldRow.closest<HTMLElement>('[data-testid="project-group"]')
+    if (!group) throw new Error('settled row has no project group')
+    const probe = {
+      beforeY: oldRow.getBoundingClientRect().y,
+      firstIsArriving: false,
+      easing: [] as string[],
+      frames: [] as number[],
+      started: false,
+    }
+    const observer = new MutationObserver(() => {
+      const arriving = group.querySelector<HTMLElement>(':scope > [data-arriving="true"]')
+      if (!arriving || probe.started) return
+      probe.started = true
+      probe.firstIsArriving = group.querySelector(':scope > [data-drag-key]') === arriving
+      probe.easing = [getComputedStyle(arriving).animationTimingFunction]
+      const sample = () => {
+        probe.frames.push(oldRow.getBoundingClientRect().y)
+        if (probe.frames.length < 30) requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    })
+    observer.observe(group, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-arriving'],
+    })
+    ;(window as unknown as { __arrivalProbe: typeof probe }).__arrivalProbe = probe
+  })
+
+  await splitMain.click()
+  await page.waitForFunction(
+    () =>
+      ((window as unknown as { __arrivalProbe?: { frames: number[] } }).__arrivalProbe?.frames
+        .length ?? 0) >= 20,
+    undefined,
+    { timeout: 5_000 },
+  )
+  const probe = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __arrivalProbe: {
+            beforeY: number
+            firstIsArriving: boolean
+            easing: string[]
+            frames: number[]
+          }
+        }
+      ).__arrivalProbe,
+  )
+  expect(probe.firstIsArriving).toBe(true)
+  expect(probe.easing).toContain('cubic-bezier(0.4, 0, 0.2, 1)')
+  const finalY = probe.frames.at(-1) ?? probe.beforeY
+  expect(finalY).toBeGreaterThan(probe.beforeY + 10)
+  expect(probe.frames.some((y) => y > probe.beforeY + 1 && y < finalY - 1)).toBe(true)
+
   // Opening the pane for an optimistic (initially server-unknown) session, and
   // rendering a fully-synthetic starting SessionMeta, must not crash anything.
   expect(pageErrors, `uncaught page errors:\n${pageErrors.join('\n')}`).toEqual([])

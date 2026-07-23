@@ -10,7 +10,7 @@
  * A key that leaves the list and later returns (issue reopened, unsnoozed)
  * arrives again — departure prunes it from the seen set.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 export function useArrivals(keys: readonly string[]): {
   /** Keys whose rows should currently wear the arrival animation. */
@@ -24,7 +24,10 @@ export function useArrivals(keys: readonly string[]): {
   // StrictMode's double render).
   if (seen.current === null) seen.current = new Set(keys)
   const [arrivals, setArrivals] = useState<ReadonlySet<string>>(() => new Set())
-  useEffect(() => {
+  /* Commit the arrival mark before the browser paints the newly inserted row.
+   * A passive effect exposes one full-height frame, then collapses the row and
+   * makes it appear to jump before its entrance begins. */
+  useLayoutEffect(() => {
     const present = new Set(keys)
     const known = seen.current!
     const fresh = keys.filter((k) => !known.has(k))
