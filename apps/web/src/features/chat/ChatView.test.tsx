@@ -47,6 +47,20 @@ const fakeTrpc = {
 
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
+const fakeUiValues = new Map<string, string>()
+const fakeUiListeners = new Set<() => void>()
+const fakeUiState = {
+  get: (key: string) => fakeUiValues.get(key) ?? null,
+  set: (key: string, value: string | null) => {
+    if (value === null) fakeUiValues.delete(key)
+    else fakeUiValues.set(key, value)
+    for (const listener of fakeUiListeners) listener()
+  },
+  subscribe: (listener: () => void) => {
+    fakeUiListeners.add(listener)
+    return () => fakeUiListeners.delete(listener)
+  },
+}
 
 // Inert replica stub — the offline-copy path has its own suite (ChatView.offline.test.tsx).
 const fakeReplica = {
@@ -72,6 +86,7 @@ vi.mock('@/app/store', () => {
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
+    uiState: fakeUiState,
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -124,6 +139,8 @@ beforeEach(() => {
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
   storeDrafts = {}
+  fakeUiValues.clear()
+  fakeUiListeners.clear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -257,7 +274,7 @@ describe('ChatView read-then-subscribe', () => {
     expect(fakeHub.subscribes).toHaveLength(1)
   })
 
-  it('sticks and jumps to the latest user row after collapsed tool blocks', async () => {
+  it('makes the real operator row sticky after collapsed tools but excludes delivered mail', async () => {
     act(() => {
       root.render(<ChatView sessionId="s1" />)
     })
@@ -297,32 +314,43 @@ This is agent mail, not the operator's latest prompt.
     // Two transcript tool blocks collapse into row 0, so the user block at
     // block index 2 is rendered as row 1. Sticky lookup must use that row index.
     expect(userRow.dataset.block).toBe('1')
-    const scroller = userRow.parentElement as HTMLDivElement
-    Object.defineProperties(scroller, {
-      scrollHeight: { configurable: true, value: 1000 },
-      clientHeight: { configurable: true, value: 500 },
-    })
-    scroller.scrollTop = 250
-    scroller.getBoundingClientRect = () => ({ top: 100 }) as DOMRect
-    userRow.getBoundingClientRect = () => ({ bottom: 140 }) as DOMRect
-
-    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    expect(userRow.dataset.operatorPrompt).toBe('true')
+    expect(userRow.className).toContain('sticky')
+    expect(userRow.className).toContain('motion-reduce:transition-none')
     expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
 
-    userRow.getBoundingClientRect = () => ({ bottom: 90 }) as DOMRect
-    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
-    const sticky = container.querySelector<HTMLButtonElement>('[data-testid="sticky-user-message"]')
-    expect(sticky?.textContent).toContain('LATEST PROMPT after tools')
-    expect(sticky?.textContent).not.toContain('agent mail')
-    expect(sticky?.querySelector('.transcript-you')).not.toBeNull()
-    expect(sticky?.className).toContain('py-3')
-    expect(sticky?.className).toContain('duration-200')
-    expect(sticky?.className).toContain('motion-reduce:animate-none')
+    const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
+      el.textContent?.includes('This is agent mail'),
+    )
+    expect(mailRow).toBeDefined()
+    expect(mailRow?.dataset.operatorPrompt).toBeUndefined()
+    expect(mailRow?.className).not.toContain('sticky')
+  })
 
-    const scrollIntoView = vi.fn()
-    userRow.scrollIntoView = scrollIntoView
-    act(() => sticky?.click())
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+  it('keeps operator prompts in normal flow when the device preference is disabled', async () => {
+    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    act(() => {
+      root.render(<ChatView sessionId="s1" />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [
+          { id: 'u1', cursor: 'c1', role: 'user', text: 'NON STICKY PROMPT' },
+          item('a1', 'c2', 'answer'),
+        ],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    const userRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
+      el.textContent?.includes('NON STICKY PROMPT'),
+    )
+    expect(userRow?.dataset.operatorPrompt).toBe('true')
+    expect(userRow?.className).not.toContain('sticky')
+    expect(userRow?.dataset.stuck).toBeUndefined()
   })
 })
 

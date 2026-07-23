@@ -1,7 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import type { HeadlessActivityEvent } from '@podium/protocol'
+import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -31,6 +31,7 @@ import { useVoiceInput } from '@/lib/voice'
 import { ChatBlockView } from './ChatBlockView'
 import {
   blockMatches,
+  type ChatRow,
   type PendingItem,
   type QueuedChatMessage,
   queuedOperatorMessages,
@@ -43,6 +44,7 @@ import { Minimap } from './Minimap'
 import { parseMessageEnvelope } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
+import { useStickyPromptsPreference } from './sticky-prompts'
 import { ToolBatchView } from './ToolBatchView'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
 
@@ -70,6 +72,20 @@ type Attachment = {
   previewUrl: string
   path?: string
   state: 'uploading' | 'ready' | 'failed'
+}
+
+function isOperatorPrompt(item: TranscriptItem, collapseMachineContext: boolean): boolean {
+  return (
+    item.role === 'user' &&
+    item.event !== 'interrupt' &&
+    !!item.text.trim() &&
+    !(collapseMachineContext && MACHINE_CONTEXT_RE.test(item.text)) &&
+    parseMessageEnvelope(item.text) === null
+  )
+}
+
+function isOperatorPromptRow(row: ChatRow, collapseMachineContext: boolean): boolean {
+  return row.kind === 'block' && isOperatorPrompt(row.block.item, collapseMachineContext)
 }
 
 /** The superagent thread an embedded (headless) ChatView fronts: sends route to
@@ -188,8 +204,7 @@ export function ChatView({
   }, [hub, sessionId, headless, initialTurnRunning])
   // Full-screen image preview (SendUserFile / image tags), null when closed.
   const [lightbox, setLightbox] = useState<string | null>(null)
-  // Whether the last user prompt is stuck to the top (scrolled up past it).
-  const [showStickyUser, setShowStickyUser] = useState(false)
+  const stickyPrompts = useStickyPromptsPreference()
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -288,24 +303,6 @@ export function ChatView({
     })
     return last
   }, [blocks, session?.status])
-  // The most recent OPERATOR prompt (block index → sticky header that keeps it
-  // in view while reading the answer; text → tl;dr context) and the latest
-  // answer. Delivered Podium mail is represented as a user transcript item so
-  // the harness receives it, but ChatBlockView renders it as an envelope rather
-  // than a "You" turn; it must not displace the human's sticky prompt either.
-  const lastUserBlockIndex = useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const it = blocks[i]?.item
-      if (!it || it.role !== 'user' || it.event === 'interrupt' || !it.text.trim()) continue
-      // Headless: machine-authored context blocks render collapsed — they are
-      // not "the user's last prompt" for the sticky header / tl;dr context.
-      if (headless && MACHINE_CONTEXT_RE.test(it.text)) continue
-      if (parseMessageEnvelope(it.text)) continue
-      return i
-    }
-    return -1
-  }, [blocks, headless])
-  const lastUserText = lastUserBlockIndex >= 0 ? (blocks[lastUserBlockIndex]?.item.text ?? '') : ''
   // Compact (superagent column): the latest ANSWER block carries the
   // "· POD-x context" label suffix for the issue the turn rode in with.
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
@@ -338,8 +335,86 @@ export function ChatView({
     })
     return m
   }, [rows])
-  const lastUserRowIndex = lastUserBlockIndex >= 0 ? blockToRow.get(lastUserBlockIndex) : undefined
   const activeRow = activeMatch !== undefined ? blockToRow.get(activeMatch) : undefined
+
+  // Keep the closest operator prompt above the bounded DOM window mounted as a
+  // one-row continuation. It participates in the same native sticky/push
+  // behavior as ordinary rows, preserving context for very long answers without
+  // expanding the full virtualized transcript.
+  const rowsToRender = useMemo(() => {
+    const out: { row: ChatRow; index: number }[] = []
+    if (stickyPrompts.enabled && renderStart > 0) {
+      for (let i = renderStart - 1; i >= 0; i--) {
+        const row = rows[i]
+        if (row && isOperatorPromptRow(row, headless)) {
+          out.push({ row, index: i })
+          break
+        }
+      }
+    }
+    visibleRows.forEach((row, ri) => {
+      out.push({ row, index: renderStart + ri })
+    })
+    return out
+  }, [headless, renderStart, rows, stickyPrompts.enabled, visibleRows])
+
+  // Native sticky positioning keeps the real prompt row in the transcript.
+  // As the next prompt approaches, translate the current row by exactly the
+  // overlap so the two turns hand off rather than stack on top of one another.
+  // Reading geometry before writing styles keeps the scroll path free of
+  // forced layout loops; transform intentionally has no transition because it
+  // must remain locked to the user's scroll position.
+  const syncStickyPromptPositions = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const prompts = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+    )
+
+    if (!stickyPrompts.enabled) {
+      for (const prompt of prompts) {
+        prompt.style.removeProperty('transform')
+        prompt.style.removeProperty('visibility')
+        delete prompt.dataset.stuck
+      }
+      return
+    }
+
+    const scrollerTop = scroller.getBoundingClientRect().top
+    const stickyTop = scrollerTop + (Number.parseFloat(getComputedStyle(scroller).paddingTop) || 0)
+    let activeIndex = -1
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i]
+      if (prompt && prompt.getBoundingClientRect().top <= stickyTop + 1) activeIndex = i
+    }
+
+    const activePrompt = activeIndex >= 0 ? prompts[activeIndex] : undefined
+    const nextPrompt = activeIndex >= 0 ? prompts[activeIndex + 1] : undefined
+    const pushY =
+      activePrompt && nextPrompt
+        ? Math.min(
+            0,
+            nextPrompt.getBoundingClientRect().top - stickyTop - activePrompt.offsetHeight,
+          )
+        : 0
+
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i]
+      if (!prompt) continue
+      const isActive = i === activeIndex
+      prompt.style.visibility = i < activeIndex ? 'hidden' : ''
+      prompt.style.transform = isActive && pushY < 0 ? `translateY(${pushY}px)` : ''
+      if (isActive) prompt.dataset.stuck = 'true'
+      else delete prompt.dataset.stuck
+    }
+  }, [stickyPrompts.enabled])
+
+  // Reconcile after row-window changes before paint, including when the
+  // continuation prompt is mounted for a virtualized long answer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: row-window and active-panel changes require a fresh DOM geometry pass
+  useLayoutEffect(() => {
+    syncStickyPromptPositions()
+  }, [active, rowsToRender, syncStickyPromptPositions])
 
   // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
   // keyed by sessionId like the desktop tabs are), so reset per-session local UI
@@ -414,8 +489,11 @@ export function ChatView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the block list grows
   useEffect(() => {
     const el = scrollerRef.current
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
-  }, [blocks.length])
+    if (el && pinnedToBottom.current) {
+      el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
+    }
+  }, [blocks.length, syncStickyPromptPositions])
   // Scroll-anchor for prepends: after older blocks are inserted at the top (window
   // widened or a disk page prepended), the content the user was reading shifts down
   // by the inserted height. Re-pin scrollTop by that delta BEFORE paint so the view
@@ -461,10 +539,11 @@ export function ChatView({
     if (!el) return
     const ro = new ResizeObserver(() => {
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [syncStickyPromptPositions])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane
@@ -474,8 +553,11 @@ export function ChatView({
   useEffect(() => {
     if (!active) return
     const el = scrollerRef.current
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
-  }, [active])
+    if (el && pinnedToBottom.current) {
+      el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
+    }
+  }, [active, syncStickyPromptPositions])
 
   const onScroll = () => {
     const el = scrollerRef.current
@@ -483,7 +565,7 @@ export function ChatView({
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     pinnedToBottom.current = near
     setAtBottom(near)
-    recomputeStickyUser()
+    syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
     if (el.scrollTop < 200 && moreAbove) loadOlder()
   }
@@ -493,41 +575,8 @@ export function ChatView({
     pinnedToBottom.current = true
     el.scrollTop = el.scrollHeight
     setAtBottom(true)
+    syncStickyPromptPositions()
   }
-
-  // Sticky last-user header: keep the latest prompt pinned at the top while
-  // reading the answer below it. Show it ONLY once it has scrolled out the TOP of
-  // the viewport (you scrolled down toward newer content). If it's still visible,
-  // or scrolled out the BOTTOM (you scrolled up toward older content), hide it.
-  const recomputeStickyUser = () => {
-    const el = scrollerRef.current
-    if (!el || lastUserRowIndex === undefined) {
-      setShowStickyUser(false)
-      return
-    }
-    // [data-block] is a ROW index, not a transcript-block index. Consecutive
-    // tool blocks collapse into one row, so using lastUserBlockIndex here can
-    // target an unrelated row (or no row at all). If the prompt has fallen
-    // above the bounded render window, it is necessarily above the viewport and
-    // should remain represented by the sticky copy.
-    if (lastUserRowIndex < renderStart) {
-      setShowStickyUser(true)
-      return
-    }
-    const node = el.querySelector<HTMLElement>(`[data-block="${lastUserRowIndex}"]`)
-    if (!node) {
-      setShowStickyUser(false)
-      return
-    }
-    const top = el.getBoundingClientRect().top
-    setShowStickyUser(node.getBoundingClientRect().bottom <= top + 1)
-  }
-  // Re-evaluate stickiness when the list grows (new answer pushes the prompt up
-  // while pinned to bottom) or the active prompt changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute on list/prompt change
-  useEffect(() => {
-    recomputeStickyUser()
-  }, [blocks.length, lastUserRowIndex, renderStart, active])
 
   const processFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))
@@ -602,17 +651,6 @@ export function ChatView({
     scrollerRef.current
       ?.querySelector(`[data-block="${index}"]`)
       ?.scrollIntoView({ block: 'center' })
-  }
-  const jumpToLastUser = () => {
-    if (lastUserRowIndex === undefined) return
-    if (lastUserRowIndex < renderStart) {
-      // Reveal the row first when the latest prompt has fallen above the bounded
-      // DOM window, then jump once React has mounted it.
-      setRenderCount(rows.length - lastUserRowIndex + RENDER_WINDOW)
-      requestAnimationFrame(() => scrollToBlock(lastUserRowIndex))
-      return
-    }
-    scrollToBlock(lastUserRowIndex)
   }
   // Jump to the active search match. A match can sit ABOVE the rendered window
   // (search runs over all loaded blocks, the DOM holds only the trailing window),
@@ -943,41 +981,6 @@ export function ChatView({
         </div>
       )}
       <div className="relative flex min-h-0 flex-1">
-        {/* Sticky last-operator prompt: stays pinned at the top while reading
-            the answer once its original row has scrolled out of view. It uses
-            the same elevated card language as the real turn so it remains a
-            recognizable prompt, rather than turning into a toolbar strip. */}
-        {showStickyUser && lastUserText && (
-          <button
-            type="button"
-            onClick={jumpToLastUser}
-            title="Jump to this message"
-            data-testid="sticky-user-message"
-            className={cn(
-              'group absolute top-0 right-[18px] left-0 z-[3] cursor-pointer bg-background/90 text-left outline-none backdrop-blur-sm',
-              'animate-in fade-in-0 slide-in-from-top-2 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none',
-              compact ? 'px-3.5 py-2' : 'px-5 py-3',
-            )}
-          >
-            <span className="transcript-you mx-auto block w-full max-w-[960px] transition-[border-color,background-color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-info/35 group-focus-visible:border-ring group-focus-visible:ring-2 group-focus-visible:ring-ring/40 group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background group-active:translate-y-px motion-reduce:transition-none">
-              <span className="transcript-you-label">
-                You
-                <span className="ml-auto inline-flex items-center gap-1 text-[8px] tracking-normal text-muted-foreground/65 normal-case opacity-60 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none">
-                  Jump to prompt
-                  <ArrowUp size={10} aria-hidden="true" />
-                </span>
-              </span>
-              <span
-                className={cn(
-                  'block whitespace-pre-wrap text-[13.5px] leading-relaxed font-medium text-foreground',
-                  compact ? 'line-clamp-4' : 'line-clamp-6',
-                )}
-              >
-                {lastUserText}
-              </span>
-            </span>
-          </button>
-        )}
         <div
           className={cn(
             'flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto',
@@ -1031,10 +1034,9 @@ export function ChatView({
               )}
             </button>
           )}
-          {visibleRows.map((row, ri) => {
-            // Absolute row index into `rows` so the minimap/search (activeRow) and
-            // [data-block] line up with the full loaded list, not just the window.
-            const idx = renderStart + ri
+          {rowsToRender.map(({ row, index: idx }) => {
+            // Absolute row index into `rows` keeps minimap/search and
+            // [data-block] aligned even for the one-row sticky continuation.
             return row.kind === 'tools' ? (
               <ToolBatchView
                 // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
@@ -1071,6 +1073,7 @@ export function ChatView({
                 collapseContext={headless}
                 compact={compact}
                 ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
+                stickyOperator={stickyPrompts.enabled && isOperatorPromptRow(row, headless)}
               />
             )
           })}

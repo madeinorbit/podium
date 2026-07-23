@@ -97,6 +97,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   collapseContext = false,
   compact = false,
   ctxSeq = null,
+  stickyOperator = false,
 }: {
   block: ChatBlock
   index: number
@@ -120,6 +121,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** Issue seq the LATEST turn was answered with (compact only) — renders the
    *  `· POD-x context` suffix on that answer's SUPER AGENT label. */
   ctxSeq?: number | null
+  /** True for an operator-authored row while the device-local sticky-prompt
+   * preference is enabled. The row itself sticks; no duplicate header. */
+  stickyOperator?: boolean
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -147,6 +151,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   )
   const rowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
+    stickyOperator &&
+      'sticky top-0 z-[3] transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[stuck=true]:bg-background/90 data-[stuck=true]:backdrop-blur-sm motion-reduce:transition-none',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
@@ -309,7 +315,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   const isAnswer = item.role === 'assistant' && !!item.answer
 
   return (
-    <div className={rowClass} data-block={index}>
+    <div className={rowClass} data-block={index} data-operator-prompt={isUser ? 'true' : undefined}>
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div
         className={cn(

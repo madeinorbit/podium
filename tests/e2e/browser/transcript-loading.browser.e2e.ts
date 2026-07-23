@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
-import { newSession, openApp } from './_harness'
+import { gotoWorkspace, newSession, openApp } from './_harness'
 
 /**
  * Runtime proof of the transcript-loading re-architecture (Task G1).
@@ -54,7 +54,10 @@ async function bindTranscript(sessionId: string, transcriptPath: string): Promis
     .poll(async () => {
       const files = await readdir(HOOKS_DIR).catch(() => [])
       for (const file of files) {
-        const settings = await readFile(join(HOOKS_DIR, file), 'utf8')
+        // The hooks root may also contain per-session directories; only the
+        // JSON settings files carry a callable hook URL.
+        const settings = await readFile(join(HOOKS_DIR, file), 'utf8').catch(() => null)
+        if (!settings) continue
         baseUrl = settings.match(/"url":\s*"([^"]+\/hooks\/[^"]+)"/)?.[1]
         if (baseUrl) break
       }
@@ -195,20 +198,24 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   ).toHaveCount(0)
 })
 
-test('latest user prompt sticks after collapsed tools and jumps back on click', async ({
+test('operator prompts stick in place, push one another, and respect the appearance setting', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 700 })
 
   const t = '2026-06-20T11:00:00.000Z'
-  const longAnswer = Array.from(
-    { length: 45 },
-    (_, i) => `STICKY_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
+  const firstAnswer = Array.from(
+    { length: 22 },
+    (_, i) => `FIRST_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
+  ).join('\n\n')
+  const secondAnswer = Array.from(
+    { length: 22 },
+    (_, i) => `SECOND_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
   ).join('\n\n')
   await seedTranscript('44444444-4444-4444-8444-444444444444', [
     toolUseRec('tool-call-record', t),
     toolResultRec('tool-result-record', t),
-    userRec('sticky-user', 'STICKY_USER_PROMPT keep this visible', t),
+    userRec('sticky-user', 'STICKY_FIRST_PROMPT keep this visible', t),
     userRec(
       'delivered-mail',
       `[podium message msg_sticky_e2e · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky_e2e]
@@ -216,7 +223,9 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
 [end podium message msg_sticky_e2e]`,
       t,
     ),
-    answerRec('sticky-answer', longAnswer, t),
+    answerRec('sticky-answer', firstAnswer, t),
+    userRec('sticky-user-2', 'STICKY_SECOND_PROMPT push the first away', t),
+    answerRec('sticky-answer-2', secondAnswer, t),
   ])
 
   await openApp(page)
@@ -234,59 +243,132 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(chatMode).toBeVisible({ timeout: 15_000 })
   await chatMode.click()
 
-  const promptRow = page
-    .locator('.transcript-row:visible')
-    .filter({ hasText: 'STICKY_USER_PROMPT keep this visible' })
-  await expect(promptRow).toBeAttached({ timeout: 15_000 })
   const scroller = page
     .locator('div.overflow-y-auto')
     .filter({ has: page.locator('.transcript-row') })
     .locator('visible=true')
     .first()
-  await scroller.evaluate((el) => {
-    el.scrollTop = el.scrollHeight
-  })
+  const firstPrompt = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'STICKY_FIRST_PROMPT keep this visible' })
+  const secondPrompt = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'STICKY_SECOND_PROMPT push the first away' })
+  const deliveredMail = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'DELIVERED_AGENT_MAIL must not replace the operator prompt' })
+  await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
+  await expect(secondPrompt).toBeAttached()
+  await expect(firstPrompt).toHaveAttribute('data-operator-prompt', 'true')
+  await expect(secondPrompt).toHaveAttribute('data-operator-prompt', 'true')
+  await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
+  await expect(page.locator('[data-testid="sticky-user-message"]')).toHaveCount(0)
 
-  // The actual prompt has moved above the viewport, while its sticky copy keeps
-  // the last operator input visible. This failed when block index 2 was used to
-  // query a DOM keyed by collapsed row indices (the prompt is row 1).
+  // Start above the first prompt, then scroll its real row into the sticky
+  // boundary. There is no duplicate overlay: the same DOM row stops at the top.
+  await scroller.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  const geometry = await scroller.evaluate((el) => {
+    const prompts = Array.from(el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'))
+    const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
+    const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+    if (!first || !second) throw new Error('operator prompt rows not found')
+    return {
+      firstTop: first.offsetTop,
+      firstHeight: first.offsetHeight,
+      secondTop: second.offsetTop,
+    }
+  })
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top
+  }, geometry.firstTop + 24)
   await expect
     .poll(async () => {
-      const [prompt, viewport] = await Promise.all([
-        promptRow.boundingBox(),
-        scroller.boundingBox(),
-      ])
-      return !!prompt && !!viewport && prompt.y + prompt.height <= viewport.y + 1
+      return scroller.evaluate((el) => {
+        const prompt = el.querySelector<HTMLElement>('[data-operator-prompt="true"]')
+        if (!prompt) return false
+        const promptTop = prompt.getBoundingClientRect().top
+        const viewportTop = el.getBoundingClientRect().top
+        const inset = Number.parseFloat(getComputedStyle(el).paddingTop) || 0
+        return Math.abs(promptTop - (viewportTop + inset)) <= 2
+      })
     })
     .toBe(true)
-  const sticky = page.locator('[data-testid="sticky-user-message"]:visible')
-  await expect(sticky).toContainText('STICKY_USER_PROMPT keep this visible')
-  await expect(sticky).not.toContainText('DELIVERED_AGENT_MAIL')
-  await expect(sticky.locator('.transcript-you')).toBeVisible()
-  await expect(sticky).toHaveCSS('padding-top', '12px')
-  await expect(sticky).toHaveCSS('padding-bottom', '12px')
-  await expect(sticky).toHaveCSS('animation-duration', '0.2s')
 
-  // The one-shot settle is progressive enhancement: motion-sensitive users
-  // get the same sticky state without spatial movement.
+  // As the next operator turn arrives, it physically pushes the first row out;
+  // their edges meet during the handoff instead of the cards overlapping.
+  await scroller.evaluate((el, { secondTop, firstHeight }) => {
+    el.scrollTop = secondTop - firstHeight / 2
+  }, geometry)
+  await expect
+    .poll(async () => {
+      return scroller.evaluate((el) => {
+        const prompts = Array.from(
+          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+        )
+        const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
+        const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+        if (!first || !second) return false
+        const firstRect = first.getBoundingClientRect()
+        const secondRect = second.getBoundingClientRect()
+        const stickyTop =
+          el.getBoundingClientRect().top + (Number.parseFloat(getComputedStyle(el).paddingTop) || 0)
+        return (
+          firstRect.top < stickyTop &&
+          secondRect.top > stickyTop &&
+          Math.abs(firstRect.bottom - secondRect.top) <= 2
+        )
+      })
+    })
+    .toBe(true)
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top + 12
+  }, geometry.secondTop)
+  await expect
+    .poll(async () => {
+      return scroller.evaluate((el) => {
+        const prompts = Array.from(
+          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+        )
+        const prompt = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+        if (!prompt) return false
+        const promptTop = prompt.getBoundingClientRect().top
+        const stickyTop =
+          el.getBoundingClientRect().top + (Number.parseFloat(getComputedStyle(el).paddingTop) || 0)
+        return Math.abs(promptTop - stickyTop) <= 2
+      })
+    })
+    .toBe(true)
+
+  // The calm state transition is removed under reduced-motion; the scroll
+  // tracking itself remains direct and unanimated in every mode.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(sticky).toHaveCSS('animation-name', 'none')
+  await expect(secondPrompt).toHaveCSS('transition-property', 'none')
 
-  // Drive the real interaction too: clicking the sticky copy scrolls the real
-  // user row back into view.
-  await sticky.click()
+  // The default-on behavior can be disabled immediately in Appearance. Return
+  // to the same chat and prove the real prompt now scrolls away normally.
+  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Appearance', exact: true }).click()
+  const stickySwitch = settings.getByRole('switch', { name: 'Sticky prompts' })
+  await expect(stickySwitch).toBeChecked()
+  await stickySwitch.click()
+  await expect(stickySwitch).not.toBeChecked()
+  await settings.getByRole('button', { name: 'Back', exact: true }).click()
+  await gotoWorkspace(page)
+  await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
+  await expect(firstPrompt).not.toHaveClass(/\bsticky\b/)
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top + 24
+  }, geometry.firstTop)
   await expect
     .poll(async () => {
       const [prompt, viewport] = await Promise.all([
-        promptRow.boundingBox(),
+        firstPrompt.boundingBox(),
         scroller.boundingBox(),
       ])
-      return (
-        !!prompt &&
-        !!viewport &&
-        prompt.y + prompt.height > viewport.y &&
-        prompt.y < viewport.y + viewport.height
-      )
+      return !!prompt && !!viewport && prompt.y < viewport.y - 2
     })
     .toBe(true)
 })
