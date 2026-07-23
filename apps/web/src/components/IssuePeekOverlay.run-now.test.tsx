@@ -1,14 +1,15 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePeekOverlay } from './IssuePeekOverlay'
 
 // The drawer body is the full docked panel — not under test here.
 vi.mock('@/features/issues/IssuePanelView', () => ({
-  IssuePanelView: () => <div data-testid="panel-stub" />,
+  IssuePanelView: ({ issueId }: { issueId: string }) => (
+    <div data-testid="panel-stub" data-issue-id={issueId} />
+  ),
 }))
 
-const startMutate = vi.fn(async () => ({}))
 const state: { peekIssueId: string | null; issues: unknown[] } = {
   peekIssueId: null,
   issues: [],
@@ -16,7 +17,6 @@ const state: { peekIssueId: string | null; issues: unknown[] } = {
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    trpc: { issues: { start: { mutate: startMutate } } },
     peekIssueId: state.peekIssueId,
     setPeekIssueId: vi.fn(),
     issues: state.issues,
@@ -34,31 +34,27 @@ vi.mock('@/app/store', () => {
 
 afterEach(() => {
   cleanup()
-  startMutate.mockClear()
   state.peekIssueId = null
   state.issues = []
 })
 
-describe('IssuePeekOverlay Run now (POD-110)', () => {
-  it('offers Run now on a startable peeked issue and fires issues.start', () => {
+describe('IssuePeekOverlay compact shell', () => {
+  it('delegates issue identity and actions to the shared compact panel', () => {
     state.peekIssueId = 'i'
     state.issues = [makeIssue({ worktreePath: null, stage: 'backlog' })]
     render(<IssuePeekOverlay />)
-    fireEvent.click(screen.getByTestId('peek-run-now'))
-    expect(startMutate).toHaveBeenCalledWith({ id: 'i' })
-  })
 
-  it('hides Run now once the issue has a worktree', () => {
-    state.peekIssueId = 'i'
-    state.issues = [makeIssue()] // worktreePath set by default
-    render(<IssuePeekOverlay />)
+    expect(screen.getByText('Issue peek')).toBeTruthy()
+    expect(screen.getByTestId('panel-stub').getAttribute('data-issue-id')).toBe('i')
     expect(screen.queryByTestId('peek-run-now')).toBeNull()
   })
 
-  it('hides Run now on a closed issue', () => {
+  it('explains an archived issue instead of mounting contradictory controls', () => {
     state.peekIssueId = 'i'
-    state.issues = [makeIssue({ worktreePath: null, closedReason: 'done' })]
+    state.issues = [makeIssue({ archived: true })]
     render(<IssuePeekOverlay />)
-    expect(screen.queryByTestId('peek-run-now')).toBeNull()
+
+    expect(screen.getByText('This issue is archived.')).toBeTruthy()
+    expect(screen.queryByTestId('panel-stub')).toBeNull()
   })
 })

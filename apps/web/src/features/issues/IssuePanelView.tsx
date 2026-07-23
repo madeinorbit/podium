@@ -5,7 +5,7 @@ import {
   type IssueWire,
   issueDisplayRef,
 } from '@podium/protocol'
-import { CircleAlert, CircleCheck, FileText, Play, User } from 'lucide-react'
+import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -81,8 +81,9 @@ function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
       cancelled = true
     }
   }, [issue.id, count])
-  if (count === 0 || comments.length === 0) return null
-  const shown = showAll ? [...comments].reverse() : [comments[comments.length - 1]!]
+  const latest = comments.at(-1)
+  if (count === 0 || !latest) return null
+  const shown = showAll ? [...comments].reverse() : [latest]
   return (
     <div className="mt-2">
       <div className="flex flex-col gap-1.5">
@@ -136,14 +137,6 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
             >
               {issueDisplayRef(issue)}
             </button>
-            <button
-              type="button"
-              className="min-w-0 max-w-36 cursor-pointer truncate hover:text-foreground"
-              title={`${issue.id} — click to copy`}
-              onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
-            >
-              {issue.id}
-            </button>
           </div>
           <h2 className="text-[14px] leading-snug font-semibold text-foreground">{issue.title}</h2>
         </div>
@@ -159,10 +152,6 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
         {issue.blocked ? (
           <span className="inline-flex items-center gap-1 text-red-400">
             <CircleAlert size={11} aria-hidden="true" /> blocked
-          </span>
-        ) : issue.ready ? (
-          <span className="inline-flex items-center gap-1 text-success">
-            <CircleCheck size={11} aria-hidden="true" /> ready
           </span>
         ) : null}
         {issue.childCount > 0 && (
@@ -294,7 +283,7 @@ function PanelSections({
             </div>
             <div className="flex flex-col gap-0.5">
               {todos.map((t, i) => (
-                <label
+                <div
                   // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
                   key={i}
                   className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/50"
@@ -303,6 +292,7 @@ function PanelSections({
                     checked={t.done}
                     onCheckedChange={(checked) => toggleTodo(i + 1, checked === true)}
                     className="mt-0.5"
+                    aria-label={`${t.done ? 'Reopen' : 'Complete'} ${t.text}`}
                   />
                   <span
                     className={cn(
@@ -314,7 +304,7 @@ function PanelSections({
                   >
                     {t.text}
                   </span>
-                </label>
+                </div>
               ))}
             </div>
           </>

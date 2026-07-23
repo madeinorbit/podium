@@ -5,10 +5,9 @@ import { gotoWorkspace, podium, RELAY } from './_harness'
  * Acceptance flow for the redesigned issue peek card (POD-155) against the REAL
  * Live UI: a ref token printed into a live shell pane is linkified by the
  * terminal ref provider, a real mouse click opens the floating miniview card,
- * and the card must show the new hierarchy — identity + stage in the header
- * position, ONE availability rule (normal availability is silent, no "ready"
- * chip), the agent-posted Latest update box, and a working Run now that
- * actually starts the issue (stage → In Progress via the live broadcast).
+ * and the flow must preserve three honest levels: a quiet reference preview, the
+ * shared compact drawer with contextual actions, and a real full-page navigation.
+ * Run now is exercised from the compact level against the live server.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop pointer test (real mouse click on a terminal cell)')
 test.setTimeout(120_000)
@@ -56,7 +55,7 @@ async function openWorkspaceWithShell(page: Page): Promise<void> {
   await page.waitForTimeout(800)
 }
 
-test('terminal ref click opens the redesigned peek card; Run now starts the issue', async ({
+test('terminal ref click opens the redesigned peek card; preview escalates through the compact drawer to the full issue', async ({
   page,
   request,
 }) => {
@@ -141,14 +140,27 @@ test('terminal ref click opens the redesigned peek card; Run now starts the issu
   // Normal availability is silent: no "ready" chip, no blocker copy.
   await expect(card).not.toContainText(/ready/i)
   await expect(card).not.toContainText(/blocked/i)
-  await expect(card.getByRole('button', { name: 'Open full page' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Open issue peek' })).toBeVisible()
   await expect(card.getByRole('button', { name: 'Copy ref' })).toBeVisible()
+
+  // ---- Level 2: the compact drawer keeps context and owns compact actions ----
+  await card.getByRole('button', { name: 'Open issue peek' }).click()
+  const drawer = page.getByRole('dialog', { name: `Peek ${ref}` })
+  await expect(drawer).toBeVisible()
+  await expect(drawer).toContainText(title)
+  await expect(drawer).toContainText('Planning')
+
+  await expect(drawer.getByRole('button', { name: 'Open full issue' })).toBeVisible()
+  await drawer.getByRole('button', { name: 'More issue actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Archive' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible()
+  await drawer.getByText(title).click()
 
   // Optional review shot of the card in situ (PEEK_SHOT=/abs/path.png).
   if (process.env.PEEK_SHOT) await page.screenshot({ path: process.env.PEEK_SHOT })
 
   // ---- Run now preserves startability semantics: it really starts the issue ----
-  const runNow = card.getByRole('button', { name: 'Run now' })
+  const runNow = drawer.getByRole('button', { name: 'Run now' })
   await expect(runNow).toBeVisible()
   await runNow.click()
   await expect
@@ -156,11 +168,17 @@ test('terminal ref click opens the redesigned peek card; Run now starts the issu
       async () => {
         const rows = await rpc<WireIssue[]>(request, 'issues.list', { repoPath }, 'get')
         const row = rows.find((i) => i.id === created.id)
-        return row && row.worktreePath ? row.stage : 'pending'
+        return row?.worktreePath ? row.stage : 'pending'
       },
       { timeout: 45_000 },
     )
     .toBe('in_progress')
   // Once started the issue is no longer startable — the action leaves the card.
-  await expect(card.getByRole('button', { name: 'Run now' })).toHaveCount(0, { timeout: 15_000 })
+  await expect(drawer.getByRole('button', { name: 'Run now' })).toHaveCount(0, { timeout: 15_000 })
+
+  // ---- Level 3: full issue is an actual navigation, not another drawer label ----
+  await drawer.getByRole('button', { name: 'Open full issue' }).click()
+  const fullPage = page.getByTestId('issue-page')
+  await expect(fullPage).toBeVisible()
+  await expect(fullPage).toContainText(title)
 })

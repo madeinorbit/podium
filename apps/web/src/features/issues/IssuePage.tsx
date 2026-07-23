@@ -171,16 +171,6 @@ export function IssuePage({
         >
           {issueDisplayRef(issue)}
         </button>
-        {/* The internal id agents quote in transcripts/CLI output — shown so it can
-            be matched by eye, click-to-copy for pasting into commands (#21). */}
-        <button
-          type="button"
-          className="max-w-44 cursor-pointer truncate rounded font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
-          title={`${issue.id} — click to copy`}
-          onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
-        >
-          {issue.id}
-        </button>
         <div className="ml-auto flex items-center gap-1">
           <Button
             type="button"

@@ -13,10 +13,9 @@ import {
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
-import { copyToClipboard } from '@/lib/clipboard'
-import { cn } from '@/lib/utils'
-import { relativeTime } from '@/lib/home'
 import { isIssueStartable } from '@/features/issues/issue-startable'
+import { copyToClipboard } from '@/lib/clipboard'
+import { relativeTime } from '@/lib/home'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
   closeMiniview,
@@ -34,6 +33,7 @@ import {
   resolveRef,
   sessionWorkingIssueRef,
 } from '@/lib/ref-miniview'
+import { cn } from '@/lib/utils'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -97,7 +97,7 @@ export function RefMiniviewHost(): JSX.Element | null {
         closeMiniview()
         // One rung up the ladder (POD-95): an issue escalates to the PEEK
         // DRAWER over the right edge — the chat stays put; the full /issues/:id
-        // page remains one more step away (drawer header's "Open full page", or
+        // page remains one more step away (drawer header's "Open issue peek", or
         // Cmd/Ctrl-click on the chip). Sessions have no peek surface and still
         // navigate.
         if (target.kind === 'issue') setPeekIssueId(target.issue.id)
@@ -314,14 +314,14 @@ export function RefCard({
           )}
           <IssueDetailsStrip issue={target.issue} />
           {/* Footer: the two ways out. Escalation stays one rung (POD-95) —
-              "Open full page" raises the peek drawer, not the /issues route. */}
+              "Open issue peek" raises the peek drawer, not the /issues route. */}
           <div className="flex items-center gap-2 p-3">
             <button
               type="button"
               className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-muted/40 text-[12px] font-medium text-foreground/85 hover:bg-accent hover:text-foreground"
               onClick={onOpenFull}
             >
-              Open full page
+              Open issue peek
               <PanelRight size={12} aria-hidden="true" />
             </button>
             <button
@@ -523,7 +523,9 @@ function IssueSummary({
         <div className="min-w-0 flex-1 text-[15px] leading-[1.32] font-semibold tracking-[-0.01em] text-foreground">
           {truncateTitle(issue.title, 120)}
         </div>
-        {onStart && isIssueStartable(issue) && <RunNowAction issueId={issue.id} onStart={onStart} />}
+        {onStart && isIssueStartable(issue) && (
+          <RunNowAction issueId={issue.id} onStart={onStart} />
+        )}
       </div>
       {meta.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center text-[11px] text-muted-foreground">
@@ -553,7 +555,8 @@ function IssueDetailsStrip({ issue }: { issue: RefIssueLike }): JSX.Element | nu
   const artifacts = issue.panel?.artifacts?.length ?? 0
   const comments = issue.commentCount ?? 0
   const cells: { label: string; value: string }[] = []
-  if (todos.length > 0) cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
+  if (todos.length > 0)
+    cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
   if ((issue.childCount ?? 0) > 0)
     cells.push({
       label: 'Subissues',
