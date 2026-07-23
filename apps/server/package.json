@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@hono/trpc-server": "^0.3.4",
+    "@hono/trpc-server": "^0.4.2",
     "@podium/agent-bridge": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/domain": "workspace:*",
