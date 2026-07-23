@@ -60,6 +60,7 @@ import {
   type FileScope,
   type FileTab,
   optimisticDraftIssue,
+  optimisticDraftSortKey,
   optimisticStartingSession,
   type PinKind,
   type PinState,
@@ -1418,6 +1419,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const sessionId = randomUUID()
         const issueId = `iss_${randomUUID()}`
         const nowIso = new Date().toISOString()
+        // Mirror the server's stable project identity and new-at-top sort key
+        // before painting. Without these, the placeholder forms a temporary
+        // group at the end and only jumps into place when server truth arrives.
+        const sortKey = optimisticDraftSortKey(
+          this.state.issues,
+          args.target.repoPath,
+          args.target.repoId,
+        )
         // Unified overlay bookkeeping (#263): the placeholders are pending
         // insert overlays — same fold, same retirement (server truth with the
         // same ids lands → retire). Only the TRANSPORT differs from outboxed
@@ -1443,6 +1452,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
             optimisticDraftIssue({
               issueId,
               repoPath: args.target.repoPath,
+              repoId: args.target.repoId,
+              sortKey,
               agentKind: args.agentKind,
               nowIso,
             }),

@@ -1,3 +1,4 @@
+import { isSortKey, sortKeyBetween } from '@podium/domain'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 
 /**
@@ -70,15 +71,33 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
 
 /** The draft-issue vessel the server auto-creates for a low-friction start —
  *  mirrors `issues.createDraftFor` → `issues.create` defaults. */
+export function optimisticDraftSortKey(
+  issues: readonly IssueWire[],
+  repoPath: string,
+  repoId?: string,
+): string {
+  let min: string | null = null
+  for (const issue of issues) {
+    if (issue.deletedAt || issue.parentId || issue.pinned) continue
+    const sameRepo = issue.repoId ? issue.repoId === repoId : issue.repoPath === repoPath
+    if (!sameRepo || !isSortKey(issue.sortKey)) continue
+    if (min === null || issue.sortKey < min) min = issue.sortKey
+  }
+  return sortKeyBetween(null, min)
+}
+
 export function optimisticDraftIssue(args: {
   issueId: string
   repoPath: string
+  repoId?: string
+  sortKey: string
   agentKind: AgentKind
   nowIso: string
 }): IssueWire {
   return {
     id: args.issueId,
     repoPath: args.repoPath,
+    ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
     // Placeholders reconciled by the broadcast: the real row carries a server seq
     // (>= 1) and server-clock timestamps. Invisible today — the draft-agent row
     // labels from the session title and sorts to the top regardless — but a future
@@ -97,6 +116,7 @@ export function optimisticDraftIssue(args: {
     priority: 2,
     type: 'task',
     pinned: false,
+    sortKey: args.sortKey,
     needsHuman: false,
     labels: [],
     deps: [],

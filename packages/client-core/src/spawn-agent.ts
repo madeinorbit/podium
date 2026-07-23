@@ -5,6 +5,9 @@ import type { PodiumClientApi } from './api'
 export interface SpawnTarget {
   path: string
   repoPath: string
+  /* Stable project identity used to keep optimistic sidebar rows in the same
+   * group as their reconciled server row. */
+  repoId?: string
   machineId?: string
 }
 

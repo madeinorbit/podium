@@ -3,5 +3,6 @@ export {
   mergeOptimistic,
   type OptimisticSpawnArgs,
   optimisticDraftIssue,
+  optimisticDraftSortKey,
   optimisticStartingSession,
 } from '@podium/client-core/viewmodels'
