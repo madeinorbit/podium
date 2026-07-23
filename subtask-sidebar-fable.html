@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The sidebar is a status board, not a tree — Podium hierarchy proposal B</title>
+<style>
+  :root {
+    --bg: #101014;
+    --panel: #16161b;
+    --panel2: #1a1a20;
+    --row: #1e1e25;
+    --row-hi: #26262f;
+    --line: #2a2a32;
+    --line-soft: #232329;
+    --text: #dcdce4;
+    --bright: #f5f5f9;
+    --muted: #8b8b97;
+    --faint: #5f5f6a;
+    --green: #76c92b;
+    --green-dim: #4c6132;
+    --teal: #29c79a;
+    --blue: #52a4ff;
+    --amber: #e1a633;
+    --red: #e1645c;
+    --violet: #a894ff;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15.5px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1140px; margin: 0 auto; padding: 56px 26px 120px; }
+  .eyebrow {
+    color: var(--green); font: 700 11px/1 var(--mono); letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 14px 0 18px; font-size: clamp(34px, 5.6vw, 56px); line-height: 1.03;
+    letter-spacing: -.04em; font-weight: 760; color: var(--bright); max-width: 20ch;
+    text-wrap: balance;
+  }
+  .standfirst { max-width: 66ch; color: var(--muted); font-size: 19px; line-height: 1.55; margin: 0; }
+  .standfirst b { color: var(--text); font-weight: 600; }
+  section { margin-top: 84px; }
+  .kicker {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px;
+    color: var(--faint); font: 700 10.5px/1 var(--mono); letter-spacing: .15em; text-transform: uppercase;
+  }
+  .kicker .n { color: var(--green); font-size: 12px; }
+  h2 { margin: 0 0 14px; font-size: clamp(24px, 3.6vw, 32px); letter-spacing: -.028em; line-height: 1.14; color: var(--bright); }
+  h3 { margin: 0 0 6px; font-size: 15.5px; letter-spacing: -.01em; color: var(--bright); }
+  p { max-width: 70ch; margin: 0 0 15px; color: #a7a7b2; }
+  p b, li b { color: var(--text); font-weight: 620; }
+  .mono { font-family: var(--mono); font-size: .88em; }
+  .cardgrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 13px; margin-top: 24px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line-soft); border-radius: 13px;
+    padding: 17px 18px 15px;
+  }
+  .card .glyph {
+    width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: rgba(118,201,43,.1); color: var(--green); font: 700 14px var(--mono); margin-bottom: 12px;
+  }
+  .card p { font-size: 13.5px; line-height: 1.5; margin: 0; }
+  .compare { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 20px; margin-top: 24px; }
+  .mock {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    overflow: hidden; box-shadow: 0 22px 54px rgba(0,0,0,.32);
+  }
+  .mock-pad { padding: 14px 13px 16px; }
+  .mock-label {
+    display: block; color: var(--faint); font: 720 9.5px/1 var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; padding: 11px 14px 9px; border-bottom: 1px solid var(--line-soft);
+  }
+  .verdict { margin: 12px 13px 13px; border-radius: 8px; padding: 9px 11px; font-size: 12px; line-height: 1.5; }
+  .verdict.bad { color: #efa9a2; background: rgba(225,100,92,.08); border: 1px solid rgba(225,100,92,.18); }
+  .verdict.good { color: #b1e086; background: rgba(118,201,43,.07); border: 1px solid rgba(118,201,43,.16); }
+
+  /* ---------- sidebar anatomy ---------- */
+  .sb { font-size: 13px; }
+  .sb-head { display: flex; justify-content: space-between; align-items: center; margin: 2px 6px 8px; color: var(--faint); font: 650 9.5px var(--mono); letter-spacing: .13em; text-transform: uppercase; }
+  .irow {
+    position: relative; display: flex; align-items: center; gap: 9px; width: 100%;
+    min-height: 52px; padding: 6px 9px; border-radius: 10px; border: 0; background: transparent;
+    color: inherit; text-align: left; cursor: pointer; font: inherit;
+  }
+  .irow:hover { background: var(--row); }
+  .irow.selected { background: var(--row-hi); box-shadow: inset 0 0 0 1px #5e5e6d; }
+  .irow.working { background: rgba(118,201,43,.09); }
+  .irow.working:hover { background: rgba(118,201,43,.13); }
+  .idsq {
+    width: 38px; height: 38px; flex: none; border-radius: 10px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1px;
+    font: 700 8px/1.15 var(--mono); letter-spacing: .02em;
+    background: #24242d; color: #9c9ca8; border: 1px solid #4c4c58;
+  }
+  .idsq.sm { width: 32px; height: 32px; border-radius: 8px; font-size: 7.2px; }
+  .idsq.green { background: var(--green); color: #17230a; border-color: var(--green); }
+  .idsq.blue { background: #579cf0; color: #0d2340; border-color: #579cf0; }
+  .idsq.violet { background: #8776e0; color: #201643; border-color: #8776e0; }
+  .idsq.amberish { background: #2c2820; color: #d9b46a; border-color: #6b5a33; }
+  .chev {
+    flex: none; width: 14px; color: var(--faint); font-size: 13px; text-align: center;
+    transition: transform .16s ease; cursor: pointer; user-select: none;
+  }
+  .chev.open { transform: rotate(90deg); }
+  .chev.none { visibility: hidden; }
+  .icopy { flex: 1; min-width: 0; }
+  .ititle { display: flex; align-items: center; gap: 7px; color: var(--bright); font-size: 13px; line-height: 1.3; min-width: 0; }
+  .ititle .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .imeta { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--muted); font-size: 10.5px; min-width: 0; }
+  .imeta .m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .imeta .sep { color: var(--faint); }
+  .pill {
+    flex: none; border-radius: 4px; padding: 1px 5px; font: 650 8.5px var(--mono);
+    letter-spacing: .05em; text-transform: uppercase;
+  }
+  .pill.needs { color: var(--amber); border: 1px solid rgba(225,166,51,.35); background: rgba(225,166,51,.07); }
+  .pill.waiting { color: #cfa254; border: 1px solid rgba(225,166,51,.22); }
+  .pill.done { color: #7fb757; border: 1px solid rgba(118,201,43,.24); }
+  .pill.spin { color: var(--violet); border: 1px solid rgba(168,148,255,.3); }
+  .timer { flex: none; margin-left: auto; color: var(--teal); font: 620 10px var(--mono); }
+  .avwrap { flex: none; position: relative; display: flex; align-items: center; }
+  .av {
+    width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    background: #26232e; color: #ff8b70; font-size: 12px; border: 1.5px solid var(--panel);
+  }
+  .avwrap .av + .av { margin-left: -9px; }
+  .av.more { background: #2b2b33; color: var(--muted); font: 700 9px var(--mono); }
+  .avdot {
+    position: absolute; right: -2px; top: -2px; width: 8px; height: 8px; border-radius: 50%;
+    border: 2px solid var(--panel);
+  }
+  .avdot.live { background: var(--teal); }
+  .avdot.wait { background: var(--amber); }
+  .avdot.unread { background: var(--blue); }
+  .subx { position: absolute; right: -4px; bottom: -4px; background: #2f2f38; color: var(--muted); border-radius: 4px; font: 700 7.5px var(--mono); padding: 0 3px; border: 1.5px solid var(--panel); }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+  .dot.live { background: var(--teal); box-shadow: 0 0 0 2.5px rgba(41,199,154,.15); }
+  .dot.unread { background: var(--blue); box-shadow: 0 0 0 2.5px rgba(82,164,255,.17); }
+  .dot.wait { background: var(--amber); }
+
+  .kids { position: relative; margin-left: 19px; padding-left: 13px; }
+  .kids::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 14px; width: 1px; background: var(--green-dim); }
+  .kids > .irow::before, .kids > .exrow::before, .kids > .fold::before {
+    content: ""; position: absolute; left: -13px; top: 50%; width: 10px; height: 1px; background: var(--green-dim);
+  }
+  .kids .irow { min-height: 46px; }
+  .kids .idsq { width: 32px; height: 32px; border-radius: 8px; font-size: 7.2px; }
+
+  .rollup {
+    position: relative; display: flex; align-items: center; gap: 7px; margin: 0; padding: 4px 9px 6px 9px;
+    color: var(--faint); font-size: 10.5px; border: 0; background: transparent; width: 100%;
+    text-align: left; cursor: pointer; font-family: inherit;
+  }
+  .rollup:hover { color: var(--muted); }
+  .rollup .rline { color: var(--faint); font-family: var(--mono); font-size: 10px; }
+
+  .exrow {
+    position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px;
+    margin-top: 2px; padding: 5px 9px; border-radius: 9px; border: 1px dashed rgba(225,166,51,.35);
+    background: rgba(225,166,51,.05); color: inherit; text-align: left; cursor: pointer; font: inherit;
+  }
+  .exrow:hover { background: rgba(225,166,51,.09); }
+  .exrow .icopy .ititle { font-size: 12px; }
+  .exrow .path { color: var(--faint); font-size: 9.5px; font-family: var(--mono); margin-top: 1px; }
+  .exrow .exmark { flex: none; width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: rgba(225,166,51,.12); color: var(--amber); font-size: 12px; }
+
+  .fold {
+    position: relative; display: flex; align-items: center; gap: 6px; width: 100%; min-height: 34px;
+    padding: 3px 9px; color: var(--faint); font-size: 10.5px; background: transparent; border: 0;
+    text-align: left; cursor: pointer; font-family: inherit;
+  }
+  .fold:hover { color: var(--muted); }
+  .fold .fline { flex: 1; height: 1px; background: var(--line-soft); }
+  .kids .done-set .irow { opacity: .55; }
+
+  .popover {
+    position: absolute; z-index: 30; right: 8px; top: 100%; margin-top: -6px; width: 232px;
+    background: #1d1d24; border: 1px solid #3a3a45; border-radius: 11px; overflow: hidden;
+    box-shadow: 0 14px 34px rgba(0,0,0,.5);
+  }
+  .pop-head { display: flex; align-items: center; gap: 7px; padding: 7px 11px; color: var(--faint); font: 700 9px var(--mono); letter-spacing: .12em; text-transform: uppercase; border-bottom: 1px solid #2c2c35; }
+  .pop-row { display: flex; align-items: center; gap: 9px; padding: 8px 11px; cursor: pointer; }
+  .pop-row:hover { background: #26262f; }
+  .pop-row + .pop-row { border-top: 1px solid #26262e; }
+  .pop-copy { flex: 1; min-width: 0; }
+  .pop-name { color: #cbcbd5; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pop-meta { color: var(--faint); font-size: 9.5px; font-family: var(--mono); }
+  .pop-sub { padding: 6px 11px 8px 34px; color: var(--faint); font-size: 10px; border-top: 1px dotted #33333d; }
+  .role { flex: none; color: var(--violet); border: 1px solid rgba(168,148,255,.3); border-radius: 4px; padding: 0 4px; font: 650 7.5px var(--mono); text-transform: uppercase; }
+
+  /* demo shell */
+  .demo { margin-top: 26px; display: grid; grid-template-columns: minmax(330px, 392px) minmax(300px, 1fr); min-height: 600px; }
+  .demo-side { border-right: 1px solid var(--line-soft); background: var(--panel2); padding: 14px 12px 20px; position: relative; }
+  .demo-notes { background: #121217; padding: 30px 32px; }
+  .demo-notes h3 { font-size: 21px; margin: 14px 0 10px; }
+  .demo-notes > p { font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
+  .chip {
+    cursor: pointer; border: 1px solid #35353f; background: #202028; color: #9a9aa5;
+    border-radius: 99px; padding: 5px 11px; font: 640 10.5px var(--sans);
+  }
+  .chip[aria-selected="true"] { color: #efeff5; border-color: #6f6f80; background: #2b2b35; }
+  .callouts { list-style: none; margin: 22px 0 0; padding: 0; }
+  .callouts li { display: grid; grid-template-columns: 24px 1fr; gap: 11px; margin-bottom: 16px; font-size: 12.5px; line-height: 1.5; color: #a3a3af; }
+  .callouts b { color: #dcdce5; }
+  .cn { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(118,201,43,.13); color: #9ed86a; font: 700 11px var(--mono); }
+  .hint { margin-top: 26px; color: var(--faint); font-size: 12px; }
+  .kbd { color: #b6b6c1; border: 1px solid #3a3a43; border-bottom-color: #4e4e59; border-radius: 4px; padding: 1px 5px; font: 10px var(--mono); }
+
+  /* peek mock */
+  .peek { display: grid; grid-template-columns: minmax(280px,1fr) minmax(280px,1fr); gap: 0; }
+  .peek-col { padding: 16px 18px 20px; }
+  .peek-col + .peek-col { border-left: 1px solid var(--line-soft); }
+  .peek-h { display: flex; align-items: center; gap: 8px; color: var(--faint); font: 700 9.5px var(--mono); letter-spacing: .13em; text-transform: uppercase; margin-bottom: 12px; }
+  .peek-h .rule { flex: 1; height: 1px; background: var(--line-soft); }
+  .ln { position: relative; margin-left: 12px; padding-left: 14px; border-left: 1px solid #3a3a45; }
+  .lnrow { display: flex; align-items: center; gap: 8px; padding: 6px 4px; min-height: 40px; position: relative; }
+  .lnrow::before { content: ""; position: absolute; left: -14px; top: 50%; width: 10px; height: 1px; background: #3a3a45; }
+  .lnrow .av { border-color: var(--panel); }
+  .ln-name { color: #c6c6d0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ln-meta { color: var(--faint); font: 10px var(--mono); }
+  .native-tag { color: var(--faint); font-size: 10px; border: 1px dashed #3d3d48; border-radius: 5px; padding: 1px 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+  th { text-align: left; color: var(--faint); font: 700 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
+  td { vertical-align: top; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--line-soft); color: #a7a7b2; }
+  td:first-child { color: var(--text); font-weight: 620; }
+  .keep { color: var(--green); }
+  .change { color: var(--amber); }
+  .drop { color: var(--red); }
+
+  .laws { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 22px; }
+  .law { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; padding: 15px 17px; }
+  .law-n { color: var(--green); font: 700 10.5px var(--mono); }
+  .law h3 { margin-top: 6px; font-size: 14.5px; }
+  .law p { font-size: 13px; line-height: 1.5; margin: 5px 0 0; }
+
+  .reco {
+    margin-top: 26px; border-left: 3px solid var(--green); border-radius: 0 13px 13px 0;
+    background: rgba(118,201,43,.06); padding: 18px 22px; max-width: 780px;
+    font-size: 17px; line-height: 1.55; color: #c7c7d0;
+  }
+  .reco b { color: var(--bright); }
+  .caption { color: var(--faint); font-size: 12.5px; margin-top: 10px; max-width: 78ch; }
+  .flash { animation: flash 1.2s ease; }
+  @keyframes flash { 0% { box-shadow: inset 0 0 0 1.5px var(--amber); } 100% { box-shadow: inset 0 0 0 1.5px transparent; } }
+
+  @media (max-width: 860px) {
+    .compare, .demo, .peek, .laws, .cardgrid { grid-template-columns: 1fr; }
+    .demo-side { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+    .peek-col + .peek-col { border-left: 0; border-top: 1px solid var(--line-soft); }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header>
+    <div class="eyebrow">Podium · POD-100 · proposal B · Claude Fable</div>
+    <h1>The sidebar is a status board, not a tree</h1>
+    <p class="standfirst">Proposal A separated the work tree from the agent roster — the right diagnosis. This proposal goes one step further: <b>the sidebar should stop rendering execution as rows at all.</b> An issue row absorbs its agents the way a Linear row absorbs an assignee; depth beyond two levels rolls up into numbers; and anything that needs you surfaces to the top instead of waiting to be found. The full trees — subtasks <i>and</i> agent lineage — live one click away in the peek drawer that already exists.</p>
+  </header>
+
+  <section>
+    <div class="kicker"><span class="n">01</span><span>Diagnosis</span></div>
+    <h2>Three relationships, one visual grammar</h2>
+    <p class="lede">The screenshot isn't confusing because the styling is off. It's confusing because the sidebar draws <b>three different edges</b> — <i>issue contains issue</i>, <i>issue is executed by session</i>, <i>session spawned subagent</i> — with the same rails, the same indentation, the same chevrons. No styling fixes a category error.</p>
+    <div class="compare">
+      <div class="mock">
+        <span class="mock-label">Today · everything is a child row</span>
+        <div class="mock-pad sb">
+          <div class="irow working">
+            <div class="idsq green"><span>POD</span><span>78</span></div><span class="chev open">›</span>
+            <div class="icopy"><div class="ititle"><span class="t">Agent notification sounds</span></div>
+            <div class="imeta"><span class="m">working · 0/1 subtasks</span></div></div>
+            <span class="timer">52:58</span>
+          </div>
+          <div class="kids">
+            <div class="irow selected">
+              <div class="idsq"><span>POD</span><span>85</span></div><span class="chev">›</span>
+              <div class="icopy"><div class="ititle"><span class="t">Sidebar unread clarity</span></div>
+              <div class="imeta"><span class="m">working</span></div></div>
+              <span class="timer">52:58</span>
+            </div>
+            <div class="irow">
+              <div class="av" style="width:32px;height:32px;border-radius:8px">♟</div>
+              <div class="icopy"><div class="ititle" style="color:var(--muted)"><span class="t">macOS notification sounds de…</span></div></div>
+              <span class="mono" style="color:var(--faint);font-size:9.5px">POD-78-A</span><span class="dot live"></span>
+            </div>
+            <div class="irow" style="min-height:34px;color:var(--faint);font-size:11.5px;padding-left:44px">› 1 subagent</div>
+          </div>
+        </div>
+        <div class="verdict bad">Four rows, three different kinds of fact, one grammar. The eye reads a four-level work breakdown that doesn't exist — and every agent added to any issue makes the "plan" look bigger.</div>
+      </div>
+      <div class="mock">
+        <span class="mock-label">Proposed · one row per unit of work</span>
+        <div class="mock-pad sb">
+          <div class="irow working">
+            <div class="idsq green"><span>POD</span><span>78</span></div><span class="chev open">›</span>
+            <div class="icopy"><div class="ititle"><span class="t">Agent notification sounds</span></div>
+            <div class="imeta"><span class="m">0/1 subtasks</span><span class="sep">·</span><span>1 live</span></div></div>
+            <div class="avwrap"><div class="av">♟</div><span class="avdot live"></span><span class="subx">×1</span></div>
+            <span class="timer">52:58</span>
+          </div>
+          <div class="kids">
+            <div class="irow selected">
+              <div class="idsq"><span>POD</span><span>85</span></div><span class="chev none">›</span>
+              <div class="icopy"><div class="ititle"><span class="t">Sidebar unread clarity</span></div>
+              <div class="imeta"><span class="m">working</span></div></div>
+              <div class="avwrap"><div class="av">♟</div><span class="avdot live"></span></div>
+              <span class="timer">52:58</span>
+            </div>
+          </div>
+        </div>
+        <div class="verdict good">Two rows, because there are two issues. The agent, its liveness, its timer, and its subagent count ride <b>on</b> the issue row. The chevron has exactly one meaning left: subtasks.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">02</span><span>The reframe</span></div>
+    <h2>Decide what the sidebar is for, then the layout follows</h2>
+    <p>Podium already has a planning surface (the Tasks board) and now a detail surface (the peek drawer, POD-95). The sidebar is neither. It answers three questions, in priority order: <b>what needs me</b>, <b>what is moving</b>, <b>where do I click to get there</b>. Every pixel that serves those questions earns its place; structural completeness does not.</p>
+    <div class="cardgrid">
+      <article class="card"><div class="glyph">⚑</div><h3>Attention is the sort key</h3><p>Needs-human, unread results, and blocked work must be visible without expanding anything — even when they live four levels deep. Structure never buries a request for you.</p></article>
+      <article class="card"><div class="glyph">▸</div><h3>Presence is a property</h3><p>"An agent is working here" is a fact <i>about</i> an issue, like its color or its state — not a child of it. Facts about a row render inside the row.</p></article>
+      <article class="card"><div class="glyph">⌕</div><h3>Detail is one click away</h3><p>The complete subtask tree and the complete agent lineage are real and useful — in the peek drawer, at full width, with room to breathe. The sidebar links; it doesn't mirror.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">03</span><span>Interactive proposal</span></div>
+    <h2>One grammar against five kinds of complexity</h2>
+    <p>Switch scenarios. Chevrons expand subtasks (and nothing else). Click an avatar cluster to jump to a specific agent. Deep trouble surfaces on its own.</p>
+    <div class="mock demo">
+      <div class="demo-side sb" id="demoSide">
+        <span class="mock-label" style="border:0;padding:0 2px 8px">Sidebar prototype</span>
+        <div class="chips" role="tablist" aria-label="Scenarios">
+          <button class="chip" role="tab" aria-selected="true" data-scene="calm">Calm</button>
+          <button class="chip" role="tab" aria-selected="false" data-scene="parallel">Parallel branch</button>
+          <button class="chip" role="tab" aria-selected="false" data-scene="deep">Deep + blocked</button>
+          <button class="chip" role="tab" aria-selected="false" data-scene="swarm">Agent swarm</button>
+          <button class="chip" role="tab" aria-selected="false" data-scene="settled">Settled tail</button>
+        </div>
+        <div id="scene"></div>
+      </div>
+      <aside class="demo-notes">
+        <span class="cn" id="noteN">1</span>
+        <h3 id="noteTitle"></h3>
+        <p id="noteIntro"></p>
+        <ol class="callouts" id="noteCallouts"></ol>
+        <p class="hint">Everything here is honest to the data model: issues have <span class="mono">parentId</span> + direct-child counts; sessions bind to issues; native subagents are a count on their session. Nothing new is invented — only re-homed. <span class="kbd">click</span> rows, chevrons, avatars, folds.</p>
+      </aside>
+    </div>
+    <p class="caption">The five scenarios are the five ways the current sidebar degrades: idle scanning, wide branches, deep branches, many agents on one issue, and long completed tails.</p>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">04</span><span>Depth</span></div>
+    <h2>Two visible levels; exceptions teleport up</h2>
+    <p>Proposal A solved depth by moving the camera — branch focus with a breadcrumb. That works, but it makes the user do the walking, and a monitoring surface should not require navigation to deliver bad news. This proposal inverts it:</p>
+    <div class="reco"><b>Roll up, don't drill down.</b> The sidebar renders a branch at most two levels deep. Everything deeper is summarized into its deepest visible ancestor (<span class="mono">3 deeper · 1/6 done</span>). But any deep descendant that <b>needs a human, holds an unread result, or is blocked</b> escapes the roll-up and surfaces as a flagged exception row directly under the branch root — with a path whisper showing where it came from. Resolve it, and it sinks back into the numbers.</p>
+    <table>
+      <thead><tr><th>Depth</th><th>Rendering</th><th>Attention behavior</th></tr></thead>
+      <tbody>
+        <tr><td>Root</td><td>Full row: identity, roll-up, presence, timer</td><td>aggregates beacons from the whole branch</td></tr>
+        <tr><td>Child</td><td>Compact row on one rail</td><td>own state, own presence</td></tr>
+        <tr><td>Deeper</td><td>Rolled into <span class="mono">N deeper</span> on its ancestor</td><td class="keep">exception rows teleport to the branch root</td></tr>
+        <tr><td>Full tree</td><td>Peek drawer (click the roll-up line)</td><td>complete, scrollable, no viewport budget</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">The tree stays arbitrarily deep in the data model. The sidebar just refuses to spend title width on rails — a third indent level costs ~15% of an already narrow column and buys nothing the roll-up line doesn't say better.</p>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">05</span><span>Execution detail</span></div>
+    <h2>Lineage gets a real home, not a smaller font</h2>
+    <p>Agent swarms, cross-harness spawns, and native subagents are genuinely tree-shaped — that truth just doesn't belong in a 340px navigation column. The peek drawer (already shipping) gains an <b>Agents</b> panel: the full spawn lineage, roles, and per-session subagent detail, next to the full subtask tree.</p>
+    <div class="mock" style="margin-top:22px">
+      <span class="mock-label">Peek drawer · POD-94 “Deep agent lineage UX”</span>
+      <div class="peek">
+        <div class="peek-col">
+          <div class="peek-h"><span>Subtasks</span><span class="rule"></span><span>2/5</span></div>
+          <div class="sb">
+            <div class="irow" style="min-height:44px"><div class="idsq sm"><span>POD</span><span>96</span></div><span class="chev none">›</span><div class="icopy"><div class="ititle"><span class="t">Row anatomy tokens</span><span class="pill done">done</span></div></div></div>
+            <div class="irow" style="min-height:44px"><div class="idsq sm"><span>POD</span><span>97</span></div><span class="chev none">›</span><div class="icopy"><div class="ititle"><span class="t">Roll-up derivation</span></div><div class="imeta"><span class="m">working</span></div></div><div class="avwrap"><div class="av" style="width:20px;height:20px;font-size:10px">♟</div><span class="avdot live"></span></div></div>
+            <div class="kids">
+              <div class="irow" style="min-height:40px"><div class="idsq sm"><span>POD</span><span>99</span></div><span class="chev none">›</span><div class="icopy"><div class="ititle"><span class="t">Exception surfacing pass</span><span class="pill waiting">waiting</span></div></div></div>
+            </div>
+            <div class="irow" style="min-height:44px"><div class="idsq sm"><span>POD</span><span>98</span></div><span class="chev none">›</span><div class="icopy"><div class="ititle"><span class="t">Peek agents panel</span></div><div class="imeta"><span class="m">ready</span></div></div></div>
+          </div>
+        </div>
+        <div class="peek-col">
+          <div class="peek-h"><span>Agents</span><span class="rule"></span><span>4 · 2 native</span></div>
+          <div class="lnrow" style="margin-left:0"><div class="av">♟</div><div class="pop-copy"><div class="ln-name">Lineage interaction design</div><div class="ln-meta">POD-94-A · working · 18:42</div></div><span class="role">driver</span><span class="dot live"></span></div>
+          <div class="ln">
+            <div class="lnrow"><div class="av" style="font-size:11px">♞</div><div class="pop-copy"><div class="ln-name">Hierarchy edge cases</div><div class="ln-meta">POD-94-B · spawned by A · 11:03</div></div><span class="dot live"></span></div>
+            <div class="lnrow"><div class="av" style="font-size:11px">♞</div><div class="pop-copy"><div class="ln-name">Keyboard navigation pass</div><div class="ln-meta">POD-94-C · waiting for driver</div></div><span class="dot wait"></span></div>
+          </div>
+          <div class="lnrow" style="margin-left:0"><div class="av">♟</div><div class="pop-copy"><div class="ln-name">Visual regression review</div><div class="ln-meta">POD-94-D · new result</div></div><span class="dot unread"></span></div>
+          <div style="margin:8px 0 0 34px"><span class="native-tag">2 native subagents inside POD-94-A</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">Same information as today's sidebar thicket — plus roles and refs — at a width where it can actually be read. The sidebar's avatar cluster deep-links here.</p>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">06</span><span>Grammar</span></div>
+    <h2>Seven laws</h2>
+    <div class="laws">
+      <article class="law"><span class="law-n">01</span><h3>One row per unit of work</h3><p>Issues get rows. Sessions bound to an issue never do — their presence renders inside the issue row. (Unbound shells and worktree sessions keep their current rows; they <i>are</i> the unit there.)</p></article>
+      <article class="law"><span class="law-n">02</span><h3>The chevron keeps one promise</h3><p>Expanding an issue reveals subtasks. Always. There is no second kind of child.</p></article>
+      <article class="law"><span class="law-n">03</span><h3>Presence is a property</h3><p>Avatar cluster + liveness dot + timer on the row. Multiple agents stack; overflow becomes <span class="mono">+2</span>; native subagents are a <span class="mono">×N</span> badge on their session's avatar.</p></article>
+      <article class="law"><span class="law-n">04</span><h3>Two levels, then numbers</h3><p>Depth beyond the second level rolls into <span class="mono">N deeper · k/m done</span> on its ancestor. The full tree lives in the peek, one click away.</p></article>
+      <article class="law"><span class="law-n">05</span><h3>Attention outranks hierarchy</h3><p>Needs-human, unread, and blocked descendants surface as exception rows at the branch root, with a path whisper. Depth may hide work; it may never hide a request for you.</p></article>
+      <article class="law"><span class="law-n">06</span><h3>Done decays</h3><p>Fresh completion stays visible with its badge; settled completion folds into <span class="mono">Done · N</span>. Parent progress counts direct children only, so the arithmetic stays explainable.</p></article>
+      <article class="law"><span class="law-n">07</span><h3>Spin-offs stay siblings</h3><p>Discovered work is a top-level row with a <span class="mono">⤷ origin</span> whisper (POD-85, kept verbatim). Provenance is a hyperlink, not a rail.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">07</span><span>Versus proposal A</span></div>
+    <h2>What's kept, what's changed, and why</h2>
+    <table>
+      <thead><tr><th>Question</th><th>Proposal A (roster + camera)</th><th>Proposal B (this one)</th></tr></thead>
+      <tbody>
+        <tr><td>Containment-only tree</td><td class="keep">yes</td><td class="keep">kept — the load-bearing idea</td></tr>
+        <tr><td>Direct-child progress, done-folding, spin-off provenance</td><td class="keep">yes</td><td class="keep">kept</td></tr>
+        <tr><td>Where agents live</td><td>labeled roster inset, opened per selected issue</td><td class="change">inside the issue row itself; full lineage in the peek</td></tr>
+        <tr><td>Cost of seeing "who's working"</td><td>selection + a disclosure click; roster adds rows to the column</td><td class="keep">zero — presence is always on the row</td></tr>
+        <tr><td>Cost of reaching a specific agent</td><td>open roster, click person</td><td class="keep">click the row (driver) or avatar → jump list</td></tr>
+        <tr><td>Depth beyond two levels</td><td>branch focus: breadcrumb + list replacement</td><td class="change">roll-up numbers + exception teleport; no in-sidebar navigation mode</td></tr>
+        <tr><td>Deep blocked/needs-human work</td><td class="drop">found by drilling into the branch</td><td class="keep">surfaces itself at the branch root</td></tr>
+        <tr><td>New in-sidebar UI modes</td><td>two (roster open, branch focus)</td><td class="keep">zero — the sidebar has one state</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:20px"><b>The honest trade-off:</b> proposal B hides quiet deep structure harder — you cannot browse a depth-4 subtree in the sidebar at all. That is deliberate. Browsing structure is a planning activity, and both planning surfaces (board, peek) do it better. What the sidebar loses in completeness it gains in a promise it can actually keep: <i>if nothing is flagged, nothing needs you.</i></p>
+  </section>
+
+  <section>
+    <div class="kicker"><span class="n">08</span><span>Rollout</span></div>
+    <h2>Four steps, each shippable alone</h2>
+    <table>
+      <thead><tr><th>Step</th><th>Change</th><th>Touches</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Fuse issue-bound sessions into the issue row (avatar cluster, dot, timer, ×N badge); delete session child rows + the subagent line for bound sessions</td><td><span class="mono">UnifiedIssueRow</span>, row renderers</td></tr>
+        <tr><td>2</td><td>Avatar-cluster jump list (driver first, refs + state)</td><td>sidebar popover, existing session refs</td></tr>
+        <tr><td>3</td><td>Depth-2 viewport: deep-descendant roll-up line + exception teleport derivation</td><td>derivation layer (counts exist; add deep-attention pass)</td></tr>
+        <tr><td>4</td><td>Peek drawer Agents panel with full spawn lineage + native subagent detail</td><td>peek overlay (new panel, existing data)</td></tr>
+      </tbody>
+    </table>
+    <p class="caption">Compatible with the branch/commit visibility work: the row's meta line has fixed slots — state · progress · attention — and a branch-delta chip joins that line, not a new row. Deliberately not proposed: recursive indentation, a persistent second "agents" tree, relation labels on rails, or flattening subtasks into top-level work.</p>
+  </section>
+
+</main>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s)
+  const sceneHost = $('#scene')
+
+  const AV = (opts = {}) => `<div class="avwrap">${(opts.icons || ['♟']).map(i => `<div class="av">${i}</div>`).join('')}${opts.more ? `<div class="av more">+${opts.more}</div>` : ''}<span class="avdot ${opts.dot || 'live'}"></span>${opts.sub ? `<span class="subx">×${opts.sub}</span>` : ''}</div>`
+
+  function row(o) {
+    return `<div style="position:relative">
+      <button class="irow ${o.cls || ''}" data-row="${o.id}" type="button">
+        <div class="idsq ${o.color || ''} ${o.small ? 'sm' : ''}"><span>POD</span><span>${o.id}</span></div>
+        <span class="chev ${o.kids ? (o.open ? 'open' : '') : 'none'}" data-chev="${o.id}">›</span>
+        <div class="icopy">
+          <div class="ititle"><span class="t">${o.title}</span>${o.pill ? `<span class="pill ${o.pillCls}">${o.pill}</span>` : ''}</div>
+          <div class="imeta">${o.meta ? `<span class="m">${o.meta}</span>` : ''}${o.meta2 ? `<span class="sep">·</span><span>${o.meta2}</span>` : ''}</div>
+        </div>
+        ${o.av ? AV(o.av) : ''}${o.dot ? `<span class="dot ${o.dot}"></span>` : ''}${o.timer ? `<span class="timer">${o.timer}</span>` : ''}
+      </button>
+      <div data-pop="${o.id}"></div>
+    </div>`
+  }
+  const rollup = (id, text) => `<button class="rollup" type="button" data-roll="${id}"><span class="rline">└ ${text}</span><span style="color:#4d4d58">— open tree</span></button>`
+  const exrow = (o) => `<button class="exrow" type="button" data-ex="${o.id}">
+      <div class="exmark">⚑</div>
+      <div class="icopy"><div class="ititle"><span class="t">${o.title}</span><span class="pill needs">${o.pill}</span></div>
+      <div class="path">deep in POD-${o.path.join(' › POD-')}</div></div></button>`
+  const fold = (n, open) => `<button class="fold" type="button" data-fold><span>${open ? '⌄' : '›'} Done · ${n}</span><span class="fline"></span></button>`
+
+  const scenes = {
+    calm: {
+      n: '1', title: 'Calm reads calm',
+      intro: 'Three top-level issues, one with a live agent. No expansion needed to know everything: what moves, what waits, what is planned.',
+      callouts: [
+        ['The whole story fits the collapsed state', 'Roll-up (<b>1/3 subtasks</b>), presence (avatar + dot), and motion (timer) all live on one row.'],
+        ['Quiet rows are actually quiet', 'No agent → no avatar. Nothing pretends to be alive.'],
+        ['Spin-offs are siblings with provenance', 'POD-88 was discovered during POD-78 — the ⤷ whisper links it; no rail claims containment.']
+      ],
+      html: () =>
+        `<div class="sb-head"><span>Work</span><span>3 issues</span></div>` +
+        row({ id: 78, color: 'green', cls: 'working', title: 'Agent notification sounds', meta: '1/3 subtasks', meta2: '1 live', kids: 1, av: { sub: 1 }, timer: '52:58' }) +
+        row({ id: 88, title: 'Sound asset licensing', meta: '⤷ found in POD-78', pill: 'spin-off', pillCls: 'spin' }) +
+        row({ id: 91, title: 'Cold-start splash polish', meta: 'ready' })
+    },
+    parallel: {
+      n: '2', title: 'A wide branch stays one screen',
+      intro: 'Four children moving at different speeds. The parent aggregates; children carry only their own state; the two live ones carry their own agents.',
+      callouts: [
+        ['Parent math is direct-child math', '<b>1/4 · 2 live · 1 waiting</b> — every number explainable by the rows below it.'],
+        ['Waiting is a labeled state, not a missing dot', 'The amber pill survives any amount of activity around it.'],
+        ['Each avatar is a door', 'Click one to jump straight to that agent\'s pane — the row click goes to the driver.']
+      ],
+      html: () =>
+        `<div class="sb-head"><span>Work</span><span>1 branch</span></div>` +
+        row({ id: 210, color: 'green', cls: 'working', title: 'Desktop release', meta: '1/4 subtasks', meta2: '2 live · 1 waiting', kids: 1, open: 1, av: {}, timer: '31:04' }) +
+        `<div class="kids">` +
+        row({ id: 214, small: 1, title: 'Sign macOS build', meta: 'working', av: {}, timer: '12:11', cls: 'selected' }) +
+        row({ id: 215, small: 1, title: 'Publish updater feed', meta: 'waiting on signing', pill: 'waiting', pillCls: 'waiting', dot: 'wait' }) +
+        row({ id: 216, small: 1, title: 'Release notes', meta: 'working', av: { icons: ['♞'] }, timer: '02:40' }) +
+        row({ id: 217, small: 1, title: 'Smoke-test installers', pill: 'done', pillCls: 'done', meta: 'done 12m ago' }) +
+        `</div>`
+    },
+    deep: {
+      n: '3', title: 'Depth rolls up; trouble surfaces',
+      intro: 'POD-218 has a subtree four levels deep. The sidebar shows two levels and a number. But the depth-3 issue that needs a human does not wait to be found — it surfaces under the branch root with its path.',
+      callouts: [
+        ['The roll-up line replaces the third indent', '<b>└ 3 deeper · 1/5 done</b> costs one quiet line, not a forest of rails. Clicking it opens the full tree in the peek.'],
+        ['The exception row is the whole point', 'Needs-human at depth 3 becomes a flagged row at depth 0. The dashed border and path whisper say “surfaced, not contained.”'],
+        ['Resolving sinks it back', 'Answer the question and the row dissolves into the numbers it came from. The sidebar\'s promise: nothing flagged ⇒ nothing needs you.']
+      ],
+      html: () =>
+        `<div class="sb-head"><span>Work</span><span>1 branch</span></div>` +
+        row({ id: 210, color: 'green', cls: 'working', title: 'Desktop release', meta: '1/4 subtasks', meta2: '1 live · 1 needs you', kids: 1, open: 1, av: {}, timer: '44:19' }) +
+        `<div class="kids">` +
+        exrow({ id: 224, title: 'Staple & validate ticket', pill: 'needs you', path: [218, 222] }) +
+        row({ id: 214, small: 1, title: 'Sign macOS build', pill: 'done', pillCls: 'done', meta: 'done' }) +
+        row({ id: 218, small: 1, color: 'violet', title: 'macOS packaging', meta: 'working', av: {}, timer: '20:05' }) +
+        rollup(218, '3 deeper · 1/5 done') +
+        row({ id: 216, small: 1, title: 'Release notes', meta: 'ready' }) +
+        `</div>`
+    },
+    swarm: {
+      n: '4', title: 'A swarm is one row with more faces',
+      intro: 'Four agents and two native subagents on one issue. The plan did not grow, so the sidebar does not grow — the cluster stacks, overflow counts, and the full lineage lives in the peek.',
+      callouts: [
+        ['Workers never look like deliverables', 'Compare the diagnosis mock: four agents used to add four pseudo-subtask rows. Now: zero.'],
+        ['The cluster is scannable state', 'Stack order = driver first. The dot shows the branch\'s most urgent agent state (live < unread < waiting).'],
+        ['Click the cluster for the jump list', 'Driver, spawned helpers, their states and refs — pick one to land in its pane. The peek\'s Agents panel holds the full tree.']
+      ],
+      html: () =>
+        `<div class="sb-head"><span>Work</span><span>2 issues</span></div>` +
+        row({ id: 94, color: 'blue', cls: 'working selected', title: 'Deep agent lineage UX', meta: 'working', meta2: '4 agents', av: { icons: ['♟', '♞'], more: 2, sub: 2, dot: 'unread' }, timer: '18:42', pop: 1 }) +
+        row({ id: 91, title: 'Cold-start splash polish', meta: 'ready' })
+    },
+    settled: {
+      n: '5', title: 'Finished work compresses; fresh work does not',
+      intro: 'Six children, four done. The two settled ones folded; the fresh one keeps its badge and its unread beacon until you look at it.',
+      callouts: [
+        ['Done has a half-life', 'Fresh completion stays a row (you probably want its result). Settled completion becomes <b>Done · 3</b>.'],
+        ['Unread resists folding', 'POD-231 finished with a result you haven\'t seen — it cannot fold, no matter how old.'],
+        ['The numbers never lie', 'Folded or not, the parent still says 4/6 — folding changes pixels, not arithmetic.']
+      ],
+      html: () =>
+        `<div class="sb-head"><span>Work</span><span>1 branch</span></div>` +
+        row({ id: 210, color: 'green', cls: 'working', title: 'Desktop release', meta: '4/6 subtasks', meta2: '1 live · 1 unread', kids: 1, open: 1, av: {}, timer: '58:12' }) +
+        `<div class="kids">` +
+        row({ id: 230, small: 1, title: 'Publish release notes', meta: 'working', av: {}, timer: '04:55', cls: 'selected' }) +
+        row({ id: 231, small: 1, title: 'Verify auto-update', pill: 'done', pillCls: 'done', meta: 'new result', dot: 'unread' }) +
+        row({ id: 232, small: 1, title: 'Announce availability', meta: 'ready' }) +
+        fold(3, false) +
+        `<div class="done-set" hidden>` +
+        row({ id: 227, small: 1, title: 'Sign macOS build', pill: 'done', pillCls: 'done' }) +
+        row({ id: 228, small: 1, title: 'Windows installer', pill: 'done', pillCls: 'done' }) +
+        row({ id: 229, small: 1, title: 'Linux packages', pill: 'done', pillCls: 'done' }) +
+        `</div></div>`
+    }
+  }
+
+  const POP = `<div class="popover">
+    <div class="pop-head">Agents on POD-94 · 4</div>
+    <div class="pop-row"><div class="av" style="width:22px;height:22px;font-size:11px">♟</div><div class="pop-copy"><div class="pop-name">Lineage interaction design</div><div class="pop-meta">POD-94-A · working · 18:42</div></div><span class="role">driver</span><span class="dot live"></span></div>
+    <div class="pop-sub">2 native subagents inside</div>
+    <div class="pop-row"><div class="av" style="width:22px;height:22px;font-size:10px">♞</div><div class="pop-copy"><div class="pop-name">Hierarchy edge cases</div><div class="pop-meta">POD-94-B · working</div></div><span class="dot live"></span></div>
+    <div class="pop-row"><div class="av" style="width:22px;height:22px;font-size:10px">♞</div><div class="pop-copy"><div class="pop-name">Keyboard navigation pass</div><div class="pop-meta">POD-94-C · waiting</div></div><span class="dot wait"></span></div>
+    <div class="pop-row"><div class="av" style="width:22px;height:22px;font-size:11px">♟</div><div class="pop-copy"><div class="pop-name">Visual regression review</div><div class="pop-meta">POD-94-D · new result</div></div><span class="dot unread"></span></div>
+  </div>`
+
+  function render(name) {
+    const sc = scenes[name]
+    sceneHost.innerHTML = sc.html()
+    $('#noteN').textContent = sc.n
+    $('#noteTitle').textContent = sc.title
+    $('#noteIntro').textContent = sc.intro
+    $('#noteCallouts').innerHTML = sc.callouts.map((c, i) =>
+      `<li><span class="cn">${i + 1}</span><span><b>${c[0]}.</b> ${c[1]}</span></li>`).join('')
+
+    sceneHost.querySelectorAll('[data-row]').forEach(b => b.addEventListener('click', (e) => {
+      if (e.target.closest('.avwrap') && name === 'swarm') {
+        const mount = sceneHost.querySelector(`[data-pop="${b.dataset.row}"]`)
+        mount.innerHTML = mount.innerHTML.trim() ? '' : POP
+        e.stopPropagation(); return
+      }
+      sceneHost.querySelectorAll('.irow').forEach(x => x.classList.remove('selected'))
+      b.classList.add('selected')
+    }))
+    const f = sceneHost.querySelector('[data-fold]')
+    if (f) f.addEventListener('click', () => {
+      const set = sceneHost.querySelector('.done-set')
+      set.hidden = !set.hidden
+      f.querySelector('span').textContent = `${set.hidden ? '›' : '⌄'} Done · 3`
+    })
+    const r = sceneHost.querySelector('[data-roll]')
+    if (r) r.addEventListener('click', () => { r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash') })
+    const ex = sceneHost.querySelector('[data-ex]')
+    if (ex) ex.addEventListener('click', () => { ex.classList.remove('flash'); void ex.offsetWidth; ex.classList.add('flash') })
+  }
+
+  document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-selected', 'false'))
+    c.setAttribute('aria-selected', 'true')
+    render(c.dataset.scene)
+  }))
+  render('calm')
+</script>
+</body>
+</html>
