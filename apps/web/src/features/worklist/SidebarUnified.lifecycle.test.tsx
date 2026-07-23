@@ -45,6 +45,28 @@ vi.mock('@/app/store', () => {
     unread: false,
     readAt: '2026-07-23T11:00:00.000Z',
   }
+
+  const snoozed = {
+    ...closed,
+    id: 'snoozed',
+    seq: 43,
+    displayRef: 'POD-43',
+    title: 'Snoozed issue',
+    stage: 'in_progress',
+    closedReason: null,
+    closedAt: undefined,
+    deferUntil: '2099-01-01T00:00:00.000Z',
+    deferred: true,
+  }
+  const returned = {
+    ...snoozed,
+    id: 'returned',
+    seq: 44,
+    displayRef: 'POD-44',
+    title: 'Returned issue',
+    deferUntil: '2020-01-01T00:00:00.000Z',
+    deferred: false,
+  }
   const useStore = () => ({
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
@@ -52,7 +74,7 @@ vi.mock('@/app/store', () => {
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
-    issues: [closed],
+    issues: [closed, snoozed, returned],
     trpc: {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'codex' } })) },
@@ -93,8 +115,33 @@ afterEach(() => {
   cleanup()
   archiveMutate.mockClear()
 })
-
 describe('closed issue fold lifecycle', () => {
+  it('folds snoozed rows with arrival motion and removes every drag target', () => {
+    render(<SidebarUnified />)
+
+    const toggle = screen.getByRole('button', { name: 'Snoozed · 1' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Snoozed issue')).toBeNull()
+
+    const returned = screen.getByText('Returned issue')
+    expect(returned.closest('[data-drag-key="returned"]')).toBeTruthy()
+    expect(
+      returned.closest('[data-testid=unified-issue-row]')?.querySelector('[data-testid=row-grip]'),
+    ).toBeTruthy()
+
+    fireEvent.click(toggle)
+    const foldedRow = screen.getByTestId('snoozed-fold-row')
+    expect(screen.getByText('Snoozed issue')).toBeTruthy()
+    expect(foldedRow.className).toContain('row-arrive')
+    expect(foldedRow.querySelector('[data-drag-key]')).toBeNull()
+    expect(foldedRow.querySelector('[data-testid=row-grip]')).toBeNull()
+
+    fireEvent.animationEnd(foldedRow, { animationName: 'podium-arrive-wash' })
+    fireEvent.click(toggle)
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('snoozed-fold-row').className).toContain('row-arrive')
+  })
+
   it('archives a closed issue from its hover/focus action', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))

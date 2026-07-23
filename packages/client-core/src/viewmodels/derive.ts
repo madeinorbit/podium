@@ -1862,8 +1862,17 @@ export interface UnifiedWorkGroup {
   key: string
   label: string
   rows: UnifiedWorkRow[]
+  /** Actively deferred issues hidden behind the project's local disclosure. */
+  snoozedRows: UnifiedIssueRow[]
   /** Settled top-level closures hidden behind the project's local disclosure. */
   closedRows: UnifiedIssueRow[]
+}
+
+/** Snoozed issues decay into the project-local fold. Pinned rows have already
+ * been removed before grouping, and a returned-from-defer issue is not
+ * currently snoozed, so both keep their existing top-of-list treatment. */
+export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is UnifiedIssueRow {
+  return row.kind === 'issue' && isIssueSnoozed(row.issue, now)
 }
 
 /** POD-183 fold membership. Attention always outranks structure: unread,
@@ -1901,6 +1910,7 @@ export function groupUnifiedWorkRows(
   rows: UnifiedWorkRow[],
   selectedIssueId: string | null = null,
   selectedIssueWasFolded = false,
+  now: number = Date.now(),
 ): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
@@ -1915,12 +1925,14 @@ export function groupUnifiedWorkRows(
         row.kind === 'worktree'
           ? row.worktree.repoName
           : row.issue.repoPath.split('/').pop() || row.issue.repoPath
-      group = { key, label, rows: [], closedRows: [] }
+      group = { key, label, rows: [], snoozedRows: [], closedRows: [] }
       byKey.set(key, group)
       groups.push(group)
     }
     if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded)) {
       group.closedRows.push(row)
+    } else if (rowInSnoozedFold(row, now)) {
+      group.snoozedRows.push(row)
     } else group.rows.push(row)
   }
   for (const group of groups) {

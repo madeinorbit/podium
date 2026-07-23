@@ -258,3 +258,73 @@ test('sidebar rows make room, depart, then enter Closed', async ({ page, request
   await expect(closedArrival).toBeVisible({ timeout: 5_000 })
   await expect(departure).toHaveCount(0)
 })
+
+test('snoozed issues fold, re-arrive, and expose no drag target', async ({ page, request }) => {
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos.find((repo) => basename(repo) === `zz-podium-e2e-repo-${PORT}`) ?? repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+
+  const suffix = Date.now()
+  const snoozedTitle = `Snoozed fold ${suffix}`
+  const returnedTitle = `Returned defer ${suffix}`
+  const snoozed = await createIssue(request, repoPath, snoozedTitle)
+  const returned = await createIssue(request, repoPath, returnedTitle)
+  for (const id of [snoozed, returned]) {
+    await rpc(request, 'issues.update', { id, patch: { stage: 'planning' } })
+    await rpc(request, 'issues.defer', {
+      id,
+      until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    })
+  }
+  await rpc(request, 'issues.undefer', { id: returned })
+
+  await openSidebar(page)
+  const aside = page.locator('aside').first()
+  const project = aside.getByTestId('project-group').filter({ hasText: returnedTitle }).first()
+  const fold = project.getByRole('button', { name: /^Snoozed · \d+$/ })
+
+  await expect(fold).toBeVisible({ timeout: 30_000 })
+  await expect(fold).toHaveAttribute('aria-expanded', 'false')
+  await expect(aside.getByText(snoozedTitle)).toHaveCount(0)
+
+  const returnedRow = project.getByTestId('unified-issue-row').filter({ hasText: returnedTitle })
+  await expect(returnedRow).toBeVisible()
+  await expect(returnedRow.getByText('Unsnoozed')).toBeVisible()
+  await expect(returnedRow.getByTestId('row-grip')).toHaveCount(1)
+  expect(await returnedRow.evaluate((row) => row.parentElement?.dataset.dragKey)).toBe(returned)
+
+  await fold.click()
+  const foldedRow = project.getByTestId('snoozed-fold-row').filter({ hasText: snoozedTitle })
+  await expect(foldedRow).toBeVisible()
+  await expect(foldedRow.getByTestId('row-grip')).toHaveCount(0)
+  await expect(foldedRow.locator('[data-drag-key]')).toHaveCount(0)
+  expect(
+    await foldedRow.evaluate((row) =>
+      row
+        .getAnimations({ subtree: true })
+        .some(
+          (animation) =>
+            animation instanceof CSSAnimation && animation.animationName === 'podium-arrive-h',
+        ),
+    ),
+  ).toBe(true)
+  if (process.env.SNOOZED_FOLD_SHOT) await aside.screenshot({ path: process.env.SNOOZED_FOLD_SHOT })
+
+  await foldedRow.evaluate((row) => {
+    for (const animation of row.getAnimations({ subtree: true })) animation.finish()
+  })
+  await fold.click()
+  await fold.click()
+  const returnedFoldRow = project.getByTestId('snoozed-fold-row').filter({ hasText: snoozedTitle })
+  await expect(returnedFoldRow).toBeVisible()
+  expect(
+    await returnedFoldRow.evaluate((row) =>
+      row
+        .getAnimations({ subtree: true })
+        .some(
+          (animation) =>
+            animation instanceof CSSAnimation && animation.animationName === 'podium-arrive-h',
+        ),
+    ),
+  ).toBe(true)
+})

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   groupUnifiedWorkRows,
   rowInClosedFold,
+  rowInSnoozedFold,
   type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
@@ -95,6 +96,30 @@ describe('issue/session lifecycle in the unified sidebar', () => {
       },
     })
     expect(rowInClosedFold(row(closed, [offered]), null)).toBe(false)
+  })
+
+  it('folds only actively snoozed issues and leaves returned rows open', () => {
+    const snoozed = issue({
+      id: 'snoozed',
+      deferUntil: '2026-07-23T13:00:00.000Z',
+      deferred: true,
+    })
+    const returned = issue({
+      id: 'returned',
+      deferUntil: '2026-07-23T11:00:00.000Z',
+      deferred: false,
+    })
+
+    expect(rowInSnoozedFold(row(snoozed), NOW)).toBe(true)
+    expect(rowInSnoozedFold(row(returned), NOW)).toBe(false)
+
+    const [group] = groupUnifiedWorkRows([row(returned), row(snoozed)], null, false, NOW)
+    expect(
+      group?.rows.map((candidate) =>
+        candidate.kind === 'issue' ? candidate.issue.id : candidate.worktree.path,
+      ),
+    ).toEqual(['returned'])
+    expect(group?.snoozedRows.map((candidate) => candidate.issue.id)).toEqual(['snoozed'])
   })
 
   it('orders folded closures by closedAt newest-first, ignoring incoming manual order', () => {

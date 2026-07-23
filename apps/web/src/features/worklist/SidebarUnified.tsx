@@ -86,6 +86,7 @@ import {
   PhaseTimer,
   type RowTransitionItem,
   type RowTransitionTarget,
+  useArrivals,
   usePhaseMorph,
   useRowTransitions,
 } from '@/lib/motion'
@@ -607,6 +608,12 @@ type WorkPlacement =
       groupLabel: string
       row: UnifiedIssueRowView
     }
+  | {
+      lane: 'snoozed'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedIssueRowView
+    }
 
 const ROW_LAYOUT_TRANSITION = {
   type: 'spring' as const,
@@ -615,6 +622,71 @@ const ROW_LAYOUT_TRANSITION = {
   mass: 0.95,
 }
 type TransitionWorkRow = RowTransitionItem<WorkPlacement>
+
+/** Project-local disclosure for actively deferred work. Disclosure changes
+ * reuse the row-arrival one-shot: collapsing prunes the visible keys, so each
+ * later expansion gets one fresh arrival without inventing another motion. */
+function SnoozedIssueFold({
+  groupKey,
+  rows,
+  renderRow,
+  settleTransition,
+}: {
+  groupKey: string
+  rows: TransitionWorkRow[]
+  renderRow: (row: TransitionWorkRow, animate: boolean) => JSX.Element
+  settleTransition: (key: string, placement: string) => void
+}): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:snoozed-fold:${groupKey}`, true)
+  const contentId = useId()
+  const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
+  const { arrivals, settle } = useArrivals(visibleKeys)
+  return (
+    <div className="min-w-0" data-testid="snoozed-issue-fold">
+      <button
+        type="button"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        onClick={toggle}
+        data-testid="snoozed-fold-toggle"
+      >
+        <ChevronRight
+          size={11}
+          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+          aria-hidden="true"
+        />
+        <span>Snoozed · {rows.length}</span>
+        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+      </button>
+      {!collapsed && (
+        <div id={contentId} className="min-w-0" data-testid="snoozed-fold-rows">
+          {rows.map((row) => {
+            const arriving = arrivals.has(row.key) || row.phase === 'entering'
+            return (
+              <div
+                key={row.key}
+                className={cn('min-w-0', arriving && 'row-arrive')}
+                data-testid="snoozed-fold-row"
+                onAnimationEnd={
+                  arriving
+                    ? (event) => {
+                        if (event.animationName !== 'podium-arrive-wash') return
+                        settle(row.key)
+                        settleTransition(row.key, row.placement)
+                      }
+                    : undefined
+                }
+              >
+                {renderRow(row, false)}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Project-local disclosure for settled top-level closures (POD-183). Rows are
  * derived newest-closed-first; Archive is the explicit removal gesture. */
@@ -907,8 +979,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         rest,
         selectedIssueId,
         selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded,
+        now,
       ),
-    [rest, selectedClosedPlacement, selectedIssueId],
+    [now, rest, selectedClosedPlacement, selectedIssueId],
   )
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
@@ -928,6 +1001,16 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           placement: 'active',
           value: {
             lane: 'open' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+        ...group.snoozedRows.map((row) => ({
+          key: `issue:${row.issue.id}`,
+          placement: `snoozed:${group.key}`,
+          value: {
+            lane: 'snoozed' as const,
             groupKey: group.key,
             groupLabel: group.label,
             row,
@@ -984,11 +1067,12 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     settleDrag()
   }, [work, settleDrag])
 
-  const renderWorkRow = (item: TransitionWorkRow) => {
+  const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
     const { row, lane } = item.value
-    const folded = lane === 'closed'
-    const arriving = item.phase === 'entering'
+    const folded = lane === 'closed' || lane === 'snoozed'
+    const arriving = animate && item.phase === 'entering'
     const exiting = item.phase === 'exiting'
+    const draggable = row.kind === 'issue' && !isIssueSnoozed(row.issue, now)
     const inner =
       row.kind === 'issue' ? (
         <UnifiedIssueRow
@@ -1010,7 +1094,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           onOpenIssue={openIssuePage}
           onRenameIssue={renameIssue}
           onColorChangeIssue={setIssueColor}
-          onGripDown={onGripDown}
+          onGripDown={draggable ? onGripDown : undefined}
         />
       ) : (
         <UnifiedWorktreeRow
@@ -1028,7 +1112,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         key={`${item.key}:${item.placement}`}
         layout="position"
         transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-        {...(row.kind === 'issue' ? { 'data-drag-key': row.issue.id } : {})}
+        {...(row.kind === 'issue' && draggable ? { 'data-drag-key': row.issue.id } : {})}
         className={cn(
           'min-w-0',
           arriving && 'row-arrive',
@@ -1100,6 +1184,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       rows: transitionRows.filter(
         (item) => item.value.groupKey === groupKey && item.value.lane === 'open',
       ),
+      snoozedRows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'snoozed',
+      ),
       closedRows: transitionRows.filter(
         (item) => item.value.groupKey === groupKey && item.value.lane === 'closed',
       ),
@@ -1127,7 +1214,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             data-drag-scope="pinned"
           >
             <PinnedSectionLabel />
-            {renderedPinned.map(renderWorkRow)}
+            {renderedPinned.map((item) => renderWorkRow(item))}
           </motion.div>
         )}
         {renderedGroups.map((group, index) => (
@@ -1143,7 +1230,22 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
               label={group.label}
               first={index === 0 && renderedPinned.length === 0}
             />
-            {group.rows.map(renderWorkRow)}
+            {group.rows.map((item) => renderWorkRow(item))}
+            {group.snoozedRows.length > 0 && (
+              <motion.div
+                layout="position"
+                transition={
+                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                }
+              >
+                <SnoozedIssueFold
+                  groupKey={group.key}
+                  rows={group.snoozedRows}
+                  renderRow={renderWorkRow}
+                  settleTransition={settle}
+                />
+              </motion.div>
+            )}
             {group.closedRows.length > 0 && (
               <motion.div
                 layout="position"
@@ -1722,7 +1824,9 @@ function UnifiedIssueRow({
               }
         }
         domMark={issue.id}
-        onGripDown={onGripDown ? (e) => onGripDown(e, issue.id) : undefined}
+        onGripDown={
+          onGripDown && !isIssueSnoozed(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
+        }
         childDragScope={!capped && hasStartedBy ? `children:${issue.id}` : undefined}
         childrenTestId={!capped && hasStartedBy ? 'started-by-children' : undefined}
         statusExtra={
@@ -1806,7 +1910,7 @@ function UnifiedIssueRow({
             <div
               key={`issue:${child.issue.id}`}
               className="ml-5 min-w-0"
-              data-drag-key={child.issue.id}
+              {...(!isIssueSnoozed(child.issue, now) ? { 'data-drag-key': child.issue.id } : {})}
             >
               <UnifiedIssueRow
                 row={child}

@@ -186,8 +186,9 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     expect(deferMutate).toHaveBeenCalledWith({ id: 'd1', until: null })
   })
 
-  it('shows the snooze alarm icon only on a still-snoozed row (#133)', () => {
+  it('shows the snooze alarm icon only after unfolding a still-snoozed row (#133)', () => {
     render(<SidebarUnified />)
+    fireEvent.click(screen.getByRole('button', { name: 'Snoozed · 1' }))
     expect(screen.getByText('Snoozed issue')).toBeTruthy()
     // Exactly one alarm icon across the whole sidebar — on the snoozed row only.
     expect(screen.getAllByLabelText('Snoozed')).toHaveLength(1)
