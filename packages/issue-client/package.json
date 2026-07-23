@@ -19,7 +19,7 @@
   "dependencies": {
     "@podium/protocol": "workspace:*",
     "@trpc/client": "^11.0.0",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
