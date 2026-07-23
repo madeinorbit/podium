@@ -46,6 +46,21 @@ describe('motionPhase — the four phases of the motion grammar', () => {
     }
   })
 
+  it('a pending offer overrides the completed turn verdict', () => {
+    expect(
+      motionPhase(
+        sess({
+          offer: {
+            message: 'Ready for your decision',
+            actions: [{ label: 'Merge', prompt: 'Merge it' }],
+            createdAt: new Date(NOW - 30_000).toISOString(),
+          },
+          agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
+        }),
+      ),
+    ).toBe('waiting')
+  })
+
   it('a finished run (idle done / ended) is done', () => {
     expect(
       motionPhase(sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }) })),

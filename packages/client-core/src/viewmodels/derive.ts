@@ -1862,6 +1862,12 @@ export interface AgentBadge {
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
 export function agentBadge(meta: SessionMeta): AgentBadge | null {
+  // An offer is an explicit pending decision even when the turn that produced
+  // it has already classified as idle/done. Keep every status surface (session
+  // dot, sidebar meta, chat activity) amber until that offer is cleared.
+  if (meta.offer) {
+    return { label: 'waiting on decision', tone: 'attention', showContinue: false }
+  }
   const s = meta.agentState
   if (!s || s.phase === 'unknown') return null
   switch (s.phase) {
@@ -2020,7 +2026,7 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
 /**
  * Collapse harness phase + shell busyness + liveness into the motion phase.
  * Kept in lock-step with the existing grammar: `waiting` is exactly
- * `attentionGroup === 'needsYou'` (question/permission/error/open todos —
+ * `attentionGroup === 'needsYou'` (offer/question/permission/error/open todos —
  * hibernated sessions keep their last phase, so a parked "needs input" still
  * reads amber), and `working` is exactly `isSessionWorking` (the green-dot
  * predicate). A finished run (`idle.kind === 'done'` or `ended`) is `done`;
@@ -2028,10 +2034,12 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  */
 export function motionPhase(s: SessionMeta): MotionPhase {
   const state = s.agentState
+  // Offers outlive the turn that created them, so attention must win over the
+  // transcript's terminal idle/done verdict.
+  if (attentionGroup(s) === 'needsYou') return 'waiting'
   if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
     return 'done'
   }
-  if (attentionGroup(s) === 'needsYou') return 'waiting'
   if (isSessionWorking(s)) return 'working'
   return 'queued'
 }
@@ -2284,7 +2292,9 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
   }
   if (phase === 'waiting') {
     const anchor = earliest(sessions.filter((s) => motionPhase(s) === 'waiting'))
-    if (anchor) return { phase, sinceMs: since(anchor) }
+    if (anchor) {
+      return { phase, sinceMs: Date.parse(anchor.offer?.createdAt ?? '') || since(anchor) }
+    }
     if (row.kind === 'issue') {
       const merge = awaitingMergeStats(row)
       if (merge.sinceMs !== undefined) return { phase, sinceMs: merge.sinceMs }

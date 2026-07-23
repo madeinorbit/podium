@@ -41,6 +41,15 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
 
+const offered = () =>
+  sess({
+    offer: {
+      message: 'Ready for your decision',
+      actions: [{ label: 'Merge', prompt: 'Merge it' }],
+      createdAt: new Date(NOW - 30_000).toISOString(),
+    },
+    agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
+  })
 function issueRow(
   sessions: SessionMeta[],
   draft = false,
@@ -104,6 +113,9 @@ describe('rowWaitingCount — the amber pill / rail badge number', () => {
     expect(rowWaitingCount(issueRow([waiting(), waiting(), working(), done()]))).toBe(2)
     expect(rowWaitingCount(issueRow([working()]))).toBe(0)
   })
+  it('counts a completed session with a pending offer as waiting', () => {
+    expect(rowWaitingCount(issueRow([offered()]))).toBe(1)
+  })
 })
 
 describe('rowStatusLine — the second line copy grammar', () => {
@@ -112,6 +124,14 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(rowStatusLine(issueRow([waiting(), working(), done()]), NOW)).toBe(
       '3 agents · needs answer',
     )
+  })
+
+  it('names the pending decision after the producing turn is done', () => {
+    expect(rowStatusLine(issueRow([offered()]), NOW)).toBe('waiting on decision')
+    expect(rowMotionTiming(issueRow([offered()]))).toMatchObject({
+      phase: 'waiting',
+      sinceMs: NOW - 30_000,
+    })
   })
 
   it('working, done and queued rows read as their phase', () => {

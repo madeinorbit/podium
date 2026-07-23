@@ -318,6 +318,18 @@ if (process.env.PODIUM_E2E_OFFER === '1') {
     machineId: LOCAL_MACHINE_ID,
   })
   setTimeout(() => {
+    // Match the real review-offer lifecycle: the turn has completed, while the
+    // offer it produced still needs a human decision.
+    server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        idle: { kind: 'done' },
+        since: new Date().toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
     server.registry.modules.sessions.setOffer({
       sessionId,
       message: 'Native offer layout check',

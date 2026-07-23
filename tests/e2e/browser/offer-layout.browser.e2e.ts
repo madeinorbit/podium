@@ -26,6 +26,11 @@ test('native offer keeps terminal contained and expands feedback fluidly', async
     .locator('[data-testid="unified-worktree-row"], [data-testid="unified-issue-row"]')
     .first()
   await issueRow.waitFor({ state: 'visible', timeout: 30_000 })
+  const lifecycle = issueRow.getByTestId('row-lifecycle-status')
+  await expect(lifecycle).toHaveAttribute('data-phase', 'waiting', { timeout: 20_000 })
+  await expect(lifecycle).toContainText('waiting on decision')
+  await expect(issueRow.getByLabel('1 waiting on you')).toBeVisible()
+
   await issueRow.locator('button.flex-1').first().click()
   await page.locator('button[aria-label="New panel"]:visible').waitFor({ state: 'visible' })
 
