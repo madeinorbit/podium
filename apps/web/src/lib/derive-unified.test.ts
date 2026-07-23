@@ -520,6 +520,32 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(w[0]?.kind === 'session' ? w[0].session.sessionId : '').toBe('w')
   })
 
+  it('keeps lifted standalone sessions deterministic when activity timestamps tie', () => {
+    const sameTime = new Date(NOW - HOUR).toISOString()
+    const idleMember = owned('idle', idle, 'i')
+    const second = {
+      ...owned('second', working, 'i'),
+      createdAt: sameTime,
+      lastActiveAt: sameTime,
+    } as SessionMeta
+    const first = {
+      ...owned('first', working, 'i'),
+      createdAt: sameTime,
+      lastActiveAt: sameTime,
+    } as SessionMeta
+
+    const { working: w } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [idleMember, second, first],
+      [],
+      NOW,
+    )
+    expect(
+      w.map((entry) => (entry.kind === 'session' ? entry.session.sessionId : entry.kind)),
+    ).toEqual(['first', 'second'])
+  })
+
   it('keeps a fully non-working issue entirely in WORK', () => {
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),

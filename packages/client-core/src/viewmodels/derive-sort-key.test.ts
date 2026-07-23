@@ -4,13 +4,18 @@
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { type SidebarSections, type UnifiedIssueRow, unifiedWorkList } from './derive'
+import {
+  partitionUnifiedWork,
+  type SidebarSections,
+  type UnifiedIssueRow,
+  unifiedWorkList,
+} from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
 // Rows need a live member session to surface in the unified list.
-function sess(id: string, issueId: string): SessionMeta {
+function sess(id: string, issueId: string, over: Partial<SessionMeta> = {}): SessionMeta {
   return {
     sessionId: id,
     issueId,
@@ -22,6 +27,7 @@ function sess(id: string, issueId: string): SessionMeta {
     busy: false,
     archived: false,
     title: id,
+    ...over,
   } as unknown as SessionMeta
 }
 
@@ -144,5 +150,37 @@ describe('sortKey manual order (POD-168)', () => {
     expect(idsOf(rows)).toEqual(['parent'])
     const parent = rows[0] as UnifiedIssueRow
     expect((parent.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['c2', 'c1'])
+  })
+
+  it('keeps a manually top-ranked issue first when its agent starts and the row lifts', () => {
+    const issues = [
+      issue({ id: 'top', seq: 2, sortKey: 'c' }),
+      issue({ id: 'lower', seq: 1, sortKey: 'r' }),
+    ]
+    const beforeStart = [
+      sess('top-session', 'top', {
+        lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
+      }),
+      sess('lower-session', 'lower', {
+        lastActiveAt: new Date(NOW - HOUR).toISOString(),
+      }),
+    ]
+
+    expect(idsOf(unifiedWorkList(emptySections(), issues, beforeStart, [], NOW))).toEqual([
+      'top',
+      'lower',
+    ])
+
+    const afterStart = beforeStart.map(
+      (session) =>
+        ({
+          ...session,
+          agentState: { phase: 'working', since: session.lastActiveAt },
+        }) as SessionMeta,
+    )
+    const { working } = partitionUnifiedWork(emptySections(), issues, afterStart, [], NOW)
+    expect(
+      working.map((entry) => (entry.kind === 'issue' ? entry.row.issue.id : entry.kind)),
+    ).toEqual(['top', 'lower'])
   })
 })

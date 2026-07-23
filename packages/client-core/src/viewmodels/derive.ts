@@ -1750,7 +1750,7 @@ export type WorkingEntry =
   | { kind: 'session'; session: SessionMeta }
 
 export interface UnifiedWorkPartition {
-  /** WORKING rows/sessions, most-recently-active first. */
+  /** WORKING rows/sessions, preserving the unified list's manual row order. */
   working: WorkingEntry[]
   /** The WORK list (banded order), minus whatever moved to WORKING. */
   work: UnifiedWorkRow[]
@@ -1789,10 +1789,6 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number):
   }
 }
 
-function workingEntryActivity(e: WorkingEntry): number {
-  return e.kind === 'session' ? Date.parse(e.session.lastActiveAt) || 0 : e.row.activityAt
-}
-
 /**
  * Split the unified work into a WORKING section (move-out) and the WORK list:
  *   - an issue/worktree whose EVERY member session is working moves whole into
@@ -1803,7 +1799,8 @@ function workingEntryActivity(e: WorkingEntry): number {
  *   - a pinned issue is EXEMPT from move-out: pinning floats it to the top of
  *     WORK, so it stays there whole; when it has any working session it ALSO
  *     appears in WORKING as its row (the one row shown in both places).
- * WORK keeps the banded order; WORKING reads most-recently-active first.
+ * Both partitions preserve the unified list's banded/manual row order. Lifted
+ * standalone sessions retain their deterministic per-row sidebar order.
  */
 export function partitionUnifiedWork(
   sections: SidebarSections,
@@ -1812,7 +1809,10 @@ export function partitionUnifiedWork(
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkPartition {
-  const rows = buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now)
+  const rows = sortUnifiedWorkRows(
+    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now),
+    now,
+  )
   const working: WorkingEntry[] = []
   const work: UnifiedWorkRow[] = []
   for (const row of rows) {
@@ -1846,8 +1846,7 @@ export function partitionUnifiedWork(
       work.push(row)
     }
   }
-  working.sort((a, b) => workingEntryActivity(b) - workingEntryActivity(a))
-  return { working, work: sortUnifiedWorkRows(work, now) }
+  return { working, work }
 }
 
 export interface PinnedWorkSplit {
