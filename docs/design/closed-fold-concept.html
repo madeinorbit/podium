@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Closed Fold — archive without the chore</title>
+<style>
+  :root {
+    --bg:#0a0f1c; --panel:#121b30; --chip:#16223c; --engraved:#070b16; --rail:#0e1626;
+    --seam:#243356; --hairline:#1e2a4c; --border-strong:#364a78;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --muted:#9a9aa8; --dim:#6c7690; --faint:#525c78; --label:#7a84a0;
+    --yellow:#f5c518; --red:#e5303f; --blue:#2f6bff; --live:#6f9dff; --slate:#94a3b8;
+    --violet:#8b5cf6; --teal:#14b8a6; --pblue:#3b82f6; --terracotta:#d97757;
+    --sans:"Geist Variable",Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"Geist Mono Variable","Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .page { max-width:1040px; margin:0 auto; padding:52px 24px 120px; }
+  h1 { margin:10px 0 14px; font-size:clamp(28px,4.6vw,40px); line-height:1.06; letter-spacing:-.03em; font-weight:650; color:var(--ink-strong); max-width:24ch; text-wrap:balance; }
+  h2 { margin:0 0 12px; font-size:clamp(20px,3vw,25px); letter-spacing:-.022em; line-height:1.15; color:var(--ink-strong); }
+  h3 { margin:0 0 6px; font-size:14.5px; letter-spacing:-.01em; color:var(--ink-strong); }
+  p { max-width:72ch; margin:0 0 13px; color:var(--muted); }
+  p b, li b, td b { color:var(--ink); font-weight:600; }
+  section { margin-top:64px; }
+  .doclabel { color:var(--label); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .doclabel .y { color:var(--yellow); }
+  .standfirst { max-width:66ch; color:var(--muted); font-size:16.5px; line-height:1.55; }
+  .standfirst b { color:var(--ink); }
+  .kicker { display:flex; align-items:center; gap:9px; margin-bottom:10px; color:var(--faint); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .kicker::after { content:""; flex:1; height:1px; background:var(--hairline); }
+  .mono { font-family:var(--mono); font-size:.92em; color:var(--ink); }
+
+  .laws { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin:22px 0 0; }
+  .law { background:var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:14px 15px 12px; }
+  .law-n { color:var(--yellow); font:700 10px var(--mono); letter-spacing:.1em; }
+  .law p { margin:4px 0 0; font-size:12.5px; line-height:1.5; }
+
+  /* ---- mock frame ---- */
+  .demo { display:grid; grid-template-columns:270px 1fr; gap:22px; margin-top:22px; align-items:start; }
+  @media (max-width:760px){ .demo { grid-template-columns:1fr; } }
+  .sbframe { background:var(--panel); border:1px solid var(--seam); border-radius:12px; overflow:hidden; padding:6px 0 10px; }
+  .sb { padding:0 8px; }
+  .sb-label { display:flex; align-items:center; gap:6px; padding:8px 6px 4px; color:var(--label); font:500 8.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .sb-label::after { content:""; flex:1; height:1px; background:var(--hairline); }
+
+  .row { position:relative; display:flex; align-items:center; gap:8px; width:100%; padding:5px 8px 5px 6px; margin:1.5px 0; border-radius:7px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; font:inherit; user-select:none; --issue:var(--slate); }
+  .row:hover { background:color-mix(in srgb, var(--issue) 6%, var(--panel)); }
+  .idsq { width:26px; height:26px; flex:none; border-radius:7px; display:flex; align-items:center; justify-content:center; font:600 6.5px var(--mono); background:var(--chip); color:var(--muted); border:1px solid var(--border-strong); }
+  .idsq.c { border:0; background:var(--issue); color:color-mix(in srgb, var(--issue) 30%, #000); }
+  .copy { flex:1; min-width:0; }
+  .t { display:block; color:var(--ink); font-size:11.5px; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub { display:flex; align-items:center; gap:5px; margin-top:1px; color:var(--dim); font-size:10px; white-space:nowrap; overflow:hidden; }
+  .row.unread .t { font-weight:500; }
+  .udot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--blue); }
+  .row:not(.unread) .udot { display:none; }
+  .meta { flex:none; display:flex; align-items:center; gap:6px; }
+  .spin { display:inline-flex; gap:4px; align-items:center; color:var(--live); font:500 9px var(--mono); font-variant-numeric:tabular-nums; }
+  .spin::before { content:"⠋"; min-width:8px; animation:spB .8s steps(1,end) infinite; }
+  @keyframes spB{0%{content:"⠋"}11%{content:"⠙"}22%{content:"⠹"}33%{content:"⠸"}44%{content:"⠼"}55%{content:"⠴"}66%{content:"⠦"}77%{content:"⠧"}88%{content:"⠇"}100%{content:"⠏"}}
+  .done-glyph { color:var(--live); font:600 10px var(--mono); }
+  .pill { border-radius:99px; background:var(--yellow); color:var(--bg); font:700 9px var(--mono); padding:0 5px; }
+
+  /* ---- the closed fold ---- */
+  .fold { position:relative; display:flex; align-items:center; gap:7px; width:100%; min-height:30px; margin:4px 0 0; padding:3px 9px 3px 8px; color:var(--faint); font:500 10px var(--mono); letter-spacing:.04em; background:transparent; border:0; text-align:left; cursor:pointer; }
+  .fold:hover { color:var(--muted); }
+  .fold .chv { display:inline-block; transition:transform .16s ease; font-size:10px; }
+  .fold.open .chv { transform:rotate(90deg); }
+  .fold .fline { flex:1; height:1px; background:var(--hairline); }
+  .fold .age { color:var(--faint); font-size:9px; opacity:.8; }
+  .closed-set { overflow:hidden; }
+  .closed-set[hidden] { display:none; }
+  .closed-set .row { opacity:.5; }
+  .closed-set .row:hover { opacity:.8; }
+  .closed-set .idsq { border-style:solid; filter:saturate(.4); }
+  .closed-set .t { color:var(--muted); }
+  .row.settling { animation:settle .5s ease both; }
+  @keyframes settle { from { opacity:1; } to { opacity:.5; } }
+
+  .callouts { display:flex; flex-direction:column; gap:12px; }
+  .co { background:var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:12px 14px; font-size:12.5px; line-height:1.5; color:var(--muted); }
+  .co b { color:var(--ink); }
+  .co .tag { display:inline-block; margin-bottom:4px; color:var(--yellow); font:600 9px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+
+  table { width:100%; border-collapse:collapse; margin-top:14px; font-size:12.5px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hairline); color:var(--muted); vertical-align:top; }
+  th { color:var(--label); font:600 9.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+  td.keep { color:var(--teal); }
+  td.warn { color:var(--yellow); }
+  .caption { color:var(--faint); font-size:11.5px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="doclabel">POD-183 · CONCEPT · <span class="y">builds on POD-100 final rev 2</span></div>
+  <h1>The Closed Fold — archive without the chore</h1>
+  <p class="standfirst">Tillmann's real workflow ends with typing <b>"close and archive"</b> — because <i>close</i> alone leaves the row shouting in the sidebar, and only <i>archive</i> quiets it. That's a chore standing in for a missing visual state. The fix: <b>closed issues fold themselves</b>. Archive stops being a command and becomes gravity.</p>
+
+  <section>
+    <div class="kicker">Provenance</div>
+    <p>POD-100's Proposal B had Law 06, <b>"Done decays"</b>: settled completion collapses into a one-line <span class="mono">› Done · N</span> strip. Round-3 decision 15 killed it — correctly — <b>for done children</b>: done is a stage, not an exit, and children got the shipped decay instead. That decision stands untouched. This concept re-homes the fold one level up, where it was always right: <b>closed, top-level issues</b>. Closed <i>is</i> an exit. Exits can fold.</p>
+    <div class="laws">
+      <article class="law"><span class="law-n">F1</span><h3>Closed folds, done doesn't</h3><p>The fold only ever contains <b>closed</b> issues. Done stays a full row with shipped decay, exactly per POD-100 decision 15. No conflict, no regression.</p></article>
+      <article class="law"><span class="law-n">F2</span><h3>Unread resists folding</h3><p>A closed issue whose result you haven't seen keeps its row — full opacity, blue beacon — no matter how old. Nothing folds until it has been read.</p></article>
+      <article class="law"><span class="law-n">F3</span><h3>The fold is quiet</h3><p>One faint mono line, <span class="mono">› Closed · N</span>, hairline rule to the edge. It never carries attention states — anything demanding attention is, by F2, not in it.</p></article>
+      <article class="law"><span class="law-n">F4</span><h3>Archive becomes gravity</h3><p>Rows inside the fold auto-archive after a grace window (proposal: 14 days). Manual archive still exists for "get it out now" — but nobody has to type it anymore.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">The mock</div>
+    <h2>One strip where four loud rows used to be</h2>
+    <div class="demo">
+      <div class="sbframe">
+        <div class="sb">
+          <div class="sb-label">Work</div>
+          <button class="row" style="--issue:var(--teal)">
+            <span class="idsq c">147</span>
+            <span class="copy"><span class="t">Mobile tray polish</span><span class="sub">agent working · 12m</span></span>
+            <span class="meta"><span class="spin">12:04</span></span>
+          </button>
+          <button class="row unread" style="--issue:var(--violet)">
+            <span class="idsq c">162</span>
+            <span class="copy"><span class="t">Offer card redesign</span><span class="sub">done · result unseen</span></span>
+            <span class="meta"><span class="udot"></span><span class="done-glyph">✓</span></span>
+          </button>
+          <button class="row unread" style="--issue:var(--pblue)">
+            <span class="idsq c">158</span>
+            <span class="copy"><span class="t">Session header cleanup</span><span class="sub">closed 2h ago · result unseen</span></span>
+            <span class="meta"><span class="udot"></span></span>
+          </button>
+          <button class="fold" id="fold" type="button">
+            <span class="chv">›</span><span>Closed · 4</span><span class="fline"></span><span class="age">oldest archives in 9d</span>
+          </button>
+          <div class="closed-set" id="cset" hidden>
+            <button class="row" style="--issue:var(--terracotta)"><span class="idsq c">141</span><span class="copy"><span class="t">Login gate fix</span><span class="sub">closed 3d</span></span></button>
+            <button class="row" style="--issue:var(--slate)"><span class="idsq">139</span><span class="copy"><span class="t">Font subset pipeline</span><span class="sub">closed 4d</span></span></button>
+            <button class="row" style="--issue:var(--teal)"><span class="idsq c">128</span><span class="copy"><span class="t">Clipboard chord shim</span><span class="sub">closed 5d</span></span></button>
+            <button class="row" style="--issue:var(--violet)"><span class="idsq c">119</span><span class="copy"><span class="t">Motion spec tokens</span><span class="sub">closed 5d · archives in 9d</span></span></button>
+          </div>
+        </div>
+      </div>
+      <div class="callouts">
+        <div class="co"><span class="tag">Read it cold</span>One agent working, two results waiting for your eyes, and everything truly finished compressed to a single faint line. <b>The sidebar's loudness now equals the amount of open work.</b></div>
+        <div class="co"><span class="tag">F2 in action</span>POD-158 is <b>closed</b> but its result is unseen — it holds its full row with the blue beacon above the fold. The moment you open it, it settles into the strip (a one-shot fade, reusing POD-167's arrival grammar in reverse).</div>
+        <div class="co"><span class="tag">F4 in action</span>The strip whispers its own half-life: <span class="mono">oldest archives in 9d</span>. Expand it and each row states its own countdown. Auto-archive is legible, never surprising.</div>
+        <div class="co"><span class="tag">Try it</span>Click the <span class="mono">› Closed · 4</span> strip. Expanded rows sit at 50% opacity, saturation pulled — present for reference, silent by default.</div>
+      </div>
+    </div>
+    <p class="caption">Row grammar (tint-never-fill, idsq chips, static unread dot, calm-blue working spinner) is taken verbatim from the approved POD-100 final artifact. Nothing here introduces new vocabulary — only a new destination.</p>
+  </section>
+
+  <section>
+    <div class="kicker">Consequences</div>
+    <h2>What this replaces, what it keeps</h2>
+    <table>
+      <tr><th>Today</th><th>With the fold</th><th>Status</th></tr>
+      <tr><td>Type "close and archive" to quiet a finished task</td><td>Type "close" (or click it). Quieting is automatic.</td><td class="keep">chore removed</td></tr>
+      <tr><td>Archive is the only way out of the sidebar</td><td>Auto-archive after 14d in the fold; manual archive still available for immediate removal</td><td class="keep">kept as escape hatch</td></tr>
+      <tr><td>Closed rows look identical to open ones until archived</td><td>Closed = folded (or settling toward the fold, if unread)</td><td class="keep">new state, old grammar</td></tr>
+      <tr><td>Done children decay per shipped decay (decision 15)</td><td>Unchanged — the fold is top-level-closed only</td><td class="keep">decision 15 intact</td></tr>
+      <tr><td>—</td><td>Grace window length (14d?), per-group vs single fold placement, fold position (bottom of WORK vs bottom of sidebar)</td><td class="warn">open questions</td></tr>
+    </table>
+    <p style="margin-top:16px">Implementation waits on POD-100's rollout (POD-166–171) since it lands in the same <span class="mono">SidebarUnified.tsx</span> / <span class="mono">derive.ts</span> surface; the fold is then a small derived grouping (<span class="mono">status=closed ∧ read</span>) plus one strip component and an archive-aging job.</p>
+  </section>
+
+</div>
+<script>
+  const f = document.getElementById('fold'), s = document.getElementById('cset');
+  f.addEventListener('click', () => {
+    s.hidden = !s.hidden;
+    f.classList.toggle('open', !s.hidden);
+  });
+</script>
+</body>
+</html>
