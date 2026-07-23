@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { envelopePrincipal, envelopePrincipalLabel, parseMessageEnvelope } from './message-envelope'
+import {
+  envelopePrincipal,
+  envelopePrincipalLabel,
+  parseEnvelopeBatch,
+  parseMessageEnvelope,
+} from './message-envelope'
 
 const frame = (id: string, from: string, to: string, body: string, extra = '') =>
   `[podium message ${id} · from ${from} · to ${to} · reply: podium mail reply ${id}]\n${body}\n${extra}[end podium message ${id}]`
@@ -84,6 +89,39 @@ describe('parseMessageEnvelope', () => {
         '[podium message msg_1 · from a · to b · reply: podium mail reply msg_1]\nbody\n[end podium message msg_2]',
       ),
     ).toBeNull()
+  })
+
+  it('splits a leading internal frame from a coalesced operator follow-up', () => {
+    const text = `${frame('msg_b', 'issue:POD-84', 'your session', 'dependency cleared')}please refine the sticky prompt`
+    expect(parseEnvelopeBatch(text)).toEqual({
+      envelopes: [
+        {
+          id: 'msg_b',
+          from: 'issue:POD-84',
+          to: 'your session',
+          body: 'dependency cleared',
+          question: false,
+          expectsReply: false,
+        },
+      ],
+      operatorText: 'please refine the sticky prompt',
+    })
+  })
+
+  it('splits multiple leading frames and accepts CRLF server records', () => {
+    const text = `${frame('msg_a', 'system', 'your session', 'one')}\n\n${frame(
+      'msg_b',
+      'issue:POD-84',
+      'your session',
+      'two',
+    )}\noperator text`.replace(/\n/g, '\r\n')
+    const batch = parseEnvelopeBatch(text)
+    expect(batch?.envelopes.map((envelope) => envelope.id)).toEqual(['msg_a', 'msg_b'])
+    expect(batch?.operatorText).toBe('operator text')
+  })
+
+  it('does not promote a frame-shaped quote inside operator text', () => {
+    expect(parseEnvelopeBatch(`look at this:\n${frame('msg_q', 'a', 'b', 'quoted')}`)).toBeNull()
   })
 })
 

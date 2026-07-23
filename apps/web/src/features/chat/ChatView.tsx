@@ -41,7 +41,7 @@ import {
 } from './chat'
 import { hasImageItems } from './image-items'
 import { Minimap } from './Minimap'
-import { parseMessageEnvelope } from './message-envelope'
+import { parseEnvelopeBatch } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
 import { useStickyPromptsPreference } from './sticky-prompts'
@@ -75,12 +75,13 @@ type Attachment = {
 }
 
 function isOperatorPrompt(item: TranscriptItem, collapseMachineContext: boolean): boolean {
+  const envelopeBatch = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
   return (
     item.role === 'user' &&
     item.event !== 'interrupt' &&
     !!item.text.trim() &&
     !(collapseMachineContext && MACHINE_CONTEXT_RE.test(item.text)) &&
-    parseMessageEnvelope(item.text) === null
+    (envelopeBatch === null || envelopeBatch.operatorText !== '')
   )
 }
 
@@ -381,7 +382,10 @@ export function ChatView({
     }
 
     const scrollerTop = scroller.getBoundingClientRect().top
-    const stickyTop = scrollerTop + (Number.parseFloat(getComputedStyle(scroller).paddingTop) || 0)
+    const firstPrompt = prompts[0]
+    const stickyOffset = firstPrompt ? Number.parseFloat(getComputedStyle(firstPrompt).top) || 0 : 0
+    const stickyTop =
+      scrollerTop + (Number.parseFloat(getComputedStyle(scroller).paddingTop) || 0) + stickyOffset
     let activeIndex = -1
     for (let i = 0; i < prompts.length; i++) {
       const prompt = prompts[i]
@@ -390,11 +394,19 @@ export function ChatView({
 
     const activePrompt = activeIndex >= 0 ? prompts[activeIndex] : undefined
     const nextPrompt = activeIndex >= 0 ? prompts[activeIndex + 1] : undefined
+    const activeBody = activePrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
+    const nextBody = nextPrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
+    const currentPushY = activePrompt
+      ? Number.parseFloat(
+          /^translateY\((-?[\d.]+)px\)$/.exec(activePrompt.style.transform)?.[1] ?? '0',
+        )
+      : 0
     const pushY =
-      activePrompt && nextPrompt
+      activeBody && nextBody
         ? Math.min(
             0,
-            nextPrompt.getBoundingClientRect().top - stickyTop - activePrompt.offsetHeight,
+            nextBody.getBoundingClientRect().top -
+              (activeBody.getBoundingClientRect().bottom - currentPushY),
           )
         : 0
 

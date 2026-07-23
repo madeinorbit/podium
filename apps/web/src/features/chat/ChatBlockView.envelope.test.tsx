@@ -25,7 +25,7 @@ function userItem(text: string): TranscriptItem {
 let host: HTMLDivElement
 let root: Root
 
-function mount(item: TranscriptItem): void {
+function mount(item: TranscriptItem, stickyOperator = false): void {
   act(() => {
     root.render(
       <ChatBlockView
@@ -40,6 +40,7 @@ function mount(item: TranscriptItem): void {
         onOpenImage={() => {}}
         askLivePending={false}
         onAnswerAsk={async () => {}}
+        stickyOperator={stickyOperator}
       />,
     )
   })
@@ -66,6 +67,8 @@ describe('envelope block', () => {
     mount(userItem(frame('msg_1', 'issue:POD-84', 'your session', 'see POD-86 for the race')))
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env).not.toBeNull()
+    expect(env?.getAttribute('data-internal-message')).toBe('true')
+    expect(env?.textContent).toContain('Internal')
     const chips = env!.querySelectorAll('a.ref-link')
     // Header sender chip + body POD-86 chip (linkified by the markdown pass).
     const refs = [...chips].map((a) => a.getAttribute('data-ref'))
@@ -118,5 +121,37 @@ describe('envelope block', () => {
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env!.textContent).toContain('this agent runs on machine "vmi123"')
     expect(env!.querySelector('.chat-md')!.textContent).not.toContain('runs on machine')
+  })
+
+  it('separates a coalesced internal frame from the sticky operator follow-up', () => {
+    mount(
+      userItem(
+        `${frame(
+          'msg_5',
+          'issue:POD-84',
+          'your session',
+          'PODIUM_INTERNAL_ONLY',
+        )}please tighten the sticky prompt`,
+      ),
+      true,
+    )
+
+    const env = host.querySelector<HTMLElement>('[data-internal-message="true"]')
+    const prompt = host.querySelector<HTMLElement>('[data-operator-prompt="true"]')
+    expect(env).not.toBeNull()
+    expect(prompt).not.toBeNull()
+    expect(env?.className).not.toContain('sticky')
+    expect(env?.textContent).toContain('PODIUM_INTERNAL_ONLY')
+    expect(prompt?.className).toContain('sticky')
+    expect(prompt?.textContent).toContain('You')
+    expect(prompt?.textContent).toContain('please tighten the sticky prompt')
+    expect(prompt?.textContent).not.toContain('PODIUM_INTERNAL_ONLY')
+  })
+
+  it('never marks a pure internal frame as an operator prompt, even if sticky is requested', () => {
+    mount(userItem(frame('msg_6', 'system', 'your session', 'system note')), true)
+    expect(host.querySelector('[data-internal-message="true"]')).not.toBeNull()
+    expect(host.querySelector('[data-operator-prompt="true"]')).toBeNull()
+    expect(host.querySelector('.sticky')).toBeNull()
   })
 })

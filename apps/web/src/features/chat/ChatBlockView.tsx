@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipal, parseMessageEnvelope } from './message-envelope'
+import { envelopePrincipal, parseEnvelopeBatch, type ParsedEnvelope } from './message-envelope'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 
@@ -63,6 +63,78 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
         ))}
       {p.post}
     </>
+  )
+}
+
+function MessageEnvelopeRow({
+  envelope,
+  className,
+  blockIndex,
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  envelope: ParsedEnvelope
+  className: string
+  blockIndex?: number
+  sessionId: string
+  cwd: string
+  openFile: (sessionId: string, path: string) => void
+}): JSX.Element {
+  const html = useMemo(() => renderMarkdown(envelope.body), [envelope.body])
+  return (
+    <div
+      className={className}
+      data-block={blockIndex}
+      data-internal-message="true"
+      data-testid="message-envelope"
+    >
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body">
+        <div
+          className="relative overflow-hidden rounded-r-lg border border-border/70 border-l-0 bg-muted/20 px-3.5 py-2.5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-info/70"
+          onClick={(e) => {
+            handleChatMdClick(e, sessionId, cwd, openFile)
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] tracking-[0.11em] text-muted-foreground/70 uppercase">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-info">
+              <MailIcon size={11} aria-hidden="true" />
+              Internal
+            </span>
+            <span aria-hidden="true" className="h-3 w-px bg-border" />
+            <span className="tracking-normal text-muted-foreground normal-case">
+              <PrincipalLabel label={envelope.from} />
+              <span className="px-1.5 text-muted-foreground/40">→</span>
+              <PrincipalLabel label={envelope.to} />
+            </span>
+            {envelope.question && (
+              <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-amber-600 dark:text-amber-400">
+                question
+              </span>
+            )}
+            {envelope.expectsReply && (
+              <span className="rounded-sm bg-info/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-info">
+                reply requested
+              </span>
+            )}
+            <span className="ml-auto tracking-normal text-muted-foreground/45 normal-case">
+              {envelope.id}
+            </span>
+          </div>
+          <div
+            className="chat-md mt-2 border-border/50 border-t pt-2 text-[13px] text-foreground/85"
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {envelope.machineNote && (
+            <div className="mt-2 border-border/50 border-t pt-1.5 font-mono text-[9px] text-muted-foreground/55">
+              {envelope.machineNote}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -131,8 +203,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   // in a "user" turn — render it as a distinct framed block, never a "You"
   // bubble. Operator messages arrive unwrapped and fall through to the
   // ordinary user rendering (unwrapped = the human).
-  const envelope = useMemo(
-    () => (item.role === 'user' ? parseMessageEnvelope(item.text) : null),
+  const envelopeBatch = useMemo(
+    () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
     [item.role, item.text],
   )
   // Compact answers ending in a "→ next: …" line render it as a mono amber row
@@ -145,14 +217,17 @@ export const ChatBlockView = memo(function ChatBlockView({
       ? { body: lines.slice(0, -1).join('\n'), next: last.replace(/^->\s*/, '→ ') }
       : null
   }, [compact, item.role, item.answer, item.text])
-  const html = useMemo(
-    () => renderMarkdown(envelope ? envelope.body : (nextSplit?.body ?? item.text)),
-    [envelope, nextSplit, item.text],
-  )
+  const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
+  const html = useMemo(() => renderMarkdown(displayText), [displayText])
   const rowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
     stickyOperator &&
-      'sticky top-0 z-[3] transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[stuck=true]:bg-background/90 data-[stuck=true]:backdrop-blur-sm motion-reduce:transition-none',
+      'sticky -top-6 z-[3] transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[stuck=true]:bg-background/90 data-[stuck=true]:backdrop-blur-sm motion-reduce:transition-none',
+    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    dimmed && 'opacity-35',
+  )
+  const nonStickyRowClass = cn(
+    'transcript-row mx-auto w-full max-w-[960px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
@@ -257,56 +332,22 @@ export const ChatBlockView = memo(function ChatBlockView({
     )
   }
 
-  // A delivered message from another principal — a distinct framed block, not
-  // a "You" bubble (#237) [spec:SP-34d7 web]. Sender, message id, question
-  // marker; the body is the sanitized text the agent actually received.
-  if (envelope)
-    return (
-      <div className={rowClass} data-block={index} data-testid="message-envelope">
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-        <div className="transcript-body">
-          <div
-            className="rounded-md border border-info/40 bg-info/5 px-3 py-2"
-            onClick={(e) => {
-              handleChatMdClick(e, sessionId, cwd, openFile)
-            }}
-          >
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
-              <MailIcon size={12} className="self-center text-info" aria-hidden="true" />
-              <span className="font-medium text-info">
-                <PrincipalLabel label={envelope.from} />
-              </span>
-              <span className="text-muted-foreground/70">
-                → <PrincipalLabel label={envelope.to} />
-              </span>
-              {envelope.question && (
-                <span className="rounded border border-amber-500/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                  question
-                </span>
-              )}
-              {envelope.expectsReply && (
-                <span className="rounded border border-info/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-info">
-                  reply requested
-                </span>
-              )}
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
-                {envelope.id}
-              </span>
-            </div>
-            <div
-              className="chat-md mt-1"
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-            {envelope.machineNote && (
-              <div className="mt-1.5 border-t border-info/20 pt-1 text-[10px] text-muted-foreground/60">
-                {envelope.machineNote}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
+  const envelopeRows = envelopeBatch?.envelopes.map((envelope, envelopeIndex) => (
+    <MessageEnvelopeRow
+      key={envelope.id}
+      envelope={envelope}
+      className={nonStickyRowClass}
+      blockIndex={envelopeBatch.operatorText === '' && envelopeIndex === 0 ? index : undefined}
+      sessionId={sessionId}
+      cwd={cwd}
+      openFile={openFile}
+    />
+  ))
+
+  // A delivered message from another principal is internal traffic, never a
+  // "You" bubble and never sticky. Multiple leading frames may share one
+  // provider turn; any human follow-up continues below as its own prompt row.
+  if (envelopeBatch && envelopeBatch.operatorText === '') return <>{envelopeRows}</>
 
   // Flat Field (POD-159): agent prose lies flat on the chassis; the operator's
   // turn is the only elevated (embossed) surface; the final answer is marked by
@@ -315,99 +356,108 @@ export const ChatBlockView = memo(function ChatBlockView({
   const isAnswer = item.role === 'assistant' && !!item.answer
 
   return (
-    <div className={rowClass} data-block={index} data-operator-prompt={isUser ? 'true' : undefined}>
-      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+    <>
+      {envelopeRows}
       <div
-        className={cn(
-          'transcript-body',
-          isUser && 'transcript-you',
-          isAnswer && 'transcript-answer',
-        )}
+        className={rowClass}
+        data-block={index}
+        data-operator-prompt={isUser ? 'true' : undefined}
       >
-        {isUser && (
-          <div className="transcript-you-label">
-            You
-            {compact && <BlockClock ts={item.ts} />}
-          </div>
-        )}
-        {item.role === 'system' && (
-          <div className="transcript-header">
-            <span className="transcript-role transcript-role--system">System</span>
-          </div>
-        )}
-        {isAnswer && (
-          <div className="transcript-answer-label">
-            {compact ? 'Super agent' : 'Answer'}
-            {compact && ctxSeq !== null && <span className="chat-ctx">· POD-{ctxSeq} context</span>}
-            {compact && <BlockClock ts={item.ts} />}
-          </div>
-        )}
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div
-          className="chat-md"
-          onClick={(e) => {
-            handleChatMdClick(e, sessionId, cwd, openFile)
-          }}
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-        {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
-        {/* Attached media (POD-178): a turn's referenced files render as real
+          className={cn(
+            'transcript-body',
+            isUser && 'transcript-you',
+            isAnswer && 'transcript-answer',
+          )}
+        >
+          {isUser && (
+            <div className="transcript-you-label">
+              You
+              {compact && <BlockClock ts={item.ts} />}
+            </div>
+          )}
+          {item.role === 'system' && (
+            <div className="transcript-header">
+              <span className="transcript-role transcript-role--system">System</span>
+            </div>
+          )}
+          {isAnswer && (
+            <div className="transcript-answer-label">
+              {compact ? 'Super agent' : 'Answer'}
+              {compact && ctxSeq !== null && (
+                <span className="chat-ctx">· POD-{ctxSeq} context</span>
+              )}
+              {compact && <BlockClock ts={item.ts} />}
+            </div>
+          )}
+          <div
+            className="chat-md"
+            onClick={(e) => {
+              handleChatMdClick(e, sessionId, cwd, openFile)
+            }}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
+          {/* Attached media (POD-178): a turn's referenced files render as real
             inline previews — images as clickable thumbnails (→ lightbox), other
             files (artifacts, docs) as openable chips — instead of anonymous
             "image"/"file" tag chips. Tags without a resolvable path (older
             transcripts) keep the labelled chip. */}
-        {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
-          <div className="mt-1.5 flex flex-wrap items-start gap-2">
-            {(item.toolPaths ?? []).map((p) => {
-              const abs = resolveAgainstCwd(cwd, p)
-              const name = p.split('/').pop() ?? p
-              const chip = (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openFile(sessionId, abs)
-                  }}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title={`Open ${p}`}
-                >
-                  <FileText size={12} aria-hidden="true" />
-                  {name}
-                </button>
-              )
-              if (isImagePath(p)) {
-                const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
-                if (url)
-                  return (
-                    <SentImageThumb
-                      key={p}
-                      url={url}
-                      name={name}
-                      onOpen={() => onOpenImage(url)}
-                      fallback={chip}
-                    />
-                  )
-              }
-              return chip
-            })}
-            {(item.toolPaths?.length ?? 0) === 0 &&
-              item.tags?.map((tag, i) => (
-                <span
-                  key={`${tag.kind}-${i}`}
-                  className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                >
-                  {tag.kind === 'image' ? (
-                    <ImageIcon size={12} aria-hidden="true" />
-                  ) : (
+          {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-start gap-2">
+              {(item.toolPaths ?? []).map((p) => {
+                const abs = resolveAgainstCwd(cwd, p)
+                const name = p.split('/').pop() ?? p
+                const chip = (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openFile(sessionId, abs)
+                    }}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title={`Open ${p}`}
+                  >
                     <FileText size={12} aria-hidden="true" />
-                  )}
-                  {tag.label ?? tag.kind}
-                </span>
-              ))}
-          </div>
-        )}
+                    {name}
+                  </button>
+                )
+                if (isImagePath(p)) {
+                  const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+                  if (url)
+                    return (
+                      <SentImageThumb
+                        key={p}
+                        url={url}
+                        name={name}
+                        onOpen={() => onOpenImage(url)}
+                        fallback={chip}
+                      />
+                    )
+                }
+                return chip
+              })}
+              {(item.toolPaths?.length ?? 0) === 0 &&
+                item.tags?.map((tag, i) => (
+                  <span
+                    key={`${tag.kind}-${i}`}
+                    className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {tag.kind === 'image' ? (
+                      <ImageIcon size={12} aria-hidden="true" />
+                    ) : (
+                      <FileText size={12} aria-hidden="true" />
+                    )}
+                    {tag.label ?? tag.kind}
+                  </span>
+                ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 })

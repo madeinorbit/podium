@@ -37,11 +37,18 @@ export interface ParsedEnvelope {
 
 const HEAD_RE = /^\[podium message (\S+) · from (.+?) · to (.+?) · reply: podium mail reply \1\]\n/
 
+export interface ParsedEnvelopeBatch {
+  envelopes: ParsedEnvelope[]
+  /** Human-authored text delivered in the same transcript turn after one or
+   * more internal frames. Empty means the turn is entirely internal. */
+  operatorText: string
+}
+
 /** Parse a transcript user-turn's text as a delivered-message envelope.
  *  Returns null for anything that isn't exactly one server frame (operator
  *  text, ordinary prompts, partial matches). */
 export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
-  const trimmed = text.trim()
+  const trimmed = text.replace(/\r\n?/g, '\n').trim()
   const head = HEAD_RE.exec(trimmed)
   if (!head) return null
   const [, id, from, to] = head
@@ -70,6 +77,36 @@ export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
     expectsReply,
     ...(note?.[1] ? { machineNote: note[1] } : {}),
   }
+}
+
+/** Split one transcript user turn into its leading server-rendered Podium
+ * frames and any human follow-up that was coalesced behind them. Message
+ * delivery and operator input can land in the same provider turn; treating
+ * that whole string as a human prompt makes internal traffic look like “You”
+ * and accidentally enrolls it in sticky-prompt behavior.
+ *
+ * Only leading frames are promoted. A frame-shaped quote inside ordinary
+ * operator text remains ordinary text, preserving the parser's existing
+ * spoof-resistant boundary. */
+export function parseEnvelopeBatch(text: string): ParsedEnvelopeBatch | null {
+  let rest = text.replace(/\r\n?/g, '\n').trim()
+  const envelopes: ParsedEnvelope[] = []
+
+  while (rest.startsWith('[podium message ')) {
+    const head = HEAD_RE.exec(rest)
+    const id = head?.[1]
+    if (!head || !id) break
+    const endTag = `[end podium message ${id}]`
+    const endIndex = rest.indexOf(`\n${endTag}`, head[0].length)
+    if (endIndex < 0) break
+    const frameEnd = endIndex + 1 + endTag.length
+    const envelope = parseMessageEnvelope(rest.slice(0, frameEnd))
+    if (!envelope) break
+    envelopes.push(envelope)
+    rest = rest.slice(frameEnd).trimStart()
+  }
+
+  return envelopes.length > 0 ? { envelopes, operatorText: rest.trim() } : null
 }
 
 /** A principal label split for rendering: `pre` + `ref` + `post`, where `ref`

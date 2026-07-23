@@ -216,15 +216,14 @@ test('operator prompts stick in place, push one another, and respect the appeara
     toolUseRec('tool-call-record', t),
     toolResultRec('tool-result-record', t),
     userRec('sticky-user', 'STICKY_FIRST_PROMPT keep this visible', t),
+    answerRec('sticky-answer', firstAnswer, t),
     userRec(
       'delivered-mail',
       `[podium message msg_sticky_e2e · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky_e2e]
 DELIVERED_AGENT_MAIL must not replace the operator prompt
-[end podium message msg_sticky_e2e]`,
+[end podium message msg_sticky_e2e]STICKY_SECOND_PROMPT push the first away`,
       t,
     ),
-    answerRec('sticky-answer', firstAnswer, t),
-    userRec('sticky-user-2', 'STICKY_SECOND_PROMPT push the first away', t),
     answerRec('sticky-answer-2', secondAnswer, t),
   ])
 
@@ -262,6 +261,8 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(firstPrompt).toHaveAttribute('data-operator-prompt', 'true')
   await expect(secondPrompt).toHaveAttribute('data-operator-prompt', 'true')
   await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
+  await expect(deliveredMail).toHaveAttribute('data-internal-message', 'true')
+  await expect(deliveredMail).toContainText('Internal')
   await expect(page.locator('[data-testid="sticky-user-message"]')).toHaveCount(0)
 
   // Start above the first prompt, then scroll its real row into the sticky
@@ -289,9 +290,16 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
         const prompt = el.querySelector<HTMLElement>('[data-operator-prompt="true"]')
         if (!prompt) return false
         const promptTop = prompt.getBoundingClientRect().top
+        const bodyTop =
+          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
+            .top ?? Number.POSITIVE_INFINITY
         const viewportTop = el.getBoundingClientRect().top
-        const inset = Number.parseFloat(getComputedStyle(el).paddingTop) || 0
-        return Math.abs(promptTop - (viewportTop + inset)) <= 2
+        const stickyTop =
+          viewportTop +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
+        const visibleInset = bodyTop - viewportTop
+        return Math.abs(promptTop - stickyTop) <= 2 && visibleInset >= 6 && visibleInset <= 10
       })
     })
     .toBe(true)
@@ -310,10 +318,15 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
         const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
         const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
         if (!first || !second) return false
-        const firstRect = first.getBoundingClientRect()
-        const secondRect = second.getBoundingClientRect()
+        const firstBody = first.querySelector<HTMLElement>(':scope > .transcript-body')
+        const secondBody = second.querySelector<HTMLElement>(':scope > .transcript-body')
+        if (!firstBody || !secondBody) return false
+        const firstRect = firstBody.getBoundingClientRect()
+        const secondRect = secondBody.getBoundingClientRect()
         const stickyTop =
-          el.getBoundingClientRect().top + (Number.parseFloat(getComputedStyle(el).paddingTop) || 0)
+          el.getBoundingClientRect().top +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(first).top) || 0)
         return (
           firstRect.top < stickyTop &&
           secondRect.top > stickyTop &&
@@ -334,9 +347,15 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
         const prompt = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
         if (!prompt) return false
         const promptTop = prompt.getBoundingClientRect().top
+        const bodyTop =
+          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
+            .top ?? Number.POSITIVE_INFINITY
+        const viewportTop = el.getBoundingClientRect().top
         const stickyTop =
-          el.getBoundingClientRect().top + (Number.parseFloat(getComputedStyle(el).paddingTop) || 0)
-        return Math.abs(promptTop - stickyTop) <= 2
+          viewportTop +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
+        return Math.abs(promptTop - stickyTop) <= 2 && bodyTop - viewportTop <= 10
       })
     })
     .toBe(true)
