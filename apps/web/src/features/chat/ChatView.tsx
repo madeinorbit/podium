@@ -995,7 +995,7 @@ export function ChatView({
       <div className="relative flex min-h-0 flex-1">
         <div
           className={cn(
-            'flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto',
+            'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
             // §2.5 feed geometry: 12px/14px padding in the narrow column.
             compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
           )}

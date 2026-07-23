@@ -260,6 +260,7 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(secondPrompt).toBeAttached()
   await expect(firstPrompt).toHaveAttribute('data-operator-prompt', 'true')
   await expect(secondPrompt).toHaveAttribute('data-operator-prompt', 'true')
+  await expect(firstPrompt.locator('[data-sticky-prompt-backdrop]')).toHaveCount(1)
   await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
   await expect(deliveredMail).toHaveAttribute('data-internal-message', 'true')
   await expect(deliveredMail).toContainText('Internal')
@@ -303,6 +304,26 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
       })
     })
     .toBe(true)
+
+  // The stuck surface bleeds to both transcript edges while its content stays
+  // on the shared 960px reading measure.
+  expect(
+    await scroller.evaluate((el) => {
+      const prompt = el.querySelector<HTMLElement>(
+        '[data-operator-prompt="true"][data-stuck="true"]',
+      )
+      const backdrop = prompt?.querySelector<HTMLElement>('[data-sticky-prompt-backdrop]')
+      if (!prompt || !backdrop) return false
+      const scrollerRect = el.getBoundingClientRect()
+      const promptRect = prompt.getBoundingClientRect()
+      const backdropRect = backdrop.getBoundingClientRect()
+      return (
+        backdropRect.left <= scrollerRect.left &&
+        backdropRect.right >= scrollerRect.right &&
+        backdropRect.width > promptRect.width
+      )
+    }),
+  ).toBe(true)
 
   // As the next operator turn arrives, it physically pushes the first row out;
   // their edges meet during the handoff instead of the cards overlapping.

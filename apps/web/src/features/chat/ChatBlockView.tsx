@@ -220,9 +220,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
   const html = useMemo(() => renderMarkdown(displayText), [displayText])
   const rowClass = cn(
-    'transcript-row mx-auto w-full max-w-[960px]',
+    'group transcript-row isolate mx-auto w-full max-w-[960px]',
     stickyOperator &&
-      'sticky -top-6 z-[3] transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[stuck=true]:bg-background/90 data-[stuck=true]:backdrop-blur-sm motion-reduce:transition-none',
+      'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
@@ -363,6 +363,13 @@ export const ChatBlockView = memo(function ChatBlockView({
         data-block={index}
         data-operator-prompt={isUser ? 'true' : undefined}
       >
+        {stickyOperator && (
+          <div
+            className="pointer-events-none absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-background/90 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[stuck=true]:opacity-100 motion-reduce:transition-none"
+            data-sticky-prompt-backdrop
+            aria-hidden="true"
+          />
+        )}
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div
           className={cn(
