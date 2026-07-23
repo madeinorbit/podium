@@ -6,6 +6,7 @@ import { Icon } from './Icon'
 
 const ICONS: Record<string, typeof Inbox> = {
   index: Inbox,
+  work: Rows3,
   issues: KanbanSquare,
   superagent: MessagesSquare,
 }

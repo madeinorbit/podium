@@ -4,12 +4,8 @@ import type { ComponentProps } from 'react'
 import { useMobileClient } from '../../src/client/MobileClientProvider'
 import { TabBar } from '../../src/components/TabBar'
 
-/**
- * Three tabs [POD-131]: Tray (the global decision queue + the superagent's
- * standing composer), Tasks (the board/MAP), Agents (the session roster).
- * The superagent conversation is a pushed route (/superagent), not a tab —
- * the composer on Tray is its one-shot entry.
- */
+/** Tray keeps decisions first; Work mirrors the desktop sidebar's issue-first
+ * navigation; Tasks is the full status board; Super Agent is chat-only. */
 export default function TabsLayout() {
   const client = useMobileClient()
   const needsYou = groupSessions(withoutShells(client.sessions)).needsYou.length
@@ -23,6 +19,7 @@ export default function TabsLayout() {
         name="index"
         options={{ title: 'Tray', tabBarBadge: needsYou > 0 ? needsYou : undefined }}
       />
+      <Tabs.Screen name="work" options={{ title: 'Work' }} />
       <Tabs.Screen name="issues" options={{ title: 'Tasks' }} />
       <Tabs.Screen name="superagent" options={{ title: 'Super Agent' }} />
     </Tabs>
