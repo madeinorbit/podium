@@ -4,6 +4,7 @@ import {
   isUnstartedSession,
   rowMotionPhase,
   rowMotionTiming,
+  rowPendingDecision,
   rowStatusLine,
   rowWaitingCount,
   type UnifiedWorkRow,
@@ -87,7 +88,7 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
     })
     expect(rowMotionPhase(row)).toBe('waiting')
     expect(rowWaitingCount(row)).toBe(1)
-    expect(rowStatusLine(row, NOW)).toBe('ready to merge')
+    expect(rowStatusLine(row, NOW)).toBe('ready to merge · 2')
     expect(rowMotionTiming(row)).toMatchObject({ phase: 'waiting', sinceMs: NOW - 3_600_000 })
 
     const landed = issueRow([done()], false, {
@@ -100,6 +101,67 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
       gitState: { ...row.issue.gitState, ahead: 0 },
     })
     expect(rowMotionPhase(empty)).toBe('done')
+  })
+
+  // POD-279: a review queue is not one undifferentiated "needs you" — most of
+  // it is a branch waiting to land, and the row must say which.
+  describe('pending decision on a review-stage issue', () => {
+    const reviewIssue = (over: Record<string, unknown> = {}) => ({
+      stage: 'review',
+      branch: 'issue/9-reviewable',
+      gitState: {
+        updatedAt: new Date(NOW).toISOString(),
+        branch: 'issue/9-reviewable',
+        shared: false,
+        ahead: 3,
+        dirtyFiles: 0,
+      },
+      ...over,
+    })
+
+    it('reads "ready to merge" with its commit count when the branch has unlanded work', () => {
+      const row = issueRow([done()], false, reviewIssue())
+      expect(rowPendingDecision(row)).toBe('merge')
+      expect(rowMotionPhase(row)).toBe('waiting')
+      expect(rowWaitingCount(row)).toBe(1)
+      expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
+    })
+
+    it('reads "needs review" when there is nothing to land', () => {
+      // A design/doc/artifact deliverable, and work already merged: both are a
+      // review decision, neither is a merge.
+      for (const git of [
+        undefined,
+        { ...reviewIssue().gitState, merged: true },
+        { ...reviewIssue().gitState, ahead: 0 },
+      ]) {
+        const row = issueRow([done()], false, reviewIssue({ gitState: git }))
+        expect(rowPendingDecision(row)).toBe('review')
+        expect(rowStatusLine(row, NOW)).toBe('needs review')
+      }
+    })
+
+    it('survives a consumed offer — the decision is derived from stage + git, not the offer', () => {
+      // An offer is eaten by any user turn into that session; a merge queue
+      // that depended on it would silently empty itself (cf. POD-118).
+      const row = issueRow([done()], false, reviewIssue())
+      expect(row.sessions.every((s) => s.offer === undefined)).toBe(true)
+      expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
+    })
+
+    it('goes quiet while the agent is running again', () => {
+      // Sent back / follow-up turn: the decision returns when the turn settles.
+      const row = issueRow([working()], false, reviewIssue())
+      expect(rowPendingDecision(row)).toBeNull()
+      expect(rowMotionPhase(row)).toBe('working')
+      expect(rowStatusLine(row, NOW)).toBe('working')
+    })
+
+    it('leaves pre-review stages alone', () => {
+      for (const stage of ['backlog', 'planning', 'in_progress']) {
+        expect(rowPendingDecision(issueRow([done()], false, reviewIssue({ stage })))).toBeNull()
+      }
+    })
   })
 
   it('idle-ready or empty rows read queued (dimmed stillness)', () => {

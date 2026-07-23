@@ -115,6 +115,36 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
       return current?.gitState
     })
     .toMatchObject({ ahead: 1 })
+
+  // POD-279: the same branch delta, one stage earlier. A review-stage issue is
+  // the commonest thing in this sidebar and it used to read as a generic
+  // "needs you"; it must name the merge before the issue is ever closed — but
+  // only once its agent has actually come to rest.
+  await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'review' } })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  const reviewRow = page.getByTestId('unified-issue-row').filter({ hasText: title }).first()
+  await expect(reviewRow).toBeVisible({ timeout: 30_000 })
+  // The spawned agent is still running: nothing is being asked of the human yet.
+  await expect(reviewRow.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'working')
+  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveCount(0)
+
+  const sessions = await rpc<{ sessionId: string; issueId?: string | null }[]>(
+    request,
+    'sessions.list',
+    undefined,
+    'get',
+  )
+  for (const session of sessions.filter((s) => s.issueId === created.id)) {
+    await rpc(request, 'sessions.setArchived', { sessionId: session.sessionId, archived: true })
+  }
+  await expect(reviewRow.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'waiting', {
+    timeout: 30_000,
+  })
+  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText(
+    'ready to merge · 1',
+  )
+
   await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'done' } })
 
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -124,8 +154,11 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await expect(row.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'waiting')
   await expect(row.getByRole('img', { name: '1 waiting on you' })).toBeVisible()
   const chip = row.getByTestId('awaiting-merge-status')
-  await expect(chip).toHaveText('ready to merge')
+  // The chip states the size of the decision, and absorbs the git stamp's
+  // merge axis so one fact is not counted twice in amber (POD-279).
+  await expect(chip).toHaveText('ready to merge · 1')
   await expect(chip.locator('svg')).toBeVisible()
+  await expect(row.getByTestId('git-stamp')).toHaveCount(0)
   await expect(row.locator('.spb')).toHaveCount(0)
   const paint = await chip.evaluate((element) => {
     const style = getComputedStyle(element)

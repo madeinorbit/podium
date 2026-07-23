@@ -14,12 +14,17 @@ export function GitStamp({
   issueBranch,
   git,
   density,
+  suppressAhead = false,
   onClick,
   className = '',
 }: {
   issueBranch: string | null | undefined
   git: IssueGitState | null | undefined
   density: 'chip' | 'stamp' | 'footer' | 'panel'
+  /** Drop the merge-axis `N commits ahead` counter because the caller already
+   *  says it louder — the sidebar's "ready to merge · N commits" decision chip
+   *  (POD-279). Two amber counters for one fact read as two problems. */
+  suppressAhead?: boolean
   /** Chip densities are the click-through to the RightDock Git tab. */
   onClick?: () => void
   className?: string
@@ -32,7 +37,8 @@ export function GitStamp({
   // positional dot or expert-only arrow glyph (POD-236).
   if (density === 'stamp') {
     if (m.kind !== 'ready') return null
-    const hasAction = m.mismatch || m.dirty !== undefined || m.ahead !== undefined
+    const ahead = suppressAhead ? undefined : m.ahead
+    const hasAction = m.mismatch || m.dirty !== undefined || ahead !== undefined
     if (!hasAction) return null
     return (
       <span
@@ -47,9 +53,9 @@ export function GitStamp({
       >
         {m.mismatch && <span>Wrong branch</span>}
         {m.dirty !== undefined && <span>{m.dirty} uncommitted</span>}
-        {m.ahead !== undefined && (
+        {ahead !== undefined && (
           <span>
-            {m.ahead} commit{m.ahead === 1 ? '' : 's'} ahead
+            {ahead} commit{ahead === 1 ? '' : 's'} ahead
           </span>
         )}
       </span>

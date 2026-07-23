@@ -1280,20 +1280,84 @@ function isClosedTopLevelIssue(issue: IssueWire): boolean {
   return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
 }
 
-/** A finished private issue branch that still contains work not landed on its
- *  parent branch. The explicit ahead check keeps a never-moved/empty branch in
- *  plain done, while `merged !== true` reuses the cleanup guard's ancestry
- *  verdict. Unknown/computing git state stays conservative (not actionable). */
-export function issueAwaitingMerge(issue: IssueWire): boolean {
-  const finished = issue.stage === 'done' || issue.closedReason != null
+/** A private issue branch holding work that never landed on its parent branch.
+ *  The explicit ahead check keeps a never-moved/empty branch out, while
+ *  `merged !== true` reuses the cleanup guard's ancestry verdict.
+ *  Unknown/computing git state stays conservative (not actionable). */
+function issueHasUnmergedDelivery(issue: IssueWire): boolean {
   const git = issue.gitState
   return (
-    finished &&
     Boolean(issue.branch) &&
     git?.shared === false &&
     git.merged !== true &&
     (git.ahead ?? 0) > 0
   )
+}
+
+/** A FINISHED issue whose branch still has unlanded work. */
+export function issueAwaitingMerge(issue: IssueWire): boolean {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  return finished && issueHasUnmergedDelivery(issue)
+}
+
+/** What the human is actually being asked to decide (POD-279). A queue of
+ *  review-stage issues is not one undifferentiated "needs you": most of them
+ *  are a branch waiting to land, and saying so is the difference between
+ *  reading nine rows and reading one word.
+ *
+ *   - `merge`  — the deliverable is commits on a private branch that never
+ *                reached `parentBranch`. The decision IS the merge.
+ *   - `review` — the issue sits in review with nothing to land (a design, doc
+ *                or artifact deliverable, or work already merged): the decision
+ *                is approve / send back.
+ *
+ *  Deliberately derived from stage + git, never from the session offer: an
+ *  offer is consumed by any user turn into that session, so a merge queue that
+ *  depended on it would silently empty itself (same reasoning as the tray's
+ *  review backstop, POD-118). */
+export type IssuePendingDecision = 'merge' | 'review'
+
+export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  if (!finished && issue.stage !== 'review') return null
+  if (issueHasUnmergedDelivery(issue)) return 'merge'
+  // A finished issue with nothing to land is simply done — only an explicit
+  // review stage still holds an open question.
+  return issue.stage === 'review' ? 'review' : null
+}
+
+/** How many commits the merge would land — the one number that makes "ready to
+ *  merge" a fact instead of a label. Absent unless the decision is a merge. */
+export function issuePendingMergeCommits(issue: IssueWire): number {
+  return issuePendingDecision(issue) === 'merge' ? (issue.gitState?.ahead ?? 0) : 0
+}
+
+/** The row's copy for a pending decision, in the handoff's terse grammar
+ *  ("needs answer", "plan ready"). A merge carries the size of the decision as
+ *  a bare count: a sidebar row is ~250px and "· 2 commits" truncates, while
+ *  "· 2" under a branch glyph reads as commits. {@link pendingDecisionTitle}
+ *  spells it out on hover. */
+export function pendingDecisionLabel(
+  issue: IssueWire,
+  decision: IssuePendingDecision = 'review',
+): string {
+  if (decision !== 'merge') return 'needs review'
+  const commits = issuePendingMergeCommits(issue)
+  return commits > 0 ? `ready to merge · ${commits}` : 'ready to merge'
+}
+
+/** The unabbreviated sentence behind {@link pendingDecisionLabel} — hover copy,
+ *  and the accessible name where the row has no room to say it. */
+export function pendingDecisionTitle(
+  issue: IssueWire,
+  decision: IssuePendingDecision = 'review',
+): string {
+  if (decision !== 'merge') return 'Waiting on your review'
+  const commits = issuePendingMergeCommits(issue)
+  const target = issue.parentBranch || 'its parent branch'
+  return commits > 0
+    ? `${commits} commit${commits === 1 ? '' : 's'} ready to land on ${target}`
+    : `Ready to land on ${target}`
 }
 
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
@@ -2098,7 +2162,7 @@ export function formatClock(ms: number): string {
  * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
-  if (row.kind === 'issue' && awaitingMergeStats(row).count > 0) return 'waiting'
+  if (row.kind === 'issue' && pendingDecisionStats(row).count > 0) return 'waiting'
   const sessions = rowSessions(row)
   if (
     sessions.length === 0 &&
@@ -2127,12 +2191,27 @@ export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
  *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
   const sessions = rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
-  return sessions + (row.kind === 'issue' ? awaitingMergeStats(row).count : 0)
+  return sessions + (row.kind === 'issue' ? pendingDecisionStats(row).count : 0)
 }
 
-/** Count awaiting-merge issues in a visible row's full formal subtree and find
- *  the oldest completion anchor for the static waiting-age stamp. Cycle-safe. */
-function awaitingMergeStats(row: UnifiedIssueRow): { count: number; sinceMs?: number } {
+/**
+ * The decision this ROW is waiting on, if any (POD-279). Issue-level classification
+ * plus the one piece of context the issue itself can't see: a review-stage issue
+ * whose own agent is running again (sent back, follow-up turn) is not waiting on
+ * the human — its decision returns when the turn settles. A finished issue keeps
+ * its awaiting-merge reading regardless, since nothing is going to re-decide it.
+ */
+export function rowPendingDecision(row: UnifiedIssueRow): IssuePendingDecision | null {
+  const decision = issuePendingDecision(row.issue)
+  if (decision === null) return null
+  const finished = row.issue.stage === 'done' || row.issue.closedReason != null
+  if (!finished && row.sessions.some(isSessionWorking)) return null
+  return decision
+}
+
+/** Count issues awaiting a human decision in a visible row's full formal subtree
+ *  and find the oldest anchor for the static waiting-age stamp. Cycle-safe. */
+function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: number } {
   let count = 0
   let sinceMs: number | undefined
   const seen = new Set<string>()
@@ -2141,10 +2220,12 @@ function awaitingMergeStats(row: UnifiedIssueRow): { count: number; sinceMs?: nu
     const current = stack.pop() as UnifiedIssueRow
     if (seen.has(current.issue.id)) continue
     seen.add(current.issue.id)
-    if (issueAwaitingMerge(current.issue)) {
+    if (rowPendingDecision(current) !== null) {
       count += 1
-      const finishedAt = issueFinishedAt(current.issue)
-      if (finishedAt > 0 && (sinceMs === undefined || finishedAt < sinceMs)) sinceMs = finishedAt
+      // Finished work anchors on closedAt; a review-stage issue has no closure
+      // stamp, so its last update is when it came to rest asking.
+      const at = issueFinishedAt(current.issue)
+      if (at > 0 && (sinceMs === undefined || at < sinceMs)) sinceMs = at
     }
     for (const child of current.startedByChildren ?? []) stack.push(child)
   }
@@ -2189,16 +2270,14 @@ export function branchRollup(
  *  `row` (1 = direct child). Null when no descendant is waiting. */
 export function deepAttentionSource(
   row: UnifiedIssueRow,
-): { issue: IssueWire; depth: number; kind: 'session' | 'merge' } | null {
-  let best: { issue: IssueWire; depth: number; kind: 'session' | 'merge' } | null = null
+): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
+  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null = null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
     const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
-    const kind = issueAwaitingMerge(r.issue)
-      ? 'merge'
-      : r.sessions.some((s) => motionPhase(s) === 'waiting')
-        ? 'session'
-        : null
+    const kind =
+      rowPendingDecision(r) ??
+      (r.sessions.some((s) => motionPhase(s) === 'waiting') ? 'session' : null)
     if (depth > 0 && kind !== null) {
       // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
       // later sibling deterministically; any deepest source serves the whisper.
@@ -2214,7 +2293,7 @@ export function deepAttentionSource(
  *  one hidden behind the roll-up (the parent must whisper the source). */
 function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
   if (row.sessions.some((s) => motionPhase(s) === 'waiting')) return true
-  if (issueAwaitingMerge(row.issue)) return true
+  if (rowPendingDecision(row) !== null) return true
   if (depth <= 0) return false
   return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
 }
@@ -2251,8 +2330,11 @@ export function rowStatusLine(
   const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
   const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
-    if (row.kind === 'issue' && issueAwaitingMerge(row.issue)) {
-      return `${head}ready to merge${progress}`
+    if (row.kind === 'issue') {
+      const decision = rowPendingDecision(row)
+      if (decision !== null) {
+        return `${head}${pendingDecisionLabel(row.issue, decision)}${progress}`
+      }
     }
     // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
     // hidden behind the depth cap — no visible row explains the pill, so the
@@ -2261,7 +2343,8 @@ export function rowStatusLine(
       const deep = deepAttentionSource(row)
       if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
         const own = row.sessions.some(isSessionWorking) ? 'working · ' : ''
-        const request = deep.kind === 'merge' ? 'ready to merge' : 'needs you'
+        const request =
+          deep.kind === 'session' ? 'needs you' : pendingDecisionLabel(deep.issue, deep.kind)
         return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
       }
     }
@@ -2312,8 +2395,8 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
       return { phase, sinceMs: Date.parse(anchor.offer?.createdAt ?? '') || since(anchor) }
     }
     if (row.kind === 'issue') {
-      const merge = awaitingMergeStats(row)
-      if (merge.sinceMs !== undefined) return { phase, sinceMs: merge.sinceMs }
+      const pending = pendingDecisionStats(row)
+      if (pending.sinceMs !== undefined) return { phase, sinceMs: pending.sinceMs }
     }
   }
   if (phase === 'done') {

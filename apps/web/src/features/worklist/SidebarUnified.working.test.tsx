@@ -114,6 +114,21 @@ vi.mock('@/app/store', () => {
           dirtyFiles: 0,
         },
       }),
+      // POD-279: two review-stage issues whose agents already went quiet (no
+      // live session, no surviving offer) — one with a branch to land, one
+      // with only an artifact to look at.
+      issue('review-merge', 'Review with branch', {
+        stage: 'review',
+        branch: 'issue/11-review-merge',
+        gitState: {
+          updatedAt: '2026-07-06T12:00:00.000Z',
+          branch: 'issue/11-review-merge',
+          shared: false,
+          ahead: 1,
+          dirtyFiles: 0,
+        },
+      }),
+      issue('review-only', 'Review without branch', { stage: 'review' }),
       issue('parent', 'Nested parent', { childCount: 1, color: 'pink' }),
       issue('child', 'Nested child', { parentId: 'parent', audience: 'agent' }),
     ],
@@ -252,9 +267,32 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(row.querySelector('[data-phase="waiting"]')).toBeTruthy()
     expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
-    const chip = screen.getByTestId('awaiting-merge-status')
-    expect(chip.textContent).toBe('ready to merge')
+    const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
+    expect(chip.textContent).toBe('ready to merge · 2')
     expect(chip.querySelector('svg')).toBeTruthy()
     expect(chip.className).toContain('bg-attention/10')
+    // The chip absorbs the merge axis: the git stamp must not repeat
+    // "2 commits ahead" in a second amber counter (POD-279).
+    expect(row.querySelector('[data-testid="git-stamp"]')).toBeNull()
+  })
+
+  // POD-279: a review queue is the commonest thing in this sidebar, and it was
+  // reading as an undifferentiated "needs you" (or, once the offer was eaten,
+  // as nothing at all). The row now names the decision it is actually asking for.
+  it('names the pending decision on review-stage rows, offer or no offer', () => {
+    render(<SidebarUnified />)
+    const rowFor = (title: string) =>
+      screen.getByText(title).closest('[data-testid="unified-issue-row"]') as HTMLElement
+
+    const merge = rowFor('Review with branch')
+    expect(merge.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    expect(merge.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+    const mergeChip = merge.querySelector('[data-decision="merge"]') as HTMLElement
+    expect(mergeChip.textContent).toBe('ready to merge · 1')
+
+    const review = rowFor('Review without branch')
+    expect(review.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    const reviewChip = review.querySelector('[data-decision="review"]') as HTMLElement
+    expect(reviewChip.textContent).toBe('needs review')
   })
 })

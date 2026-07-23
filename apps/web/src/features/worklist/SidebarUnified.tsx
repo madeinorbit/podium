@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Circle,
   CircleAlert,
+  Eye,
   FolderPlus,
   GitBranch,
   Pin,
@@ -50,18 +51,20 @@ import {
   isCoordinatorSession,
   isDraftAgentVessel,
   isIssueSnoozed,
-  issueAwaitingMerge,
   issueReturnedFromDefer,
   lastUsedMaps,
   type MotionPhase,
   machinesWithRepo,
   panelLabel,
   partitionStaleSessions,
+  pendingDecisionLabel,
+  pendingDecisionTitle,
   pickPaneSession,
   type RepoNavView,
   resolveDefaultAgent,
   resolveTargetMachine,
   rowMotionPhase,
+  rowPendingDecision,
   rowMotionTiming,
   rowStatusLine,
   rowUnreadEmphasized,
@@ -1569,6 +1572,8 @@ function UnifiedIssueRow({
   const hasFoldableDetail = showSessions || showRollup || (!capped && hasStartedBy)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
+  // What this row is asking of the human, if anything (POD-279).
+  const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
   const timing = rowMotionTiming(row)
   const hex = issueColorHex(issue.color)
@@ -1641,13 +1646,23 @@ function UnifiedIssueRow({
         square={square}
         label={label}
         statusLine={
-          issueAwaitingMerge(issue) ? (
+          decision !== null ? (
+            // The one chip that answers "what is being asked of me here" —
+            // a merge states its commit count so the row is a fact, not a mood
+            // (POD-279). The git stamp's own "N commits ahead" is suppressed
+            // below: one voice per region (DESIGN.md, The Signal Rule).
             <span
-              data-testid="awaiting-merge-status"
-              className="inline-flex h-3 items-center gap-1 rounded-[3px] border border-attention/35 bg-attention/10 px-1 text-attention"
+              data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
+              data-decision={decision}
+              title={pendingDecisionTitle(issue, decision)}
+              className="inline-flex h-3 flex-none items-center gap-1 rounded-[3px] border border-attention/35 bg-attention/10 px-1 text-attention"
             >
-              <GitBranch size={9} strokeWidth={1.8} aria-hidden="true" />
-              ready to merge
+              {decision === 'merge' ? (
+                <GitBranch size={9} strokeWidth={1.8} aria-hidden="true" />
+              ) : (
+                <Eye size={9} strokeWidth={1.8} aria-hidden="true" />
+              )}
+              {pendingDecisionLabel(issue, decision)}
             </span>
           ) : (
             rowStatusLine(row, now, capped ? 0 : 1)
@@ -1676,6 +1691,7 @@ function UnifiedIssueRow({
               issueBranch={issue.branch}
               git={issue.gitState}
               density="stamp"
+              suppressAhead={decision === 'merge'}
               className="flex-none"
             />
           )
