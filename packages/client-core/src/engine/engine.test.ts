@@ -132,7 +132,7 @@ function makeApi(): any {
       rename: { mutate: vi.fn(async () => ({})) },
       setArchived: { mutate: vi.fn(async () => ({})) },
       setWorkState: { mutate: vi.fn(async () => ({})) },
-      markRead: { mutate: async () => ({}) },
+      markRead: { mutate: vi.fn(async () => ({})) },
       markUnread: { mutate: async () => ({}) },
     },
     issues: {
@@ -1231,5 +1231,137 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     expect(second.engine.getSnapshot().recentFiles).toHaveLength(30)
     expect(second.engine.getSnapshot().recentFiles[0]?.path).toBe('index.html')
     second.engine.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-272: mark-read-on-view is EAGER for the surface in the foreground. The
+// old trailing debounce left a "new message" chip on the row of the very
+// session/issue whose message was already on screen.
+// ---------------------------------------------------------------------------
+describe('eager mark-read-on-view (POD-272)', () => {
+  const active = (id: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+    ({ ...session(id, '/tmp/known-repo/.worktrees/wt1'), ...over }) as SessionMeta
+
+  it('marks the session in the OPEN PANE read the moment its activity lands', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [active('s1')], [])
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    // A message arrives while s1 IS the visible pane.
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
+      [],
+    )
+    await settle() // ~25ms — an order of magnitude under MARK_READ_ON_VIEW_MS
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
+    expect(engine.getSnapshot().sessions[0]?.unread).toBe(false)
+    engine.dispose()
+  })
+
+  it('does not undo a manual mark-unread of the open session (no fresh activity)', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { readAt: '2026-07-01T00:00:01.000Z' })],
+      [],
+    )
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    // Marking THIS open session unread flips the flag without new activity —
+    // the trigger is activity, so nothing re-reads it.
+    engine.replica.applyChanges('sessions', [active('s1', { readAt: null, unread: true })], [])
+    await settle(60)
+    expect(api.sessions.markRead.mutate).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
+    engine.dispose()
+  })
+
+  it('throttles a burst to one mutation per window, with a trailing pass for the tail', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [active('s1')], [])
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // leading edge
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:02:00.000Z', unread: true })],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // still inside the window
+    await settle(1400) // …and the tail lands once it closes
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(2)
+    engine.dispose()
+  })
+
+  it('marks the FOREGROUND ISSUE read when activity lands on it', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const issue = {
+      id: 'iss_1',
+      unread: false,
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    } as unknown as IssueWire
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+    engine.getSnapshot().setOpenIssueId('iss_1')
+    engine.getSnapshot().setView('issues')
+    await settle()
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue],
+      [],
+    )
+    await settle()
+    expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
+    engine.dispose()
+  })
+
+  it('leaves an issue nobody is looking at alone', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const issue = {
+      id: 'iss_1',
+      unread: false,
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    } as unknown as IssueWire
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue],
+      [],
+    )
+    await settle(60)
+    expect(api.issues.markRead.mutate).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(true)
+    engine.dispose()
   })
 })

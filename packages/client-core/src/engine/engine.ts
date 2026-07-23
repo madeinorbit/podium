@@ -109,10 +109,23 @@ import {
 } from './types'
 import { type CreateHub, createEngineHub, createEngineOutbox, type OutboxKinds } from './wiring'
 
-/** Default trailing debounce (ms) before a viewed session is marked read. Long
- *  enough that a streaming session settles first (so we mark read once, not on
- *  every frame), short enough that a glance clears the nag promptly. */
+/** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
+ *  the operator is looking at marks it read immediately (POD-272 — it is already
+ *  on screen); this window then bounds the follow-ups, so a streaming session
+ *  costs one mutation per window plus one trailing pass rather than one a frame.
+ *  Still the default trailing debounce for the standalone useMarkReadOnView. */
 export const MARK_READ_ON_VIEW_MS = 1200
+
+/** The stamp the server's issue-unread compares against read_at: the issue's own
+ *  updatedAt, or a member session's activity when that is newer. Mirrors the
+ *  server's computeUnread so the client reacts to exactly the same events. */
+function issueActivityAt(issue: IssueWire, sessions: SessionMeta[]): string {
+  let latest = issue.updatedAt
+  for (const s of sessions) {
+    if ((s.issueId ?? null) === issue.id && s.lastActiveAt > latest) latest = s.lastActiveAt
+  }
+  return latest
+}
 
 /** How long a FAILED spawn create waits for the session broadcast before it is
  *  treated as definitive (#263 review finding 4): the create can reach the
@@ -234,6 +247,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private prevCwds: Record<string, string> = {}
   private markReadKey: string | null = null
   private markReadTimer: ReturnType<typeof setTimeout> | null = null
+  /** When the focused session's eager mark-read last actually fired (POD-272) —
+   *  the throttle window's origin, so a burst of activity costs one mutation. */
+  private markReadFiredAt = 0
+  private issueMarkReadKey: string | null = null
+  private issueMarkReadTimer: ReturnType<typeof setTimeout> | null = null
+  private issueMarkReadFiredAt = 0
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private started = false
@@ -549,6 +568,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       clearTimeout(this.markReadTimer)
       this.markReadTimer = null
     }
+    if (this.issueMarkReadTimer !== null) {
+      clearTimeout(this.issueMarkReadTimer)
+      this.issueMarkReadTimer = null
+    }
     if (this.awaitingSweepTimer !== null) {
       clearTimeout(this.awaitingSweepTimer)
       this.awaitingSweepTimer = null
@@ -556,6 +579,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     for (const t of this.spawnConfirmTimers) clearTimeout(t)
     this.spawnConfirmTimers.clear()
     this.markReadKey = null
+    this.issueMarkReadKey = null
     for (const off of this.offs.splice(0)) {
       try {
         off()
@@ -616,8 +640,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (any('selectedWorktree', 'paneA')) this.mirrorUrl()
     // View-state report to the server (old lines 1038-1060).
     if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession')) this.reportViewState()
-    // Mark-the-viewed-session-read debounce (old useMarkReadOnView call).
+    // Mark-the-viewed-session-read reaction (old useMarkReadOnView call).
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane')) this.updateMarkReadTimer()
+    // …and the same for the issue the operator has in the foreground (POD-272).
+    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+      this.updateIssueMarkReadTimer()
   }
 
   private buildSnapshot(): Store<TApi> {
@@ -773,11 +800,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.reportViewState()
   }
 
-  /** Mark the session the operator is LOOKING AT read on view (#138): a trailing
-   *  debounce keyed on the focused session's id + activity, so a streaming
-   *  session settles first. `unread` + visibility are re-checked at fire time so
-   *  a mid-flight manual mark-unread is respected. (The old useMarkReadOnView
-   *  hook, as an engine reaction.) */
+  /** Mark the session the operator is LOOKING AT read on view (#138), keyed on
+   *  the focused session's id + activity. The activity that lands while the
+   *  session IS the open pane is already on screen, so it's marked read EAGERLY
+   *  — leading edge, no settle wait (POD-272: waiting left a "new" chip on the
+   *  row of the very session being read). MARK_READ_ON_VIEW_MS survives as the
+   *  throttle window: a burst costs one mutation now plus one trailing pass, so
+   *  a streaming session still can't spam the outbox.
+   *
+   *  The trigger stays ACTIVITY, never the `unread` flag itself, so manually
+   *  marking the open session unread isn't instantly undone; `unread` +
+   *  visibility are re-checked at fire time. */
   private updateMarkReadTimer(): void {
     const st = this.state
     const focusedId = st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
@@ -791,15 +824,69 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     if (!session) return
     const sessionId = session.sessionId
+    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.markReadFiredAt)
+    if (wait <= 0) {
+      this.fireMarkSessionRead(sessionId)
+      return
+    }
     this.markReadTimer = setTimeout(() => {
       this.markReadTimer = null
-      const cur = this.state
-      const curFocused = cur.split ? (cur.focusedPane === 'A' ? cur.paneA : cur.paneB) : cur.paneA
-      const s = cur.sessions.find((x) => x.sessionId === sessionId)
-      if (curFocused === sessionId && s?.unread === true && tabIsVisible()) {
-        void this.statics.markSessionRead(sessionId)
-      }
-    }, MARK_READ_ON_VIEW_MS)
+      this.fireMarkSessionRead(sessionId)
+    }, wait)
+  }
+
+  /** The guarded mark-read itself: only when this session is STILL the focused
+   *  pane, still unread, and the tab is visible. */
+  private fireMarkSessionRead(sessionId: string): void {
+    const cur = this.state
+    const curFocused = cur.split ? (cur.focusedPane === 'A' ? cur.paneA : cur.paneB) : cur.paneA
+    const s = cur.sessions.find((x) => x.sessionId === sessionId)
+    if (curFocused !== sessionId || s?.unread !== true || !tabIsVisible()) return
+    this.markReadFiredAt = Date.now()
+    void this.statics.markSessionRead(sessionId)
+  }
+
+  /** The issue in the FOREGROUND: the open issue page, or the issue whose
+   *  sessions the workspace is showing. Any other surface has none. */
+  private foregroundIssue(): IssueWire | undefined {
+    const st = this.state
+    const id =
+      st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
+    return id ? st.issues.find((i) => i.id === id) : undefined
+  }
+
+  /** The issue half of eager mark-read-on-view (POD-272): while an issue is the
+   *  foreground surface its incoming activity is on screen, so the row must not
+   *  hold a "new message" chip for it. Same shape as the session reaction —
+   *  keyed on activity (so a manual mark-unread sticks), leading edge, throttled
+   *  by MARK_READ_ON_VIEW_MS. */
+  private updateIssueMarkReadTimer(): void {
+    const issue = this.foregroundIssue()
+    const key = issue ? `${issue.id}\n${issueActivityAt(issue, this.state.sessions)}` : null
+    if (key === this.issueMarkReadKey) return
+    this.issueMarkReadKey = key
+    if (this.issueMarkReadTimer !== null) {
+      clearTimeout(this.issueMarkReadTimer)
+      this.issueMarkReadTimer = null
+    }
+    if (!issue) return
+    const issueId = issue.id
+    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.issueMarkReadFiredAt)
+    if (wait <= 0) {
+      this.fireMarkIssueRead(issueId)
+      return
+    }
+    this.issueMarkReadTimer = setTimeout(() => {
+      this.issueMarkReadTimer = null
+      this.fireMarkIssueRead(issueId)
+    }, wait)
+  }
+
+  private fireMarkIssueRead(issueId: string): void {
+    const issue = this.foregroundIssue()
+    if (issue?.id !== issueId || issue.unread !== true || !tabIsVisible()) return
+    this.issueMarkReadFiredAt = Date.now()
+    void this.statics.markIssueRead(issueId)
   }
 
   // ----------------------------------------------------------- replica ↔ state

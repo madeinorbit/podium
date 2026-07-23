@@ -524,8 +524,13 @@ export function PanelRow({
   // Nested child rows (dotRight) and roster rows: the session's own mono ref.
   const issueLinkage = dotRight || roster ? sessionIssueLinkage(session) : null
   // Email-style unread emphasis (#126), suppressed (#138) for WORKING-section
-  // rows AND any currently-working session; also while snoozed.
-  const unreadEmphasis = session.unread && !suppressUnread && !isSessionWorking(session) && !snoozed
+  // rows AND any currently-working session; also while snoozed. And never on the
+  // ACTIVE row (POD-272): that session is the open pane, so its incoming message
+  // is already on screen — nagging "new" about what you're reading is the bug.
+  // (The engine marks it read eagerly too; this keeps the row honest in the gap
+  // before that mutation's echo lands, and while the row is merely re-rendering.)
+  const unreadEmphasis =
+    session.unread && !active && !suppressUnread && !isSessionWorking(session) && !snoozed
   // The weight bump alone was invisible when scanning after a notification
   // sound (POD-81) — name the news in a chip. A finished turn is the case with
   // no other signal at all (attention/error rows already carry their amber
@@ -589,9 +594,9 @@ export function PanelRow({
             active ? 'text-[#f3f3f8]' : 'text-muted-foreground hover:text-foreground',
             !dotRight && !active && 'text-[#dcdce4]',
             // Email-style unread emphasis (#126): an unread session reads at
-            // medium weight, lifting it out of the muted baseline — INDEPENDENT of
-            // selection, so a selected+unread row is still bold (on accent).
-            unreadEmphasis && (active ? 'font-medium' : 'font-medium text-foreground'),
+            // medium weight, lifting it out of the muted baseline. The ACTIVE row
+            // never carries it (POD-272) — you are looking at that session.
+            unreadEmphasis && 'font-medium text-foreground',
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.

@@ -37,9 +37,21 @@ function sess(over: Partial<SessionMeta>): SessionMeta {
   } as SessionMeta
 }
 
-function renderRow(session: SessionMeta): void {
-  render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
+function renderRow(session: SessionMeta, active = false): void {
+  render(<PanelRow session={session} active={active} onSelect={vi.fn()} />)
 }
+
+const doneTurn = (over: Partial<SessionMeta> = {}): SessionMeta =>
+  sess({
+    unread: true,
+    agentState: {
+      phase: 'idle',
+      since: '2026-07-20T10:01:00.000Z',
+      nativeSubagentCount: 0,
+      idle: { kind: 'done' },
+    },
+    ...over,
+  })
 
 describe('PanelRow unread news chip (POD-81)', () => {
   it('an unread finished turn shows the DONE chip', () => {
@@ -96,6 +108,13 @@ describe('PanelRow unread news chip (POD-81)', () => {
         agentState: { phase: 'working', since: '2026-07-20T10:01:00.000Z', nativeSubagentCount: 0 },
       }),
     )
+    expect(screen.queryByTestId('session-unread-chip')).toBeNull()
+  })
+
+  // POD-272: the chip nagged about a message that was already on screen — the
+  // active row IS the open pane, so it has nothing new to announce.
+  it('the ACTIVE row shows no chip, however unread the session is', () => {
+    renderRow(doneTurn(), true)
     expect(screen.queryByTestId('session-unread-chip')).toBeNull()
   })
 
