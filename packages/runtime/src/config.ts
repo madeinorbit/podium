@@ -53,7 +53,7 @@
  * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |
  * |   PODIUM_DISCOVERY_BENCH_DB, PODIUM_FEED_PORT, PODIUM_HEADLESS_FEED_PORT — fixtures |
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
@@ -183,10 +183,13 @@ export interface ConfigInspection {
  */
 export function inspectConfig(path = configPath()): ConfigInspection {
   assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
-  if (!existsSync(path)) return { state: 'missing', config: {} }
   try {
     return { state: 'ok', config: PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8'))) }
   } catch (err) {
+    // Read directly instead of preflighting with existsSync: besides removing a
+    // TOCTOU window, this keeps config reads reliable in syscall-emulated Linux
+    // environments where statx may be unavailable while open/read still works.
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing', config: {} }
     // A ZodError's message is the full issues array as JSON — condense it to
     // one `path: message` line per issue so boot logs stay readable.
     const error =

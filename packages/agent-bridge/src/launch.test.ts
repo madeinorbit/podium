@@ -36,7 +36,7 @@ describe('agentLaunchCommand', () => {
   it('resumes codex by thread id', () => {
     expect(
       agentLaunchCommand('codex', { cwd: '/w', resume: { kind: 'codex-thread', value: 't9' } }),
-    ).toEqual({ cmd: 'codex', args: ['resume', 't9'], cwd: '/w' })
+    ).toEqual({ cmd: 'codex', args: ['resume', '-C', '/w', 't9'], cwd: '/w' })
   })
 
   it('spawns grok fresh', () => {

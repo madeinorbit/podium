@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
@@ -70,8 +70,19 @@ export const grokAdapter: HarnessAdapter = {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
     detectLogin(homeDir) {
       const path = grokHome(homeDir)
-      if (!existsSync(path)) return { state: 'out' }
-      return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+      try {
+        const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
+          string,
+          GrokAuthRecord
+        >
+        const hasCredential = Object.values(file).some(
+          (record) => record && (record.key || record.refresh_token),
+        )
+        if (!hasCredential) return { state: 'out' }
+        return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+      } catch {
+        return { state: 'out' }
+      }
     },
   },
 

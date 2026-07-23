@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind, MachineWire } from '@podium/protocol'
 import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,7 +15,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { machinesForRepo, machinesWithRepo, reposToViews, resolveTargetMachine } from '@/lib/derive'
+import {
+  agentCapabilityRejection,
+  machinesForRepoOrClone,
+  onlineMachinesForRepoOrClone,
+  reposToViews,
+  resolveTargetMachineForAgent,
+} from '@/lib/derive'
 import { relativeTime } from '@/lib/home'
 import {
   ClaudeCodeIcon,
@@ -144,11 +150,11 @@ export function NewPanelMenu({
     }
   }, [repos, worktree])
 
-  // The machine we'd open on by default (MRU with repo → first with repo → undefined).
-  const target = useMemo(
-    () => resolveTargetMachine(repoView, sessions, machines),
-    [repoView, sessions, machines],
-  )
+  // The recommended machine is agent-specific: a host with the repo but without
+  // this harness (or its login) must never receive an optimistic spawn.
+  function targetFor(agentKind: AgentKind): string | undefined {
+    return resolveTargetMachineForAgent(repoView, sessions, machines, agentKind)
+  }
 
   /** Local path to use when opening an agent on machine M. */
   function cwdFor(machineId: string | undefined): string {
@@ -196,12 +202,20 @@ export function NewPanelMenu({
           }
         />
         <DropdownMenuContent align="end" className="flex w-56 flex-col">
-          {TAB_AGENTS.map(({ kind, label, Icon }) => (
-            <DropdownMenuItem key={kind} onClick={() => void create(kind)}>
-              <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
-              {label}
-            </DropdownMenuItem>
-          ))}
+          {TAB_AGENTS.map(({ kind, label, Icon }) => {
+            const machine = machines[0]
+            const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
+            return (
+              <CapabilityAgentItem
+                key={kind}
+                kind={kind}
+                label={label}
+                Icon={Icon}
+                reason={machine ? capabilityReason(machine, label, rejection) : undefined}
+                onSelect={() => void create(kind, machine?.id)}
+              />
+            )
+          })}
           <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
             Resume
           </div>
@@ -242,8 +256,8 @@ export function NewPanelMenu({
   }
 
   // Multi-machine path.
-  const repoMachines = machinesWithRepo(repoView, machines)
-  const eligible = machinesForRepo(repoView, machines)
+  const repoMachines = machinesForRepoOrClone(repoView, machines)
+  const eligible = onlineMachinesForRepoOrClone(repoView, machines)
   const eligibleIds = new Set(eligible.map((m) => m.id))
 
   return (
@@ -260,12 +274,23 @@ export function NewPanelMenu({
       />
       <DropdownMenuContent align="end" className="flex w-56 flex-col">
         {/* 1. Agent options — open on the resolved target machine */}
-        {TAB_AGENTS.map(({ kind, label, Icon }) => (
-          <DropdownMenuItem key={kind} onClick={() => void create(kind, target)}>
-            <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
-            {label}
-          </DropdownMenuItem>
-        ))}
+        {TAB_AGENTS.map(({ kind, label, Icon }) => {
+          const target = targetFor(kind)
+          return (
+            <CapabilityAgentItem
+              key={kind}
+              kind={kind}
+              label={label}
+              Icon={Icon}
+              reason={
+                target
+                  ? undefined
+                  : `No online machine with this repository can run ${agentLabel(label)}.`
+              }
+              onSelect={() => void create(kind, target)}
+            />
+          )
+        })}
 
         {/* 2. Machines section */}
         <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
@@ -363,7 +388,7 @@ function MachineSubmenu({
   hits,
   now,
 }: {
-  machine: { id: string; name: string; online: boolean }
+  machine: MachineWire
   onCreate: (kind: AgentKind, machineId: string) => Promise<void>
   onResume: (hit: ConversationHit) => Promise<void>
   hits: ConversationHit[]
@@ -385,10 +410,14 @@ function MachineSubmenu({
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
         {TAB_AGENTS.map(({ kind, label, Icon }) => (
-          <DropdownMenuItem key={kind} onClick={() => void onCreate(kind, machine.id)}>
-            <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
-            {label}
-          </DropdownMenuItem>
+          <CapabilityAgentItem
+            key={kind}
+            kind={kind}
+            label={label}
+            Icon={Icon}
+            reason={capabilityReason(machine, label, agentCapabilityRejection(machine, kind))}
+            onSelect={() => void onCreate(kind, machine.id)}
+          />
         ))}
         {machineHits.length > 0 && (
           <>
@@ -415,5 +444,54 @@ function MachineSubmenu({
         )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
+  )
+}
+
+function agentLabel(menuLabel: string): string {
+  return menuLabel.replace(/^New /, '')
+}
+
+function capabilityReason(
+  machine: Pick<MachineWire, 'name'>,
+  label: string,
+  rejection: ReturnType<typeof agentCapabilityRejection>,
+): string | undefined {
+  if (rejection === 'offline') return `${machine.name} is offline.`
+  if (rejection === 'harness-missing')
+    return `${agentLabel(label)} is not installed on ${machine.name}.`
+  if (rejection === 'logged-out') return `${agentLabel(label)} is not logged in on ${machine.name}.`
+  return undefined
+}
+
+/** Disabled menu rows retain pointer events on a wrapper so their reason is hoverable. */
+function CapabilityAgentItem({
+  kind,
+  label,
+  Icon,
+  reason,
+  onSelect,
+}: {
+  kind: AgentKind
+  label: string
+  Icon: IconComponent
+  reason?: string
+  onSelect: () => void
+}): JSX.Element {
+  const item = (
+    <DropdownMenuItem key={kind} disabled={reason !== undefined} onClick={onSelect}>
+      <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
+      {label}
+    </DropdownMenuItem>
+  )
+  if (!reason) return item
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger render={<span className="block pointer-events-auto" />}>
+          {item}
+        </TooltipTrigger>
+        <TooltipContent side="right">{reason}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

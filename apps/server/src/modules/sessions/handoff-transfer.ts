@@ -31,6 +31,15 @@ export function verifiedBundleBases(results: { ok: boolean; output: string }[]):
   ]
 }
 
+/** Keep only source object IDs that the target independently proved it has. */
+export function verifiedCommonBundleBases(
+  sourceResults: { ok: boolean; output: string }[],
+  targetResults: { ok: boolean; output: string }[],
+): string[] {
+  const targetShas = new Set(verifiedBundleBases(targetResults))
+  return verifiedBundleBases(sourceResults).filter((sha) => targetShas.has(sha))
+}
+
 export async function transferHandoffPackage(input: {
   rpc: HandoffTransferRpc
   sessionId: string

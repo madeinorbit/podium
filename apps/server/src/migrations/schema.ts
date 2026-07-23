@@ -33,6 +33,7 @@ export const sessions = sqliteTable("sessions", {
 	resumeValue: text("resume_value"),
 	status: text().notNull(),
 	exitCode: integer("exit_code"),
+	spawnFailure: text("spawn_failure"),
 	durableLabel: text("durable_label").notNull(),
 	createdAt: text("created_at").notNull(),
 	lastActiveAt: text("last_active_at").notNull(),

@@ -63,7 +63,7 @@ export function MachinesPanel(): JSX.Element {
     setAddError(null)
     try {
       const [r, info] = await Promise.all([
-        trpc.machines.pairingCode.mutate(),
+        trpc.machines.pairingCode.mutate({ copyAgentCredentials: true }),
         trpc.setup.info.query(),
       ])
       setCode(r.code)
@@ -116,7 +116,7 @@ export function MachinesPanel(): JSX.Element {
               <DialogDescription>
                 {code && !joinCommand && !addLoading
                   ? 'This server needs a reachable URL before it can pair a machine — set that up here.'
-                  : 'Run the command below on the other machine to pair it with this Podium server.'}
+                  : 'Run the command below on the other machine. It installs the three supported agents and copies existing native logins from one of your online machines.'}
               </DialogDescription>
             </DialogHeader>
             {addError && <p className="text-destructive text-xs">{addError}</p>}
@@ -343,9 +343,7 @@ function PairingCodeDisplay({
           </p>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        The code expires after one use or 10 minutes.
-      </p>
+      <p className="text-[11px] text-muted-foreground">The code expires after one use or 1 hour.</p>
     </div>
   )
 }

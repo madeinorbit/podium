@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import {
   type AgentSession,
   abducoHasSessionAsync,
@@ -57,7 +57,27 @@ export function spawnEnv(opts: {
   harnessEnv?: Record<string, string>
   podiumEnv: Record<string, string>
 }): Record<string, string> {
-  return { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+  const merged = { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+  const home = merged.HOME
+  if (!home) return merged
+
+  // Detached installs inherit the setup process's non-login PATH. On bare images
+  // that PATH does not contain ~/.local/bin, even though install.sh puts every
+  // requested harness there. Inventory deliberately finds those binaries by
+  // absolute path, so without the matching spawn invariant a machine reports
+  // "Codex installed + logged in" and then fails every session with execvp ENOENT.
+  // Keep custom/system entries, but make the same user install roots used by the
+  // systemd unit authoritative for every spawned agent.
+  const inherited = merged.PATH ?? process.env.PATH ?? ''
+  merged.PATH = [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+    ...inherited.split(delimiter),
+  ]
+    .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
+    .join(delimiter)
+  return merged
 }
 
 export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {

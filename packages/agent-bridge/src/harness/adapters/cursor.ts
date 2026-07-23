@@ -30,6 +30,13 @@ export const cursorAdapter: HarnessAdapter = {
 
   inventory: {
     binCandidates: (homeDir) => [...cursorBinCandidates(homeDir), 'cursor-agent'],
+    // Cursor deliberately installs as the generic `agent` executable. Grok also
+    // exposes an `agent` alias, so require Cursor's own help marker before
+    // reporting this machine as Cursor-capable.
+    identityProbe: {
+      args: ['--help'],
+      accepts: (output) => output.includes('Cursor Agent'),
+    },
     detectLogin: () => ({ state: 'unknown' }),
   },
 

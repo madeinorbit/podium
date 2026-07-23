@@ -29,7 +29,9 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
 
 describe('sessionMenuEligibility', () => {
   it('allows hibernate only for a live, recoverable, non-working agent', () => {
-    expect(sessionMenuEligibility(meta({ status: 'live', resumable: true })).canHibernate).toBe(true)
+    expect(sessionMenuEligibility(meta({ status: 'live', resumable: true })).canHibernate).toBe(
+      true,
+    )
     // mid-turn → no (parking would lose the in-flight turn)
     expect(
       sessionMenuEligibility(
@@ -77,6 +79,7 @@ describe('handoff reason copy (POD-821)', () => {
     expect(handoffBlockerText('harness', 'shell')).toBe("Shell sessions can't be handed off")
     expect(handoffRejectionText('harness-missing', 'claude-code')).toBe('no Claude')
     expect(handoffRejectionText('logged-out', 'codex')).toBe('Codex logged out')
+    expect(handoffRejectionText('repo-missing', 'codex')).toBe('no clone URL for repo')
   })
 
   it('explains a blocked session in terms of what would unblock it', () => {

@@ -125,6 +125,8 @@ export const CLIENT_MESSAGE_CLASS = {
  *  architecture.md §5's "Command RPCs" row); the transcript reads are the
  *  bulk channel. */
 export const CONTROL_MESSAGE_CLASS = {
+  credentialExportRequest: 'command',
+  credentialInstallRequest: 'command',
   repoOpRequest: 'command',
   handoffExportRequest: 'command',
   handoffChunkReadRequest: 'command',
@@ -176,6 +178,8 @@ export const CONTROL_MESSAGE_CLASS = {
  *  `bulk`; conversationsChanged is `durable` (shared with ServerMessage — the
  *  daemon's discovery push feeds the same durable conversation registry). */
 export const DAEMON_MESSAGE_CLASS = {
+  credentialExportResult: 'command',
+  credentialInstallResult: 'command',
   repoOpResult: 'command',
   handoffExportResult: 'command',
   handoffChunkReadResult: 'command',

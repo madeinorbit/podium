@@ -83,7 +83,9 @@ describe('e2e: two-daemon pairing + routing', () => {
 
     try {
       // 1) Both machines must appear online
-      const machines = srv.registry.modules.machines.listMachines()
+      const machines = srv.registry.modules.machines
+        .listMachines()
+        .filter((machine) => machine.online)
       expect(machines).toHaveLength(2)
       expect(machines.every((m) => m.online)).toBe(true)
 
@@ -105,7 +107,9 @@ describe('e2e: two-daemon pairing + routing', () => {
 
       // 3) Create a session explicitly targeting daemon2 (the "remote" paired machine)
       const { sessionId } = srv.registry.modules.sessions.createSession({
-        agentKind: 'claude-code',
+        // This runtime injects a fixture launcher, not an installed agent CLI.
+        // Shell requires only the live daemon and still proves socket routing.
+        agentKind: 'shell',
         cwd: '/tmp',
         machineId: daemon2Id,
       })

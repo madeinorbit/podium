@@ -6,6 +6,8 @@ import type {
   ControlMessage,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
+  CredentialExportResultMessage,
+  CredentialInstallResultMessage,
   DaemonMessage,
   DirectoryListingWire,
   DirListResultMessage,
@@ -19,6 +21,8 @@ import type {
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
   MachineQuotaWire,
+  PortableCredentialBundle,
+  PortableCredentialKind,
   RepoOp,
   ResumeRef,
   TranscriptItem,
@@ -165,6 +169,14 @@ export class DaemonRpcService {
   private readonly pendingDirLists = new Map<
     string,
     (r: Omit<DirListResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingCredentialExports = new Map<
+    string,
+    (r: Omit<CredentialExportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingCredentialInstalls = new Map<
+    string,
+    (r: Omit<CredentialInstallResultMessage, 'type' | 'requestId'>) => void
   >()
 
   constructor(private readonly deps: DaemonRpcDeps) {}
@@ -339,6 +351,36 @@ export class DaemonRpcService {
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
       machineId ?? this.deps.resolveMachine(undefined, cwd),
+    )
+  }
+
+  /** Read only allowlisted native auth files from one authenticated daemon. */
+  credentialExport(
+    kinds: PortableCredentialKind[],
+    machineId: string,
+  ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingCredentialExports,
+      'ce',
+      15_000,
+      () => ({ bundles: [], unavailable: kinds }),
+      (requestId) => ({ type: 'credentialExportRequest', requestId, kinds }),
+      machineId,
+    )
+  }
+
+  /** Atomically install allowlisted auth files on one authenticated daemon. */
+  credentialInstall(
+    bundles: PortableCredentialBundle[],
+    machineId: string,
+  ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingCredentialInstalls,
+      'ci',
+      15_000,
+      () => ({ installed: [], failed: bundles.map((bundle) => bundle.kind) }),
+      (requestId) => ({ type: 'credentialInstallRequest', requestId, bundles }),
+      machineId,
     )
   }
 
@@ -796,6 +838,16 @@ export class DaemonRpcService {
       ok: msg.ok,
       output: msg.output,
     })
+  }
+
+  onCredentialExportResult(msg: CredentialExportResultMessage): void {
+    const { type: _type, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingCredentialExports, requestId, payload)
+  }
+
+  onCredentialInstallResult(msg: CredentialInstallResultMessage): void {
+    const { type: _type, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingCredentialInstalls, requestId, payload)
   }
 
   onHandoffExportResult(msg: HandoffExportResultMessage): void {

@@ -119,6 +119,8 @@ export interface SessionRow {
   resumeValue: string | null
   status: SessionStatusPersisted
   exitCode: number | null
+  /** Daemon-reported reason a spawn never started; null for ordinary exits. */
+  spawnFailure?: string | null
   durableLabel: string
   /** Last authoritative PTY grid. Optional only for legacy/test callers; repository
    * reads always materialize the migration defaults when no valid values exist. */

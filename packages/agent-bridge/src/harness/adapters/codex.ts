@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
@@ -142,7 +142,6 @@ export const codexAdapter: HarnessAdapter = {
     detectLogin(homeDir) {
       try {
         const path = codexAuthPath(homeDir)
-        if (!existsSync(path)) return { state: 'out' }
         const file = JSON.parse(readFileSync(path, 'utf8')) as CodexAuthFile
         const tokens = file.tokens
         if (!tokens?.access_token || !tokens.refresh_token) return { state: 'out' }
@@ -165,7 +164,13 @@ export const codexAdapter: HarnessAdapter = {
     return {
       cmd: 'codex',
       args: [
-        ...(opts.resume ? ['resume', opts.resume.value] : []),
+        // Codex prompts when a resumed thread's recorded cwd differs from the
+        // directory it was launched in. That is normal after a cross-machine
+        // handoff: the repository was cloned under a different absolute path.
+        // -C is Codex's supported, invocation-scoped choice of the CURRENT
+        // directory, so the imported session resumes unattended without
+        // persisting a user-wide resume_cwd preference.
+        ...(opts.resume ? ['resume', '-C', opts.cwd, opts.resume.value] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
         ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),

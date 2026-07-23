@@ -109,6 +109,11 @@ export interface HarnessLogin {
 export interface HarnessInventory {
   /** Candidate executable paths in probe order for this machine/home. */
   binCandidates(homeDir: string): string[]
+  /** Optional stronger identity probe for ambiguous executable names. */
+  identityProbe?: {
+    args: readonly string[]
+    accepts(output: string): boolean
+  }
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
 }

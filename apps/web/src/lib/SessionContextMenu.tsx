@@ -104,6 +104,8 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
       return `no ${panelLabel(agentKind)}`
     case 'logged-out':
       return `${panelLabel(agentKind)} logged out`
+    case 'repo-missing':
+      return 'no clone URL for repo'
     default: {
       const exhaustive: never = rejection
       return exhaustive
@@ -218,7 +220,7 @@ export function SessionContextMenu({
   const handoff = (machineId: string, machineName: string): void => {
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
-      () => toast.success('Handed off to ' + machineName),
+      () => toast.success(`Handed off to ${machineName}`),
       (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
     )
   }
@@ -271,7 +273,7 @@ export function SessionContextMenu({
         </button>
       )}
 
-      <div className="my-1 h-px bg-border" role="separator" />
+      <hr className="my-1 h-px border-0 bg-border" />
       {snoozed ? (
         <button
           type="button"
@@ -313,7 +315,7 @@ export function SessionContextMenu({
         </>
       )}
 
-      <div className="my-1 h-px bg-border" role="separator" />
+      <hr className="my-1 h-px border-0 bg-border" />
       {canHibernate && (
         <button
           type="button"

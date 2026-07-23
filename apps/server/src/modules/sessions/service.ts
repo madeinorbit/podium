@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/agent-bridge'
-import { computePriorities } from '@podium/domain'
+import { computePriorities, repoNameFromOrigin } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -71,7 +71,11 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
-import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
+import {
+  transferHandoffPackage,
+  verifiedBundleBases,
+  verifiedCommonBundleBases,
+} from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
 import {
   createViewKey,
@@ -805,6 +809,7 @@ export class SessionsService {
       lastResumedAt: r.lastResumedAt,
       status: reloadStatus,
       exitCode: exitCode ?? undefined,
+      ...(exitCode === -1 && r.spawnFailure ? { spawnFailure: r.spawnFailure } : {}),
       ...(r.name ? { name: r.name } : {}),
       // Survives a restart — otherwise a reboot would forget that the USER named this
       // session and the next agent title would sail straight through (#490).
@@ -1415,7 +1420,7 @@ export class SessionsService {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
       origin: { kind: 'spawn' },
-      machineId: this.machines.resolveMachine(input.machineId, input.cwd),
+      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind),
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -1521,7 +1526,7 @@ export class SessionsService {
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
-      machineId: this.machines.resolveMachine(input.machineId, input.cwd),
+      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, input.agentKind),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
@@ -2858,11 +2863,6 @@ export class SessionsService {
         : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
-    const targetRepo = repos.find(
-      (repo) => repo.machineId === input.machineId && repo.repoId === sourceRepo.repoId,
-    )
-    if (!targetRepo) throw new Error('target machine does not have this repository')
-
     const targetMachine = this.machines
       .listMachines()
       .find((machine) => machine.id === input.machineId)
@@ -2873,6 +2873,7 @@ export class SessionsService {
     if (!harness?.installed || harness.login.state === 'out') {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
+    const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
 
     this.mutateSessionView(session.sessionId, (current) => {
       current.handoffTarget = targetMachine.name
@@ -2887,12 +2888,18 @@ export class SessionsService {
         ),
       ),
     ]
-    const verified = await Promise.all(
+    const sourceVerified = await Promise.all(
       candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+      ),
+    )
+    const sourceBaseShas = verifiedBundleBases(sourceVerified)
+    const targetVerified = await Promise.all(
+      sourceBaseShas.map((ref) =>
         this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
       ),
     )
-    const baseShas = verifiedBundleBases(verified)
+    const baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
     if (baseShas.length === 0) {
       this.mutateSessionView(session.sessionId, (current) => {
         current.handoffTarget = undefined
@@ -3023,6 +3030,89 @@ export class SessionsService {
     }
   }
 
+  /** Clone and register a source repository on a target that does not have it yet. */
+  async prepareSessionTarget(input: {
+    agentKind?: AgentKind
+    cwd: string
+    machineId?: string
+  }): Promise<{ cwd: string; machineId?: string }> {
+    if (!input.machineId) return { cwd: input.cwd }
+    const parsed = AgentKind.safeParse(input.agentKind)
+    const agentKind = parsed.success
+      ? parsed.data
+      : resolveRole(this.store.settings.getSettings(), 'coding').harness
+    // Validate connectivity, harness installation, and login before cloning.
+    this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind)
+    const sourceRepo = this.store.repos
+      .listRepos()
+      .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!sourceRepo || sourceRepo.machineId === input.machineId) {
+      return { cwd: input.cwd, machineId: input.machineId }
+    }
+    const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
+    const suffix = input.cwd.slice(sourceRepo.path.length).replace(/^\/+/, '')
+    return {
+      cwd: suffix ? join(targetRepo.path, suffix) : targetRepo.path,
+      machineId: input.machineId,
+    }
+  }
+
+  /** Clone and register a source repository on a target that does not have it yet. */
+  private async ensureTargetRepo(
+    sourceRepo: {
+      machineId: string
+      path: string
+      originUrl: string | null
+      repoId: string | null
+      prefix: string | null
+    },
+    targetMachineId: string,
+  ): Promise<{
+    machineId: string
+    path: string
+    originUrl: string | null
+    repoId: string | null
+    prefix: string | null
+  }> {
+    const existing = this.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.repoId === sourceRepo.repoId)
+    if (existing) return existing
+    if (!sourceRepo.originUrl || !sourceRepo.repoId) {
+      throw new Error('target machine lacks this repository and the source has no clone URL')
+    }
+    const home = await this.rpc.browseDirs(undefined, {}, targetMachineId)
+    if (!home.listing) {
+      throw new Error(home.error ?? 'target machine did not report its home directory')
+    }
+    const repoName =
+      repoNameFromOrigin(sourceRepo.originUrl)?.replace(/[^a-zA-Z0-9._-]+/gu, '-') || 'repository'
+    const suffix = sourceRepo.repoId.replace(/[^a-zA-Z0-9]+/gu, '').slice(-8) || 'checkout'
+    const targetPath = join(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
+    const cloned = await this.rpc.repoOp(
+      'clone',
+      home.listing.homePath,
+      { originUrl: sourceRepo.originUrl, path: targetPath },
+      targetMachineId,
+    )
+    if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
+    this.store.repos.addRepo(
+      targetPath,
+      targetMachineId,
+      sourceRepo.originUrl,
+      sourceRepo.prefix ?? undefined,
+    )
+    const registered = this.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.path === targetPath)
+    if (!registered || registered.repoId !== sourceRepo.repoId) {
+      throw new Error('cloned repository identity does not match the handoff source')
+    }
+    this.deps.onWorktreesChanged(targetPath, targetMachineId)
+    return registered
+  }
+
   /**
    * Lazy cross-machine workspace fetch [spec:SP-6d57]: materialize ANOTHER session's
    * current working state (unpushed commits + dirty + untracked files) on the
@@ -3079,12 +3169,18 @@ export class SessionsService {
         ),
       ),
     ]
-    const verified = await Promise.all(
+    const sourceVerified = await Promise.all(
       candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
+      ),
+    )
+    const sourceBaseShas = verifiedBundleBases(sourceVerified)
+    const fetcherVerified = await Promise.all(
+      sourceBaseShas.map((ref) =>
         this.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
       ),
     )
-    const baseShas = verifiedBundleBases(verified)
+    const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)
     if (baseShas.length === 0)
       throw new Error('no verified common bundle base with the source repository')
 
@@ -3206,7 +3302,8 @@ export class SessionsService {
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
     // so the agent has a real cwd. Transcript inspection does not need this.
-    const ensured = await this.ensureSessionWorktree(session)
+    const pendingEnsured = this.ensureSessionWorktree(session)
+    const ensured = pendingEnsured instanceof Promise ? await pendingEnsured : pendingEnsured
     if (!ensured.ok) return { ok: false, reason: ensured.reason }
     if (ensured.cwd && ensured.cwd !== session.cwd) {
       session.cwd = ensured.cwd
@@ -3263,9 +3360,11 @@ export class SessionsService {
    * still set we trust it (no probe — keeps unit tests daemon-free and avoids
    * a 35s rpc timeout on the common hibernate→resurrect path).
    */
-  private async ensureSessionWorktree(
+  private ensureSessionWorktree(
     session: Session,
-  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+  ):
+    | { ok: boolean; reason?: string; cwd?: string }
+    | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
     const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
     if (!issueId) return { ok: true, cwd: session.cwd }
 
@@ -3283,14 +3382,17 @@ export class SessionsService {
       return { ok: true, cwd: session.cwd }
     }
     // Freed by stop (or cleared out-of-band): recreate from the kept branch.
-    const recreated = await this.issues().ensureWorktree(issueId)
-    if (!recreated.ok || !recreated.worktreePath) {
-      return {
-        ok: false,
-        reason: recreated.output || 'failed to recreate worktree from branch',
-      }
-    }
-    return { ok: true, cwd: recreated.worktreePath }
+    return this.issues()
+      .ensureWorktree(issueId)
+      .then((recreated) => {
+        if (!recreated.ok || !recreated.worktreePath) {
+          return {
+            ok: false,
+            reason: recreated.output || 'failed to recreate worktree from branch',
+          }
+        }
+        return { ok: true, cwd: recreated.worktreePath }
+      })
   }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
@@ -4691,7 +4793,10 @@ export class SessionsService {
       }
       case 'sessionCwd': {
         const session = this.sessions.get(msg.sessionId)
-        if (!session) break
+        // A handoff kills the source and reuses this same session id on the target.
+        // Frames already queued by the old daemon can arrive after that commit; never
+        // let one restamp the target row (or its issue) with the source machine's path.
+        if (!session || session.machineId !== machineId) break
         // The agent moved into a new directory (EnterWorktree / cd). Restamp the
         // session cwd so the sidebar re-groups it under the worktree it's now in,
         // and persist + broadcast so the move survives a reload and reaches every
@@ -4777,6 +4882,14 @@ export class SessionsService {
       }
       case 'repoOpResult': {
         this.rpc.onRepoOpResult(msg)
+        break
+      }
+      case 'credentialExportResult': {
+        this.rpc.onCredentialExportResult(msg)
+        break
+      }
+      case 'credentialInstallResult': {
+        this.rpc.onCredentialInstallResult(msg)
         break
       }
       case 'harnessExecResult': {

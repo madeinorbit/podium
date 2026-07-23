@@ -329,6 +329,8 @@ export const SessionMeta = z.object({
   cwd: z.string(),
   status: SessionStatus,
   exitCode: z.number().int().optional(), // present only when status === 'exited'
+  /** Daemon diagnosis for exitCode=-1 (spawn never started). */
+  spawnFailure: z.string().optional(),
   controllerId: z.string().nullable(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),

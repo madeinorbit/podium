@@ -48,7 +48,7 @@ export class SessionsRepository {
       .prepare(
         `SELECT id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
-                resume_value, status, exit_code, durable_label, created_at, last_active_at,
+                resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
@@ -79,6 +79,7 @@ export class SessionsRepository {
       resumeValue: (r.resume_value as string | null) ?? null,
       status: r.status as SessionStatusPersisted,
       exitCode: (r.exit_code as number | null) ?? null,
+      spawnFailure: (r.spawn_failure as string | null) ?? null,
       durableLabel: r.durable_label as string,
       createdAt: r.created_at as string,
       lastActiveAt: r.last_active_at as string,
@@ -140,14 +141,15 @@ export class SessionsRepository {
         `INSERT INTO sessions
            (id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
-            resume_value, status, exit_code, durable_label, created_at, last_active_at,
+            resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           cwd = excluded.cwd,
            model = excluded.model,
            effort = excluded.effort,
            account_id = excluded.account_id,
@@ -160,6 +162,7 @@ export class SessionsRepository {
            resume_value = excluded.resume_value,
            status = excluded.status,
            exit_code = excluded.exit_code,
+           spawn_failure = excluded.spawn_failure,
            durable_label = excluded.durable_label,
            last_active_at = excluded.last_active_at,
            terminal_cols = excluded.terminal_cols,
@@ -208,6 +211,7 @@ export class SessionsRepository {
         row.resumeValue,
         row.status,
         row.exitCode,
+        row.spawnFailure ?? null,
         row.durableLabel,
         row.createdAt,
         row.lastActiveAt,

@@ -6,6 +6,7 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -14,10 +15,13 @@ import {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -41,6 +45,7 @@ import type { PinState, RepoView, WorktreeView } from './types'
 // existing `@podium/client-core/viewmodels` / `./derive` call sites keep
 // working unchanged.
 export {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -49,10 +54,13 @@ export {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -422,6 +430,7 @@ export type ExitedAction = 'restart' | 'resume' | 'remove'
  *  copy-resume-command stays available for resuming by hand elsewhere. */
 export function exitedRecovery(opts: {
   exitCode: number | undefined
+  spawnFailure?: string
   isShell: boolean
   resumable: boolean
   worktreeMissing: boolean
@@ -435,7 +444,9 @@ export function exitedRecovery(opts: {
     opts.exitCode === undefined || opts.exitCode === 0
       ? `The ${what} is no longer running.`
       : opts.exitCode === -1
-        ? `The ${what} failed to start.`
+        ? opts.spawnFailure
+          ? `The ${what} failed to start: ${opts.spawnFailure}`
+          : `The ${what} failed to start.`
         : `The ${what} exited with code ${opts.exitCode}.`
   if (opts.worktreeMissing) {
     const where = opts.worktreePath ? ` (${opts.worktreePath})` : ''
@@ -1322,8 +1333,8 @@ function buildUnifiedRows(
     if (issue.archived || issue.deletedAt || issue.stage === 'proposed') continue
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
-        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter(
-          (s) => sessionVisibleInSidebar(s, now),
+        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
+          sessionVisibleInSidebar(s, now),
         ),
         now,
       ),
@@ -1500,8 +1511,7 @@ export function nestStartedByIssues(
           visibleIssues,
           allWorktreePaths,
           ownership,
-        ) ??
-        undefined
+        ) ?? undefined
     }
     if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
     let walk: string | undefined = parentId
@@ -1646,7 +1656,9 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number):
     // counting a lifted session in the row's status. [spec:SP-6144]
     const aggregate = [
       ...keep,
-      ...(row.startedByChildren ?? []).flatMap((child) => child.aggregateSessions ?? child.sessions),
+      ...(row.startedByChildren ?? []).flatMap(
+        (child) => child.aggregateSessions ?? child.sessions,
+      ),
     ]
     return {
       ...row,
@@ -1706,11 +1718,7 @@ export function partitionUnifiedWork(
     const own = row.kind === 'issue' ? row.sessions : row.worktree.sessions
     const hasNestedChildren = row.kind === 'issue' && (row.startedByChildren?.length ?? 0) > 0
     const runningNow = own.filter(isSessionWorking)
-    if (
-      !hasNestedChildren &&
-      runningNow.length > 0 &&
-      runningNow.length === own.length
-    ) {
+    if (!hasNestedChildren && runningNow.length > 0 && runningNow.length === own.length) {
       working.push(row.kind === 'issue' ? { kind: 'issue', row } : { kind: 'worktree', row })
     } else if (runningNow.length > 0) {
       work.push(
@@ -2049,9 +2057,9 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
     const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
     return head + label + progress
   }
-  if (phase === 'working') return head + 'working' + progress
-  if (phase === 'done') return head + 'done' + progress
-  return head + 'queued' + progress
+  if (phase === 'working') return `${head}working${progress}`
+  if (phase === 'done') return `${head}done${progress}`
+  return `${head}queued${progress}`
 }
 
 /**

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { handoffAvailability, handoffSource, handoffTargets } from './machine-selection'
+import {
+  agentCapabilityRejection,
+  handoffAvailability,
+  handoffSource,
+  handoffTargets,
+  machinesForRepoOrClone,
+  onlineMachinesForRepoOrClone,
+  resolveTargetMachineForAgent,
+} from './machine-selection'
 
 const repos = [
   {
@@ -21,6 +29,61 @@ const agent = (state: 'in' | 'out' | 'unknown', installed = true) => ({
   login: { state },
 })
 const issue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
+
+describe('agent machine capability', () => {
+  const repo = {
+    machines: [
+      { machineId: 'a', path: '/a' },
+      { machineId: 'b', path: '/b' },
+    ],
+  }
+  const sessions = [{ machineId: 'a', createdAt: '2026-01-02' }]
+
+  it('requires an online installed harness that is not explicitly logged out', () => {
+    expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe('harness-missing')
+    expect(
+      agentCapabilityRejection(
+        { id: 'a', online: true, inventory: { agents: [agent('out')] } },
+        'codex',
+      ),
+    ).toBe('logged-out')
+    expect(
+      agentCapabilityRejection(
+        { id: 'a', online: true, inventory: { agents: [agent('unknown')] } },
+        'codex',
+      ),
+    ).toBeUndefined()
+  })
+
+  it('treats shell as a daemon capability and chooses an agent-capable repo machine', () => {
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'shell')).toBeUndefined()
+    const machines = [
+      { id: 'a', online: true, inventory: { agents: [agent('out')] } },
+      { id: 'b', online: true, inventory: { agents: [agent('in')] } },
+    ]
+    expect(resolveTargetMachineForAgent(repo, sessions, machines, 'codex')).toBe('b')
+  })
+
+  it('offers online fresh machines when an origin makes the repo cloneable', () => {
+    const cloneable = { ...repo, originUrl: 'https://example.test/repo.git' }
+    const machines = [
+      { id: 'a', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'fresh', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'offline', online: false, inventory: { agents: [agent('in')] } },
+    ]
+    expect(machinesForRepoOrClone(cloneable, machines).map((machine) => machine.id)).toEqual([
+      'a',
+      'fresh',
+      'offline',
+    ])
+    expect(onlineMachinesForRepoOrClone(cloneable, machines).map((machine) => machine.id)).toEqual([
+      'a',
+      'fresh',
+    ])
+    expect(resolveTargetMachineForAgent(cloneable, [], machines, 'codex')).toBe('a')
+  })
+})
 
 describe('handoffTargets', () => {
   it('requires another online repo machine with the harness installed and not logged out', () => {
@@ -186,7 +249,22 @@ describe('handoffAvailability (POD-821)', () => {
         { id: 'source', online: true, inventory: { agents: [agent('in')] } },
         { id: 'stranger', online: true, inventory: { agents: [agent('in')] } },
       ]),
-    ).toEqual({ candidates: [] })
+    ).toEqual({
+      candidates: [
+        {
+          machine: { id: 'stranger', online: true, inventory: { agents: [agent('in')] } },
+          rejection: 'repo-missing',
+        },
+      ],
+    })
+  })
+
+  it('offers a capable machine without the repo when a clone URL is available', () => {
+    const cloneable = [{ ...repos[0]!, originUrl: 'https://example.com/repo.git' }]
+    const stranger = { id: 'stranger', online: true, inventory: { agents: [agent('in')] } }
+    expect(handoffAvailability(session, cloneable, [stranger])).toEqual({
+      candidates: [{ machine: stranger }],
+    })
   })
 
   it('a session on a worktree the scan has not seen yet is blocked, not silently empty', () => {

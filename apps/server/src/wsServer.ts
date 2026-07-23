@@ -4,6 +4,7 @@ import {
   type DaemonHandshake,
   type DaemonHandshakeReply,
   encode,
+  type PortableCredentialBundle,
   parseClientMessage,
   parseDaemonHandshake,
   parseDaemonMessage,
@@ -234,18 +235,25 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       }
       machineId = auth.machineId
       // A fresh pair hands the minted token back exactly once (the daemon persists
-      // it). `authenticateDaemon` only returns a token on the pair branch.
+      // it). `paired` is itself the successful handshake reply; sending a second
+      // `helloOk` would arrive after the daemon has entered its control-message loop.
+      // `authenticateDaemon` only returns a token on the pair branch.
       if (frame.type === 'pair' && auth.token !== undefined) {
         reply({ type: 'paired', token: auth.token, machineId, name: auth.name })
+      } else {
+        reply({ type: 'helloOk', name: auth.name })
       }
       // Send the handshake reply BEFORE attaching. attachDaemon synchronously flushes
       // any buffered control frames and calls pushPriorities(), which would otherwise
       // reach the daemon ahead of helloOk — on a server with live sessions to prioritize
       // the daemon's first-frame handshake parse then sees a sessionPriority frame, fails
-      // ("malformed reply"), and refuses, looping forever. helloOk must be the first frame.
-      reply({ type: 'helloOk', name: auth.name })
+      // ("malformed reply"), and refuses, looping forever. The successful `paired` or
+      // `helloOk` reply must be the first frame.
       send = (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES)
       registry.modules.sessions.attachDaemon(machineId, send)
+      if (auth.pairingGrant?.copyAgentCredentials) {
+        void relayAgentCredentials(registry, machineId)
+      }
       return
     }
     try {
@@ -268,6 +276,48 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     // holds the new socket and this close must not evict it.
     if (machineId && send) registry.modules.sessions.detachDaemon(machineId, send)
   })
+}
+
+/**
+ * Pair-granted, memory-only secret relay. Each agent login is read from an
+ * already-authenticated owned daemon and written directly to the new daemon;
+ * no credential content enters SQLite or logs.
+ */
+async function relayAgentCredentials(
+  registry: SessionRegistry,
+  targetMachineId: string,
+): Promise<void> {
+  const agents = [
+    { agentKind: 'claude-code', credentialKinds: ['claude-code', 'claude-code-state'] as const },
+    { agentKind: 'codex', credentialKinds: ['codex'] as const },
+    { agentKind: 'grok', credentialKinds: ['grok'] as const },
+  ] as const
+  const machines = registry.modules.machines.listMachines()
+  const bundles: PortableCredentialBundle[] = []
+  for (const agent of agents) {
+    const source = machines.find(
+      (machine) =>
+        machine.id !== targetMachineId &&
+        machine.online &&
+        machine.inventory?.agents.some(
+          (inventoryAgent) =>
+            inventoryAgent.kind === agent.agentKind &&
+            inventoryAgent.installed &&
+            inventoryAgent.login.state === 'in',
+        ),
+    )
+    if (!source) continue
+    const exported = await registry.modules.rpc.credentialExport(
+      [...agent.credentialKinds],
+      source.id,
+    )
+    bundles.push(...exported.bundles)
+  }
+  if (bundles.length === 0) return
+  const result = await registry.modules.rpc.credentialInstall(bundles, targetMachineId)
+  if (result.failed.length > 0) {
+    console.warn(`[podium] credential provisioning failed for: ${result.failed.join(', ')}`)
+  }
 }
 
 export function attachWebSockets(

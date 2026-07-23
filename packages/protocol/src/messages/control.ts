@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
+import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
   RepoOpRequestMessage,
@@ -56,6 +57,8 @@ import {
 // ---- Server -> daemon control frames ----
 export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
+  CredentialExportRequestMessage,
+  CredentialInstallRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,
   HarnessExecRequestMessage,

@@ -37,8 +37,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
-import { OfferBar } from '@/features/chat/OfferBar'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
+import { OfferBar } from '@/features/chat/OfferBar'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -791,6 +791,7 @@ export function AgentPanel({
             <ExitedBanner
               sessionId={sessionId}
               exitCode={session.exitCode}
+              spawnFailure={session.spawnFailure}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
               worktreeMissing={worktreeMissing}
@@ -802,6 +803,7 @@ export function AgentPanel({
           <ExitedPane
             sessionId={sessionId}
             exitCode={session.exitCode}
+            spawnFailure={session.spawnFailure}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
             worktreeMissing={worktreeMissing}
@@ -1008,6 +1010,7 @@ function ResumeCommandMenu({
 function ExitedPane({
   sessionId,
   exitCode,
+  spawnFailure,
   isShell,
   resumable,
   worktreeMissing,
@@ -1015,6 +1018,7 @@ function ExitedPane({
 }: {
   sessionId: string
   exitCode: number | undefined
+  spawnFailure?: string
   isShell: boolean
   resumable: boolean
   worktreeMissing: boolean
@@ -1027,6 +1031,7 @@ function ExitedPane({
   const [waking, setWaking] = useState(false)
   const { detail, action } = exitedRecovery({
     exitCode,
+    ...(spawnFailure ? { spawnFailure } : {}),
     isShell,
     resumable,
     worktreeMissing,
@@ -1080,6 +1085,7 @@ function ExitedPane({
 function ExitedBanner({
   sessionId,
   exitCode,
+  spawnFailure,
   isShell,
   resumable,
   worktreeMissing,
@@ -1087,6 +1093,7 @@ function ExitedBanner({
 }: {
   sessionId: string
   exitCode: number | undefined
+  spawnFailure?: string
   isShell: boolean
   resumable: boolean
   worktreeMissing: boolean
@@ -1099,6 +1106,7 @@ function ExitedBanner({
   const [waking, setWaking] = useState(false)
   const { detail, action } = exitedRecovery({
     exitCode,
+    ...(spawnFailure ? { spawnFailure } : {}),
     isShell,
     resumable,
     worktreeMissing,

@@ -6,14 +6,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { DaemonHandshakeReply } from '@podium/protocol'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { readConnectivity } from '@podium/runtime/connectivity'
-import type { DaemonHandshakeReply } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
-import { loadIdentity } from './identity'
-
 import { startDaemon } from './daemon'
+import { loadIdentity } from './identity'
 
 describe('daemon connectivity state (#19)', () => {
   let dir: string
@@ -85,6 +84,39 @@ describe('daemon connectivity state (#19)', () => {
       expect(cfg.pairCode).toBeUndefined()
       expect(cfg.updateChannel).toBe('edge')
       expect(cfg.serverUrl).toBe(`ws://localhost:${port}`)
+    } finally {
+      await daemon.close()
+    }
+  })
+
+  it('reconnects with the freshly paired token without restarting the daemon', async () => {
+    const handshakes: Array<Record<string, unknown>> = []
+    wss.on('connection', (ws) => {
+      ws.once('message', (raw) => {
+        const frame = JSON.parse(raw.toString()) as Record<string, unknown>
+        handshakes.push(frame)
+        if (handshakes.length === 1) {
+          const reply: DaemonHandshakeReply = {
+            type: 'paired',
+            token: 'tok-reconnect',
+            machineId: 'm-1',
+            name: 'box',
+          }
+          ws.send(JSON.stringify(reply))
+          setTimeout(() => ws.close(), 10)
+          return
+        }
+        const reply: DaemonHandshakeReply = { type: 'helloOk', name: 'box' }
+        ws.send(JSON.stringify(reply))
+      })
+    })
+
+    const daemon = await startDaemon(bootOpts({ pairCode: 'CODE-1' }))
+    try {
+      await vi.waitFor(() => expect(handshakes).toHaveLength(2))
+      expect(handshakes[0]).toMatchObject({ type: 'pair', code: 'CODE-1' })
+      expect(handshakes[1]).toMatchObject({ type: 'hello', token: 'tok-reconnect' })
+      expect(readConnectivity(dir)?.state).toBe('connected')
     } finally {
       await daemon.close()
     }

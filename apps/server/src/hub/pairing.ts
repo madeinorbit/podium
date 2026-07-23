@@ -12,23 +12,31 @@ function defaultCode(): string {
 }
 
 /** Short-lived, single-use pairing codes, held in memory. Lost on restart by design. */
+export interface PairingGrant {
+  /** Copy allowlisted native agent logins from an already-owned online machine. */
+  copyAgentCredentials?: boolean
+}
+
 export class PairingManager {
-  private readonly codes = new Map<string, number>() // code -> expiresAtMs
+  private readonly codes = new Map<string, { expiresAtMs: number; grant: PairingGrant }>()
   private readonly randomCode: () => string
   private readonly ttlMs: number
   constructor(opts: { randomCode?: () => string; ttlMs?: number } = {}) {
     this.randomCode = opts.randomCode ?? defaultCode
-    this.ttlMs = opts.ttlMs ?? 600_000
+    // A one-paste bare-machine install may need to bootstrap a package manager and
+    // downloader before Podium can redeem the code. Keep it single-use/in-memory,
+    // but leave enough wall time for slow or emulated architectures.
+    this.ttlMs = opts.ttlMs ?? 60 * 60_000
   }
-  mint(nowMs = Date.now()): string {
+  mint(grant: PairingGrant = {}, nowMs = Date.now()): string {
     const code = this.randomCode()
-    this.codes.set(code, nowMs + this.ttlMs)
+    this.codes.set(code, { expiresAtMs: nowMs + this.ttlMs, grant: { ...grant } })
     return code
   }
-  redeem(code: string, nowMs = Date.now()): boolean {
-    const exp = this.codes.get(code)
-    if (exp === undefined) return false
+  redeem(code: string, nowMs = Date.now()): PairingGrant | undefined {
+    const entry = this.codes.get(code)
+    if (entry === undefined) return undefined
     this.codes.delete(code) // single-use regardless of outcome
-    return nowMs <= exp
+    return nowMs <= entry.expiresAtMs ? { ...entry.grant } : undefined
   }
 }

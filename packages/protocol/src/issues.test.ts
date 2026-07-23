@@ -293,6 +293,7 @@ describe('issue protocol types', () => {
   })
 
   it('accepts the new write RepoOps', () => {
+    expect(RepoOp.parse('clone')).toBe('clone')
     expect(RepoOp.parse('rebase')).toBe('rebase')
     expect(RepoOp.parse('mergeFfOnly')).toBe('mergeFfOnly')
     expect(RepoOp.parse('prCreate')).toBe('prCreate')

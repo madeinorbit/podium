@@ -10,8 +10,9 @@ joining extra machines to it.
 
 ## Install a new instance
 
-One line, no build toolchain — it downloads the prebuilt `linux-x64` headless bundle,
-verifies its signature, and installs to `~/.local/share/podium` with a `podium` symlink in
+One line, no build toolchain — it selects the prebuilt Linux x86_64 or ARM64 headless
+bundle, installs any missing runtime tools with the host package manager, verifies the
+bundle signature, and installs to `~/.local/share/podium` with a `podium` symlink in
 `~/.local/bin`:
 
 ```bash
@@ -33,8 +34,8 @@ process) on port **18787** and prints a setup URL. You have two ways to finish s
   the terminal (handy on a headless box with no browser). On a TTY this runs the prompt
   flow; otherwise it falls back to printing the web URL.
 
-> The installed binary is `linux-x64` only for now. On other platforms, build from source
-> (see `../CONTRIBUTING.md`).
+The prebuilt headless targets are Linux x86_64 and ARM64. Other operating systems or CPU
+architectures must build from source (see `../CONTRIBUTING.md`).
 
 ## Make it reachable (no domain needed)
 
@@ -72,19 +73,23 @@ is a single copy-paste — you never type a URL, a `--server`, or a `--pair` fla
 2. Copy the one line. It looks like:
 
    ```bash
-   curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh -s -- --join <TOKEN>
+   sh -c '<download bootstrap>' sh https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --join <TOKEN>
    ```
 
-   The `<TOKEN>` embeds the server's URL plus the fresh pairing code, so one paste does
-   everything.
+   The UI supplies the complete command (the shortened placeholder above is only for
+   illustration). It bootstraps a downloader when needed; the `<TOKEN>` embeds the server's
+   URL plus the fresh pairing code, so one paste does everything without prompts.
 3. Paste it on the new machine (e.g. your VPS over SSH).
 
-The installer downloads the bundle, then in `--join` mode it:
+The installer downloads the architecture-matched bundle, installs Codex, Claude Code, and
+Grok, then in `--join` mode it:
 
-- runs `podium join-config <TOKEN>` to write a `daemon`-mode config (`serverUrl` + `pairCode`)
-  to `~/.podium/config.json`,
+- writes a `daemon`-mode config (`serverUrl` + one-shot pairing code) to
+  `~/.podium/config.json`,
+- securely receives allowlisted native-agent credential files from an online machine,
 - installs a **systemd `--user`** unit at `~/.config/systemd/user/podium-daemon.service`,
-- enables lingering and starts it (`systemctl --user enable --now podium-daemon`).
+- enables lingering and starts it (`systemctl --user enable --now podium-daemon`), or starts
+  a detached daemon automatically when user systemd is unavailable.
 
 The new machine then shows up under **Settings → Machines**. The pairing code is single-use
 and expires after ~10 minutes; click **New code** for a fresh one if it lapses.
@@ -93,9 +98,10 @@ and expires after ~10 minutes; click **New code** for a fresh one if it lapses.
 > pairing code and this message, the server hasn't completed its networking step yet — there's
 > no `publicUrl` to embed. Finish setup on the server first.
 
-> **Repos live per machine.** Each daemon wraps agents against its own filesystem, so a
-> repository must already exist on the machine whose daemon will open sessions in it. Joining
-> a machine pairs it; it does not copy your repos across hosts.
+> **Repos live per machine.** Each daemon wraps agents against its own filesystem. When a
+> selected machine does not yet have a repository, Podium clones its configured origin into
+> `~/podium-repos` before starting or handing off the session. Repositories without a clone URL
+> still need to be provisioned manually.
 
 ## Update channels
 
@@ -145,13 +151,12 @@ Run `podium join-config <TOKEN>` as that user first so the daemon has its config
   which may not be on your `PATH` (the installer prints `Note: add ~/.local/bin to your PATH`
   when this is the case). Add it: `export PATH="$HOME/.local/bin:$PATH"` (and persist it in
   your shell profile).
-- **Install fails at signature verification / `openssl` missing.** The installer verifies the
-  bundle's Ed25519 signature with `openssl pkeyutl`. If `openssl` isn't installed the verify
-  step fails and nothing is written — install it (`apt install openssl`, `dnf install openssl`,
-  etc.) and re-run.
-- **No systemd on the box.** In `--join` mode the installer prints
-  `No systemd here. Start the daemon with: podium daemon`. Run `podium daemon` directly (e.g.
-  under your own supervisor, or in a `tmux`/`screen` session).
+- **Prerequisite bootstrap fails.** The installer can use apt, apk, dnf, yum, zypper, or pacman
+  and runs unattended as root or through passwordless `sudo`. On another distro, install
+  `ca-certificates`, `curl` (or `wget`), `openssl`, `git`, `tar`, `gzip`, `bash`, and
+  `coreutils`, then re-run the command.
+- **No systemd on the box.** In `--join` mode Podium starts a detached daemon and records its
+  PID/status itself. Use `podium status` and `podium stop` to inspect or stop it.
 - **Daemon can't reach the server.** A daemon dials the server's URL over the tailnet. If the
   server's port isn't reachable on the tailnet interface, either bind the server to the tailnet
   address (or `0.0.0.0`), or put the server's `/daemon` WebSocket behind your reverse proxy so

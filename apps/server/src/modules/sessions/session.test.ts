@@ -454,6 +454,24 @@ describe('Session', () => {
     expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
   })
 
+  it('keeps the daemon spawn diagnosis in wire and durable state until retry', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const s = makeSession()
+    s.markSpawnError('codex executable was not found')
+
+    expect(s.toMeta()).toMatchObject({
+      status: 'exited',
+      exitCode: -1,
+      spawnFailure: 'codex executable was not found',
+    })
+    expect(s.toRow()).toMatchObject({ spawnFailure: 'codex executable was not found' })
+
+    s.markResumed()
+    expect(s.toMeta().spawnFailure).toBeUndefined()
+    expect(s.toRow().spawnFailure).toBeNull()
+    warn.mockRestore()
+  })
+
   it('markLive promotes a reconnecting session to live', () => {
     const s = new Session({
       sessionId: 's1',

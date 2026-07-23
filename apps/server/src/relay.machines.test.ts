@@ -10,6 +10,14 @@ function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
   store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  const inventory = JSON.stringify({
+    os: 'linux',
+    arch: 'x64',
+    agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
+    tools: [],
+  })
+  store.machines.setMachineInventory('m1', inventory)
+  store.machines.setMachineInventory('m2', inventory)
   const reg = new SessionRegistry(store)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
@@ -198,6 +206,7 @@ async function handoffRegistry(
     failExport?: boolean
     landInSubdir?: boolean
     oldDaemon?: boolean
+    targetHasRepo?: boolean
     withIssue?: boolean
   } = {},
 ) {
@@ -213,13 +222,24 @@ async function handoffRegistry(
   store.machines.setMachineInventory('m1', inventory)
   store.machines.setMachineInventory('m2', inventory)
   store.repos.addRepo('/source/repo', 'm1', 'git@github.com:example/repo.git')
-  store.repos.addRepo('/target/repo', 'm2', 'git@github.com:example/repo.git')
+  let targetRepoPath = '/target/repo'
+  if (opts.targetHasRepo !== false)
+    store.repos.addRepo(targetRepoPath, 'm2', 'git@github.com:example/repo.git')
   const reg = new SessionRegistry(store)
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const sha = 'a'.repeat(40)
   reg.modules.sessions.attachDaemon('m1', (msg) => {
     source.push(msg)
+    if (msg.type === 'repoOpRequest') {
+      const exists = msg.args?.ref === 'main'
+      reg.modules.sessions.onDaemonMessageFrom('m1', {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: exists,
+        output: exists ? sha : 'missing',
+      })
+    }
     if (msg.type === 'handoffExportRequest') {
       const manifest = {
         format: 1 as const,
@@ -269,13 +289,34 @@ async function handoffRegistry(
   })
   reg.modules.sessions.attachDaemon('m2', (msg) => {
     target.push(msg)
-    if (msg.type === 'repoOpRequest')
+    if (msg.type === 'browseDirsRequest')
+      reg.modules.sessions.onDaemonMessageFrom('m2', {
+        type: 'browseDirsResult',
+        requestId: msg.requestId,
+        listing: {
+          path: '/home/target',
+          homePath: '/home/target',
+          parentPath: '/home',
+          entries: [],
+        },
+      })
+    if (msg.type === 'repoOpRequest' && msg.op === 'clone') {
+      targetRepoPath = msg.args?.path ?? targetRepoPath
       reg.modules.sessions.onDaemonMessageFrom('m2', {
         type: 'repoOpResult',
         requestId: msg.requestId,
-        ok: msg.args?.ref === 'main',
-        output: msg.args?.ref === 'main' ? sha : 'missing',
+        ok: true,
+        output: '',
       })
+    } else if (msg.type === 'repoOpRequest') {
+      const exists = msg.args?.ref === sha
+      reg.modules.sessions.onDaemonMessageFrom('m2', {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: exists,
+        output: exists ? sha : 'missing',
+      })
+    }
     if (msg.type === 'handoffImportChunk')
       reg.modules.sessions.onDaemonMessageFrom('m2', {
         type: 'handoffImportChunkResult',
@@ -292,9 +333,9 @@ async function handoffRegistry(
         // session carried a cwdSubpath. `worktreeRoot` is the worktree itself; the
         // issue's home is always the root (POD-824). An older daemon omits it.
         newCwd: opts.landInSubdir
-          ? '/target/repo/.worktrees/x/apps/web'
-          : '/target/repo/.worktrees/x',
-        ...(opts.oldDaemon ? {} : { worktreeRoot: '/target/repo/.worktrees/x' }),
+          ? `${targetRepoPath}/.worktrees/x/apps/web`
+          : `${targetRepoPath}/.worktrees/x`,
+        ...(opts.oldDaemon ? {} : { worktreeRoot: `${targetRepoPath}/.worktrees/x` }),
       })
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
@@ -316,7 +357,7 @@ async function handoffRegistry(
     machineId: 'm1',
     ...(issue ? { issueId: issue.id } : {}),
   })
-  return { reg, source, target, sessionId, issueId: issue?.id }
+  return { reg, source, target, sessionId, issueId: issue?.id, store }
 }
 
 describe('session handoff orchestration', () => {
@@ -337,6 +378,85 @@ describe('session handoff orchestration', () => {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior
     }
+  })
+
+  it('ignores a stale source cwd frame after handoff', async () => {
+    const { reg, sessionId } = await handoffRegistry()
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/source/repo/.worktrees/stale',
+      kind: 'worktree',
+      repoRoot: '/source/repo',
+    })
+    expect(reg.modules.sessions.listSessions()).toMatchObject([
+      { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x' },
+    ])
+
+    reg.modules.sessions.onDaemonMessageFrom('m2', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/target/repo/.worktrees/x/apps/web',
+      kind: 'worktree',
+      repoRoot: '/target/repo',
+    })
+    expect(reg.modules.sessions.listSessions()).toMatchObject([
+      { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x/apps/web' },
+    ])
+  })
+
+  it('clones and registers the repository before handing off to a fresh target', async () => {
+    const { reg, target, sessionId, store } = await handoffRegistry({ targetHasRepo: false })
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+    const targetRepo = store.repos.listRepos('m2')[0]
+    expect(targetRepo).toMatchObject({
+      machineId: 'm2',
+      originUrl: 'git@github.com:example/repo.git',
+    })
+    expect(targetRepo?.path).toMatch(/^\/home\/target\/podium-repos\/repo-/u)
+    expect(target).toContainEqual(expect.objectContaining({ type: 'browseDirsRequest' }))
+    expect(target).toContainEqual(
+      expect.objectContaining({
+        type: 'repoOpRequest',
+        op: 'clone',
+        args: expect.objectContaining({
+          originUrl: 'git@github.com:example/repo.git',
+          path: targetRepo?.path,
+        }),
+      }),
+    )
+    expect(reg.modules.sessions.listSessions()).toMatchObject([
+      {
+        sessionId,
+        machineId: 'm2',
+        cwd: `${targetRepo?.path}/.worktrees/x`,
+        status: 'starting',
+      },
+    ])
+  })
+
+  it('clones and remaps the cwd before creating a new session on a fresh target', async () => {
+    const { reg, target, store } = await handoffRegistry({ targetHasRepo: false })
+    const prepared = await reg.modules.sessions.prepareSessionTarget({
+      agentKind: 'claude-code',
+      cwd: '/source/repo',
+      machineId: 'm2',
+    })
+    const targetRepo = store.repos.listRepos('m2')[0]
+    expect(prepared).toEqual({ cwd: targetRepo?.path, machineId: 'm2' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      ...prepared,
+    })
+    expect(target).toContainEqual(
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        cwd: targetRepo?.path,
+      }),
+    )
   })
 
   it('resolves the source repo from the issue worktree when rollback restored a stale cwd', async () => {

@@ -182,6 +182,7 @@ export type BrowseDirsResultMessage = z.infer<typeof BrowseDirsResultMessage>
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
 export const RepoOp = z.enum([
+  'clone',
   'status',
   'log',
   'branches',

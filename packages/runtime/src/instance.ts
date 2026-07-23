@@ -175,11 +175,11 @@ export function readInstanceStateIdentity(
   dir: string = instanceStateDir(),
 ): InstanceStateIdentity | undefined {
   const path = instanceIdentityPath(dir)
-  if (!existsSync(path)) return undefined
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'))
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw new Error(`invalid Podium instance marker at ${path}: ${String(error)}`)
   }
   const marker = parsed as Partial<InstanceStateIdentity>
@@ -228,10 +228,21 @@ export function ensureInstanceStateIdentity(
   }
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const marker: InstanceStateIdentity = { version: 1, instanceId: id }
-  writeFileSync(instanceIdentityPath(dir), `${JSON.stringify(marker, null, 2)}\n`, {
-    mode: 0o600,
-    flag: 'wx',
-  })
+  try {
+    writeFileSync(instanceIdentityPath(dir), `${JSON.stringify(marker, null, 2)}\n`, {
+      mode: 0o600,
+      flag: 'wx',
+    })
+  } catch (error) {
+    // Another process can claim the root between the read above and this exclusive
+    // create (notably the detached daemon started by `setup --join`). Accept only a
+    // complete marker for this exact instance; mismatches and malformed files still fail.
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    const raced = readInstanceStateIdentity(dir)
+    if (!raced) throw error
+    assertInstanceStateIdentity(id, dir)
+    return raced
+  }
   return marker
 }
 

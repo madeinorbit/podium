@@ -1,11 +1,12 @@
 import type { ControlMessage } from '@podium/protocol'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
+import { credentialHandlers } from './credentials'
 import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
-import { headlessHandlers } from './headless'
 import { handoffHandlers } from './handoff'
+import { headlessHandlers } from './headless'
 import { inventoryHandlers } from './inventory'
 import { sessionHandlers } from './session'
 import { transcriptHandlers } from './transcripts'
@@ -29,6 +30,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...handoffHandlers,
   ...workspaceHandlers,
   ...approvalHandlers,
+  ...credentialHandlers,
   ...inventoryHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
 }

@@ -44,7 +44,7 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
-import { reportInventory } from './control/inventory'
+import { reportInventory, startInventoryRefresh } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { ensurePodiumGrokHooks } from './grok-hooks'
@@ -568,6 +568,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
   let metricsTimer: ReturnType<typeof setInterval> | undefined
   let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
+  let stopInventoryRefresh: (() => void) | undefined
   const pushHostMetrics = (): void => {
     send({
       type: 'hostMetrics',
@@ -668,6 +669,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     discoveryLoop.stop()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
+    stopInventoryRefresh?.()
+    stopInventoryRefresh = undefined
     // discovery.db lives entirely in the worker; stopping it terminates the
     // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()
@@ -772,6 +775,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // Periodic GC for stale uploads (TTL 24h, runs hourly).
         uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
         uploadsGcTimer.unref?.()
+        stopInventoryRefresh = startInventoryRefresh(ctx)
         // Reclaim handoff packages abandoned by a failed transfer/import
         // ([POD-742]). Once, here: no transfer can be in flight through a daemon
         // that has only just handshaked, and exports sweep from then on.
@@ -884,6 +888,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         switch (reply.type) {
           case 'paired':
             // First pairing: persist the minted token so future boots send `hello`.
+            // Keep the live identity in sync too: a transport/server restart before this
+            // daemon process restarts must authenticate with the new token, not retry the
+            // now-consumed pair code.
+            identity.token = reply.token
             saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
             // The one-shot pair code is now consumed — drop it from config.json (#19) so
             // the config stops looking "unpaired" (guarded on the exact code inside).

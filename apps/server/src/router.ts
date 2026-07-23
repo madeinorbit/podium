@@ -10,7 +10,7 @@ import {
   WorkState,
 } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
-import { loadConfig } from '@podium/runtime/config'
+import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -369,8 +369,9 @@ export const appRouter = t.router({
       // sessions.create is an operator action (web UI / CLI). Programmatic creators
       // (issues, superagent) call registry.createSession directly with their own tag.
       .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', () => {
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', async () => {
           const { draftIssue, mutationId: _m, ...rest } = input
+          const target = await mods(ctx).sessions.prepareSessionTarget(rest)
           const issueId =
             rest.issueId ??
             (draftIssue
@@ -382,6 +383,7 @@ export const appRouter = t.router({
               : undefined)
           return mods(ctx).sessions.createSession({
             ...rest,
+            ...target,
             ...(issueId ? { issueId } : {}),
             spawnedBy: 'user',
           })
@@ -1176,14 +1178,20 @@ export const appRouter = t.router({
     }),
     // Mint a short-lived pairing code the user types into a new machine's daemon to
     // join it to this server.
-    pairingCode: hubProc.mutation(({ ctx }) => {
-      const code = mods(ctx).machines.mintPairingCode()
-      const publicUrl = loadConfig().publicUrl
-      return {
-        code,
-        joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code }) : null,
-      }
-    }),
+    pairingCode: hubProc
+      .input(z.object({ copyAgentCredentials: z.boolean().optional() }).optional())
+      .mutation(({ ctx, input }) => {
+        const code = mods(ctx).machines.mintPairingCode({
+          ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
+        })
+        const config = loadConfig()
+        const publicUrl = config.publicUrl
+        const channel = resolveUpdateChannel(config)
+        return {
+          code,
+          joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code, channel }) : null,
+        }
+      }),
   }),
   // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
   // reaches these instead of importing @podium/runtime/setup directly, which would pull node:fs

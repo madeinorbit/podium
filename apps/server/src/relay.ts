@@ -985,7 +985,8 @@ export class SessionRegistry {
     const headless = new HeadlessService({
       getSession: (sessionId) => liveSessions().get(sessionId),
       registerSession: (session) => liveSessions().set(session.sessionId, session),
-      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
+      resolveMachine: (requested, cwd, agentKind) =>
+        machines.resolveMachineForAgent(requested, cwd, agentKind),
       defaultMachine: () => machines.defaultMachine(),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       nextRequestId: (prefix) => rpc.nextRequestId(prefix),

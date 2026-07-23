@@ -42,6 +42,23 @@ it('layers harness env over managed env while preserving Podium-owned bindings',
   })
 })
 
+it('makes unattended user-installed harnesses executable for detached daemons', () => {
+  const env = spawnEnv({
+    sessionEnv: { PATH: '/managed/bin:/usr/bin' },
+    podiumEnv: { HOME: '/root', PODIUM_SESSION_ID: 's1' },
+  })
+  expect(env.PATH).toBe('/root/.local/bin:/root/.bun/bin:/root/.opencode/bin:/managed/bin:/usr/bin')
+})
+
+it('deduplicates a user harness directory already present in PATH', () => {
+  const env = spawnEnv({
+    podiumEnv: { HOME: '/home/tester', PATH: '/home/tester/.local/bin:/usr/bin' },
+  })
+  expect(env.PATH).toBe(
+    '/home/tester/.local/bin:/home/tester/.bun/bin:/home/tester/.opencode/bin:/usr/bin',
+  )
+})
+
 it('materializes nested ephemeral launch files with owner-only permissions', () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-launch-files-'))
   const path = join(root, 'rules', 'workflow.md')
