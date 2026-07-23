@@ -4,10 +4,10 @@ Guidance for AI agents working in this repository.
 
 ## Verifying UI / interaction changes
 
-Unit tests + build + review are necessary but **not sufficient** for UI/interaction
-features (clickable elements, terminal link clicks, editor open/save). Before calling
-such work done, verify it at runtime by driving the real app and observing the
-behavior (a real click, a real new tab, the file actually changing on disk).
+Automated tests, build, and review do not replace runtime verification for changed
+UI/interaction behavior (clickable elements, terminal link clicks, editor open/save).
+Before calling such work done, drive the real app and observe the behavior (a real
+click, a real new tab, the file actually changing on disk).
 
 See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how to drive
 Podium with Playwright — the `?e2e=1` test API, navigating the current DOM, reading
@@ -33,13 +33,22 @@ no roles, no write-claim, no auto-isolation [spec:SP-4ef9] — so what you tell 
 prompt is the only lever: its job, a title to give itself, who else is on the issue, and who
 owns which files. Full guide: **[docs/agents/delegating.md](docs/agents/delegating.md)**.
 
-## Running tests
+## Testing policy
 
-Four lanes [spec:SP-0be7]: `bun run test` is the fast hermetic default (run before every
-commit); `bun run test:integration` for process/PTY/abduco/daemon/server-boot work;
-`bun run test:e2e` for full-stack flows; `bun run test:smoke:agents` launches real agent
-CLIs and bills LLM quota — only on explicit human request. Vitest always runs under Bun
-(`bun --bun vitest run ...`). Full doctrine: **[docs/agents/testing.md](docs/agents/testing.md)**.
+Match testing effort to regression risk. Simple, low-risk changes may skip automated tests when
+they do not alter runtime behavior, are fully mechanical, or are already protected by existing
+coverage; state the reason in the handoff. Do not test trivial wiring, static types, framework
+contracts, or assertions already covered at another layer.
+
+When coverage is warranted, write the smallest focused set that protects the changed behavior.
+Prefer extending existing tests or adding table-driven cases over creating parallel suites. Run
+`bun run test` before commits containing substantive code changes; docs, copy, formatting, and
+other test-independent edits may skip it. Add integration, E2E, multi-instance, or agent-smoke
+lanes only when the change matches the decision table in
+**[docs/agents/testing.md](docs/agents/testing.md)**. Do not create or run long, complex E2E flows
+for small or local changes; reserve them for critical cross-boundary behavior or regressions that
+require the real stack. Real-agent smoke tests require an explicit human request. Changed
+UI/interaction behavior still requires runtime verification.
 
 ## Reference docs for agents
 
