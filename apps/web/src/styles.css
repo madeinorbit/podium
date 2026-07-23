@@ -1209,81 +1209,212 @@ a.ref-link--session::before {
   font-style: italic;
 }
 
-/* Rendered markdown preview (.md panels). Scoped so it never touches chat/markdown
-   surfaces. Uses theme tokens from the shadcn/Tailwind v4 setup. */
+/* Rendered markdown preview (.md panels) — a READING surface, not chrome, and the
+   one place in the app that deliberately steps off the 12px instrument scale. Set
+   the way iA Writer sets a document: a measured column of ~65 characters, generous
+   leading, a full blank line between paragraphs, and rules instead of boxes. Scoped
+   so it never touches chat/markdown surfaces. Theme tokens throughout; no signal
+   hues (The Signal Rule) — a document is never asking anything of the operator. */
 .markdown-preview {
-  line-height: 1.6;
+  /* The single knob: how wide the text column may run — ~68 characters of Geist
+     at the size below. Expressed in em so it tracks font-size (`ch` measures the
+     "0" glyph, which is far wider than the average letter in a proportional face
+     and lands the column near 85 characters). */
+  --md-measure: 34em;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--foreground);
+  /* Percentage side padding collapses gracefully in split mode without a
+     container query — it resolves against the pane, not the viewport. */
+  padding: 2.25rem clamp(1rem, 5%, 2rem) 4rem;
+}
+/* The measure lives on the per-block wrapper, not the scroller, so the column
+   centres while the scrollbar stays pinned to the panel edge. `.md-block` has no
+   padding or border, so child margins still collapse through it — the vertical
+   rhythm below is written assuming that. */
+.markdown-preview > .md-block {
+  max-width: var(--md-measure);
+  margin-inline: auto;
+  scroll-margin-top: 0;
+}
+.markdown-preview > .md-block:first-child > :first-child {
+  margin-top: 0;
+}
+.markdown-preview > .md-block:last-child > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview p {
+  margin: 0 0 1.05em;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+}
+/* Headings tighten their own leading and take their air from ABOVE — the gap
+   before a section is what makes a long document scannable. */
+.markdown-preview :is(h1, h2, h3, h4, h5, h6) {
+  line-height: 1.3;
+  text-wrap: balance;
 }
 .markdown-preview h1 {
   font-size: 1.6em;
   font-weight: 650;
-  margin: 0.6em 0 0.4em;
+  letter-spacing: -0.012em;
+  margin: 1.8em 0 0.55em;
 }
 .markdown-preview h2 {
-  font-size: 1.35em;
+  font-size: 1.25em;
   font-weight: 650;
-  margin: 0.6em 0 0.4em;
+  letter-spacing: -0.008em;
+  margin: 2em 0 0.5em;
 }
 .markdown-preview h3 {
-  font-size: 1.15em;
+  font-size: 1.06em;
+  font-weight: 650;
+  margin: 1.7em 0 0.45em;
+}
+.markdown-preview h4 {
+  font-size: 1em;
+  font-weight: 650;
+  margin: 1.5em 0 0.4em;
+}
+.markdown-preview :is(h5, h6) {
+  font-size: 0.95em;
   font-weight: 600;
-  margin: 0.6em 0 0.3em;
+  color: var(--muted-foreground);
+  margin: 1.4em 0 0.35em;
 }
-.markdown-preview p {
-  margin: 0.5em 0;
+.markdown-preview strong {
+  font-weight: 640;
 }
+
+/* Lists stay internally tight and take paragraph-sized air as a whole, so a list
+   reads as one unit rather than a stack of stranded lines. */
 .markdown-preview ul,
 .markdown-preview ol {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
+  margin: 0 0 1.05em;
+  padding-left: 1.4em;
+}
+/* Tailwind's preflight strips list markers globally; a document needs them back. */
+.markdown-preview ul {
+  list-style: disc outside;
+}
+.markdown-preview ol {
+  list-style: decimal outside;
+}
+.markdown-preview ul ul {
+  list-style-type: circle;
+}
+.markdown-preview ul ul ul {
+  list-style-type: square;
 }
 .markdown-preview li {
-  margin: 0.15em 0;
+  margin: 0.35em 0;
+  overflow-wrap: break-word;
 }
-.markdown-preview a {
+.markdown-preview li::marker {
+  color: var(--muted-foreground);
+}
+/* A task item's checkbox IS its marker — hang it in the marker slot so checked
+   and bulleted items share one text edge. */
+.markdown-preview li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.markdown-preview li > :is(ul, ol) {
+  margin: 0.35em 0 0.15em;
+}
+.markdown-preview li > p {
+  margin: 0 0 0.5em;
+}
+.markdown-preview li > p:last-child {
+  margin-bottom: 0;
+}
+
+/* :not(.ref-link) so ref chips keep their own chip treatment — a bare
+   `.markdown-preview a` ties on specificity and would force an underline back on. */
+.markdown-preview a:not(.ref-link) {
   color: var(--primary);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: color-mix(in srgb, var(--primary) 45%, transparent);
 }
+.markdown-preview a:not(.ref-link):hover {
+  text-decoration-color: currentColor;
+}
+
 .markdown-preview code {
   font-family: var(--font-mono, monospace);
-  font-size: 0.92em;
+  font-size: 0.86em;
 }
 .markdown-preview :not(pre) > code {
-  background: var(--muted);
-  padding: 0.1em 0.3em;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  padding: 0.12em 0.36em;
   border-radius: 4px;
+  overflow-wrap: break-word;
 }
 .markdown-preview pre {
   position: relative;
   background: var(--muted);
-  padding: 0.75em 1em;
+  padding: 0.9em 1.05em;
   border-radius: 6px;
   overflow: auto;
+  margin: 1.5em 0;
+  line-height: 1.6;
 }
 .markdown-preview blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 1em;
+  border-left: 2px solid var(--border);
+  padding-left: 1.1em;
   color: var(--muted-foreground);
-  margin: 0.5em 0;
+  margin: 1.5em 0;
 }
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+.markdown-preview hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2.6em 0;
+}
+
+/* Horizontal rules only, flush left — a grid of boxes reads as a spreadsheet;
+   ruled rows read as part of the document. */
 .markdown-preview table {
+  width: 100%;
   border-collapse: collapse;
-  margin: 0.5em 0;
+  margin: 1.5em 0;
+  font-size: 0.95em;
+  line-height: 1.55;
 }
-.markdown-preview th,
-.markdown-preview td {
-  border: 1px solid var(--border);
-  padding: 0.3em 0.6em;
+.markdown-preview :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
 }
+.markdown-preview :is(th, td):first-child {
+  padding-left: 0;
+}
+.markdown-preview th {
+  font-weight: 600;
+  color: var(--muted-foreground);
+  border-bottom-color: var(--border);
+}
+.markdown-preview tr:last-child td {
+  border-bottom: 0;
+}
+
 .markdown-preview img {
   max-width: 100%;
   height: auto;
-}
-.markdown-preview .md-block {
-  scroll-margin-top: 0;
+  border-radius: 5px;
+  margin: 0.4em 0;
 }
 .markdown-preview input[type="checkbox"] {
-  margin-right: 0.4em;
+  margin-right: 0.45em;
+  vertical-align: -0.08em;
+  accent-color: var(--muted-foreground);
 }
 
 /* Settings rows (POD-127): hairline seam between adjacent rows only — never

@@ -50,7 +50,9 @@ export function MarkdownPreview({
       ref={(el) => {
         if (scrollRef) scrollRef.current = el
       }}
-      className="markdown-preview min-h-0 flex-1 overflow-auto px-4 py-3 text-[13px]"
+      // Reading typography (measure, leading, padding) lives entirely in
+      // `.markdown-preview` in styles.css — no utility sizing here to fight it.
+      className="markdown-preview min-h-0 flex-1 overflow-auto"
       onClick={onClick}
       // eslint-disable-next-line react/no-danger -- sanitized by renderMarkdownBlocks (DOMPurify)
       dangerouslySetInnerHTML={{ __html: html }}
