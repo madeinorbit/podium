@@ -32,7 +32,11 @@ describe('issue close concerns', () => {
       childDoneCount: 1,
       sessions: [
         session({
+          sessionId: 'waiting',
           offer: { message: 'Choose a direction', actions: [], createdAt: 'now' },
+        }),
+        session({
+          sessionId: 'working',
           agentState: {
             phase: 'working',
             since: 'now',
