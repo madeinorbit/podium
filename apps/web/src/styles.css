@@ -555,6 +555,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-height: 0;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  /* Flat theme surface — the column carries no issue tint (the glow was removed). */
+  background: var(--engraved);
   box-shadow: var(--shadow-engraved);
 }
 .folded-superagent {
@@ -566,6 +568,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   gap: 12px;
   padding: 10px 0;
   border-right: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
+  /* Flat theme surface — the bar carries no issue tint (the fade was removed). */
+  background: var(--engraved);
   box-shadow: var(--shadow-engraved-bar);
 }
 .folded-superagent-cell {

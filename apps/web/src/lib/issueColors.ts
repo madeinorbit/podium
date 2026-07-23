@@ -20,8 +20,8 @@
  * --success status hues — status UI must use the tokens, never these literals.
  *
  * Issue-coloured SURFACES are always color-mix tints over a base surface, never
- * flat fills — see the issue-mix-* / issue-hairline-* / issue-ring / issue-glow
- * utilities in index.css. The one flat use is the solid ID square itself, whose
+ * flat fills — see the issue-mix-* / issue-hairline-* / issue-ring utilities in
+ * index.css. The one flat use is the solid ID square itself, whose
  * text colour comes from {@link issueSquareFg}.
  */
 

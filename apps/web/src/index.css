@@ -41,8 +41,8 @@
   --color-info: var(--info);
 
   /* ── Redesign surface tiers (handoff v2) ─────────────────────────────────
-     --engraved: recessed middle column (Tray + Super agent) — pairs with
-       shadow-engraved and the issue-glow radial.
+     --engraved: recessed middle column (Tray + Super agent) — a flat surface
+       paired with shadow-engraved (it carries no issue tint).
      --bar:      compact section bars (Tray/Super-agent headers, key-bar strip).
      --tabstrip: native tab-strip base (before the issue-colour mix).
      --rail:     icon-rail base.
@@ -480,11 +480,13 @@
    the issue's palette colour (lib/issueColors.ts); unset, it inherits the
    neutral slate --flow. The percentages come straight from the handoff:
      selected sidebar row 28 (over card) · pane header 24 (over background) ·
-     tray card 20/10 · tab strip 18 (over tabstrip) · rail fade 16 · folded
-     engraved bar 14 · attention rows 11–13 · workspace pane 10–12 ·
-     hairlines 30–50 · selection rings 35 · glow 8–10.
-   The base defaults to --background; put issue-base-{card,engraved,tabstrip,
-   rail} alongside a mix utility to tint over a different surface. */
+     tray card 20/10 · tab strip 18 (over tabstrip) · rail fade 16 ·
+     attention rows 11–13 · workspace pane 10–12 ·
+     hairlines 30–50 · selection rings 35.
+   The engraved column (Tray + Super agent) is deliberately OUTSIDE this
+   channel: it stays a flat --engraved surface in both modes.
+   The base defaults to --background; put issue-base-{card,tabstrip,rail}
+   alongside a mix utility to tint over a different surface. */
 
 /* Registering --issue lets the VARIABLE itself transition: reselecting or
    recolouring an issue crossfades every derived color-mix, gradient and inset
@@ -537,9 +539,6 @@
 @utility issue-base-card {
   --issue-base: var(--card);
 }
-@utility issue-base-engraved {
-  --issue-base: var(--engraved);
-}
 @utility issue-base-tabstrip {
   --issue-base: var(--tabstrip);
 }
@@ -573,17 +572,6 @@
 @utility issue-ring {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--issue) 35%, transparent);
 }
-/* Engraved-column glow: soft radial of the issue colour over the engraved
-   surface (compose with shadow-engraved for the full recessed treatment). */
-@utility issue-glow {
-  background:
-    radial-gradient(
-      560px 300px at 50% 12%,
-      color-mix(in srgb, var(--issue) 10%, transparent),
-      transparent 72%
-    ),
-    var(--issue-base, var(--engraved));
-}
 /* Rail fade: issue tint at the top of the icon rail, flat by 240px. */
 @utility issue-fade {
   background: linear-gradient(
@@ -592,27 +580,10 @@
     var(--issue-base, var(--card)) 240px
   );
 }
-/* Folded engraved bar (collapse state 3d): 14% tint fading out by 300px. */
-@utility issue-fade-bar {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--issue) 14%, var(--engraved)),
-    var(--engraved) 300px
-  );
-}
 /* Handoff-1b quiet values for the fixed-percentage surfaces. Plain (unlayered)
    rules, so they beat the layered utilities regardless of order. */
 [data-issue-colored='false'] .issue-ring {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--issue) 30%, transparent);
-}
-[data-issue-colored='false'] .issue-glow {
-  background:
-    radial-gradient(
-      560px 300px at 50% 12%,
-      color-mix(in srgb, var(--issue) 9%, transparent),
-      transparent 72%
-    ),
-    var(--issue-base, var(--engraved));
 }
 [data-issue-colored='false'] .issue-fade {
   background: linear-gradient(

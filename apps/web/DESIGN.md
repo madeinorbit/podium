@@ -155,7 +155,7 @@ Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the
 **Carved, not floating.** Depth goes inward: the middle column is engraved into the chassis with pure-black inset shadows (`inset ±3px 0 6px -3px rgb(0 0 0 / 0.85)` plus a top inset), sections separate by hairline seams and tonal tier (Bar below Engraved below Panel), and surfaces at rest cast nothing. Only transient overlays may lift: popovers use `0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)`; compact section bars cast a tight drop (`0 5px 10px -5px rgb(0 0 0 / 0.9)`) to read as a fold, not a float.
 
 ### Shadow Vocabulary
-- **Engraved** (`inset 3px 0 6px -3px …, inset -3px 0 6px -3px …, inset 0 3px 6px -3px rgb(0 0 0 / 0.85)`): The recessed Tray/Super-agent column; compose with the issue-glow radial.
+- **Engraved** (`inset 3px 0 6px -3px …, inset -3px 0 6px -3px …, inset 0 3px 6px -3px rgb(0 0 0 / 0.85)`): The recessed Tray/Super-agent column, on a flat `--engraved` surface (no issue tint).
 - **Engraved bar** (`inset 2px 0 5px -2px rgb(0 0 0 / 0.85) ×2`): The folded 44px vertical bar.
 - **Bar drop** (`0 5px 10px -5px rgb(0 0 0 / 0.9)`): Below compact section bars.
 - **Popover** (`0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)`): Menus, color pickers — the only lifted tier.
