@@ -1502,6 +1502,9 @@ function UnifiedIssueRow({
   // Sessions earning visibility (multi-agent / remote spawn / native subagents)
   // render in the ADJACENT roster band (L2), never inside the issue tree. The
   // issue disclosure folds all detail while the compact fleet summary remains.
+  // A LONE driver never earns a band (POD-267) — it fuses into the row as the
+  // fleet-summary glyph, nested subtasks or not; boxing one agent alongside plan
+  // structure spent a whole tone tier on a single icon.
   const showSessions = sessionsNeedChildRows(mine)
   const hasStartedBy = startedByChildren.length > 0
   // Depth cap (L4): the sidebar renders parent + children, then numbers. A
@@ -1511,10 +1514,7 @@ function UnifiedIssueRow({
   const capped = startedByDepth >= 1
   const rollup = capped ? branchRollup(issues, issue.id) : null
   const showRollup = rollup !== null && rollup.total > 0
-  // A lone driver next to nested subtasks still shows in the band, so the
-  // session doing the driving never vanishes behind plan structure.
-  const showBand = showSessions || (hasStartedBy && mine.length > 0)
-  const hasFoldableDetail = showBand || showRollup || (!capped && hasStartedBy)
+  const hasFoldableDetail = showSessions || showRollup || (!capped && hasStartedBy)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   const waitingCount = rowWaitingCount(row)
@@ -1574,7 +1574,7 @@ function UnifiedIssueRow({
   )
   // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
   const band =
-    !draftAgentOnly && showBand ? (
+    !draftAgentOnly && showSessions ? (
       <AgentRosterBand label="Agents" count={mine.length} className="mt-0.5 mb-[3px] ml-8">
         <GroupedSessionRows sessions={visible} render={renderRow} dense />
         <StaleSection sessions={stale} render={renderRow} dense />

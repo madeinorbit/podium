@@ -233,6 +233,18 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(child?.querySelector('[data-testid="unified-issue-row-started-by"]')).toBeTruthy()
   })
 
+  it('fuses a lone driver into the row of a parent with subtasks (POD-267)', () => {
+    render(<SidebarUnified />)
+    const parentRow = screen
+      .getByText('Nested parent')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    // Expanded (default): the subtask tree is open, and the single driving agent
+    // is present as the row's fleet glyph — no AGENTS box of its own.
+    expect(parentRow.querySelector('[data-testid="started-by-children"]')).toBeTruthy()
+    expect(parentRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
+    expect(parentRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+  })
+
   it('shows unmerged done work as a tint-only branch attention chip', () => {
     render(<SidebarUnified />)
     const row = screen
