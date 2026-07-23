@@ -196,6 +196,10 @@ export function IssueProperties({
     const m = byId.get(id)
     return m ? issueRefLong(m) : id
   }
+  const issueStageGlyph = (id: string): JSX.Element | null => {
+    const target = byId.get(id)
+    return target ? <StageGlyph stage={target.stage} size={13} /> : null
+  }
   const mateOptions = mateOptionsOf(repoMates)
   const assigneeOptions = assigneeOptionsOf(issues)
   const labelPool = labelPoolOf(issues, issue)
@@ -496,11 +500,12 @@ export function IssueProperties({
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
                   onClick={() => byId.has(entry.id) && onNavigate(entry.id)}
                   title={issueLabel(entry.id)}
                 >
-                  {issueLabel(entry.id)}
+                  {issueStageGlyph(entry.id)}
+                  <span className="truncate">{issueLabel(entry.id)}</span>
                 </button>
                 <button
                   type="button"

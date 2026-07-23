@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
 import { IssueCompactControls } from './IssueCompactControls'
 import { issueIdTitle, STAGE_LABELS } from './issue-card'
+import { StageGlyph } from './issue-glyphs'
 import { groupRelations } from './issue-relations'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
@@ -549,14 +550,17 @@ export function IssuePanelView({
                       <button
                         key={`${group.section}-${entry.direction}-${entry.id}`}
                         type="button"
-                        className="min-w-0 truncate text-left text-[11.5px] hover:text-primary hover:underline"
+                        className="flex min-w-0 items-center gap-1.5 truncate text-left text-[11.5px] hover:text-primary hover:underline"
                         onClick={() => target && openIssuePage(target.id)}
                         title={target ? `${issueDisplayRef(target)} ${target.title}` : entry.id}
                       >
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {target ? issueDisplayRef(target) : '?'}
-                        </span>{' '}
-                        {target?.title ?? entry.id}
+                        {target && <StageGlyph stage={target.stage} size={12} />}
+                        <span className="min-w-0 truncate">
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {target ? issueDisplayRef(target) : '?'}
+                          </span>{' '}
+                          {target?.title ?? entry.id}
+                        </span>
                       </button>
                     )
                   })}

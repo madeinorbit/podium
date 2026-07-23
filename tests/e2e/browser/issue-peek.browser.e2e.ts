@@ -71,6 +71,18 @@ test('terminal ref click opens the redesigned peek card; preview escalates throu
     description: 'Peek card acceptance probe.',
     startNow: false,
   })
+  const dependencyTitle = `Review dependency ${Date.now()}`
+  const dependency = await rpc<{ id: string }>(request, 'issues.create', {
+    repoPath,
+    title: dependencyTitle,
+    description: 'Related-task status icon probe.',
+    startNow: false,
+  })
+  await rpc(request, 'issues.update', {
+    id: dependency.id,
+    patch: { stage: 'review' },
+  })
+  await rpc(request, 'issues.depAdd', { fromId: created.id, toId: dependency.id, type: 'related' })
   await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'planning' } })
   await rpc(request, 'issues.setState', { id: created.id, text: note })
   const listed = await rpc<WireIssue[]>(request, 'issues.list', { repoPath }, 'get')
@@ -149,6 +161,9 @@ test('terminal ref click opens the redesigned peek card; preview escalates throu
   await expect(drawer).toBeVisible()
   await expect(drawer).toContainText(title)
   await expect(drawer).toContainText('Planning')
+  const drawerRelations = drawer.getByTestId('dock-relations')
+  await expect(drawerRelations.getByRole('img', { name: 'Review' })).toBeVisible()
+  await expect(drawerRelations).toContainText(dependencyTitle)
 
   await expect(drawer.getByRole('button', { name: 'Open full issue' })).toBeVisible()
   await drawer.getByRole('button', { name: 'More issue actions' }).click()
@@ -181,4 +196,7 @@ test('terminal ref click opens the redesigned peek card; preview escalates throu
   const fullPage = page.getByTestId('issue-page')
   await expect(fullPage).toBeVisible()
   await expect(fullPage).toContainText(title)
+  const aside = fullPage.getByTestId('issue-aside')
+  await expect(aside.getByRole('img', { name: 'Review' })).toBeVisible()
+  await expect(aside).toContainText(dependencyTitle)
 })
