@@ -1254,7 +1254,7 @@ function IssueCard({
               {m.subProgress.done}/{m.subProgress.total}
             </span>
           )}
-          {/* #198: whole-subtree "how far along" — a live-agent pulse when an agent
+          {/* #198: whole-subtree "how far along" — a live-agent dot when an agent
               is working anywhere under this epic (incl. deep internal children the
               lane rollups don't reach), titled with the subtree done/total. */}
           {progress && progress.liveAgents > 0 && (
@@ -1263,7 +1263,7 @@ function IssueCard({
               title={`${progress.liveAgents} subtask${progress.liveAgents === 1 ? '' : 's'} being worked · ${progress.done}/${progress.total} done in subtree`}
               data-testid="epic-live-agents"
             >
-              <span className="size-1.5 animate-pulse rounded-full bg-live" aria-hidden />
+              <span className="size-1.5 rounded-full bg-live" aria-hidden />
               {progress.liveAgents}
             </span>
           )}
