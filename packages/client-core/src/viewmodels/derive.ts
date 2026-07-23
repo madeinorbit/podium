@@ -1379,12 +1379,24 @@ export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
-export function sessionVisibleInSidebar(s: SessionMeta, now: number): boolean {
+export function sessionVisibleInSidebar(s: SessionMeta, now: number, issue?: IssueWire): boolean {
+  const issueFinished =
+    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+  const agentState = s.agentState
+  const idleDone = agentState?.phase === 'idle' && agentState.idle?.kind === 'done'
   const finishedAt =
-    s.stoppedAt ?? (s.agentState?.phase === 'ended' ? s.agentState.since : undefined)
+    s.stoppedAt ??
+    (agentState?.phase === 'ended'
+      ? agentState.since
+      : idleDone && issueFinished
+        ? (issue?.closedAt ?? issue?.updatedAt ?? agentState.since)
+        : undefined)
   if (!finishedAt) return true
-  if (s.unread || !s.readAt) return true
-  const anchor = Math.max(Date.parse(finishedAt) || 0, Date.parse(s.readAt) || 0)
+  const finishedAtMs = Date.parse(finishedAt) || 0
+  if (s.unread || !s.readAt) {
+    return now - finishedAtMs <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
+  }
+  const anchor = Math.max(finishedAtMs, Date.parse(s.readAt) || 0)
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
@@ -1402,7 +1414,7 @@ function buildUnifiedRows(
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
         sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
-          sessionVisibleInSidebar(s, now),
+          sessionVisibleInSidebar(s, now, issue),
         ),
         now,
       ),

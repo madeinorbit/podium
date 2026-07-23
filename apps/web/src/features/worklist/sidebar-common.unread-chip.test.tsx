@@ -38,13 +38,7 @@ function sess(over: Partial<SessionMeta>): SessionMeta {
 }
 
 function renderRow(session: SessionMeta): void {
-  render(
-    <PanelRow
-      session={session}
-      active={false}
-      onSelect={vi.fn()}
-    />,
-  )
+  render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
 }
 
 describe('PanelRow unread news chip (POD-81)', () => {
@@ -77,6 +71,22 @@ describe('PanelRow unread news chip (POD-81)', () => {
       }),
     )
     expect(screen.queryByTestId('session-unread-chip')).toBeNull()
+  })
+
+  it('a hibernated idle-done session reads finished, not paused', () => {
+    renderRow(
+      sess({
+        status: 'hibernated',
+        agentState: {
+          phase: 'idle',
+          since: '2026-07-20T10:01:00.000Z',
+          nativeSubagentCount: 0,
+          idle: { kind: 'done' },
+        },
+      }),
+    )
+    expect(screen.getByText('finished')).toBeTruthy()
+    expect(screen.queryByText('paused')).toBeNull()
   })
 
   it('an unread working session stays chipless (not news yet)', () => {

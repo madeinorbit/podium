@@ -494,7 +494,11 @@ export function PanelRow({
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
   const backFromSnooze = returnedFromSnooze(session, now)
-  const hibernated = session.status === 'hibernated'
+  const idleDone = session.agentState?.phase === 'idle' && session.agentState.idle?.kind === 'done'
+  // A service restart can park a delegate after its harness has authoritatively
+  // reported completion. "Paused" implies unfinished work, so keep the terminal
+  // verdict as the user-facing truth while the row follows completion decay.
+  const hibernated = session.status === 'hibernated' && !idleDone
   // Status word right of the name (mock's "needs review"/"paused" meta):
   // attention and error states show their badge label; a parked session reads
   // "paused". Non-retryable errors have no Continue button, so this label is
@@ -512,7 +516,9 @@ export function PanelRow({
       : session.stopReason === 'forced'
         ? 'interrupted'
         : 'finished'
-    : session.agentState?.phase === 'ended' || session.status === 'exited'
+    : (idleDone && session.status === 'hibernated') ||
+        session.agentState?.phase === 'ended' ||
+        session.status === 'exited'
       ? 'finished'
       : null
   // Nested child rows (dotRight) and roster rows: the session's own mono ref.

@@ -305,6 +305,79 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Finished delegate decay',
+    startNow: false,
+  })
+  const { sessionId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Finished relay delegate A' })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'bind',
+    sessionId,
+    cmd: 'codex',
+    cwd: REPO_ROOT,
+    agentKind: 'codex',
+    geometry: { cols: 80, rows: 24 },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'sessionResumeRef',
+    sessionId,
+    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate' },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  server.registry.modules.sessions.hibernateSession({ sessionId })
+  const { sessionId: secondId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  server.registry.modules.sessions.renameSession({
+    sessionId: secondId,
+    name: 'Finished relay delegate B',
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'bind',
+    sessionId: secondId,
+    cmd: 'codex',
+    cwd: REPO_ROOT,
+    agentKind: 'codex',
+    geometry: { cols: 80, rows: 24 },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'sessionResumeRef',
+    sessionId: secondId,
+    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate-2' },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'agentState',
+    sessionId: secondId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  server.registry.modules.sessions.hibernateSession({ sessionId: secondId })
+  server.registry.modules.issues.close(issue.id, 'done')
+}
 if (process.env.PODIUM_E2E_OFFER === '1') {
   const issue = server.registry.modules.issues.create({
     repoPath: REPO_ROOT,

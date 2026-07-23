@@ -12,8 +12,8 @@ import {
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
-  sessionVisibleInSidebar,
   type SidebarSections,
+  sessionVisibleInSidebar,
   type UnifiedIssueRow,
   unifiedWorkList,
 } from './derive'
@@ -358,6 +358,52 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     expect(sessionVisibleInSidebar({ ...stopped, unread: true }, NOW)).toBe(true)
     expect(sessionVisibleInSidebar(stopped, NOW)).toBe(false)
     expect(sessionVisibleInSidebar({ ...stopped, readAt: recentRead }, NOW)).toBe(true)
+  })
+
+  it('decays idle-done sessions attached to closed issues even when their process lingers', () => {
+    const closedAt = new Date(NOW - 48 * HOUR).toISOString()
+    const closed = issue({
+      stage: 'done',
+      closedReason: 'done',
+      closedAt,
+      updatedAt: closedAt,
+    })
+    const finished = sess('finished-delegate', {
+      issueId: closed.id,
+      status: 'hibernated',
+      agentState: {
+        phase: 'idle',
+        since: closedAt,
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+      unread: false,
+      readAt: new Date(NOW - 47 * HOUR).toISOString(),
+    })
+    expect(sessionVisibleInSidebar(finished, NOW, closed)).toBe(false)
+    expect(
+      sessionVisibleInSidebar(
+        { ...finished, readAt: new Date(NOW - HOUR).toISOString() },
+        NOW,
+        closed,
+      ),
+    ).toBe(true)
+    expect(sessionVisibleInSidebar(finished, NOW, issue({ stage: 'in_progress' }))).toBe(true)
+  })
+
+  it('bounds unseen terminal sessions instead of retaining them forever', () => {
+    const stoppedAt = new Date(NOW - 8 * 24 * HOUR).toISOString()
+    expect(
+      sessionVisibleInSidebar(
+        sess('old-unseen', {
+          status: 'hibernated',
+          stoppedAt,
+          unread: true,
+          readAt: null,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
   })
 
   it('keeps a sessionless completed MILESTONE CHILD until seen plus 24h; top-level stays out', () => {
