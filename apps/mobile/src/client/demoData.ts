@@ -109,7 +109,92 @@ export const DEMO_SESSIONS: SessionMeta[] = [
   }),
 ]
 
+/** Shared scaffolding for the demo proposals (POD-277's screening deck). */
+function proposal(
+  partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
+): IssueWire {
+  return {
+    repoPath: '/home/dev/src/podium',
+    displayRef: `POD-${partial.seq}`,
+    prefix: 'POD',
+    stage: 'proposed',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    blockedBy: [],
+    priority: 2,
+    type: 'task',
+    pinned: false,
+    needsHuman: false,
+    labels: [],
+    deps: [],
+    dependents: [],
+    comments: [],
+    ready: true,
+    blocked: false,
+    deferred: false,
+    childCount: 0,
+    childDoneCount: 0,
+    createdAt: min(300),
+    updatedAt: min(300),
+    archived: false,
+    origin: 'agent',
+    audience: 'human',
+    draft: false,
+    sessions: [],
+    sessionSummary: { total: 0, byPhase: {} },
+    readAt: null,
+    unread: true,
+    ...partial,
+  } as IssueWire
+}
+
 export const DEMO_ISSUES: IssueWire[] = [
+  proposal({
+    id: 'demo-proposal-retry',
+    seq: 301,
+    priority: 1,
+    type: 'bug',
+    color: 'cyan',
+    title: 'Transcript reconnect drops queued turns',
+    description:
+      'After a phone reconnect the composer clears but the queued turn never reaches the agent, so the operator retypes it.',
+    brief:
+      'Repro: background the app mid-turn, kill wifi, return. packages/client-core/src/engine/engine.ts drops the outbox entry when the socket re-handshakes with a newer cursor. Add a replay test in engine.test.ts before touching the flush path.',
+    createdAt: min(90),
+    updatedAt: min(90),
+  }),
+  proposal({
+    id: 'demo-proposal-quota',
+    seq: 298,
+    type: 'feature',
+    color: 'lime',
+    title: 'Quota strip on the phone tray',
+    description:
+      'The desktop shows per-harness quota; the phone has no way to see how much budget is left before starting more work.',
+    brief:
+      'Reuse the web quota viewmodel in packages/client-core/src/viewmodels; render as a two-row strip under the Tray header. Mono micro type, no new colours.',
+    createdAt: min(210),
+    updatedAt: min(210),
+  }),
+  proposal({
+    id: 'demo-proposal-cleanup',
+    seq: 294,
+    priority: 3,
+    type: 'chore',
+    title: 'Retire the legacy focus helpers',
+    description:
+      'Two focus-ranking helpers survive from before the shared store landed and now disagree with it in edge cases.',
+    brief:
+      'Delete groupSessionsLegacy and its tests once the mobile Tray reads the store ordering.',
+    blockedBy: ['demo-issue-header'],
+    dependencyNote: 'waits on the session header work',
+    createdAt: min(1400),
+    updatedAt: min(1400),
+  }),
   {
     id: 'demo-issue-auth',
     repoPath: '/home/dev/src/podium',

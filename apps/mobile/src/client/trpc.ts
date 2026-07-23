@@ -87,6 +87,10 @@ interface MobileTrpcExtras {
     >
     /** Spawn the issue's default agent on it (issue-as-workspace). */
     start: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
+    promote: MutationProcedure<{ id: string }, IssueWire>
+    /** Close an issue — the server writes stage `done` + the closure reason. */
+    close: MutationProcedure<{ id: string; reason?: string; mutationId?: string }, IssueWire>
     update: MutationProcedure<{
       id: string
       patch: {

@@ -104,6 +104,17 @@ function demoValue(config: ServerConfig): MobileClientValue {
         clear: { mutate: noop },
       },
       repos: { list: { query: async () => ['/home/dev/src/podium'] } },
+      // Demo mode has no backend: issue mutations resolve without changing the
+      // fixture, so screening/curation flows are drivable for design review.
+      issues: {
+        promote: { mutate: async () => ({}) },
+        start: { mutate: async () => ({}) },
+        close: { mutate: async () => ({}) },
+        update: { mutate: noop },
+        addComment: { mutate: noop },
+        clearNeedsHuman: { mutate: noop },
+        archive: { mutate: noop },
+      },
     } as unknown as MobileTrpc,
     sessionById: (id) => sessions.find((s) => s.sessionId === id),
     issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),

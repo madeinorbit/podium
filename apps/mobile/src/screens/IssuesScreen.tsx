@@ -1,6 +1,6 @@
 import type { IssueStage, IssueWire } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Plus } from 'lucide-react-native'
+import { ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, Pill } from '../components/ui'
+import { buildScreeningQueue } from '../lib/screening'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
@@ -52,6 +53,11 @@ export function IssuesScreen() {
 
   const repoName = (issue: IssueWire) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
 
+  // Proposals are inert until the operator decides [spec:SP-6144] — the deck
+  // flow is the fast way through them, so the board leads with it whenever any
+  // are waiting (POD-277).
+  const proposals = useMemo(() => buildScreeningQueue(client.issues), [client.issues])
+
   return (
     <Screen
       large
@@ -77,6 +83,28 @@ export function IssuesScreen() {
         keyExtractor={(issue) => issue.id}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          proposals.length === 0 ? null : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Screen proposed"
+              accessibilityHint={`Decide on ${proposals.length} proposal${proposals.length === 1 ? '' : 's'} one at a time`}
+              onPress={() => router.push('/screen-proposed')}
+              style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+            >
+              <View style={styles.screenIcon}>
+                <Icon as={Layers} size={16} color={color.accent} />
+              </View>
+              <View style={styles.screenText}>
+                <Text style={styles.screenTitle}>Screen proposed</Text>
+                <Text style={styles.screenSub}>
+                  {`${proposals.length} proposal${proposals.length === 1 ? '' : 's'} waiting on your call`}
+                </Text>
+              </View>
+              <Icon as={ChevronRight} size={16} color={color.textFaint} />
+            </Pressable>
+          )
+        }
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionLabel}>{section.title.toUpperCase()}</Text>
@@ -150,6 +178,47 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.accent,
     fontSize: font.tiny + 1,
+  },
+  screenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+    marginHorizontal: space.sm + 2,
+    marginTop: space.sm,
+    paddingHorizontal: 9,
+    paddingVertical: 9,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.accentBorder,
+    backgroundColor: color.accentSoft,
+  },
+  screenRowPressed: {
+    backgroundColor: 'rgba(245, 197, 24, 0.2)',
+  },
+  screenIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.bgSunken,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.accentBorder,
+  },
+  screenText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  screenTitle: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.small + 1,
+  },
+  screenSub: {
+    ...mono(400),
+    color: color.textDim,
+    fontSize: font.micro,
   },
   sectionHeader: {
     flexDirection: 'row',
