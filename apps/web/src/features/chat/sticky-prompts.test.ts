@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stickyPromptsEnabled } from './sticky-prompts'
+import { stickyPromptsEnabled } from '@/lib/sticky-prompts'
 
 describe('sticky prompt preference', () => {
   it('defaults on and only an explicit false disables it', () => {

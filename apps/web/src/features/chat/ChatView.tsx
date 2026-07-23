@@ -44,7 +44,7 @@ import { Minimap } from './Minimap'
 import { parseEnvelopeBatch } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
-import { useStickyPromptsPreference } from './sticky-prompts'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { ToolBatchView } from './ToolBatchView'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
 

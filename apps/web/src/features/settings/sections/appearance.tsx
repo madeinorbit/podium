@@ -3,7 +3,7 @@ import { type ThemeMode, type ThemePreset, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { useStickyPromptsPreference } from '@/features/chat/sticky-prompts'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
