@@ -6,13 +6,16 @@ import {
   type AccountQuotaGroup,
   agentLabel,
   formatReset,
+  modelLimitNote,
   paceHint,
   paceLabel,
   percentTone,
   quotaPoolVerdict,
+  splitQuotaWindows,
   statusNote,
   windowElapsedPercent,
   windowPace,
+  windowScopeModel,
   windowShortLabel,
 } from './quota'
 
@@ -53,18 +56,32 @@ export function QuotaPanel({
         </span>
       </div>
       {ok.length === 0 && <div className="hp-section hp-dim-line">No quota reported</div>}
-      {ok.map((g) => (
-        <div key={g.key} className="hp-section">
-          <div className="hp-acct">
-            <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
-            {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
-            {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
+      {ok.map((g) => {
+        const { gating, models } = splitQuotaWindows(g.windows)
+        return (
+          <div key={g.key} className="hp-section">
+            <div className="hp-acct">
+              <span className="hp-acct-agent">{agentLabel(g.agent)}</span>
+              {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
+              {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
+            </div>
+            {gating.map((w) => (
+              <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
+            ))}
+            {/* Model-scoped buckets read as a separate tier — they are extra
+                capacity for one model, not a limit on the harness (POD-271). */}
+            {models.length > 0 && (
+              <>
+                <div className="hp-sect-label hp-model-label">Model limits</div>
+                {models.map((w) => (
+                  <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
+                ))}
+                <div className="hp-model-note">{modelLimitNote(g.agent, g.windows)}</div>
+              </>
+            )}
           </div>
-          {g.windows.map((w) => (
-            <WindowRow key={w.key} w={w} now={now} pinned={pinned} />
-          ))}
-        </div>
-      ))}
+        )
+      })}
       {pinned &&
         degraded.map((g) => (
           <div key={g.key} className="hp-section hp-acct">
@@ -93,7 +110,9 @@ function WindowRow({
   return (
     <>
       <div className="hp-winrow">
-        <span className="hp-winlabel">{windowShortLabel(w.label)}</span>
+        {/* A scoped window is titled by its model, not by its window kind — the
+            model is what the operator loses when it runs out. */}
+        <span className="hp-winlabel">{windowScopeModel(w) ?? windowShortLabel(w.label)}</span>
         <span
           className="hp-bar"
           role="presentation"

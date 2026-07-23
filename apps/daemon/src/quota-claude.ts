@@ -30,9 +30,10 @@ function keyPart(value: string): string {
     .replace(/^-|-$/g, '')
 }
 
-function scopeMetadata(scope: unknown): { labels: string[]; keys: string[] } {
+function scopeMetadata(scope: unknown): { labels: string[]; keys: string[]; model?: string } {
   const labels: string[] = []
   const keys: string[] = []
+  let model: string | undefined
   if (!isRecord(scope)) return { labels, keys }
   for (const [scopeKind, rawValue] of Object.entries(scope).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -43,8 +44,11 @@ function scopeMetadata(scope: unknown): { labels: string[]; keys: string[] } {
     if (displayName) labels.push(displayName)
     const identity = id ?? displayName
     if (identity) keys.push(`${keyPart(scopeKind)}:${keyPart(identity)}`)
+    // A model scope is what makes a window fall-back-able rather than gating —
+    // the UI needs it named, not just folded into the label. [spec:SP-0610]
+    if (scopeKind === 'model' && (displayName ?? id)) model = displayName ?? id
   }
-  return { labels, keys }
+  return { labels, keys, ...(model ? { model } : {}) }
 }
 
 function inferredWindowMinutes(kind: string | undefined, group: string | undefined): number {
@@ -89,6 +93,7 @@ function parseGenericLimits(rawLimits: unknown): QuotaWindowWire[] {
       usedPercent: toPct(percent),
       resetsAt: stringField(rawLimit.resets_at) ?? '',
       windowMinutes: inferredWindowMinutes(kind, group),
+      ...(scope.model ? { scopeModel: scope.model } : {}),
     })
   }
   return windows

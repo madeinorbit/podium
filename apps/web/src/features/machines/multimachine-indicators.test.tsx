@@ -209,6 +209,55 @@ describe('quota overlay groups by account', () => {
     await waitFor(() => expect(screen.getByText('Fable')).toBeTruthy())
     expect(screen.getByText(/83%/)).toBeTruthy()
   })
+
+  // POD-271: a spent model bucket must not paint the pool red — the harness
+  // falls back onto the limits that actually gate work.
+  it('meters the gating limits and rails the model buckets separately', async () => {
+    const quota = machineQuota('solo', 'solo', 'solo', 'solo@example.com', 7)
+    const agent = quota.agents[0]
+    if (!agent) throw new Error('fixture')
+    agent.windows = [
+      { key: 'session', label: '5-hour', usedPercent: 7, resetsAt: '', windowMinutes: 300 },
+      { key: 'weekly-all', label: 'Weekly', usedPercent: 54, resetsAt: '', windowMinutes: 10080 },
+      {
+        key: 'weekly-scoped:model:fable',
+        label: 'Fable',
+        usedPercent: 100,
+        resetsAt: '',
+        windowMinutes: 10080,
+        scopeModel: 'Fable',
+      },
+    ]
+    quotaSummary.mockResolvedValue([quota])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Agent quota: Claude Code \(solo@example\.com\) 54% used, Fable 100% used/i,
+    })
+    // The meter reports the worst GATING window (weekly 54%), not Fable's 100%.
+    const meter = chip.querySelector<HTMLElement>('.header-quota-meter > span')
+    expect(meter?.style.width).toBe('54%')
+    expect(meter?.className).toContain('bg-success')
+    // Fable gets its own rail segment, and that one is red.
+    const rail = chip.querySelectorAll<HTMLElement>('.header-quota-rail-seg > span')
+    expect(rail).toHaveLength(1)
+    expect(rail[0]?.className).toContain('bg-destructive')
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('Fable spent · rest lasts')).toBeTruthy())
+    expect(
+      screen.getByText(/Fable is spent — Claude Code falls back to the models the shared pool/),
+    ).toBeTruthy()
+  })
+
+  it('renders no fallback rail for a harness with only gating limits', async () => {
+    quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    expect(chip.querySelectorAll('.header-quota-rail')).toHaveLength(0)
+    expect(chip.querySelectorAll('.header-quota-meter')).toHaveLength(1)
+  })
 })
 
 // POD-838: the header machine chips flag a daemon whose build trails the server —

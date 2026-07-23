@@ -16,7 +16,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 function homeWithCreds(creds: unknown): string {
   const home = trackTmp('podium-cq-')
   mkdirSync(join(home, '.claude'), { recursive: true })
@@ -97,8 +96,38 @@ describe('parseClaudeUsage', () => {
         usedPercent: 83,
         resetsAt: '2026-06-24T00:00:00.000Z',
         windowMinutes: 10080,
+        // POD-271: the model scope is named on the wire, so the UI can tell a
+        // limit that gates the harness from one it can fall back off.
+        scopeModel: 'Fable',
       },
     ])
+  })
+
+  it('leaves unscoped limits without a model, and names the model on scoped ones', () => {
+    const windows = parseClaudeUsage(genericBody)
+    expect(windows.map((w) => w.scopeModel)).toEqual([undefined, undefined, 'Fable'])
+  })
+
+  it('does not treat a surface-only scope as a model scope', () => {
+    expect(
+      parseClaudeUsage({
+        limits: [
+          {
+            kind: 'weekly_scoped',
+            group: 'weekly',
+            percent: 20,
+            resets_at: '2026-06-24T00:00:00.000Z',
+            scope: { model: null, surface: { id: 'code', display_name: 'Claude Code' } },
+          },
+        ],
+      })[0],
+    ).toEqual({
+      key: 'weekly-scoped:surface:code',
+      label: 'Claude Code',
+      usedPercent: 20,
+      resetsAt: '2026-06-24T00:00:00.000Z',
+      windowMinutes: 10080,
+    })
   })
 
   it('tolerates a removed scoped limit and displays an unknown replacement generically', () => {
@@ -123,6 +152,7 @@ describe('parseClaudeUsage', () => {
         usedPercent: 12.3,
         resetsAt: '2026-06-20T00:00:00.000Z',
         windowMinutes: 0,
+        scopeModel: 'Quasar',
       },
     ])
   })

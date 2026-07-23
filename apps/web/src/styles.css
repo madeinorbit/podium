@@ -152,6 +152,36 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
 .header-quota-meter {
   width: 25px;
 }
+/* POD-271 — the fallback rail. A pool's meter answers "can I work"; a limit
+   scoped to one model can't change that answer, so it gets its own 2px tier
+   under the meter instead of recolouring it. One segment per model bucket,
+   sharing the meter's width so the header never grows; absent entirely for a
+   harness that reports no scoped limits. */
+.header-quota-stack {
+  position: relative;
+  display: inline-flex;
+  height: 3.5px;
+  align-items: flex-start;
+}
+/* The rail hangs BELOW the meter rather than sharing a column with it, so every
+   pool's meter stays on one continuous line across the chip whether or not it
+   has model buckets. */
+.header-quota-rail {
+  position: absolute;
+  top: 5.5px;
+  left: 0;
+  display: inline-flex;
+  width: 25px;
+  gap: 2px;
+}
+.header-quota-rail-seg {
+  display: block;
+  flex: 1;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--secondary);
+}
 .header-machine-chip:hover,
 .header-quota-chip:hover,
 .header-machine-chip[data-popup-open],
@@ -423,6 +453,17 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted-foreground);
+}
+/* The model-limit tier inside a quota account section (POD-271). */
+.hp-model-label {
+  margin: 8px 0 2px;
+  color: var(--text-faint);
+}
+.hp-model-note {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-dim);
 }
 .hp-prow {
   display: flex;

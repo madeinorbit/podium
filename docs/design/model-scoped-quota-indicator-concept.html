@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model-scoped quota indicator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #090e1a;
+      --bar: #050912;
+      --panel: #121b30;
+      --panel-2: #16223c;
+      --track: #223564;
+      --line: #243356;
+      --ink: #f3f3f8;
+      --muted: #9a9aa8;
+      --dim: #6c7690;
+      --faint: #525c78;
+      --blue: #2f6bff;
+      --red: #e5303f;
+      --yellow: #f5c518;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 82% -4%, rgb(47 107 255 / 0.09), transparent 34rem),
+        var(--page);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    main { width: min(1060px, calc(100% - 48px)); margin: 0 auto; padding: 48px 0 76px; }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--yellow);
+      font: 600 10px/1 var(--mono);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 { max-width: 780px; margin: 0; font-size: 28px; line-height: 1.14; letter-spacing: -.025em; }
+    .lede { max-width: 760px; margin: 12px 0 34px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    h2 { margin: 0 0 8px; font-size: 17px; letter-spacing: -.01em; }
+    section { margin-top: 44px; }
+    section > p.sub { margin: 0 0 18px; max-width: 720px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    /* ── shared meter vocabulary ─────────────────────────────── */
+    .meter { display: block; overflow: hidden; border-radius: 2px; background: var(--track); }
+    .fill { display: block; height: 100%; border-radius: inherit; }
+    .f-ok { background: var(--blue); }
+    .f-warn { background: var(--yellow); }
+    .f-crit { background: var(--red); }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--dim);
+      font-size: 10.5px;
+      white-space: nowrap;
+    }
+    .pools { display: inline-flex; align-items: center; gap: 8px; }
+    .pool { display: inline-flex; align-items: center; gap: 4px; }
+    .pool-label { color: var(--dim); font: 600 8px/1 var(--mono); letter-spacing: .04em; }
+    /* the gate meter: unchanged from today — 25 × 3.5 */
+    .gate { width: 25px; height: 3.5px; }
+    /* the fallback rail: 25 × 2, stacked 2px under the gate meter */
+    .stack { display: inline-flex; flex-direction: column; gap: 2px; }
+    .rail { display: inline-flex; gap: 2px; width: 25px; }
+    .rail .seg { flex: 1; height: 2px; }
+
+    /* ── the bug ─────────────────────────────────────────────── */
+    .bug {
+      display: grid;
+      grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+    .card {
+      min-width: 0;
+      padding: 16px 18px;
+      border: 1px solid #1e2d50;
+      border-radius: 10px;
+      background: #0c1322;
+    }
+    .card.bad { border-color: rgb(229 48 63 / .45); background: linear-gradient(150deg, rgb(229 48 63 / .07), #0c1322 55%); }
+    .card-kicker { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .card-kicker em { font-style: normal; color: #ff8a94; }
+    .card h3 { margin: 12px 0 5px; font-size: 12.5px; }
+    .card p { margin: 0; color: var(--dim); font-size: 11px; line-height: 1.5; }
+    pre {
+      margin: 0;
+      overflow-x: auto;
+      color: var(--muted);
+      font: 400 10.5px/1.75 var(--mono);
+      tab-size: 2;
+    }
+    pre b { color: var(--ink); font-weight: 600; }
+    pre i { color: #ff8a94; font-style: normal; }
+    pre s { color: var(--faint); text-decoration: none; }
+
+    /* ── topbar mock ─────────────────────────────────────────── */
+    .stage { overflow: hidden; border: 1px solid #1e2d50; border-radius: 12px; background: #0c1322; box-shadow: 0 18px 50px rgb(0 0 0 / .35); }
+    .stage-title { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid #1e2d50; color: var(--muted); font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .tag { padding: 4px 6px; border-radius: 4px; background: rgb(47 107 255 / .16); color: #83a3ff; letter-spacing: .08em; }
+    .topbar { display: flex; align-items: center; height: 44px; padding: 0 16px; border-bottom: 1px solid #22345b; background: var(--bar); }
+    .logo { width: 15px; height: 15px; border-radius: 4px; background: var(--yellow); }
+    .nav { margin-left: 14px; color: #6e7892; font-size: 11px; word-spacing: 10px; }
+    .machine { display: flex; align-items: center; gap: 7px; margin-left: auto; color: var(--muted); font-size: 10.5px; }
+    .machine-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); }
+    .machine .meter { width: 34px; height: 3.5px; }
+    .topbar .chip { margin-left: 16px; }
+
+    /* ── popover mock ────────────────────────────────────────── */
+    .pop { width: 296px; margin: 0 16px 22px auto; border: 1px solid var(--input, #364a78); border-radius: 0 0 8px 8px; background: var(--panel); box-shadow: 0 14px 34px rgb(0 0 0 / .65); font-size: 11px; }
+    .pop-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 9px 12px 7px; }
+    .pop-title { font-size: 11.5px; font-weight: 600; color: var(--ink); }
+    .verdict { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font: 400 9px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+    .verdict i { width: 6px; height: 6px; border-radius: 50%; }
+    .d-ok { background: var(--blue); }
+    .d-crit { background: var(--red); }
+    .pop-sect { padding: 7px 12px 9px; border-top: 1px solid var(--line); }
+    .acct { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+    .acct-name { font-size: 11px; font-weight: 600; color: var(--ink); }
+    .plan { padding: 1px 4px; border: 1px solid var(--line); border-radius: 3px; background: var(--track); color: var(--muted); font: 400 8.5px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .acct-sub { margin-left: auto; color: var(--dim); font-size: 10px; }
+    .winrow { display: grid; grid-template-columns: 34px 1fr 78px; align-items: center; column-gap: 8px; padding: 2.5px 0; }
+    .winlabel { color: var(--dim); font: 400 9px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+    .wintrack { position: relative; height: 4px; border-radius: 2px; background: var(--track); }
+    .wintrack .fill { position: absolute; inset: 0 auto 0 0; }
+    .tick { position: absolute; top: -2.5px; bottom: -2.5px; width: 1px; background: rgb(243 243 248 / .45); }
+    .winval { text-align: right; color: var(--ink); font: 400 10px/1 var(--mono); font-variant-numeric: tabular-nums; }
+    .winval span { color: var(--dim); font-size: 9px; }
+    .sect-label { margin: 9px 0 3px; color: var(--faint); font: 500 8.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .fallback-note { margin: 5px 0 0; color: var(--dim); font-size: 10px; line-height: 1.45; }
+    .pop-foot { display: flex; justify-content: space-between; padding: 6px 12px; border-top: 1px solid var(--line); color: var(--dim); font: 400 8.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+
+    /* ── rationale ───────────────────────────────────────────── */
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) 292px; gap: 20px; align-items: start; }
+    .rationale h3 { margin: 0 0 12px; font-size: 15px; line-height: 1.3; }
+    .rationale p { margin: 0 0 13px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .rationale strong { color: var(--ink); font-weight: 650; }
+    .rule { padding: 12px 13px; border-left: 2px solid var(--yellow); background: rgb(245 197 24 / .06); color: #c8c2a8; font: 500 10px/1.55 var(--mono); }
+
+    /* ── anatomy (4× zoom) ───────────────────────────────────── */
+    .anatomy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .zoom { padding: 20px 22px 18px; border: 1px solid #1f2e50; border-radius: 9px; background: #0c1322; }
+    .zoom-title { margin-bottom: 18px; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .big { display: inline-flex; align-items: center; gap: 16px; }
+    .big .pool-label { font-size: 32px; letter-spacing: .04em; }
+    .big .stack { gap: 8px; }
+    .big .gate { width: 100px; height: 14px; border-radius: 8px; }
+    .big .rail { width: 100px; gap: 8px; }
+    .big .rail .seg { height: 8px; border-radius: 4px; }
+    .legend { margin-top: 20px; display: grid; gap: 7px; }
+    .legend div { display: flex; align-items: baseline; gap: 8px; color: var(--dim); font-size: 11px; line-height: 1.4; }
+    .legend b { flex: none; width: 74px; color: var(--muted); font: 600 8.5px/1.6 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+
+    /* ── options ─────────────────────────────────────────────── */
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .option { display: flex; flex-direction: column; min-height: 190px; padding: 16px; border: 1px solid #1f2e50; border-radius: 9px; background: #0c1322; }
+    .option.recommended { border-color: #35599b; background: linear-gradient(145deg, rgb(47 107 255 / .1), #0c1322 52%); }
+    .option-kicker { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .option-kicker em { color: #83a3ff; font-style: normal; }
+    .option-demo { display: flex; align-items: center; min-height: 58px; margin: 12px 0 10px; }
+    .option h3 { margin: 0 0 5px; font-size: 12px; }
+    .option p { margin: 0; color: var(--dim); font-size: 10.5px; line-height: 1.45; }
+    /* variant A — one track, seamed */
+    .seamed { display: inline-flex; width: 25px; height: 3.5px; gap: 1px; }
+    .seamed .part { overflow: hidden; background: var(--track); }
+    .seamed .part:first-child { flex: 3; border-radius: 2px 0 0 2px; }
+    .seamed .part:last-child { flex: 2; border-radius: 0 2px 2px 0; }
+    /* variant C — pip */
+    .pip { width: 3.5px; height: 3.5px; border-radius: 1px; }
+
+    .quiet { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 26px; padding: 16px 18px; border: 1px solid #1f2e50; border-radius: 9px; background: #0c1322; }
+    .quiet .case { display: flex; align-items: center; gap: 12px; }
+    .quiet .case span.what { color: var(--dim); font-size: 11px; }
+
+    @media (max-width: 820px) {
+      main { width: min(100% - 28px, 620px); padding-top: 28px; }
+      .bug, .split, .options, .anatomy { grid-template-columns: 1fr; }
+      .pop { width: calc(100% - 32px); }
+      .nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">POD-271 · UI decision</p>
+    <h1>The gate and the fallback: two quotas, one indicator</h1>
+    <p class="lede">Claude Code reports limits of two different kinds. Some gate all work — spend them and nothing runs. Others are scoped to a single model — spend them and the harness simply falls back. Today the summary takes the worst of both, so a spent Fable bucket paints the whole meter red while the limits that actually gate work sit at 7% and 54%.</p>
+
+    <section style="margin-top:0">
+      <h2>The bug, in the numbers it actually returns</h2>
+      <p class="sub">Live response from <code>api.anthropic.com/api/oauth/usage</code>, 23 Jul 2026 — the exact state in the report.</p>
+      <div class="bug">
+        <div class="card bad">
+          <div class="card-kicker"><span>Today</span><em>Wrong</em></div>
+          <span class="chip">quota
+            <span class="pools">
+              <span class="pool"><span class="pool-label">CC</span><span class="meter gate"><i class="fill f-crit" style="width:100%"></i></span></span>
+            </span>
+          </span>
+          <h3>“Claude Code: 100% used”</h3>
+          <p>The meter reports the single worst window across the account. One model-scoped bucket at 100% therefore speaks for every other limit, and the operator reads it as “no quota left.”</p>
+        </div>
+        <div class="card">
+          <div class="card-kicker"><span>What the endpoint said</span></div>
+<pre>limits: [
+  { kind: <b>"session"</b>,       scope: <s>null</s>,                    percent:   <b>7</b> }
+  { kind: <b>"weekly_all"</b>,    scope: <s>null</s>,                    percent:  <b>54</b> }
+  { kind: "weekly_scoped", scope: { model: <i>"Fable"</i> },  percent: <i>100</i> }
+]</pre>
+          <h3>Two kinds of limit, one flat list</h3>
+          <p><b>Unscoped</b> limits gate the harness: at 100% nothing runs. A <b>model-scoped</b> limit is extra capacity for one model — spent, Claude Code falls back to the models the unscoped pool still covers. The UI has been treating them as interchangeable.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Proposed: the gate meter keeps its meaning, the fallback gets its own rail</h2>
+      <p class="sub">The existing 25×3.5 pool meter now answers exactly one question — can I work, and for how long — driven by the unscoped limits alone. A 2px rail sits under it, one segment per model-scoped bucket, filling and toning independently. Both quotas, one indicator, no new control in the header.</p>
+      <div class="split">
+        <div class="stage">
+          <div class="stage-title"><span>44px header + hover panel</span><span class="tag">Recommended</span></div>
+          <div class="topbar">
+            <span class="logo"></span>
+            <span class="nav">Work Tasks Specs Automations</span>
+            <span class="machine"><i class="machine-dot"></i>vmi3431366 <i class="meter"><b class="fill f-ok" style="width:26%"></b></i></span>
+            <span class="chip">quota
+              <span class="pools">
+                <span class="pool" title="Claude Code: 54% of the weekly limit used; Fable spent">
+                  <span class="pool-label">CC</span>
+                  <span class="stack">
+                    <span class="meter gate"><i class="fill f-ok" style="width:54%"></i></span>
+                    <span class="rail"><i class="meter seg"><b class="fill f-crit" style="width:100%"></b></i></span>
+                  </span>
+                </span>
+                <span class="pool" title="Codex: 10% used">
+                  <span class="pool-label">CX</span>
+                  <span class="meter gate"><i class="fill f-ok" style="width:10%"></i></span>
+                </span>
+              </span>
+            </span>
+          </div>
+          <div class="pop">
+            <div class="pop-head">
+              <span class="pop-title">Agent quota</span>
+              <span class="verdict"><i class="d-crit"></i><i class="d-ok"></i> fable spent · rest lasts</span>
+            </div>
+            <div class="pop-sect">
+              <div class="acct"><span class="acct-name">Claude Code</span><span class="plan">max</span><span class="acct-sub">tillmann.felippi@gmail.com</span></div>
+              <div class="winrow"><span class="winlabel">5h</span><span class="wintrack"><i class="fill f-ok" style="width:7%"></i><i class="tick" style="left:36%"></i></span><span class="winval">7% <span>· 2h 8m</span></span></div>
+              <div class="winrow"><span class="winlabel">wk</span><span class="wintrack"><i class="fill f-ok" style="width:54%"></i><i class="tick" style="left:31%"></i></span><span class="winval">54% <span>· 4d 20h</span></span></div>
+              <div class="sect-label">Model limits</div>
+              <div class="winrow"><span class="winlabel">Fable</span><span class="wintrack"><i class="fill f-crit" style="width:100%"></i><i class="tick" style="left:31%"></i></span><span class="winval">100% <span>· 4d 20h</span></span></div>
+              <p class="fallback-note">Fable is spent — Claude Code falls back to the models the weekly pool covers.</p>
+            </div>
+            <div class="pop-sect">
+              <div class="acct"><span class="acct-name">Codex</span><span class="plan">plus</span><span class="acct-sub">tillmann.felippi@gmail.com</span></div>
+              <div class="winrow"><span class="winlabel">wk</span><span class="wintrack"><i class="fill f-ok" style="width:10%"></i></span><span class="winval">10% <span>· 6d 23h</span></span></div>
+            </div>
+            <div class="pop-foot"><span>click to pin breakdown</span><span>esc closes</span></div>
+          </div>
+        </div>
+
+        <aside class="rationale">
+          <h3>Why the rail, and not a redder bar</h3>
+          <p><strong>Tone must answer one question.</strong> The gate meter's color says whether work can proceed. A model bucket cannot change that answer, so it must not change that color — otherwise every red loses its meaning.</p>
+          <p><strong>The loss is still real.</strong> Fable being gone changes which model you get, so it earns its own mark: a red segment on the rail, and a named verdict in the panel. The signal is present, scoped, and unmistakable.</p>
+          <p><strong>Nothing new for single-quota harnesses.</strong> The rail only exists when the provider reports a scoped bucket. Codex, and Claude Code on a plan without one, render exactly as they do today — same pixels.</p>
+          <div class="rule">The summary never claims to be spent unless the limits that gate work are spent. A scoped model reports itself, by name, and never for the account.</div>
+        </aside>
+      </div>
+    </section>
+
+    <section>
+      <h2>Anatomy at 4×</h2>
+      <div class="anatomy">
+        <div class="zoom">
+          <div class="zoom-title">Claude Code · Fable spent</div>
+          <span class="big">
+            <span class="pool-label">CC</span>
+            <span class="stack">
+              <span class="meter gate"><i class="fill f-ok" style="width:54%"></i></span>
+              <span class="rail"><i class="meter seg"><b class="fill f-crit" style="width:100%"></b></i></span>
+            </span>
+          </span>
+          <div class="legend">
+            <div><b>Gate</b><span>25 × 3.5 — worst unscoped window (weekly 54%). Tone follows the 75 / 90 thresholds.</span></div>
+            <div><b>Rail</b><span>25 × 2, one segment per model bucket, 2px gaps. Fable at 100% → full red segment.</span></div>
+            <div><b>Baseline</b><span>The rail hangs below the meter rather than sharing its column, so every pool's meter stays on one continuous line whether or not it has buckets.</span></div>
+          </div>
+        </div>
+        <div class="zoom">
+          <div class="zoom-title">Two model buckets · one spent</div>
+          <span class="big">
+            <span class="pool-label">CC</span>
+            <span class="stack">
+              <span class="meter gate"><i class="fill f-warn" style="width:78%"></i></span>
+              <span class="rail">
+                <i class="meter seg"><b class="fill f-crit" style="width:100%"></b></i>
+                <i class="meter seg"><b class="fill f-ok" style="width:22%"></b></i>
+              </span>
+            </span>
+          </span>
+          <div class="legend">
+            <div><b>Scales</b><span>Segments divide the same 25px, so the rail never widens the header as providers add buckets.</span></div>
+            <div><b>Order</b><span>Panel order — the order the provider returns them — so the rail and the breakdown always read the same way.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>The three shapes considered</h2>
+      <p class="sub">All three put both quotas in one indicator. The question is which one a glance reads correctly at 3.5px.</p>
+      <div class="options">
+        <article class="option">
+          <div class="option-kicker"><span>A</span></div>
+          <div class="option-demo">
+            <span class="pool"><span class="pool-label">CC</span>
+              <span class="seamed">
+                <span class="part"><i class="fill f-ok" style="width:54%;height:100%"></i></span>
+                <span class="part"><i class="fill f-crit" style="width:100%;height:100%"></i></span>
+              </span>
+            </span>
+          </div>
+          <h3>Split bar</h3>
+          <p>One track cut into weighted segments. Cheapest in space, but two fill origins in one bar read as a single cumulative value — the eye sees “mostly full,” not “gate fine, model gone.”</p>
+        </article>
+        <article class="option recommended">
+          <div class="option-kicker"><span>B</span><em>Recommended</em></div>
+          <div class="option-demo">
+            <span class="pool"><span class="pool-label">CC</span>
+              <span class="stack">
+                <span class="meter gate"><i class="fill f-ok" style="width:54%"></i></span>
+                <span class="rail"><i class="meter seg"><b class="fill f-crit" style="width:100%"></b></i></span>
+              </span>
+            </span>
+          </div>
+          <h3>Gate meter + fallback rail</h3>
+          <p>Two tiers, two questions, one column of pixels. Keeps the existing meter's meaning intact, stays quantitative, scales to N buckets, and disappears entirely when there are none.</p>
+        </article>
+        <article class="option">
+          <div class="option-kicker"><span>C</span></div>
+          <div class="option-demo">
+            <span class="pool"><span class="pool-label">CC</span>
+              <span class="meter gate"><i class="fill f-ok" style="width:54%"></i></span>
+              <span class="pip" style="background:var(--red)"></span>
+            </span>
+          </div>
+          <h3>Meter + state pip</h3>
+          <p>Quietest of the three, and honest about the decision being near-binary. But it throws away the number — you cannot see Fable at 80% coming, only that it has already gone.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Quiet where there is nothing to say</h2>
+      <p class="sub">The rail is not a fixture of the chip. It renders only for a pool that reports a model-scoped bucket.</p>
+      <div class="quiet">
+        <div class="case">
+          <span class="pool"><span class="pool-label">CX</span><span class="meter gate"><i class="fill f-ok" style="width:10%"></i></span></span>
+          <span class="what">Codex — no scoped limits, unchanged</span>
+        </div>
+        <div class="case">
+          <span class="pool"><span class="pool-label">CC</span><span class="meter gate"><i class="fill f-ok" style="width:31%"></i></span></span>
+          <span class="what">Claude Code on a plan without a model bucket — unchanged</span>
+        </div>
+        <div class="case">
+          <span class="pool"><span class="pool-label">CC</span>
+            <span class="stack">
+              <span class="meter gate"><i class="fill f-crit" style="width:96%"></i></span>
+              <span class="rail"><i class="meter seg"><b class="fill f-ok" style="width:14%"></b></i></span>
+            </span>
+          </span>
+          <span class="what">Genuinely blocked — the gate is spent, and it says so</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

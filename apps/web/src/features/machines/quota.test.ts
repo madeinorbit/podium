@@ -1,4 +1,4 @@
-import type { AgentQuotaWire, MachineQuotaWire } from '@podium/protocol'
+import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
 import {
@@ -6,15 +6,19 @@ import {
   agentShortLabel,
   formatReset,
   groupQuotaByAccount,
+  modelLimitNote,
   paceHint,
   paceLabel,
   percentTone,
   quotaPace,
   quotaPoolVerdict,
   quotaVerdict,
+  spentModels,
+  splitQuotaWindows,
   statusNote,
   windowElapsedPercent,
   windowPace,
+  windowScopeModel,
   windowShortLabel,
 } from './quota'
 
@@ -93,6 +97,8 @@ describe('quotaVerdict', () => {
     expect(quotaVerdict([group([window(40, 150)])], now)).toEqual({
       tone: 'ok',
       label: 'lasts until reset',
+      mixed: false,
+      tones: ['ok'],
     })
   })
 
@@ -101,6 +107,8 @@ describe('quotaVerdict', () => {
     expect(quotaVerdict([group([window(70, 150)])], now)).toEqual({
       tone: 'warn',
       label: "5h window won't last",
+      mixed: false,
+      tones: ['warn'],
     })
   })
 
@@ -108,7 +116,51 @@ describe('quotaVerdict', () => {
     expect(quotaVerdict([group([window(95, 150)])], now)).toEqual({
       tone: 'crit',
       label: '5h nearly spent',
+      mixed: false,
+      tones: ['crit'],
     })
+  })
+
+  // POD-271: the live shape of the bug — session 7%, weekly 54%, Fable 100%.
+  it('does not let a spent model bucket speak for the harness', () => {
+    const g = group([
+      { ...window(7, 150), key: 'session', label: '5-hour' },
+      { ...window(54, 3400), key: 'weekly-all', label: 'Weekly', windowMinutes: 10080 },
+      {
+        ...window(100, 3400),
+        key: 'weekly-scoped:model:fable',
+        label: 'Fable',
+        scopeModel: 'Fable',
+      },
+    ])
+    expect(quotaVerdict([g], now)).toEqual({
+      tone: 'ok',
+      label: 'Fable spent · rest lasts',
+      mixed: true,
+      tones: ['crit', 'ok'],
+    })
+  })
+
+  it('counts spent models instead of naming them once there are several', () => {
+    const g = group([
+      window(20, 150),
+      { ...window(100, 150), key: 'k1', label: 'Fable', scopeModel: 'Fable' },
+      { ...window(94, 150), key: 'k2', label: 'Opus', scopeModel: 'Opus' },
+    ])
+    expect(quotaVerdict([g], now).label).toBe('2 models spent · rest lasts')
+  })
+
+  it('keeps the gating verdict as the headline when the gate is also in trouble', () => {
+    const g = group([
+      window(95, 150),
+      { ...window(100, 150), key: 'k1', label: 'Fable', scopeModel: 'Fable' },
+    ])
+    expect(quotaVerdict([g], now)).toMatchObject({ tone: 'crit', label: '5h nearly spent' })
+  })
+
+  it('treats a pool of only scoped windows as gating — nothing left to fall back to', () => {
+    const g = group([{ ...window(95, 150), key: 'k1', label: 'Fable', scopeModel: 'Fable' }])
+    expect(quotaVerdict([g], now)).toMatchObject({ tone: 'crit', label: 'Fable nearly spent' })
   })
 
   it('ignores non-ok accounts and reads ok with no data', () => {
@@ -133,6 +185,65 @@ describe('quotaVerdict', () => {
       mixed: false,
       tones: ['crit'],
     })
+  })
+
+  it('counts a pool that only lost a scoped model as healthy', () => {
+    const claude = group([
+      window(20, 150),
+      { ...window(100, 150), key: 'fable', label: 'Fable', scopeModel: 'Fable' },
+    ])
+    const codex = { ...group([window(10, 150)]), key: 'codex', agent: 'codex' as const }
+    expect(quotaPoolVerdict([claude, codex], now)).toMatchObject({
+      tone: 'ok',
+      label: '2 healthy',
+    })
+  })
+})
+
+describe('splitQuotaWindows / windowScopeModel', () => {
+  const w = (over: Partial<QuotaWindowWire> & { key: string }): QuotaWindowWire => ({
+    label: '5-hour',
+    usedPercent: 10,
+    resetsAt: '',
+    windowMinutes: 300,
+    ...over,
+  })
+
+  it('splits gating windows from model-scoped ones', () => {
+    const split = splitQuotaWindows([
+      w({ key: 'session' }),
+      w({ key: 'weekly-all', label: 'Weekly' }),
+      w({ key: 'weekly-scoped:model:fable', label: 'Fable', scopeModel: 'Fable' }),
+    ])
+    expect(split.gating.map((x) => x.key)).toEqual(['session', 'weekly-all'])
+    expect(split.models.map((x) => x.key)).toEqual(['weekly-scoped:model:fable'])
+  })
+
+  it('reads the scope from the key when a daemon predates scopeModel', () => {
+    expect(windowScopeModel(w({ key: 'weekly-scoped:model:fable', label: 'Fable' }))).toBe('Fable')
+    expect(windowScopeModel(w({ key: 'weekly-scoped:surface:code', label: 'Claude Code' }))).toBe(
+      undefined,
+    )
+    expect(windowScopeModel(w({ key: 'session' }))).toBe(undefined)
+  })
+
+  it('prefers the explicit scope over the label', () => {
+    expect(
+      windowScopeModel(w({ key: 'k', label: 'Fable · Claude Code', scopeModel: 'Fable' })),
+    ).toBe('Fable')
+  })
+
+  it('names the spent models and explains the fallback', () => {
+    const windows = [
+      w({ key: 'session' }),
+      w({ key: 'm1', label: 'Fable', scopeModel: 'Fable', usedPercent: 100 }),
+      w({ key: 'm2', label: 'Opus', scopeModel: 'Opus', usedPercent: 30 }),
+    ]
+    expect(spentModels(windows)).toEqual(['Fable'])
+    expect(modelLimitNote('claude-code', windows)).toBe(
+      'Fable is spent — Claude Code falls back to the models the shared pool covers.',
+    )
+    expect(modelLimitNote('claude-code', [w({ key: 'session' })])).toContain('falls back')
   })
 })
 
