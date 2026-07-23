@@ -1254,7 +1254,7 @@ function WorkRowShell({
                   title="New result since you last opened this issue"
                   data-testid="row-unread-chip"
                 >
-                  new result
+                  new message
                 </span>
               )}
               {extras}

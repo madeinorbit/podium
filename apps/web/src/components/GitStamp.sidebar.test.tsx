@@ -30,7 +30,7 @@ describe('GitStamp sidebar exception grammar', () => {
   })
 
   it('names actionable git exceptions without positional dots or arrow glyphs', () => {
-    const { container } = render(
+    const { container, rerender } = render(
       <GitStamp
         issueBranch={base.branch}
         git={{ ...base, ahead: 1, dirtyFiles: 2, unpushed: 1 }}
@@ -39,9 +39,13 @@ describe('GitStamp sidebar exception grammar', () => {
     )
     expect(container.textContent).toContain('2 uncommitted')
     expect(container.textContent).toContain('1 commit ahead')
-    expect(container.textContent).toContain('Unpushed')
+    expect(container.textContent).not.toContain('Unpushed')
     expect(container.textContent).not.toContain('⇡')
     expect(container.querySelector('[data-testid^="git-stamp-dot-"]')).toBeNull()
+    rerender(
+      <GitStamp issueBranch={base.branch} git={{ ...base, unpushed: 1 }} density="stamp" />,
+    )
+    expect(container.textContent).toBe('')
   })
 
   it('preserves the detailed dot grammar outside the sidebar', () => {

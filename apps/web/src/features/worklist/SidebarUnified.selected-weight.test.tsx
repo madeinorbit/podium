@@ -186,12 +186,12 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(plain.getAttribute('data-issue-row')).toBe('a')
   })
 
-  it('an unread, unselected row names the new result; the selected row never does', () => {
+  it('an unread, unselected row names the new message; the selected row never does', () => {
     render(<SidebarUnified />)
     const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
     const chip = unreadRow.querySelector('[data-testid="row-unread-chip"]') as HTMLElement
     expect(chip).toBeTruthy()
-    expect(chip.textContent).toBe('new result')
+    expect(chip.textContent).toBe('new message')
     expect(chip.getAttribute('aria-label')).toBe('Unread update')
     const activeRow = rowButton('Read selected issue').closest(
       '[class*="group/row"]',

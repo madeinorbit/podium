@@ -32,7 +32,7 @@ export function GitStamp({
   // positional dot or expert-only arrow glyph (POD-236).
   if (density === 'stamp') {
     if (m.kind !== 'ready') return null
-    const hasAction = m.mismatch || m.dirty !== undefined || m.ahead !== undefined || m.unpushed
+    const hasAction = m.mismatch || m.dirty !== undefined || m.ahead !== undefined
     if (!hasAction) return null
     return (
       <span
@@ -52,7 +52,6 @@ export function GitStamp({
             {m.ahead} commit{m.ahead === 1 ? '' : 's'} ahead
           </span>
         )}
-        {m.unpushed && <span>Unpushed</span>}
       </span>
     )
   }
