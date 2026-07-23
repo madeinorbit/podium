@@ -7,14 +7,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const buildInventory = vi.fn<() => Promise<Inventory>>()
 vi.mock('@podium/agent-bridge', () => ({ buildInventory: () => buildInventory() }))
 
-import { inventoryHandlers, reportInventory } from './inventory'
 import type { DaemonContext } from './context'
+import { inventoryHandlers, reportInventory, startInventoryRefresh } from './inventory'
 
 const INV: Inventory = {
   os: 'linux',
   arch: 'x64',
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   tools: [{ name: 'gh', installed: false }],
+}
+
+const LOGGED_OUT_INV: Inventory = {
+  ...INV,
+  agents: [{ kind: 'claude-code', installed: true, login: { state: 'out' } }],
 }
 
 let seq = 0
@@ -54,6 +59,48 @@ describe('daemon inventory reporting (#222)', () => {
     inventoryHandlers.inventoryRequest(ctx, { type: 'inventoryRequest' })
     await Promise.resolve() // let the void promise settle
     await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+  })
+
+  it('periodically rebuilds inventory and stops cleanly', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, sent } = makeCtx()
+      const stop = startInventoryRefresh(ctx, 100)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(buildInventory).toHaveBeenCalledTimes(1)
+      expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+      stop()
+      await vi.advanceTimersByTimeAsync(200)
+      expect(buildInventory).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not publish a pre-credential probe after its forced rebuild', async () => {
+    const { ctx, sent } = makeCtx()
+    let resolveStale!: (inventory: Inventory) => void
+    let resolveFresh!: (inventory: Inventory) => void
+    buildInventory
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
+
+    const stale = reportInventory(ctx)
+    const fresh = reportInventory(ctx, { rebuild: true })
+    resolveFresh(INV)
+    await fresh
+    resolveStale(LOGGED_OUT_INV)
+    await stale
+
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
   })
 
   it('a failed build is never cached, never throws, and the next call retries', async () => {

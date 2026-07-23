@@ -116,6 +116,7 @@ export interface SessionInit {
   lastResumedAt?: string | null
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
+  spawnFailure?: string
   name?: string
   /** WHO set `name` (#490): 'user' (sovereign) | 'agent' (self-named). */
   nameSource?: 'user' | 'agent'
@@ -203,6 +204,7 @@ export interface SessionDurableState {
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode: number | undefined
+  spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
   workingMsTotal: number | undefined
   incomingWorkingMsTotal: number | undefined
@@ -287,6 +289,8 @@ export class Session {
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
+  /** Exact daemon diagnosis when a spawn never reached a running process. */
+  spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
   private workingMsTotal: number | undefined
   private incomingWorkingMsTotal: number | undefined
@@ -409,6 +413,7 @@ export class Session {
     this.resumedAtMs = seedMs(init.lastResumedAt)
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
+    if (init.spawnFailure !== undefined) this.spawnFailure = init.spawnFailure
     if (init.name) this.name = init.name
     if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
@@ -451,6 +456,7 @@ export class Session {
   markResumed(): void {
     this.stoppedAt = undefined
     this.stopReason = undefined
+    this.spawnFailure = undefined
     this.resumedAtMs = Date.now()
     this.activityDirty_ = true
   }
@@ -802,6 +808,7 @@ export class Session {
   markSpawnError(message: string): void {
     this.status = 'exited'
     this.exitCode = -1
+    this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
     this.stoppedAt ??= new Date().toISOString()
@@ -948,6 +955,7 @@ export class Session {
       cmd: this.cmd,
       status: this.status,
       exitCode: this.exitCode,
+      spawnFailure: this.spawnFailure,
       agentState: this.agentState ? structuredClone(this.agentState) : undefined,
       workingMsTotal: this.workingMsTotal,
       incomingWorkingMsTotal: this.incomingWorkingMsTotal,
@@ -995,6 +1003,7 @@ export class Session {
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
     this.exitCode = state.exitCode
+    this.spawnFailure = state.spawnFailure
     this.agentState = state.agentState ? structuredClone(state.agentState) : undefined
     this.workingMsTotal = state.workingMsTotal
     this.incomingWorkingMsTotal = state.incomingWorkingMsTotal
@@ -1036,6 +1045,7 @@ export class Session {
       resumeValue: this.resume?.value ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
+      spawnFailure: this.spawnFailure ?? null,
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
@@ -1086,6 +1096,7 @@ export class Session {
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
+      ...(this.spawnFailure ? { spawnFailure: this.spawnFailure } : {}),
       ...(this.agentState ? { agentState: this.agentState } : {}),
       controllerId: this.controllerId,
       geometry: { ...this.geometry },

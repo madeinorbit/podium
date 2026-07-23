@@ -25,6 +25,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260718141035_issue-closed-at", sql: "ALTER TABLE `issues` ADD `closed_at` text;--> statement-breakpoint\n-- Legacy closed rows get a FIXED anchor (their last touch at migration time) so\n-- historical done issues decay deterministically instead of resurfacing. [spec:SP-6144]\nUPDATE issues SET closed_at = updated_at\nWHERE closed_at IS NULL AND (stage = 'done' OR closed_reason IS NOT NULL);\n" },
   { name: "20260721145214_offer-artifacts", sql: "ALTER TABLE `offers` ADD `artifacts` text;" },
   { name: "20260722150425_issue-sort-key", sql: "ALTER TABLE `issues` ADD `sort_key` text;" },
+  { name: "20260724134702_session-spawn-failure", sql: "ALTER TABLE `sessions` ADD `spawn_failure` text;" },
 ]
 
 /**

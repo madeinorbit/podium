@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path'
 import type { RepoOp } from '@podium/protocol'
 
 export type RepoOpCommand = { bin: 'git' | 'gh'; argv: string[] } | { error: string }
@@ -17,6 +18,12 @@ export function assertSafeRef(value: string, label: string): string | null {
 
 export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): RepoOpCommand {
   switch (op) {
+    case 'clone': {
+      const { originUrl, path } = args
+      if (!originUrl || !path) return { error: 'missing args' }
+      if (!isAbsolute(path)) return { error: 'clone path must be absolute' }
+      return { bin: 'git', argv: ['clone', '--', originUrl, path] }
+    }
     case 'status':
       return { bin: 'git', argv: ['status', '--porcelain=v1', '-b'] }
     case 'statusProbe':

@@ -32,14 +32,23 @@ export const claudeCodeAdapter: HarnessAdapter = {
   inventory: {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'claude'), 'claude'],
     detectLogin(homeDir) {
+      const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
+      try {
+        const credentials = JSON.parse(
+          readFileSync(join(configDir, '.credentials.json'), 'utf8'),
+        ) as Record<string, unknown>
+        if (Object.keys(credentials).length === 0) return { state: 'out' }
+      } catch {
+        return { state: 'out' }
+      }
       try {
         const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
           oauthAccount?: { emailAddress?: string }
         }
         const email = raw.oauthAccount?.emailAddress?.trim()
-        return email ? { state: 'in', account: email } : { state: 'out' }
+        return email ? { state: 'in', account: email } : { state: 'in', account: 'Claude login' }
       } catch {
-        return { state: 'out' }
+        return { state: 'in', account: 'Claude login' }
       }
     },
   },

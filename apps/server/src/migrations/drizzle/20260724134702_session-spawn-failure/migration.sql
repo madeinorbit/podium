@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `spawn_failure` text;

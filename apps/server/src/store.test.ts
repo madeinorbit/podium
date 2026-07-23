@@ -155,6 +155,7 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     workState: null,
     status: 'starting',
     exitCode: null,
+    spawnFailure: null,
     durableLabel: 'podium-id-1',
     createdAt: '2026-06-09T00:00:00.000Z',
     lastActiveAt: '2026-06-09T00:00:00.000Z',
@@ -231,6 +232,20 @@ describe('SessionStore sessions', () => {
     b.sessions.purgeSession('id-1')
     expect(b.sessions.loadSessions()).toEqual([])
     b.close()
+  })
+
+  it('persists a cwd change when an existing session moves machines', async () => {
+    const file = await tmpDbPath()
+    const source = new SessionStore(file)
+    source.sessions.upsertSession(row({ cwd: '/source/repo/.worktrees/x', machineId: 'm1' }))
+    source.sessions.upsertSession(row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }))
+    source.close()
+
+    const restarted = new SessionStore(file)
+    expect(restarted.sessions.loadSessions()).toEqual([
+      row({ cwd: '/target/repo/.worktrees/x', machineId: 'm2' }),
+    ])
+    restarted.close()
   })
 
   it('round-trips the last authoritative terminal geometry', () => {

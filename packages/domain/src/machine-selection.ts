@@ -3,6 +3,8 @@ import { worktreeForCwd, worktreeSubpath } from './worktree'
 
 export interface RepoMachines {
   machines?: { machineId: string; path: string }[]
+  /** A fresh machine can materialize this repository when an origin is known. */
+  originUrl?: string | null
 }
 
 export interface SelectableMachine {
@@ -31,6 +33,22 @@ export function machinesForRepo<M extends SelectableMachine>(
   return machinesWithRepo(repo, machines).filter((m) => m.online)
 }
 
+/** Machines that either have this repo already or can clone it from its origin. */
+export function machinesForRepoOrClone<M extends SelectableMachine>(
+  repo: RepoMachines,
+  machines: M[],
+): M[] {
+  return repo.originUrl ? machines : machinesWithRepo(repo, machines)
+}
+
+/** Online machines that have this repo or can clone it on first use. */
+export function onlineMachinesForRepoOrClone<M extends SelectableMachine>(
+  repo: RepoMachines,
+  machines: M[],
+): M[] {
+  return machinesForRepoOrClone(repo, machines).filter((machine) => machine.online)
+}
+
 export interface HandoffSession {
   cwd: string
   machineId?: string
@@ -44,12 +62,38 @@ export interface HandoffIssue {
 export type HandoffWorktree = { path: string; isMain: boolean; machineId?: string }
 export interface HandoffRepo extends RepoMachines {
   repoId?: string
+  originUrl?: string
   worktrees: HandoffWorktree[]
 }
 export interface HandoffMachine extends SelectableMachine {
   inventory?: {
     agents: { kind: string; installed: boolean; login: { state: 'in' | 'out' | 'unknown' } }[]
   }
+}
+
+/** Why one machine cannot run a requested agent right now. */
+export type AgentCapabilityRejection = 'offline' | 'harness-missing' | 'logged-out'
+
+/**
+ * One authoritative capability rule for new sessions and handoff. Shells need
+ * only an online daemon; harnesses must be installed and must not be explicitly
+ * logged out. An unknown login state remains usable (some adapters cannot prove
+ * login without actually starting the CLI).
+ */
+export function agentCapabilityRejection<M extends HandoffMachine>(
+  machine: M,
+  agentKind: string,
+): AgentCapabilityRejection | undefined {
+  if (!machine.online) return 'offline'
+  if (agentKind === 'shell') return undefined
+  const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
+  if (harness?.installed !== true) return 'harness-missing'
+  return harness.login.state === 'out' ? 'logged-out' : undefined
+}
+
+/** Online machines that can run `agentKind` according to their latest inventory. */
+export function machinesForAgent<M extends HandoffMachine>(machines: M[], agentKind: string): M[] {
+  return machines.filter((machine) => agentCapabilityRejection(machine, agentKind) === undefined)
 }
 export interface HandoffSourceRef<R extends HandoffRepo> {
   repo: R
@@ -134,7 +178,7 @@ export function handoffSource<R extends HandoffRepo>(
  */
 export type HandoffBlocker = 'harness' | 'no-worktree' | 'repo-unregistered'
 /** Why one machine cannot receive this session. */
-export type HandoffRejection = 'offline' | 'harness-missing' | 'logged-out'
+export type HandoffRejection = AgentCapabilityRejection | 'repo-missing'
 export interface HandoffCandidate<M> {
   machine: M
   /** `undefined` = eligible; otherwise why this machine is refused. */
@@ -168,19 +212,14 @@ export function handoffAvailability<M extends HandoffMachine>(
   const source = handoffSource(session, repos, issue)
   if (!source) return { blocker: 'no-worktree', candidates: [] }
   if (!source.repo.repoId) return { blocker: 'repo-unregistered', candidates: [] }
-  const candidates = machinesWithRepo(source.repo, machines)
+  const repoMachineIds = new Set((source.repo.machines ?? []).map((entry) => entry.machineId))
+  const candidates = machines
     .filter((machine) => machine.id !== session.machineId)
     .map((machine) => {
-      const harness = machine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
-      // Offline first: an offline machine's inventory is a stale snapshot, so
-      // "no Claude there" would be a guess. Being offline is the actionable fact.
-      const rejection: HandoffRejection | undefined = !machine.online
-        ? 'offline'
-        : harness?.installed !== true
-          ? 'harness-missing'
-          : harness.login.state === 'out'
-            ? 'logged-out'
-            : undefined
+      const capability = agentCapabilityRejection(machine, session.agentKind)
+      const rejection: HandoffRejection | undefined =
+        capability ??
+        (!repoMachineIds.has(machine.id) && !source.repo.originUrl ? 'repo-missing' : undefined)
       return { machine, ...(rejection ? { rejection } : {}) }
     })
   return { candidates }
@@ -220,6 +259,20 @@ export function resolveTargetMachine<S extends RecentSession, M extends Selectab
   machines: M[],
 ): string | undefined {
   const eligible = machinesForRepo(repo, machines)
+  if (eligible.length === 0) return undefined
+  return lastUsedMachine(sessions, eligible) ?? eligible[0]?.id
+}
+
+/** Recommended machine among hosts that have (or can clone) the repo and can run this agent. */
+export function resolveTargetMachineForAgent<S extends RecentSession, M extends HandoffMachine>(
+  repo: RepoMachines,
+  sessions: S[],
+  machines: M[],
+  agentKind: string,
+): string | undefined {
+  const eligible = onlineMachinesForRepoOrClone(repo, machines).filter(
+    (machine) => agentCapabilityRejection(machine, agentKind) === undefined,
+  )
   if (eligible.length === 0) return undefined
   return lastUsedMachine(sessions, eligible) ?? eligible[0]?.id
 }

@@ -29,9 +29,19 @@ case "$1" in
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
     printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$daemon_unit"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
+    if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
+      : > "$PODIUM_STUB_DAEMON_MARKER"
+      "$0" daemon </dev/null >/dev/null 2>&1 &
+    fi
     ;;
   join-config)
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-join-config $*" >> "$PODIUM_STUB_LOG"
+    ;;
+  daemon)
+    if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
+      : > "$PODIUM_STUB_DAEMON_MARKER"
+      while [ -e "$PODIUM_STUB_DAEMON_MARKER" ]; do sleep 1; done
+    fi
     ;;
 esac
 echo podium-stub "$@"
@@ -45,11 +55,60 @@ openssl pkey -in "$WORK/priv.pem" -pubout -outform DER 2>/dev/null | base64 -w0 
 openssl pkeyutl -sign -inkey "$WORK/priv.pem" -rawin \
   -in "$REL/podium-headless-linux-x64.tar.gz" -out "$REL/podium-headless-linux-x64.tar.gz.sig.raw"
 base64 -w0 "$REL/podium-headless-linux-x64.tar.gz.sig.raw" > "$REL/podium-headless-linux-x64.tar.gz.sig"
+# The fixture payload is architecture-neutral; duplicate the signed bytes under
+# the ARM64 release name so platform selection is tested independently of compilation.
+cp "$REL/podium-headless-linux-x64.tar.gz" "$REL/podium-headless-linux-arm64.tar.gz"
+cp "$REL/podium-headless-linux-x64.tar.gz.sig" "$REL/podium-headless-linux-arm64.tar.gz.sig"
 
 # install.sh reads PODIUM_INSTALL_BASE (file:// or http) + PODIUM_INSTALL_PUBKEY (override) for tests.
 export PODIUM_INSTALL_BASE="file://$REL"
 PODIUM_INSTALL_PUBKEY="$(cat "$WORK/pub.b64")"
 export PODIUM_INSTALL_PUBKEY
+
+# Local vendor-installer fixtures: each writes the command install.sh verifies,
+# so --agents is exercised without reaching the network.
+AGENT_REL="$WORK/agents"; mkdir -p "$AGENT_REL"
+cat > "$AGENT_REL/codex.sh" <<'SH'
+#!/bin/sh
+case "${CODEX_NON_INTERACTIVE:-}" in 1) : ;; *) exit 41 ;; esac
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+bin="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"; mkdir -p "$bin"
+printf '#!/bin/sh\necho codex-fixture\n' > "$bin/codex"; chmod +x "$bin/codex"
+SH
+cat > "$AGENT_REL/claude.sh" <<'SH'
+#!/bin/bash
+test "${1:-}" = stable
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho claude-fixture\n' > "$HOME/.local/bin/claude"; chmod +x "$HOME/.local/bin/claude"
+SH
+cat > "$AGENT_REL/grok.sh" <<'SH'
+#!/bin/bash
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+mkdir -p "${GROK_BIN_DIR:?}"
+printf '#!/bin/sh\necho grok-fixture\n' > "$GROK_BIN_DIR/grok"; chmod +x "$GROK_BIN_DIR/grok"
+SH
+cat > "$AGENT_REL/claude-stage-fails.sh" <<'SH'
+#!/bin/bash
+test "${1:-}" = stable
+exit 91
+SH
+
+# Fixture for Claude's checksum-verified standalone fallback. The binary is a
+# script only because this test asserts installer routing and integrity; the real
+# ARM acceptance below exercises Anthropic's native AArch64 executable.
+CLAUDE_REL="$WORK/claude-releases"
+CLAUDE_VERSION="2.1.999"
+mkdir -p "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64"
+printf '%s\n' "$CLAUDE_VERSION" > "$CLAUDE_REL/latest"
+cat > "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude" <<'SH'
+#!/bin/sh
+echo claude-standalone-fixture
+SH
+chmod +x "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude"
+CLAUDE_SHA="$(sha256sum "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude" | cut -d' ' -f1)"
+printf '{"platforms":{"linux-x64":{"checksum":"%s"}}}\n' "$CLAUDE_SHA" \
+  > "$CLAUDE_REL/$CLAUDE_VERSION/manifest.json"
 
 echo "== plain install =="
 sh "$ROOT/install.sh"
@@ -74,6 +133,75 @@ echo "== edge install persists update channel =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
 sh "$ROOT/install.sh" --channel edge
 test "$(cat "$PODIUM_STATE_DIR/update-channel" 2>/dev/null || true)" = "edge" || { echo "FAIL: edge install did not persist update channel"; exit 1; }
+
+echo "== arm64 hosts select the arm64 release asset =="
+ARCHBIN="$WORK/archbin"; mkdir -p "$ARCHBIN"
+cat > "$ARCHBIN/uname" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+  -s) echo Linux ;;
+  -m) echo aarch64 ;;
+  *) echo Linux ;;
+esac
+SH
+chmod +x "$ARCHBIN/uname"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
+arm_output="$(env PATH="$ARCHBIN:$PATH" sh "$ROOT/install.sh")"
+printf '%s\n' "$arm_output" | grep -F 'Downloading podium-headless-linux-arm64.tar.gz' >/dev/null \
+  || { echo "FAIL: arm64 host did not select arm64 asset"; exit 1; }
+test -f "$HOME/.local/share/podium/VERSION" || { echo FAIL: arm64-named bundle not installed; exit 1; }
+
+echo "== agent bootstrap is unattended and installs all requested CLIs =="
+rm -f "$HOME/.local/bin/codex" "$HOME/.local/bin/claude" "$HOME/.local/bin/grok"
+PODIUM_CODEX_INSTALL_URL="file://$AGENT_REL/codex.sh" \
+PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude.sh" \
+PODIUM_GROK_INSTALL_URL="file://$AGENT_REL/grok.sh" \
+  sh "$ROOT/install.sh" --agents codex,claude-code,grok
+test -x "$HOME/.local/bin/codex" || { echo FAIL: Codex missing; exit 1; }
+test -x "$HOME/.local/bin/claude" || { echo FAIL: Claude missing; exit 1; }
+test -x "$HOME/.local/bin/grok" || { echo FAIL: Grok missing; exit 1; }
+
+echo "== join starts before slow agent bootstrap can expire its code =="
+ORDER_MARKER="$WORK/join-before-agents"
+rm -f "$ORDER_MARKER" "$HOME/.local/bin/codex" "$HOME/.local/bin/claude" "$HOME/.local/bin/grok"
+PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$ORDER_MARKER" \
+PODIUM_EXPECT_DAEMON_MARKER="$ORDER_MARKER" \
+PODIUM_CODEX_INSTALL_URL="file://$AGENT_REL/codex.sh" \
+PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude.sh" \
+PODIUM_GROK_INSTALL_URL="file://$AGENT_REL/grok.sh" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update --agents codex,claude-code,grok
+test -e "$ORDER_MARKER" || { echo FAIL: join did not start before agents; exit 1; }
+rm -f "$ORDER_MARKER"
+
+echo "== Claude falls back to the checksum-verified official standalone binary =="
+rm -f "$HOME/.local/bin/claude"
+fallback_output="$(PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude-stage-fails.sh" \
+  PODIUM_CLAUDE_RELEASE_BASE_URL="file://$CLAUDE_REL" \
+  sh "$ROOT/install.sh" --agents claude-code 2>&1)"
+printf '%s\n' "$fallback_output" | grep -F 'checksum-verified standalone fallback' >/dev/null \
+  || { echo "FAIL: Claude standalone fallback was not reported"; exit 1; }
+test "$("$HOME/.local/bin/claude" --version)" = "claude-standalone-fixture" \
+  || { echo "FAIL: Claude standalone fallback was not installed"; exit 1; }
+
+echo "== Claude standalone fallback rejects a bad manifest checksum =="
+rm -f "$HOME/.local/bin/claude"
+printf '{"platforms":{"linux-x64":{"checksum":"%064d"}}}\n' 0 \
+  > "$CLAUDE_REL/$CLAUDE_VERSION/manifest.json"
+if PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude-stage-fails.sh" \
+  PODIUM_CLAUDE_RELEASE_BASE_URL="file://$CLAUDE_REL" \
+  sh "$ROOT/install.sh" --agents claude-code >/dev/null 2>&1; then
+  echo "FAIL: Claude fallback accepted a bad checksum"
+  exit 1
+fi
+test ! -e "$HOME/.local/bin/claude" || { echo "FAIL: bad-checksum Claude binary installed"; exit 1; }
+
+echo "== join starts the daemon unattended without a usable user systemd =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$PODIUM_STATE_DIR"
+DAEMON_MARKER="$WORK/daemon-running"
+PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$DAEMON_MARKER" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
+test -e "$DAEMON_MARKER" || { echo FAIL: no-systemd join did not start daemon; exit 1; }
+rm -f "$DAEMON_MARKER"
 
 echo "== authenticated fetch sends GitHub token =="
 AUTHBIN="$WORK/authbin"; mkdir -p "$AUTHBIN"

@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { agentCapabilityRejection } from '@podium/domain'
 import type {
+  AgentKind,
   ControlMessage,
   DaemonHandshake,
   Inventory,
@@ -24,8 +26,12 @@ export function sha256(s: string): string {
  * throws and `pair` handshakes are rejected, while `hello` auth is unaffected.
  */
 export interface PairingCodes {
-  mint(): string
-  redeem(code: string): boolean
+  mint(grant?: PairingGrant): string
+  redeem(code: string): PairingGrant | undefined
+}
+
+export interface PairingGrant {
+  copyAgentCredentials?: boolean
 }
 
 export interface MachinesDeps {
@@ -130,9 +136,9 @@ export class MachinesService {
   /** Issue a short-lived, single-use pairing code for a new daemon (UI shows it).
    *  Hub role only — without an injected pairing manager this server does not
    *  accept new machines, so minting is a caller error, surfaced loudly. */
-  mintPairingCode(): string {
+  mintPairingCode(grant: PairingGrant = {}): string {
     if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
-    return this.deps.pairing.mint()
+    return this.deps.pairing.mint(grant)
   }
 
   /**
@@ -145,12 +151,15 @@ export class MachinesService {
    */
   authenticateDaemon(
     frame: DaemonHandshake,
-  ): { ok: true; machineId: string; name: string; token?: string } | { ok: false; reason: string } {
+  ):
+    | { ok: true; machineId: string; name: string; token?: string; pairingGrant?: PairingGrant }
+    | { ok: false; reason: string } {
     if (frame.type === 'pair') {
       // No pairing manager = node role: this server is not a rendezvous point,
       // so new machines can't join it. Returning daemons (`hello`) still work.
       if (!this.deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
-      if (!this.deps.pairing.redeem(frame.code)) {
+      const pairingGrant = this.deps.pairing.redeem(frame.code)
+      if (!pairingGrant) {
         return { ok: false, reason: 'invalid or expired code' }
       }
       const name = frame.name ?? frame.hostname
@@ -162,7 +171,7 @@ export class MachinesService {
         tokenHash: sha256(token),
       })
       this.invalidateMachineCache()
-      return { ok: true, machineId: frame.machineId, name, token }
+      return { ok: true, machineId: frame.machineId, name, token, pairingGrant }
     }
     if (this.deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
       this.deps.store.machines.touchMachine(frame.machineId, frame.hostname)
@@ -219,6 +228,59 @@ export class MachinesService {
   resolveMachine(requested: string | undefined, cwd: string): string {
     if (requested && this.daemons.has(requested)) return requested
     return this.pickMachineForRepo(undefined, cwd)
+  }
+
+  /**
+   * Resolve a session target and enforce the daemon-reported harness/login
+   * capability before any durable session or spawn side effect is created.
+   * Legacy boot-before-daemon routing through `__local__` remains queueable.
+   */
+  resolveMachineForAgent(requested: string | undefined, cwd: string, agentKind: AgentKind): string {
+    if (requested) {
+      this.requireAgent(requested, agentKind)
+      return requested
+    }
+
+    const legacy = this.resolveMachine(undefined, cwd)
+    if (legacy === LOCAL_PLACEHOLDER) return legacy
+    const machines = this.listMachines()
+    const selected = machines.find((machine) => machine.id === legacy)
+    if (selected && agentCapabilityRejection(selected, agentKind) === undefined) return legacy
+
+    // Prefer another capable ONLINE machine that actually owns this cwd. This
+    // keeps implicit routing useful without ever launching against a foreign path.
+    const byRepo = machines.find(
+      (machine) =>
+        agentCapabilityRejection(machine, agentKind) === undefined &&
+        this.deps.store.repos
+          .listRepos(machine.id)
+          .some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)),
+    )
+    if (byRepo) return byRepo.id
+
+    // During old/single-machine boot no inventory may have arrived yet; preserve
+    // the existing queue-and-attach behavior. Once ANY online daemon reports an
+    // inventory, lack of the requested harness is authoritative and actionable.
+    if (!machines.some((machine) => machine.online && machine.inventory !== undefined))
+      return legacy
+    this.requireAgent(legacy, agentKind)
+    return legacy
+  }
+
+  /** Throw a human-readable reason when a machine cannot run an agent. */
+  requireAgent(machineId: string, agentKind: AgentKind): void {
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    const rejection = agentCapabilityRejection(machine, agentKind)
+    if (rejection === 'offline') {
+      throw new Error(`machine '${machine.name}' is offline`)
+    }
+    if (rejection === 'harness-missing') {
+      throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
+    }
+    if (rejection === 'logged-out') {
+      throw new Error(`${agentKind} is not logged in on machine '${machine.name}'`)
+    }
   }
 
   /**

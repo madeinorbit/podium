@@ -61,4 +61,17 @@ describe('desktop release workflow', () => {
     expect(releaseSource).not.toContain('release delete edge')
     expect(releaseSource).toContain("['release', 'upload', 'edge', ...assets, '--clobber']")
   })
+
+  it('builds headless x64 and arm64 natively before one atomic publish', () => {
+    const parsed = Bun.YAML.parse(headlessWorkflow) as {
+      jobs?: { build?: unknown; publish?: { needs?: string } }
+    }
+    expect(parsed.jobs?.publish?.needs).toBe('build')
+    expect(headlessWorkflow).toContain('arch: x64')
+    expect(headlessWorkflow).toContain('arch: arm64')
+    expect(headlessWorkflow).toContain('runner: ubuntu-24.04-arm')
+    expect(headlessWorkflow).toContain('--prepare-arch ${{ matrix.arch }}')
+    expect(headlessWorkflow).toContain('--publish-dir dist-bun/release')
+    expect(headlessWorkflow).toContain('merge-multiple: true')
+  })
 })

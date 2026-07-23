@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
+import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
@@ -133,6 +134,8 @@ export type NativeDraftMessage = z.infer<typeof NativeDraftMessage>
 // ---- Daemon -> server ----
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
+  CredentialExportResultMessage,
+  CredentialInstallResultMessage,
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,
   HarnessExecResultMessage,

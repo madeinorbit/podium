@@ -6,6 +6,7 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -14,10 +15,13 @@ import {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -42,6 +46,7 @@ import type { PinState, RepoView, WorktreeView } from './types'
 // existing `@podium/client-core/viewmodels` / `./derive` call sites keep
 // working unchanged.
 export {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -50,10 +55,13 @@ export {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -423,6 +431,7 @@ export type ExitedAction = 'restart' | 'resume' | 'remove'
  *  copy-resume-command stays available for resuming by hand elsewhere. */
 export function exitedRecovery(opts: {
   exitCode: number | undefined
+  spawnFailure?: string
   isShell: boolean
   resumable: boolean
   worktreeMissing: boolean
@@ -436,7 +445,9 @@ export function exitedRecovery(opts: {
     opts.exitCode === undefined || opts.exitCode === 0
       ? `The ${what} is no longer running.`
       : opts.exitCode === -1
-        ? `The ${what} failed to start.`
+        ? opts.spawnFailure
+          ? `The ${what} failed to start: ${opts.spawnFailure}`
+          : `The ${what} failed to start.`
         : `The ${what} exited with code ${opts.exitCode}.`
   if (opts.worktreeMissing) {
     const where = opts.worktreePath ? ` (${opts.worktreePath})` : ''
