@@ -17,6 +17,7 @@ import {
   Plus,
   Search,
 } from 'lucide-react'
+import { LayoutGroup, motion, MotionConfig, useReducedMotion } from 'motion/react'
 import type {
   CSSProperties,
   JSX,
@@ -598,6 +599,12 @@ type WorkPlacement =
       row: UnifiedIssueRowView
     }
 
+const ROW_LAYOUT_TRANSITION = {
+  type: 'spring' as const,
+  stiffness: 105,
+  damping: 20,
+  mass: 0.95,
+}
 type TransitionWorkRow = RowTransitionItem<WorkPlacement>
 
 /** Project-local disclosure for settled top-level closures (POD-183). Rows are
@@ -869,6 +876,8 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     archiveIssue,
     applySortPatches,
   } = useUnifiedWork(derivation)
+  const shouldReduceMotion = useReducedMotion()
+  const layoutGroupId = useId()
   const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
     issueId: string
     folded: boolean
@@ -967,6 +976,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     const { row, lane } = item.value
     const folded = lane === 'closed'
     const arriving = item.phase === 'entering'
+    const exiting = item.phase === 'exiting'
     const inner =
       row.kind === 'issue' ? (
         <UnifiedIssueRow
@@ -1002,13 +1012,15 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         />
       )
     return (
-      <div
+      <motion.div
         key={`${item.key}:${item.placement}`}
+        layout="position"
+        transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
         {...(row.kind === 'issue' ? { 'data-drag-key': row.issue.id } : {})}
         className={cn(
           'min-w-0',
           arriving && 'row-arrive',
-          item.phase === 'exiting' && 'row-depart',
+          exiting && 'pointer-events-none',
           folded &&
             'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
         )}
@@ -1030,8 +1042,34 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         }
         data-transition-phase={item.phase}
       >
-        {inner}
-      </div>
+        <motion.div
+          initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
+          animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+          transition={
+            shouldReduceMotion
+              ? { duration: 0 }
+              : exiting
+                ? {
+                    opacity: { duration: 0.64, ease: 'easeInOut' },
+                    y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
+                  }
+                : {
+                    opacity: {
+                      duration: 0.72,
+                      delay: arriving ? 0.22 : 0,
+                      ease: 'easeInOut',
+                    },
+                    y: {
+                      duration: 0.78,
+                      delay: arriving ? 0.14 : 0,
+                      ease: [0.22, 1, 0.36, 1],
+                    },
+                  }
+          }
+        >
+          {inner}
+        </motion.div>
+      </motion.div>
     )
   }
 
@@ -1066,41 +1104,54 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
   // their group entirely; unpinning returns them to its banded order.
   return (
-    <>
-      {renderedPinned.length > 0 && (
-        <div
-          className="flex min-w-0 flex-col gap-[3px]"
-          data-testid="pinned-section"
-          data-drag-scope="pinned"
-        >
-          <PinnedSectionLabel />
-          {renderedPinned.map(renderWorkRow)}
-        </div>
-      )}
-      {renderedGroups.map((group, index) => (
-        <div
-          key={group.key}
-          className="flex min-w-0 flex-col gap-[3px]"
-          data-testid="project-group"
-          data-drag-scope={`group:${group.key}`}
-        >
-          <ProjectGroupLabel
-            label={group.label}
-            first={index === 0 && renderedPinned.length === 0}
-          />
-          {group.rows.map(renderWorkRow)}
-          {group.closedRows.length > 0 && (
-            <ClosedIssueFold
-              groupKey={group.key}
-              rows={group.closedRows}
-              renderRow={renderWorkRow}
-              issueForRow={(item) => item.value.row as UnifiedIssueRowView}
-              onArchive={archiveIssue}
+    <MotionConfig reducedMotion="user">
+      <LayoutGroup id={layoutGroupId}>
+        {renderedPinned.length > 0 && (
+          <motion.div
+            layout="position"
+            transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+            className="flex min-w-0 flex-col gap-[3px]"
+            data-testid="pinned-section"
+            data-drag-scope="pinned"
+          >
+            <PinnedSectionLabel />
+            {renderedPinned.map(renderWorkRow)}
+          </motion.div>
+        )}
+        {renderedGroups.map((group, index) => (
+          <motion.div
+            layout="position"
+            transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+            key={group.key}
+            className="flex min-w-0 flex-col gap-[3px]"
+            data-testid="project-group"
+            data-drag-scope={`group:${group.key}`}
+          >
+            <ProjectGroupLabel
+              label={group.label}
+              first={index === 0 && renderedPinned.length === 0}
             />
-          )}
-        </div>
-      ))}
-    </>
+            {group.rows.map(renderWorkRow)}
+            {group.closedRows.length > 0 && (
+              <motion.div
+                layout="position"
+                transition={
+                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                }
+              >
+                <ClosedIssueFold
+                  groupKey={group.key}
+                  rows={group.closedRows}
+                  renderRow={renderWorkRow}
+                  issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                  onArchive={archiveIssue}
+                />
+              </motion.div>
+            )}
+          </motion.div>
+        ))}
+      </LayoutGroup>
+    </MotionConfig>
   )
 }
 

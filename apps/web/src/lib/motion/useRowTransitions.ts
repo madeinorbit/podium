@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-export const ROW_EXIT_MS = 500
+export const ROW_EXIT_MS = 820
 
 export interface RowTransitionTarget<T> {
   key: string

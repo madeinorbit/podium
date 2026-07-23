@@ -221,50 +221,16 @@ test('sidebar rows make room, depart, then enter Closed', async ({ page, request
     .filter({ hasText: arrivalTitle })
     .first()
   await expect(arrival).toBeVisible({ timeout: 10_000 })
-  const arrivalAnimations = await arrival.evaluate((element) =>
-    element.getAnimations({ subtree: true }).flatMap((animation) => {
-      if (!(animation instanceof CSSAnimation)) return []
-      const timing = animation.effect?.getTiming()
-      return [
-        {
-          name: animation.animationName,
-          delay: Number(timing?.delay),
-          duration: Number(timing?.duration),
-        },
-      ]
-    }),
+  await page.waitForTimeout(120)
+  const arrivalOpacity = await arrival.evaluate((element) =>
+    Number(getComputedStyle(element.firstElementChild as Element).opacity),
   )
-  expect(arrivalAnimations).toEqual(
-    expect.arrayContaining([
-      { name: 'podium-arrive-h', delay: 0, duration: 420 },
-      { name: 'podium-arrive-in', delay: 120, duration: 300 },
-    ]),
-  )
+  expect(arrivalOpacity).toBeLessThan(0.95)
   if (process.env.SIDEBAR_MOTION_ARRIVAL_SHOT) {
-    await arrival.evaluate((element) => {
-      for (const animation of element.getAnimations({ subtree: true })) {
-        if (
-          animation instanceof CSSAnimation &&
-          animation.animationName.startsWith('podium-arrive')
-        ) {
-          animation.pause()
-          animation.currentTime = 210
-        }
-      }
-    })
     await aside.screenshot({ path: process.env.SIDEBAR_MOTION_ARRIVAL_SHOT })
-    await arrival.evaluate((element) => {
-      for (const animation of element.getAnimations({ subtree: true })) {
-        if (
-          animation instanceof CSSAnimation &&
-          animation.animationName.startsWith('podium-arrive')
-        )
-          animation.finish()
-      }
-    })
   }
   await expect(arrival).toHaveAttribute('data-transition-phase', 'stable', {
-    timeout: 3_000,
+    timeout: 5_000,
   })
   const siblingAfter = await siblingRow.boundingBox()
   if (!siblingAfter) throw new Error('motion sibling disappeared after arrival')
@@ -278,20 +244,17 @@ test('sidebar rows make room, depart, then enter Closed', async ({ page, request
     .first()
   await expect(departure).toBeVisible({ timeout: 10_000 })
   await expect(project.getByTestId('closed-fold-rows').getByText(movingTitle)).toHaveCount(0)
-  const departureNames = await departure.evaluate((element) =>
-    element
-      .getAnimations({ subtree: true })
-      .flatMap((animation) => (animation instanceof CSSAnimation ? [animation.animationName] : [])),
-  )
-  expect(departureNames).toEqual(expect.arrayContaining(['podium-depart-out', 'podium-depart-h']))
   if (process.env.SIDEBAR_MOTION_DEPARTURE_SHOT)
     await aside.screenshot({ path: process.env.SIDEBAR_MOTION_DEPARTURE_SHOT })
+  await page.waitForTimeout(350)
+  await expect(departure).toHaveCount(1)
+  await expect(project.getByTestId('closed-fold-rows').getByText(movingTitle)).toHaveCount(0)
 
   const closedArrival = project
     .getByTestId('closed-fold-rows')
     .locator('[data-transition-phase="entering"]')
     .filter({ hasText: movingTitle })
     .first()
-  await expect(closedArrival).toBeVisible({ timeout: 3_000 })
+  await expect(closedArrival).toBeVisible({ timeout: 5_000 })
   await expect(departure).toHaveCount(0)
 })
