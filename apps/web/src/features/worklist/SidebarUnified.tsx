@@ -6,7 +6,6 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
   Archive,
-  BarChart3,
   Check,
   ChevronDown,
   ChevronRight,
@@ -17,7 +16,6 @@ import {
   Pin,
   Plus,
   Search,
-  Settings as SettingsIcon,
 } from 'lucide-react'
 import type {
   CSSProperties,
@@ -511,13 +509,10 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   )
 }
 
-/** App-level tools: add repo, analytics, settings, search (the cmd-k palette) —
- *  four 28px icon buttons spread across the footer (handoff §2.1). */
+/** Work-local tools: repository discovery and command search. Global utilities
+ *  live in the top bar so they remain reachable outside the Work shell. */
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
-  const { view, setView, setPaletteOpen } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView, setPaletteOpen: s.setPaletteOpen }),
-    shallowEqual,
-  )
+  const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const [repoScanOpen, setRepoScanOpen] = useState(false)
   const commandPaletteEnabled = useFeature('command-palette')
   const btn = (active = false) =>
@@ -535,26 +530,6 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
         onClick={() => setRepoScanOpen(true)}
       >
         <FolderPlus size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={btn(view === 'usage')}
-        aria-pressed={view === 'usage'}
-        title="Usage & analytics"
-        aria-label="Usage & analytics"
-        onClick={() => setView('usage')}
-      >
-        <BarChart3 size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={btn(view === 'settings')}
-        aria-pressed={view === 'settings'}
-        title="Settings"
-        aria-label="Settings"
-        onClick={() => setView('settings')}
-      >
-        <SettingsIcon size={15} aria-hidden="true" />
       </button>
       {commandPaletteEnabled && (
         <button

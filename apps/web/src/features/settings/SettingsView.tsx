@@ -394,7 +394,7 @@ export function SettingsView(): JSX.Element {
         e.preventDefault()
         if (dirty && !saving && BLOB_TABS.has(tab)) void save()
       } else if (e.key === 'Escape' && !typing) {
-        setView('issues')
+        setView('workspace')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -415,7 +415,7 @@ export function SettingsView(): JSX.Element {
           variant="ghost"
           size="sm"
           className="gap-1 pr-2.5 pl-1.5 text-muted-foreground hover:text-foreground"
-          onClick={() => setView('issues')}
+          onClick={() => setView('workspace')}
         >
           <ChevronLeft size={14} aria-hidden="true" />
           Back

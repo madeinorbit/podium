@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { Minus, Square, X } from 'lucide-react'
+import { BarChart3, Minus, Settings, Square, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
@@ -10,7 +10,7 @@ import { type MainView, useStoreSelector } from './store'
 
 /**
  * The desktop 44px command header per the handoff v2 desktop anatomy
- * (.design/specs/shell-layout.md §2.1): logo · text nav (Tasks · Workflows ·
+ * (.design/specs/shell-layout.md §2.1): logo · text nav (Work · Tasks · Workflows ·
  * Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
  * belonged to the retired responsive shell, not here.
@@ -41,6 +41,7 @@ export function TopBar(): JSX.Element {
         className="desktop-topbar-nav ml-[10px] inline-flex flex-none items-center gap-0.5"
         aria-label="Primary"
       >
+        <NavItem label="Work" target="workspace" view={view} onSelect={setView} />
         <NavItem
           label="Tasks"
           target="issues"
@@ -56,13 +57,60 @@ export function TopBar(): JSX.Element {
           <NavItem label="Automations" target="automations" view={view} onSelect={setView} />
         )}
       </nav>
-      <div className="ml-auto min-w-0 overflow-hidden">
+      <div className="ml-auto inline-flex flex-none items-center gap-0.5">
+        <UtilityNavItem
+          label="Usage & analytics"
+          target="usage"
+          view={view}
+          onSelect={setView}
+          icon={<BarChart3 size={14} aria-hidden="true" />}
+        />
+        <UtilityNavItem
+          label="Settings"
+          target="settings"
+          view={view}
+          onSelect={setView}
+          icon={<Settings size={14} aria-hidden="true" />}
+        />
+      </div>
+      <div className="min-w-0 overflow-hidden">
         <HeaderHostIndicators />
       </div>
       {desktopBridge && desktopBridge.platform !== 'macos' && (
         <NativeWindowControls bridge={desktopBridge} />
       )}
     </header>
+  )
+}
+
+function UtilityNavItem({
+  label,
+  target,
+  view,
+  onSelect,
+  icon,
+}: {
+  label: string
+  target: MainView
+  view: MainView
+  onSelect: (view: MainView) => void
+  icon: JSX.Element
+}): JSX.Element {
+  const active = view === target
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(target)}
+      aria-current={active ? 'page' : undefined}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        active && 'bg-secondary text-foreground',
+      )}
+    >
+      {icon}
+    </button>
   )
 }
 

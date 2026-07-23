@@ -28,8 +28,8 @@ export const RECENT_FILES_KEY = 'podium.recentFiles'
 
 export function readStoredView(ui: UiState): MainView {
   const v = ui.get(VIEW_KEY)
-  // Removed full-page surfaces migrate to Tasks instead of leaving the router
-  // with a dead persisted destination.
+  // Removed full-page surfaces migrate to Work instead of leaving the router
+  // with a dead persisted destination. Fresh installs start in Work.
   return v === 'workspace' ||
     v === 'settings' ||
     v === 'usage' ||
@@ -38,7 +38,7 @@ export function readStoredView(ui: UiState): MainView {
     v === 'specs' ||
     v === 'workflows'
     ? v
-    : 'issues'
+    : 'workspace'
 }
 
 /** The persisted worktreePath → dock-shell-session map (#23). A corrupt/missing

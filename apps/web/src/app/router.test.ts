@@ -18,7 +18,7 @@ describe('parseRoute', () => {
   const at = (path: string, search = '') => parseRoute(path, search)
 
   it('maps every known URL to its view', () => {
-    expect(at('/'))?.toMatchObject({ view: 'issues', issueId: null })
+    expect(at('/'))?.toMatchObject({ view: 'workspace', issueId: null })
     expect(at('/home')).toBeNull()
     expect(at('/workspace')?.view).toBe('workspace')
     expect(at('/issues')?.view).toBe('issues')
@@ -134,12 +134,12 @@ describe('createRouter', () => {
     win.back()
     expect(router.current()).toMatchObject({ view: 'issues', issueId: null })
     win.back()
-    expect(router.current().view).toBe('issues')
+    expect(router.current().view).toBe('workspace')
     expect(win.url()).toBe('/')
 
     win.forward()
     expect(router.current()).toMatchObject({ view: 'issues', issueId: null })
-    expect(seen).toEqual(['issues', 'issues', 'issues', 'issues', 'issues'])
+    expect(seen).toEqual(['issues', 'issues', 'issues', 'workspace', 'issues'])
   })
 
   it('settings tab changes are history entries: back/forward move between tabs', () => {
@@ -160,21 +160,21 @@ describe('createRouter', () => {
     expect(router.current()).toMatchObject({ view: 'settings', settingsTab: 'appearance' })
   })
 
-  it('falls back to Tasks on an unknown initial URL (replace, not push)', () => {
+  it('falls back to Work on an unknown initial URL (replace, not push)', () => {
     const win = fakeWindow('/definitely-not-a-route')
     const router = createRouter({ win })
-    expect(router.current().view).toBe('issues')
-    expect(win.url()).toBe('/issues')
+    expect(router.current().view).toBe('workspace')
+    expect(win.url()).toBe('/workspace')
     // replace: back has nowhere to go (single entry)
     win.back()
-    expect(router.current().view).toBe('issues')
+    expect(router.current().view).toBe('workspace')
   })
 
   it('restores the persisted view when starting on plain /', () => {
     const win = fakeWindow('/')
-    const router = createRouter({ win, fallbackView: 'workspace' })
-    expect(router.current().view).toBe('workspace')
-    expect(win.url()).toBe('/workspace')
+    const router = createRouter({ win, fallbackView: 'issues' })
+    expect(router.current().view).toBe('issues')
+    expect(win.url()).toBe('/issues')
   })
 
   it('a deep link wins over the persisted view', () => {

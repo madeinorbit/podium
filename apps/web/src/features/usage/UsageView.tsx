@@ -49,7 +49,7 @@ export function UsageView(): JSX.Element {
           variant="ghost"
           size="icon-sm"
           title="Close analytics"
-          onClick={() => setView('issues')}
+          onClick={() => setView('workspace')}
         >
           ✕
         </Button>

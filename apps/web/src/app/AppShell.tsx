@@ -210,7 +210,12 @@ function AppBody(): JSX.Element {
 
   // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
   // while folded (the open column's own view polls otherwise).
-  const foldedFeed = useIssueEvents(trpc, uiState, false, superMode === 'folded')
+  const foldedFeed = useIssueEvents(
+    trpc,
+    uiState,
+    false,
+    superMode === 'folded' && view === 'workspace',
+  )
 
   // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
   // via a window event — the panel state is AppShell-local. A request for a
@@ -277,36 +282,37 @@ function AppBody(): JSX.Element {
       >
         <TopBar />
         <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-          {sidebarCollapsed ? (
-            <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-              <button
-                type="button"
-                className="collapsed-sidebar-expand"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-                onClick={() => setSidebarCollapsed(false)}
-              >
-                <ChevronRight size={13} aria-hidden="true" />
-              </button>
-              <SidebarRail />
-            </aside>
-          ) : (
-            <div className="relative z-10 flex flex-none">
-              <ResizableAside>
-                <SidebarUnified />
-              </ResizableAside>
-              <button
-                type="button"
-                className="sidebar-collapse-control"
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-                onClick={() => setSidebarCollapsed(true)}
-              >
-                <ChevronLeft size={12} aria-hidden="true" />
-              </button>
-            </div>
-          )}
-          {superMode === 'open' && (
+          {view === 'workspace' &&
+            (sidebarCollapsed ? (
+              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+                <button
+                  type="button"
+                  className="collapsed-sidebar-expand"
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar"
+                  onClick={() => setSidebarCollapsed(false)}
+                >
+                  <ChevronRight size={13} aria-hidden="true" />
+                </button>
+                <SidebarRail />
+              </aside>
+            ) : (
+              <div className="relative z-10 flex flex-none">
+                <ResizableAside>
+                  <SidebarUnified />
+                </ResizableAside>
+                <button
+                  type="button"
+                  className="sidebar-collapse-control"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                  onClick={() => setSidebarCollapsed(true)}
+                >
+                  <ChevronLeft size={12} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          {view === 'workspace' && superMode === 'open' && (
             <ResizableColumn
               storageKey="podium:superagent:width"
               min={320}
@@ -323,7 +329,7 @@ function AppBody(): JSX.Element {
               </aside>
             </ResizableColumn>
           )}
-          {superMode === 'folded' && (
+          {view === 'workspace' && superMode === 'folded' && (
             <FoldedSuperagentBar
               issue={selectedIssue}
               trayCount={trayCount(issues)}
@@ -339,7 +345,7 @@ function AppBody(): JSX.Element {
             />
           )}
           <MainViewOutlet workspace={<Workspace />} />
-          {visibleRightPanel && (
+          {view === 'workspace' && visibleRightPanel && (
             <ResizableColumn
               storageKey="podium:rightdock:width"
               min={280}
@@ -354,12 +360,14 @@ function AppBody(): JSX.Element {
               </aside>
             </ResizableColumn>
           )}
-          <RightRail
-            issue={selectedIssue}
-            rightPanel={visibleRightPanel}
-            onPanelChange={setRightPanel}
-            onColorChange={changeIssueColor}
-          />
+          {view === 'workspace' && (
+            <RightRail
+              issue={selectedIssue}
+              rightPanel={visibleRightPanel}
+              onPanelChange={setRightPanel}
+              onColorChange={changeIssueColor}
+            />
+          )}
         </div>
       </div>
       {/* Settings is a full-viewport takeover above the shell (POD-127) — the
