@@ -7,7 +7,6 @@ import { useMemo, useState } from 'react'
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { AskQuestionCard } from '../components/AskQuestionCard'
-import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -17,14 +16,13 @@ import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { deriveTrayItems } from '../lib/derive-tray'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, mono, radius, sans, space } from '../theme/theme'
 
 /**
  * The Tray — home [POD-131]. The phone IS the engraved column: a GLOBAL
  * decision queue (never filtered, never re-sorted on selection — POD-129's
- * Scope Law) over a standing composer that speaks to the superagent ("an
- * inbox with a command line"). Decisions first, finished last, newest first
- * within each group. Empty means empty everywhere.
+ * Scope Law). Decisions first, finished last, newest first within each group.
+ * Super Agent chat lives in its own tab.
  */
 
 /** A session blocked on an AskUserQuestion — the options render inline so it
@@ -141,12 +139,6 @@ export function TrayScreen() {
     },
   }
 
-  const sendToSuperagent = async (text: string) => {
-    await client.trpc.superagent.sendTurn.mutate({ threadId: 'global', text })
-    // Conversation posture: the feed takes over once a turn is in flight.
-    router.push('/superagent')
-  }
-
   const empty = needsYouCount === 0 && finished.length === 0
 
   return (
@@ -247,15 +239,11 @@ export function TrayScreen() {
                   </Text>
                 </View>
               ) : (
-                <Text style={styles.emptyBody}>Fire off a task or tell the agents below.</Text>
+                <Text style={styles.emptyBody}>Fire off a task or open Super Agent.</Text>
               )}
             </View>
           ) : null}
         </ScrollView>
-      </View>
-      <View style={styles.composerWrap}>
-        <Composer placeholder="Tell the agents…" onSend={(text) => void sendToSuperagent(text)} />
-        <Text style={styles.ctx}>· ALL-TASKS CONTEXT</Text>
       </View>
       <Modal
         transparent
@@ -404,19 +392,6 @@ const styles = StyleSheet.create({
   emptyBody: {
     color: color.textFaint,
     fontSize: font.small,
-  },
-  composerWrap: {
-    backgroundColor: color.bar,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairlineBar,
-    paddingBottom: 2,
-  },
-  ctx: {
-    ...monoLabel(7.5),
-    color: color.textMicro,
-    textAlign: 'right',
-    paddingHorizontal: space.md,
-    paddingBottom: 4,
   },
   lightbox: {
     flex: 1,

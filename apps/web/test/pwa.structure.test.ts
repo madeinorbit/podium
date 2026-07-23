@@ -17,6 +17,8 @@ describe('installable PWA wiring', () => {
     expect(cfg).toContain('/^\\/mobile/')
     expect(cfg).toContain('/^\\/trpc/')
     expect(cfg).toContain('/^\\/daemon/')
+    expect(cfg).toContain("'/mobile': { target: BACKEND")
+    expect(cfg).toContain('mobileEntryRedirectPlugin()')
   })
 })
 

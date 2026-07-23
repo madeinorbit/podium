@@ -1,15 +1,19 @@
+import { existsSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { mobileRedirectLocation } from './mobile-routing'
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
 // default keeps the maintainer's tailscale node working for the live instance.
-const allowedHosts = process.env.PODIUM_ALLOWED_HOSTS?.split(',')
-  .map((h) => h.trim())
-  .filter(Boolean) ?? []
+const allowedHosts =
+  process.env.PODIUM_ALLOWED_HOSTS?.split(',')
+    .map((h) => h.trim())
+    .filter(Boolean) ?? []
 
 // The app origin binds :55556 (plain http). `tailscale serve` terminates TLS on :55555 and
 // proxies here, so the primary URL is https://<host>:55555 — a secure context, which the
@@ -25,6 +29,7 @@ const BACKEND_PORT = process.env.PODIUM_PORT ?? '18787'
 const WEB_PORT = Number(process.env.PODIUM_WEB_PORT ?? 55556)
 const BACKEND = `http://localhost:${BACKEND_PORT}`
 const BACKEND_WS = `ws://localhost:${BACKEND_PORT}`
+const MOBILE_INDEX = fileURLToPath(new URL('../mobile/dist/index.html', import.meta.url))
 const proxy = {
   '/health': { target: BACKEND, changeOrigin: true },
   '/trpc': { target: BACKEND, changeOrigin: true },
@@ -39,10 +44,38 @@ const proxy = {
   '/auth': { target: BACKEND, changeOrigin: true },
   '/client': { target: BACKEND_WS, ws: true, changeOrigin: true },
   '/daemon': { target: BACKEND_WS, ws: true, changeOrigin: true },
+  // The Expo SPA is served by the backend. Without this proxy, Vite's own SPA
+  // fallback returns the desktop index for /mobile in the live source setup.
+  '/mobile': { target: BACKEND, changeOrigin: true },
+}
+
+function mobileEntryRedirectPlugin(): Plugin {
+  const redirect = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => {
+    const location = mobileRedirectLocation(
+      req.url,
+      req.headers['user-agent'],
+      existsSync(MOBILE_INDEX),
+    )
+    if (!location) return next()
+    res.statusCode = 302
+    res.setHeader('Location', location)
+    res.end()
+  }
+  return {
+    name: 'podium-mobile-entry-redirect',
+    // Both source-mode Vite and built preview sit in front of the backend.
+    configureServer(server) {
+      server.middlewares.use(redirect)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(redirect)
+    },
+  }
 }
 
 export default defineConfig({
   plugins: [
+    mobileEntryRedirectPlugin(),
     react(),
     tailwindcss(),
     VitePWA({
