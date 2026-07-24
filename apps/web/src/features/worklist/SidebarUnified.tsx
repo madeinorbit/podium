@@ -87,6 +87,7 @@ import {
   usePhaseMorph,
   useRowTransitions,
 } from '@/lib/motion'
+import { relativeTime } from '@/lib/home'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
@@ -684,6 +685,11 @@ function FoldedWorkRow({
   onContextMenu?: (e: ReactMouseEvent) => void
 }): JSX.Element {
   const marker = foldedMarker(issue, lane, now)
+  // How long ago the work was last touched — closed rows date from the close,
+  // suspended rows from their last activity (POD-293). One dim stamp so a fold
+  // still answers "when", without pulling any live-row chrome back in.
+  const stampIso = lane === 'closed' ? (issue.closedAt ?? issue.updatedAt) : issue.updatedAt
+  const ago = stampIso ? relativeTime(stampIso, now) : null
   return (
     <button
       data-pressable
@@ -703,13 +709,9 @@ function FoldedWorkRow({
         {issueDisplayRef(issue)}
       </span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-[#828ba6]">{issue.title}</span>
-      <span
-        className={cn(
-          'flex-none font-mono text-[8.5px]',
-          marker === 'merged' ? 'text-info/80' : 'text-[#525c78]',
-        )}
-      >
-        {marker}
+      <span className="flex flex-none items-center gap-1.5 font-mono text-[8.5px]">
+        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-[#525c78]')}>{marker}</span>
+        {ago && <span className="tabular-nums text-[#6c7690]">{ago}</span>}
       </span>
     </button>
   )
