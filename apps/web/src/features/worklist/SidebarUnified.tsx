@@ -1548,6 +1548,7 @@ function WorkRowShell({
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
   const morph = usePhaseMorph(phase)
+  const reduceMotion = useReducedMotion()
   const accent = hex ?? FLOW_SLATE
   const tints = rowTints(hex, phase, active)
   const rowStyle: CSSProperties = active
@@ -1741,12 +1742,22 @@ function WorkRowShell({
             asked here. On hover it firms and the glyph nudges DOWN — a small,
             honest cue that pressing it folds the row down into Closed, where it
             stays reachable (click to reopen, or start an agent to pick it up).
-            It kills nothing and closes nothing — the task is already finished. */}
+            It kills nothing and closes nothing — the task is already finished.
+            Arrival is a one-shot fade-slide from the right (same ease as row
+            arrivals) so the control reads as a new right-edge action, not a
+            hard pop. */}
         {onTuck && (
-          <button
+          <motion.button
             data-pressable
             type="button"
             data-testid="tuck-away"
+            initial={reduceMotion ? false : { opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
+            }
             // Full content-height (POD-293): the control stretches to align with
             // the top of the square and the bottom of the status line, reading as
             // one clean right-edge action rather than a small floating chip.
@@ -1764,7 +1775,7 @@ function WorkRowShell({
               className="text-[#525c78] transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-[#9aa4c0]"
             />
             <span>Tuck away</span>
-          </button>
+          </motion.button>
         )}
         {/* Bridge notch (§2.5): grows from the selected row's right edge over the
             aside border toward the engraved column, tinted by the issue colour. */}
