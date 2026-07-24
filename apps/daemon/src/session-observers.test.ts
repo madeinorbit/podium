@@ -95,6 +95,23 @@ describe('session observer stat polling', () => {
   })
 })
 
+describe('session observer hook field normalization', () => {
+  it('reads a Grok camelCase sessionId as the exact resume ref', async () => {
+    const { sent, observers, sessionId } = setupControlledSession('s-grok')
+    // Grok Build native hook payload — camelCase, no snake_case aliases.
+    observers.onHookPayload(sessionId, {
+      sessionId: 'grok-thread-1',
+      hookEventName: 'SessionStart',
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    const refs = sent.filter((m) => m.type === 'sessionResumeRef')
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({ confidence: 'exact', resume: { value: 'grok-thread-1' } })
+    observers.clearSession(sessionId)
+  })
+})
+
 describe('session observer →idle debounce', () => {
   beforeEach(() => {
     vi.useFakeTimers()

@@ -136,8 +136,10 @@ export const grokAdapter: HarnessAdapter = {
 
   state: grokStateProvider,
 
-  // Grok has no hook channel — a polling observer discovers the session the
-  // CLI creates and tails its update stream. On a fresh spawn `startedAtMs` is
+  // Grok's native hooks carry lifecycle/state, but the payload names only the
+  // session id — not its on-disk transcript — so a polling observer still
+  // discovers the session dir the CLI creates and tails its update stream. On a
+  // fresh spawn `startedAtMs` is
   // the spawn time, so discovery skips older sibling sessions in the same cwd.
   // On reattach it's absent → observeGrokState defaults watermarkMs to 0 (no
   // floor), so the latest-by-activity session is found even if it predates

@@ -60,6 +60,28 @@ describe('git-capture', () => {
     expect(commitMsgs[0]?.commits).toEqual(['sha1', 'sha2'])
   })
 
+  it('attributes commits around a Grok camelCase Bash call', async () => {
+    let head = 'aaa'
+    const sent: SessionGitActivityOut[] = []
+    const cap = createGitCapture({
+      send: (msg) => sent.push(msg),
+      run: async (args) => {
+        if (args.join(' ') === 'rev-parse HEAD') return head
+        if (args.join(' ') === 'rev-list --reverse aaa..bbb') return 'sha1\nsha2'
+        return null
+      },
+    })
+    // Grok Build native hooks: camelCase hookEventName + toolName.
+    cap.onHookPayload('s1', { hookEventName: 'PreToolUse', toolName: 'Bash', cwd: '/repo' })
+    await settle()
+    head = 'bbb'
+    cap.onHookPayload('s1', { hookEventName: 'PostToolUse', toolName: 'Bash', cwd: '/repo' })
+    await settle()
+    const commitMsgs = sent.filter((m) => m.commits)
+    expect(commitMsgs).toHaveLength(1)
+    expect(commitMsgs[0]?.commits).toEqual(['sha1', 'sha2'])
+  })
+
   it('falls back to the new head when rev-list fails (history rewrite)', async () => {
     let head = 'aaa'
     const sent: SessionGitActivityOut[] = []

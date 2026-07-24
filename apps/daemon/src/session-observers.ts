@@ -20,6 +20,7 @@ import {
   tailTranscript,
 } from '@podium/transcript'
 import { createGitCapture } from './git-capture'
+import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionCwdTracker } from './worktree-resolve'
 
@@ -386,11 +387,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     })
   }
 
-  // The shared hook ingest's onPayload: Claude AND Codex (≥0.142 native hooks)
-  // both post here with the same core shape (session_id + transcript_path +
-  // hook_event_name). The session's live observation carries its adapter, so
-  // the routing is generic: the adapter names the resume kind and the record
-  // mapper, and `bindHookThread` (codex) owns the re-pin policy.
+  // The shared hook ingest's onPayload: Claude, Codex (≥0.142 native hooks) and
+  // Grok Build all post here with the same core shape (session/transcript id +
+  // event name) — Claude/Codex snake_case, Grok camelCase, read via hookString.
+  // The session's live observation carries its adapter, so the routing is
+  // generic: the adapter names the resume kind and the record mapper, and
+  // `bindHookThread` (codex) owns the re-pin policy.
   const onHookPayload = (sessionId: string, payload: unknown): void => {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
@@ -401,17 +403,20 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (!bound) return
     // Every hook payload carries transcript_path — the authoritative pointer
     // to the live JSONL (resumes roll into a fresh file; this follows).
+    // Claude/Codex spell these snake_case; Grok Build native hooks use camelCase.
+    // Read both so Grok's hooks drive resume-ref/transcript binding like the
+    // others, rather than falling back to its polling observer. [spec:SP-79c5]
     const fields = payload as Record<string, unknown> | null
-    const transcriptPath = fields?.transcript_path
-    if (typeof transcriptPath === 'string' && transcriptPath) {
+    const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
+    if (transcriptPath) {
       ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
     }
     // The hook payload's session_id is the harness's own conversation id — the
     // authoritative resume ref (don't reverse-engineer it from the filename,
     // which couples us to the harness's on-disk layout). Lets the server
     // hibernate a fresh spawn and resume it later.
-    const harnessSessionId = fields?.session_id
-    if (typeof harnessSessionId === 'string' && harnessSessionId) {
+    const harnessSessionId = hookString(payload, 'session_id', 'sessionId')
+    if (harnessSessionId) {
       send({
         type: 'sessionResumeRef',
         sessionId,

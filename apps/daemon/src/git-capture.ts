@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { hookEventName, hookString } from './hook-payload'
 
 /**
  * Per-session git attribution capture [POD-98] — the daemon half of "did THIS
@@ -76,10 +77,12 @@ export function createGitCapture(opts: {
   return {
     onHookPayload(sessionId, fields) {
       if (!fields) return
-      const event = fields.hook_event_name
+      // Claude/Codex send snake_case; Grok Build native hooks use camelCase.
+      // Read both so Grok's Bash calls get the same commit attribution. [spec:SP-79c5]
+      const event = hookEventName(fields)
       const cwd = typeof fields.cwd === 'string' && fields.cwd !== '' ? fields.cwd : null
-      if (typeof event !== 'string' || cwd === null) return
-      const toolName = typeof fields.tool_name === 'string' ? fields.tool_name : ''
+      if (event === undefined || cwd === null) return
+      const toolName = hookString(fields, 'tool_name', 'toolName') ?? ''
 
       if (event === 'SessionStart') {
         register(sessionId, cwd)
