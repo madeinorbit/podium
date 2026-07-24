@@ -151,15 +151,22 @@ fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
 }
 
 fn main() {
-    let app = tauri::Builder::default()
-        // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
-        // window and exit the duplicate. Registered FIRST so it fires before any setup work.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
+    // window and exit the duplicate. Registered FIRST so it fires before any setup work.
+    // Escape hatch: PODIUM_ALLOW_MULTI=1 skips the guard so a second app (e.g. a demo
+    // instance pointed at a different server via PODIUM_STATE_DIR) can run alongside the
+    // primary — the guard keys on the bundle identifier, so without this two copies of the
+    // same build can never coexist.
+    if std::env::var("PODIUM_ALLOW_MULTI").as_deref() != Ok("1") {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
                 let _ = w.set_focus();
             }
-        }))
+        }));
+    }
+    let app = builder
         // Auto-updater stack: updater (check/download/install signed artifacts),
         // dialog (the prompt-then-restart confirmation), process (app.restart()).
         .plugin(tauri_plugin_updater::Builder::new().build())
