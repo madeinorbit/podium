@@ -2205,7 +2205,8 @@ export function formatClock(ms: number): string {
  * human-relevant of its member sessions' phases. `waiting` dominates (stillness
  * is the signal — a row that needs you must read amber even while other agents
  * grind on), then `working`, then `done` when every member finished; a row
- * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
+ * whose sessions are merely idle/ready reads motion `queued` (dimmed stillness
+ * — status copy surfaces this as "idle", not "queued").
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   if (row.kind === 'issue' && pendingDecisionStats(row).count > 0) return 'waiting'
@@ -2348,8 +2349,11 @@ function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
 /**
  * The row's second line (#41): a compact status phrase in the handoff's copy
  * grammar. Waiting rows surface WHAT is being waited for (the most urgent
- * session's badge label — "needs answer", "plan ready"); working/queued/done
- * rows read as their phase; multi-agent rows carry the head-count.
+ * session's badge label — "needs answer", "plan ready"); working/done rows
+ * read as their phase; multi-agent rows carry the head-count. Quiet rows
+ * (motion bucket `queued` — dimmed stillness, nothing working or needing you)
+ * read **idle**, never "queued": "queued" sounds like pending work and
+ * confused temporary pinned desks that were simply done for now.
  */
 export function rowStatusLine(
   row: UnifiedWorkRow,
@@ -2360,7 +2364,7 @@ export function rowStatusLine(
 ): string {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
-  // A draft vessel whose sessions were never prompted isn't "queued" work —
+  // A draft vessel whose sessions were never prompted isn't idle work —
   // nothing was asked yet. Say so instead of the phase word.
   if (
     row.kind === 'issue' &&
@@ -2412,7 +2416,9 @@ export function rowStatusLine(
     }
     return head + 'done'
   }
-  return head + 'queued' + progress
+  // Motion still uses the `queued` bucket for dim stillness; the human-facing
+  // word is idle — quiet, not waiting in line.
+  return head + 'idle' + progress
 }
 
 /**

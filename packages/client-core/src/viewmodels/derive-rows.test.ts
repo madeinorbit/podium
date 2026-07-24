@@ -208,10 +208,12 @@ describe('rowStatusLine — the second line copy grammar', () => {
     })
   })
 
-  it('working, done and queued rows read as their phase', () => {
+  it('working, done and idle rows read as their phase words', () => {
     expect(rowStatusLine(issueRow([working()]), NOW)).toBe('working')
     expect(rowStatusLine(issueRow([done()]), NOW)).toBe('done')
-    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('queued')
+    // Quiet motion bucket is still `queued`; the status word is idle.
+    expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
+    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('idle')
     expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
   })
 
@@ -229,13 +231,13 @@ describe('rowStatusLine — the second line copy grammar', () => {
     ).toBe('done')
   })
 
-  it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "queued"', () => {
+  it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "idle"', () => {
     const fresh = sess({ title: '✳ Claude Code' })
     expect(rowStatusLine(issueRow([fresh], true), NOW)).toBe('awaiting first prompt')
-    // Same session under a REAL issue keeps the phase grammar.
-    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('queued')
-    // A draft whose session was actually prompted (meaningful title) stays queued.
-    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('queued')
+    // Same session under a REAL issue keeps the quiet grammar → idle.
+    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('idle')
+    // A draft whose session was actually prompted (meaningful title) is idle.
+    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('idle')
   })
 })
 
