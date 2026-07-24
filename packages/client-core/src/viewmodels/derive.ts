@@ -1901,18 +1901,19 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
   return row.kind === 'issue' && isIssueSnoozed(row.issue, now)
 }
 
-/** POD-183 / POD-293 fold membership. Attention outranks structure for live
- * asks: working, needs-you, and awaiting-merge keep their full row. Finished
- * top-level closures no longer require a read stamp — that gate existed for
- * auto-fold-on-read; manual tuck (POD-293) offers "Tuck away" as soon as the
- * work is settled. A selected open finished row stays open until tuck, grace,
- * or focus moves. Pinned rows are removed before grouping, so pinning also wins. */
+/** POD-183 / POD-293 fold membership. Live asks outrank structure: needs-you
+ * and awaiting-merge keep their full row. Finished top-level closures offer
+ * "Tuck away" without requiring a read stamp or idle sessions — those gates
+ * were for auto-fold-on-read / auto-bury; manual tuck is the dismiss path.
+ * A selected open finished row stays open until tuck, grace, or focus moves.
+ * Pinned rows are removed before grouping, so pinning also wins. */
 const EMPTY_TUCKED: ReadonlySet<string> = new Set()
 
-/** Settled finished-issue facts shared by fold membership and the tuck-away
- *  control. Selection is intentionally NOT here: selecting a done row must keep
- *  "Tuck away" visible; only fold placement cares about selection. Read/unread
- *  is also not here — tuck is the dismiss path, not acknowledgment-of-read. */
+/** Finished-issue facts shared by fold membership and the tuck-away control.
+ *  Selection is intentionally NOT here: selecting a done row must keep
+ *  "Tuck away" visible; only fold placement cares about selection. Read and
+ *  working-session state are also not here — closing the issue is enough to
+ *  offer dismiss; an agent still winding down must not hide the control. */
 function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
   if (row.kind !== 'issue') return false
   const { issue } = row
@@ -1920,8 +1921,7 @@ function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
     isClosedTopLevelIssue(issue) &&
     !issue.needsHuman &&
     !issueAwaitingMerge(issue) &&
-    rowWaitingCount(row) === 0 &&
-    !rowSessions(row).some(isSessionWorking)
+    rowWaitingCount(row) === 0
   )
 }
 

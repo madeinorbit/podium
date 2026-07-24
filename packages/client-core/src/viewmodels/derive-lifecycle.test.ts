@@ -130,6 +130,25 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     )
     expect(rowAwaitsTuck(unread, null, false, new Set(), NOW)).toBe(true)
     expect(rowInClosedFold(unread, null, false, new Set(), NOW)).toBe(false)
+    // A still-working session must not hide Tuck away once the issue is closed —
+    // the operator dismissed the work; agents winding down are not a live ask.
+    const stillWorking = row(
+      issue({
+        id: 'working-done',
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-07-23T11:30:00.000Z',
+      }),
+      [
+        session({
+          sessionId: 'worker',
+          issueId: 'working-done',
+          agentState: { phase: 'working', since: '2026-07-23T11:30:00.000Z' },
+        }),
+      ],
+    )
+    expect(rowAwaitsTuck(stillWorking, null, false, new Set(), NOW)).toBe(true)
+    expect(rowInClosedFold(stillWorking, null, false, new Set(), NOW)).toBe(false)
     // Tucking folds into Closed at once — even while still selected — and stops
     // awaiting dismissal. Selection lane-stickiness must not delay explicit tuck.
     expect(rowInClosedFold(r, done.id, false, new Set([done.id]), NOW)).toBe(true)

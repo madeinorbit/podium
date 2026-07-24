@@ -1094,23 +1094,29 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
 
   // Tuck-away (POD-293): a finished row folds into Closed only when the operator
   // dismisses it (or after the finished-grace backstop) — not the instant it
-  // finishes — so completed work stops vanishing out from under them. Read is
-  // not required for the control. The dismissed ids persist in ui-state; the
-  // effect restores them whenever the live set changes, and `tuck` adds one
-  // optimistically so the row folds the moment the control is pressed.
+  // finishes — so completed work stops vanishing out from under them. Read and
+  // idle sessions are not required for the control. Dismissals persist in
+  // ui-state only while the issue stays closed; reopening clears the flag so a
+  // later close offers Tuck away again. `tuck` adds one optimistically so the
+  // row folds the moment the control is pressed.
   const [tuckedIds, setTuckedIds] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
     setTuckedIds((prev) => {
-      const next = new Set(prev)
-      let changed = false
+      const next = new Set<string>()
       for (const row of work) {
         if (row.kind !== 'issue') continue
-        if (uiState.get(`podium:sidebar:tucked:${row.issue.id}`) === 'true' && !next.has(row.issue.id)) {
-          next.add(row.issue.id)
-          changed = true
+        const id = row.issue.id
+        const key = `podium:sidebar:tucked:${id}`
+        // Reopened / still-open work must not inherit a stale tuck from a prior
+        // close — that was auto-folding the next time the issue finished.
+        if (row.issue.closedReason == null) {
+          if (uiState.get(key) === 'true') uiState.set(key, null)
+          continue
         }
+        if (uiState.get(key) === 'true') next.add(id)
       }
-      return changed ? next : prev
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
+      return next
     })
   }, [work, uiState])
   const tuck = (id: string) => {

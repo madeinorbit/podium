@@ -770,8 +770,9 @@ describe('groupUnifiedWorkRows', () => {
     ]
 
     // A settled closure folds once the operator tucks it (POD-293); the rest
-    // stay in the live list (not tucked, selected, awaiting, working…).
-    // Untucked selection stays open (lane stickiness); tucked selection folds.
+    // stay in the live list (not tucked, selected, awaiting, needs-human…).
+    // Working sessions no longer block tuck/fold eligibility. Untucked selection
+    // stays open (lane stickiness); tucked selection folds.
     const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW, new Set(['settled']))
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
     expect(
@@ -783,17 +784,18 @@ describe('groupUnifiedWorkRows', () => {
       'selected',
       false,
       NOW,
-      new Set(['settled', 'selected']),
+      new Set(['settled', 'selected', 'working']),
     )
     expect(groupTuckedSelected?.closedRows.map((row) => row.issue.id)).toEqual([
       'settled',
       'selected',
+      'working',
     ])
     expect(
       groupTuckedSelected?.rows.map((row) =>
         row.kind === 'issue' ? row.issue.id : row.worktree.path,
       ),
-    ).toEqual(['unread', 'child', 'awaiting', 'needs-human', 'working', 'done-only'])
+    ).toEqual(['unread', 'child', 'awaiting', 'needs-human', 'done-only'])
   })
 
   it('keeps a selected closure in its closed-time order', () => {
