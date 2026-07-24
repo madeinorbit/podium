@@ -1024,11 +1024,15 @@ export function isUnstartedSession(s: SessionMeta): boolean {
   return boot.includes(title) || title === cwdBase
 }
 
-/** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
- *  display name; a still-unstarted session reads "New <kind> session" so a blank
- *  vessel is unmistakable. Mirrors sessionDisplayName's name-beats-title rule
- *  (WorkerLabel imports from this module, so the tiny normalize step is inlined
- *  here rather than imported — no cycle). */
+/** Row label for a DRAFT issue (placeholder-titled vessel): a name someone chose
+ *  for the attached session — a user rename or the agent's own `podium session
+ *  title` — otherwise "New <kind> session" until one arrives.
+ *
+ *  Deliberately NOT the session's live title: that is the harness's OSC terminal
+ *  string, not a name. Claude Code seeds it from its GLOBAL history, so a session
+ *  that has not summarized itself yet surfaces an unrelated older conversation —
+ *  and the vessel row, which is the only place a draft issue is named, would
+ *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueWire,
   sessions: SessionMeta[],
@@ -1036,9 +1040,7 @@ export function draftIssueLabel(
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
-  if (isUnstartedSession(first)) return `New ${panelLabel(first.agentKind)} session`
-  const title = first.title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
-  return first.name?.trim() || title || 'New agent'
+  return first.name?.trim() || `New ${panelLabel(first.agentKind)} session`
 }
 
 /** A DRAFT vessel whose only content is its agents: no worktree of its own, no
