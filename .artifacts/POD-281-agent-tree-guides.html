@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agents on the tree — POD-281</title>
+<style>
+  :root{
+    --race-navy:#0a0f1c; --panel-navy:#121b30; --chip-navy:#16223c; --rail-navy:#0e1626;
+    --engraved:#070b16; --bar-navy:#050912;
+    --seam:#243356; --hairline-soft:#1e2a4c; --border-strong:#364a78;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --ink-muted:#9a9aa8; --ink-dim:#6c7690;
+    --ink-faint:#525c78; --label-grey:#7a84a0;
+    --yellow:#f5c518; --claude:#d97757; --working:#6f9dff; --attention:#f5c518;
+    --sans:"Geist Variable",Inter,-apple-system,"Segoe UI",system-ui,sans-serif;
+    --mono:"Geist Mono Variable",ui-monospace,"SF Mono",Menlo,monospace;
+    --list-bg:#16161c;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--race-navy); color:var(--ink);
+    font-family:var(--sans); font-size:14px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding:56px 28px 96px}
+  .kicker{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--label-grey)}
+  h1{font-size:30px;line-height:1.18;font-weight:600;color:var(--ink-strong);margin:14px 0 0;letter-spacing:-.015em}
+  .lede{margin:12px 0 0;max-width:62ch;color:var(--ink-muted);font-size:14.5px}
+  .lede b{color:var(--ink);font-weight:500}
+
+  section{margin-top:56px}
+  h2{font-size:17px;font-weight:600;color:var(--ink-strong);margin:0 0 6px;letter-spacing:-.01em}
+  h2 .num{font-family:var(--mono);font-size:10px;color:var(--yellow);letter-spacing:.1em;margin-right:10px;vertical-align:2px}
+  .sub{margin:0 0 22px;color:var(--ink-dim);font-size:13px;max-width:66ch}
+
+  hr.seam{border:0;border-top:1px solid var(--hairline-soft);margin:0}
+
+  /* ---------- specimen frame: a slice of the real sidebar ---------- */
+  .stage{
+    background:var(--engraved);
+    border:1px solid var(--hairline-soft);
+    border-radius:10px;
+    padding:18px;
+    box-shadow:inset 0 3px 6px -3px rgb(0 0 0/.85);
+  }
+  .stage-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin:-2px 0 14px;
+  }
+  .stage-title{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--label-grey)}
+  .stage-title.is-now{color:var(--ink-faint)}
+  .stage-title.is-new{color:var(--yellow)}
+  .sidebar{
+    width:300px; background:var(--list-bg); border-radius:8px;
+    padding:8px 6px 12px; border:1px solid #1c1c24;
+  }
+  .sec-label{
+    font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--label-grey);padding:2px 8px 6px;display:flex;justify-content:space-between;
+  }
+  .zoomer{transform-origin:top left}
+
+  /* ---------- issue row (faithful to WorkRowShell) ---------- */
+  .irow{
+    display:flex;align-items:center;gap:8px;
+    padding:5px 8px 5px 14px;border-radius:7px;position:relative;
+  }
+  .irow.tinted{background:color-mix(in srgb,var(--issue) 12%,#16161c)}
+  .irow.sel{background:color-mix(in srgb,var(--issue) 28%,#16161c);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--issue) 80%,transparent)}
+  .idsq{
+    width:26px;height:26px;flex:none;border-radius:7px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:6.5px;line-height:1.3;font-weight:600;
+    background:var(--issue,#25252f);
+    color:color-mix(in srgb,var(--issue,#8d8d9a) 30%,#000);
+    border:1px solid transparent;
+  }
+  .idsq.plain{background:#25252f;color:#c5c5d0;border:1px solid #8d8d9a}
+  .chev{width:14px;flex:none;margin-left:-6px;color:#8b8b99;display:flex;align-items:center;justify-content:center}
+  .chev svg{display:block}
+  .ibody{min-width:0;flex:1;display:flex;flex-direction:column;gap:1px;line-height:normal}
+  .ititle{font-size:11.5px;color:var(--ink-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .irow.sel .ititle{font-weight:600}
+  .istatus{display:flex;align-items:center;gap:6px;font-size:10px;color:#8b93a8}
+  .istatus .live{color:var(--working);display:flex;align-items:center;gap:5px;font-weight:500}
+  .brl{font-family:var(--mono);font-size:9px;letter-spacing:-.02em}
+  .timer{font-family:var(--mono);font-size:9px;font-variant-numeric:tabular-nums;color:#7d879c}
+  .tick{font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:#6c7690;flex:none}
+
+  /* ---------- OLD: the boxed roster band ---------- */
+  .band-old{
+    margin:2px 0 3px 32px;border:1px solid var(--hairline-soft);
+    background:var(--rail-navy);border-radius:6px;padding:0 6px 4px;
+  }
+  .band-old .band-label{
+    font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--label-grey);padding:3px 2px 2px;
+  }
+  .nest-old{margin-left:12px;border-left:1px solid rgb(36 51 86/.5);padding-left:2px}
+
+  /* ---------- NEW: the tree ---------- */
+  .tree{
+    --rail:var(--tree-guide,var(--seam));
+    --elbow:12px;
+    position:relative;margin-left:16px;padding-left:14px;
+  }
+  .tree > *{position:relative}
+  .tree > *::before{
+    content:"";position:absolute;left:-14px;top:0;bottom:0;width:1px;
+    background:var(--rail);pointer-events:none;
+  }
+  .tree > .tnode::after{
+    content:"";position:absolute;left:-14px;top:var(--elbow);
+    width:9px;height:1px;background:var(--rail);pointer-events:none;
+  }
+  .tree > .tnode:last-child::before{
+    bottom:auto;height:var(--elbow);width:10px;background:none;
+    border-left:1px solid var(--rail);
+    border-bottom:1px solid var(--rail);
+    border-bottom-left-radius:6px;
+  }
+  .tree > .tnode:last-child::after{display:none}
+  .tree--sub{--rail:var(--tree-guide-sub,var(--hairline-soft));margin-left:6px;padding-left:14px}
+  /* the plan segment carries the issue tint; the execution segment stays neutral */
+  .tree--plan{--rail:var(--tree-guide,var(--seam))}
+  .tree--agents{--rail:var(--tree-guide-agents,#2b3550)}
+  .tree--agents .tree--sub{--rail:var(--tree-guide-agents-sub,#222b42)}
+  .tree + .tree{margin-top:5px}
+  /* a full-weight issue row is taller, so its elbow sits lower */
+  .tnode--issue{--elbow:18px}
+  .tree-label{
+    font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--label-grey);padding:3px 0 2px 2px;
+  }
+
+  /* ---------- roster row ---------- */
+  .trow{
+    display:flex;align-items:center;gap:6px;min-height:24px;
+    padding:2px 6px 2px 4px;border-radius:5px;color:var(--ink-muted);
+  }
+  .trow:hover{background:var(--row-hover,#1c1c24)}
+  .trow.sel{background:var(--row-sel,#232330);color:var(--ink-strong)}
+  .kchip{
+    width:18px;height:18px;flex:none;border-radius:5px;background:var(--chip-navy);
+    display:flex;align-items:center;justify-content:center;color:var(--ink);
+  }
+  .kchip.claude{color:var(--claude)}
+  .kchip svg{display:block}
+  .tname{min-width:0;flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tref{font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:#6c6c78;flex:none}
+  .dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--working)}
+  .dot.idle{background:#5b6274}
+  .dot.wait{background:var(--attention)}
+  .coord{
+    flex:none;font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    color:#7dd3fc;border:1px solid rgb(56 189 248/.5);background:rgb(56 189 248/.1);
+    border-radius:3px;padding:0 3px;
+  }
+  .glyph-old{width:14px;flex:none;text-align:center;font-size:10px;line-height:1;color:var(--claude)}
+  .leaf{
+    display:flex;align-items:center;gap:6px;min-height:24px;padding:2px 6px 2px 4px;
+    font-size:10.5px;color:#7f889c;
+  }
+
+  /* subtask issue child row inside the tree */
+  .subissue{display:flex;align-items:center;gap:7px;padding:3px 6px 3px 4px;border-radius:6px}
+  .subissue .idsq{width:22px;height:22px;border-radius:6px;font-size:6px}
+  .subissue .ititle{font-size:11px;color:var(--ink)}
+
+  /* ---------- A/B switch ---------- */
+  .ab{display:flex;gap:6px;align-items:center}
+  .ab button{
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    background:transparent;border:1px solid var(--hairline-soft);color:var(--ink-dim);
+    border-radius:5px;padding:4px 9px;cursor:pointer;transition:all .15s ease-out;
+  }
+  .ab button:hover{color:var(--ink);border-color:var(--border-strong)}
+  .ab button[aria-pressed="true"]{background:var(--yellow);border-color:var(--yellow);color:var(--race-navy);font-weight:600}
+  .ab button:focus-visible{outline:none;box-shadow:0 0 0 3px rgb(245 197 24/.45)}
+
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:900px){.pair{grid-template-columns:1fr}}
+
+  .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px}
+  .card{
+    background:var(--panel-navy);border:1px solid var(--seam);border-radius:10px;
+    padding:16px 16px 18px;
+  }
+  .card h3{margin:0 0 3px;font-size:12.5px;font-weight:600;color:var(--ink-strong)}
+  .card p.note{margin:0 0 14px;font-size:11.5px;color:var(--ink-dim);line-height:1.5}
+  .card .sidebar{width:100%;max-width:302px}
+
+  /* ---------- decisions ---------- */
+  .rules{display:grid;gap:1px;background:var(--hairline-soft);border:1px solid var(--hairline-soft);border-radius:10px;overflow:hidden}
+  .rule{background:var(--panel-navy);padding:16px 18px;display:grid;grid-template-columns:26px 1fr;gap:14px;align-items:start}
+  .rule .n{font-family:var(--mono);font-size:10px;color:var(--yellow);padding-top:2px}
+  .rule h4{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--ink-strong)}
+  .rule p{margin:0;font-size:12.5px;color:var(--ink-muted);line-height:1.6;max-width:80ch}
+  .rule p + p{margin-top:6px;color:var(--ink-dim);font-size:12px}
+  .rule em{color:var(--ink);font-style:normal;font-weight:500}
+
+  /* ---------- spec ---------- */
+  .spec{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px 22px;align-items:start}
+  @media (max-width:900px){.spec{grid-template-columns:1fr}}
+  .spec-col{display:grid;gap:22px;align-content:start}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--hairline-soft);vertical-align:top}
+  th{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--label-grey);font-weight:500}
+  td:first-child{font-family:var(--mono);font-size:11px;color:var(--ink);white-space:nowrap}
+  td:last-child{color:var(--ink-dim)}
+  td code{font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .scroll{overflow-x:auto}
+  pre{
+    margin:0;background:var(--engraved);border:1px solid var(--hairline-soft);border-radius:8px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:11px;line-height:1.75;color:#b9c2d8;
+  }
+  pre .c{color:#59657f;font-style:italic}
+  pre .k{color:var(--yellow)}
+  pre .v{color:#8fb3ff}
+
+  .cuts{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:760px){.cuts{grid-template-columns:1fr}}
+  .cutbox{background:var(--panel-navy);border:1px solid var(--seam);border-radius:10px;padding:16px 18px}
+  .cutbox h4{margin:0 0 10px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--label-grey)}
+  .cutbox ul{margin:0;padding-left:0;list-style:none}
+  .cutbox li{font-size:12.5px;color:var(--ink-muted);padding:6px 0 6px 20px;position:relative;border-top:1px solid var(--hairline-soft)}
+  .cutbox li:first-child{border-top:0}
+  .cutbox li::before{position:absolute;left:0;top:6px;font-family:var(--mono);font-size:11px}
+  .cutbox.out li::before{content:"−";color:#c26a6a}
+  .cutbox.in li::before{content:"+";color:#5ea88a}
+  .cutbox li b{color:var(--ink);font-weight:500}
+
+  .qs{display:grid;gap:12px}
+  .q{background:var(--panel-navy);border:1px solid var(--seam);border-radius:8px;padding:14px 18px}
+  .q h4{margin:0 0 4px;font-size:12.5px;font-weight:600;color:var(--ink-strong)}
+  .q h4 span{font-family:var(--mono);font-size:10px;color:var(--yellow);margin-right:9px}
+  .q p{margin:0;font-size:12.5px;color:var(--ink-muted)}
+  .q .rec{display:block;margin-top:6px;font-size:12px;color:var(--ink-dim)}
+  .q .rec b{color:var(--yellow);font-weight:500}
+
+  footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--hairline-soft);
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);
+    display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">POD-281 · Sidebar · Production proposal · v2</div>
+    <h1>Agents hang on the tree, not in a box.</h1>
+    <p class="lede">The roster band's job is to say <b>“these are execution, and they belong to that issue.”</b> Today it says it with a second container nested inside the issue's own card. A tree guide says the same thing with one hairline, and it keeps saying it as depth grows, which a box cannot. Two rail segments carry it: <b>a neutral one for agents, a colour-tinted one for plan structure</b>, each opened by a mono label and closed by its own elbow. The counters come off the rail entirely, because the issue row already states both.</p>
+
+  </header>
+
+  <!-- ============ 1. THE MOVE ============ -->
+  <section>
+    <h2><span class="num">01</span>The move</h2>
+    <p class="sub">Same issue, same two agents, same subagent. Only the container changes. Flip between them: everything that moves is the thing under discussion.</p>
+
+    <div class="pair">
+      <div class="stage">
+        <div class="stage-head">
+          <span class="stage-title is-now">Now — boxed roster band</span>
+          <span class="stage-title is-now">2 containers</span>
+        </div>
+        <div class="sidebar">
+          <div class="sec-label"><span>Work</span><span>7 active</span></div>
+          <!-- issue row -->
+          <div class="irow tinted" style="--issue:#e5a03f">
+            <div class="idsq" style="--issue:#e5a03f">
+              <span>POD</span><span>277</span>
+            </div>
+            <span class="chev">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </span>
+            <div class="ibody">
+              <div class="ititle">Proposed issue screening</div>
+              <div class="istatus">
+                <span class="live"><span class="brl">⠹</span> 2 agents · working</span>
+                <span class="timer">· 12:14</span>
+                <span style="flex:1"></span>
+                <span class="tick">⤷ 259</span>
+              </div>
+            </div>
+          </div>
+          <!-- OLD band -->
+          <div class="band-old">
+            <div class="band-label">Agents · 2</div>
+            <div>
+              <div class="trow">
+                <span class="glyph-old">✳</span>
+                <span class="kchip claude" style="width:20px;height:20px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg>
+                </span>
+                <span class="tname">Proposal screening coordinator</span>
+                <span class="tref">POD-241-A</span>
+                <span class="dot"></span>
+              </div>
+              <div class="nest-old">
+                <div class="trow">
+                  <span class="glyph-old">✳</span>
+                  <span class="kchip claude" style="width:20px;height:20px">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg>
+                  </span>
+                  <span class="tname">Proposal swipe flow</span>
+                  <span class="tref">POD-277-A</span>
+                  <span class="dot"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="stage-head">
+          <span class="stage-title is-new">Hybrid — tree guide</span>
+          <span class="stage-title is-new">1 container</span>
+        </div>
+        <div class="sidebar">
+          <div class="sec-label"><span>Work</span><span>7 active</span></div>
+          <div style="--issue:#e5a03f;--tree-guide:color-mix(in srgb,#e5a03f 55%,#243356);--tree-guide-sub:color-mix(in srgb,#e5a03f 30%,#243356);--row-hover:color-mix(in srgb,#e5a03f 18%,#16161c);--row-sel:color-mix(in srgb,#e5a03f 26%,#16161c);background:color-mix(in srgb,#e5a03f 12%,#16161c);border-radius:7px;padding-bottom:4px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#e5a03f"><span>POD</span><span>277</span></div>
+              <span class="chev">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+              <div class="ibody">
+                <div class="ititle">Proposed issue screening</div>
+                <div class="istatus">
+                  <span class="live"><span class="brl">⠹</span> 2 agents · working</span>
+                  <span class="timer">· 12:14</span>
+                  <span style="flex:1"></span>
+                  <span class="tick">⤷ 259</span>
+                </div>
+              </div>
+            </div>
+            <div class="tree tree--agents" role="group" aria-label="Agents">
+              <div class="tree-label">Agents</div>
+              <div class="tnode">
+                <div class="trow">
+                  <span class="kchip claude">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg>
+                  </span>
+                  <span class="tname">Proposal screening coordinator</span>
+                  <span class="tref">POD-241-A</span>
+                  <span class="dot"></span>
+                </div>
+                <div class="tree tree--sub">
+                  <div class="tnode">
+                    <div class="trow">
+                      <span class="kchip claude">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg>
+                      </span>
+                      <span class="tname">Proposal swipe flow</span>
+                      <span class="tref">POD-277-A</span>
+                      <span class="dot"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 1b. SEGMENTS ============ -->
+  <section>
+    <h2><span class="num">02</span>Where a shared spine breaks, and the fix</h2>
+    <p class="sub">One continuous rail under one counted label makes the count ambiguous: it is not clear where agents stop and plan structure starts, and the counter looks like it might be counting all of it. Two things fix it, and one of them is a deletion.</p>
+
+    <div class="pair">
+      <div class="stage">
+        <div class="stage-head">
+          <span class="stage-title is-now">v1 — one rail, one counted label</span>
+          <span class="stage-title is-now">ambiguous</span>
+        </div>
+        <div class="sidebar" style="--issue:#b07be0;--tree-guide:color-mix(in srgb,#b07be0 55%,#243356);--tree-guide-sub:color-mix(in srgb,#b07be0 30%,#243356)">
+          <div style="background:color-mix(in srgb,#b07be0 12%,#16161c);border-radius:7px;padding-bottom:4px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#b07be0"><span>POD</span><span>229</span></div>
+              <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <div class="ibody">
+                <div class="ititle">Sidebar subagent hierarchy</div>
+                <div class="istatus"><span class="live"><span class="brl">⠙</span> 2 agents · working</span><span class="timer">· 0/2 subtasks</span></div>
+              </div>
+            </div>
+            <div class="tree">
+              <div class="tree-label">Agents · 2</div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Concept pass</span><span class="tref">POD-229-A</span><span class="dot"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.2 19.6 7.6v8.8L12 20.8 4.4 16.4V7.6z"/><path d="M12 3.2v8.8l7.6 4.4M12 12 4.4 16.4"/></svg></span>
+                <span class="tname">Roster row grammar</span><span class="tref">POD-231-A</span><span class="dot idle"></span></div></div>
+              <div class="tnode"><div class="subissue">
+                <div class="idsq" style="--issue:#b07be0;width:22px;height:22px;border-radius:6px;font-size:6px"><span>POD</span><span>231</span></div>
+                <div class="ibody"><div class="ititle">Roster row grammar</div><div class="istatus" style="font-size:9.5px">queued</div></div>
+              </div></div>
+              <div class="tnode"><div class="subissue">
+                <div class="idsq" style="--issue:#b07be0;width:22px;height:22px;border-radius:6px;font-size:6px"><span>POD</span><span>232</span></div>
+                <div class="ibody"><div class="ititle">Fleet summary glyphs</div><div class="istatus" style="font-size:9.5px">queued</div></div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin:14px 2px 0;font-size:11.5px;color:var(--ink-dim)">Four rows, one unbroken rail, and a label that says <code>· 2</code>. Rows 2 and 3 are a different kind of thing and nothing on the rail says so. The counter also repeats <code>2 agents</code>, already stated on the row above it.</p>
+      </div>
+
+      <div class="stage">
+        <div class="stage-head">
+          <span class="stage-title is-new">v2 — two bounded segments</span>
+          <span class="stage-title is-new">scoped</span>
+        </div>
+        <div class="sidebar" style="--issue:#b07be0;--tree-guide:color-mix(in srgb,#b07be0 55%,#243356);--tree-guide-sub:color-mix(in srgb,#b07be0 30%,#243356)">
+          <div style="background:color-mix(in srgb,#b07be0 12%,#16161c);border-radius:7px;padding-bottom:5px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#b07be0"><span>POD</span><span>229</span></div>
+              <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <div class="ibody">
+                <div class="ititle">Sidebar subagent hierarchy</div>
+                <div class="istatus"><span class="live"><span class="brl">⠙</span> 2 agents · working</span><span class="timer">· 0/2 subtasks</span></div>
+              </div>
+            </div>
+            <div class="tree tree--agents" role="group" aria-label="Agents">
+              <div class="tree-label">Agents</div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Concept pass</span><span class="tref">POD-229-A</span><span class="dot"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.2 19.6 7.6v8.8L12 20.8 4.4 16.4V7.6z"/><path d="M12 3.2v8.8l7.6 4.4M12 12 4.4 16.4"/></svg></span>
+                <span class="tname">Roster row grammar</span><span class="tref">POD-231-A</span><span class="dot idle"></span></div></div>
+            </div>
+            <div class="tree tree--plan" role="group" aria-label="Subtasks">
+              <div class="tree-label">Subtasks</div>
+              <div class="tnode tnode--issue"><div class="irow">
+                <div class="idsq plain" style="border-style:dashed"><span>POD</span><span>231</span></div>
+                <div class="ibody"><div class="ititle">Roster row grammar</div>
+                  <div class="istatus">queued</div></div>
+              </div></div>
+              <div class="tnode tnode--issue"><div class="irow">
+                <div class="idsq" style="--issue:#b07be0"><span>POD</span><span>232</span></div>
+                <div class="ibody"><div class="ititle">Fleet summary glyphs</div>
+                  <div class="istatus"><span style="color:#5ea88a">✓</span> done<span class="timer">· 08:12</span></div></div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin:14px 2px 0;font-size:11.5px;color:var(--ink-dim)">Each segment starts at its own label and ends in its own elbow, so the gap between them is the boundary. The agents rail is neutral; the plan rail carries the issue colour. Sub-issues render at full issue weight, which is what they already are.</p>
+      </div>
+    </div>
+
+    <div class="rules" style="margin-top:22px">
+      <div class="rule"><div class="n">A</div><div>
+        <h4>Both counters already live on the issue row. Delete them from the rail.</h4>
+        <p><code>rowStatusLine</code> emits <code>2 agents · working · 1/3 subtasks · 12:14</code> today (<code>derive.ts:2327</code> and <code>:2331</code>). The rail label repeating <code>· 2</code> is the same fact twice in one region, which is exactly what the merge chip already suppresses on the git stamp. So the labels become pure section markers: <code>AGENTS</code>, <code>SUBTASKS</code>.</p>
+        <p>Both words are already the app's own vocabulary, taken from that same status line.</p>
+      </div></div>
+      <div class="rule"><div class="n">B</div><div>
+        <h4>A rail segment is bounded by its label and its elbow.</h4>
+        <p>Two sibling <code>.tree</code> blocks instead of one, separated by 5px. The elbow that terminates the agents rail is now doing real work: it says "this group ends here", and the next label opens the next one. No box, no divider line, no extra vertical space beyond the one label.</p>
+      </div></div>
+      <div class="rule"><div class="n">C</div><div>
+        <h4>Rail hue says kind. Rail opacity says depth.</h4>
+        <p>The plan segment carries the issue tint at 55%, because sub-issues inherit the issue's identity. The agents segment stays neutral at <code>#2b3550</code>, because execution does not own the issue's colour. Read at a glance and off-label, a coloured rail means structure and a grey rail means agents.</p>
+        <p>Depth still fades independently: a subagent's rail steps down from its parent's, whichever hue it is.</p>
+      </div></div>
+      <div class="rule"><div class="n">D</div><div>
+        <h4>Sub-issues render at full issue weight.</h4>
+        <p>A nested sub-issue is a real <code>UnifiedIssueRow</code>: 26px identity square with its ref printed inside, two lines, its own status and timer. An agent row is one line with an 18px kind chip and a mono session ref on the right. Drawn honestly they were never close; the v1 mock shrank them and manufactured the collision.</p>
+        <p>The one geometry consequence: a taller row needs a lower elbow, so <code>--tree-elbow</code> is <code>12px</code> on agent nodes and <code>18px</code> on issue nodes.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ============ 2. GALLERY ============ -->
+  <section>
+    <h2><span class="num">03</span>Every state it has to survive</h2>
+    <p class="sub">A tree is only worth it if it holds up at one child, at five, next to plan structure, and with nothing selected. These are the cases the sidebar actually renders today.</p>
+
+    <div class="gallery">
+
+      <div class="card">
+        <h3>Fan-out, one level</h3>
+        <p class="note">Three peers. The rail runs past each stub and rounds off into the last row, so the group's end is drawn rather than guessed.</p>
+        <div class="sidebar" style="--issue:#4d8ef0;--tree-guide:color-mix(in srgb,#4d8ef0 55%,#243356);--tree-guide-sub:color-mix(in srgb,#4d8ef0 30%,#243356);--row-hover:color-mix(in srgb,#4d8ef0 18%,#16161c);--row-sel:color-mix(in srgb,#4d8ef0 26%,#16161c)">
+          <div style="background:color-mix(in srgb,#4d8ef0 12%,#16161c);border-radius:7px;padding-bottom:4px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#4d8ef0"><span>POD</span><span>263</span></div>
+              <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <div class="ibody">
+                <div class="ititle">Merge lock lease expiry</div>
+                <div class="istatus"><span class="live"><span class="brl">⠴</span> 3 agents · working</span><span class="timer">· 04:41</span></div>
+              </div>
+            </div>
+            <div class="tree tree--agents" role="group" aria-label="Agents">
+              <div class="tree-label">Agents</div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Lease renewal</span><span class="coord">coord</span><span class="tref">POD-263-A</span><span class="dot"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.2 19.6 7.6v8.8L12 20.8 4.4 16.4V7.6z"/><path d="M12 3.2v8.8l7.6 4.4M12 12 4.4 16.4"/></svg></span>
+                <span class="tname">Steal-path review</span><span class="tref">POD-263-B</span><span class="dot idle"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">CLI surface</span><span class="tref">POD-263-C</span><span class="dot wait"></span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Both groups, narrow column</h3>
+        <p class="note">The everyday case at real sidebar width: two agents, two sub-issues, one issue row. Two labels, two rails, two elbows.</p>
+        <div class="sidebar" style="--issue:#b07be0;--tree-guide:color-mix(in srgb,#b07be0 55%,#243356)">
+          <div style="background:color-mix(in srgb,#b07be0 12%,#16161c);border-radius:7px;padding-bottom:5px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#b07be0"><span>POD</span><span>231</span></div>
+              <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <div class="ibody">
+                <div class="ititle">Roster row grammar</div>
+                <div class="istatus"><span class="live"><span class="brl">⠸</span> 2 agents · working</span><span class="timer">· 1/2 subtasks</span></div>
+              </div>
+            </div>
+            <div class="tree tree--agents" role="group" aria-label="Agents">
+              <div class="tree-label">Agents</div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Roster row grammar</span><span class="tref">POD-231-A</span><span class="dot"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Guide CSS pass</span><span class="tref">POD-231-B</span><span class="dot idle"></span></div></div>
+            </div>
+            <div class="tree tree--plan" role="group" aria-label="Subtasks">
+              <div class="tree-label">Subtasks</div>
+              <div class="tnode tnode--issue"><div class="irow">
+                <div class="idsq" style="--issue:#b07be0"><span>POD</span><span>232</span></div>
+                <div class="ibody"><div class="ititle">Fleet summary glyphs</div>
+                  <div class="istatus"><span class="live"><span class="brl">⠼</span> working</span><span class="timer">· 01:44</span></div></div>
+              </div></div>
+              <div class="tnode tnode--issue"><div class="irow">
+                <div class="idsq plain" style="border-style:dashed"><span>POD</span><span>233</span></div>
+                <div class="ibody"><div class="ititle">Stale session fold</div>
+                  <div class="istatus">queued</div></div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin:12px 2px 0;font-size:11px">Grey rail, one-line rows, mono session refs: agents. Coloured rail, identity squares, two lines: plan. Even with both labels scrolled out of view, the rail still answers which group you are in.</p>
+      </div>
+
+      <div class="card">
+        <h3>Selected agent</h3>
+        <p class="note">Selection is a filled row, tinted by the issue, not a container. It is the only box left, and it means <em>state</em>.</p>
+        <div class="sidebar" style="--issue:#3fb3a0;--tree-guide:color-mix(in srgb,#3fb3a0 55%,#243356);--tree-guide-sub:color-mix(in srgb,#3fb3a0 30%,#243356);--row-hover:color-mix(in srgb,#3fb3a0 18%,#16161c);--row-sel:color-mix(in srgb,#3fb3a0 26%,#16161c)">
+          <div style="background:color-mix(in srgb,#3fb3a0 12%,#16161c);border-radius:7px;padding-bottom:4px">
+            <div class="irow">
+              <div class="idsq" style="--issue:#3fb3a0"><span>POD</span><span>241</span></div>
+              <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+              <div class="ibody">
+                <div class="ititle">Mobile superagent bar</div>
+                <div class="istatus"><span class="live"><span class="brl">⠧</span> 2 agents · working</span><span class="timer">· 31:07</span></div>
+              </div>
+            </div>
+            <div class="tree tree--agents">
+              <div class="tree-label">Agents</div>
+              <div class="tnode">
+                <div class="trow sel">
+                  <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                  <span class="tname">Tab bar rewrite</span><span class="coord">coord</span><span class="tref">POD-241-A</span><span class="dot"></span>
+                </div>
+                <div class="tree tree--sub">
+                  <div class="tnode"><div class="leaf">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.7"><polyline points="9 18 15 12 9 6"/></svg>
+                    3 subagents</div></div>
+                </div>
+              </div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Sticky prompt polish</span><span class="tref">POD-241-B</span><span class="dot idle"></span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>No colour, no box either</h3>
+        <p class="note">An uncoloured issue runs the same mechanics in Flow Slate. Without the band's <code>#0e1626</code> fill, an uncoloured row finally reads as quiet instead of as a second panel.</p>
+        <div class="sidebar" style="--tree-guide:#2a3552;--tree-guide-sub:#222c45;--row-hover:#1e1e28;--row-sel:#232330">
+          <div class="irow">
+            <div class="idsq plain"><span>POD</span><span>216</span></div>
+            <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+            <div class="ibody">
+              <div class="ititle">Native sticky prompts</div>
+              <div class="istatus"><span class="live"><span class="brl">⠦</span> 2 agents · working</span><span class="timer">· 02:58</span></div>
+            </div>
+          </div>
+          <div class="tree tree--agents">
+            <div class="tree-label">Agents</div>
+            <div class="tnode"><div class="trow">
+              <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+              <span class="tname">Composer anchoring</span><span class="tref">POD-216-A</span><span class="dot"></span></div></div>
+            <div class="tnode"><div class="trow">
+              <span class="kchip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.6 10.2l2.4 2-2.4 2M13 15.4h3"/></svg></span>
+              <span class="tname">shell — bun test</span><span class="tref">iss_d2b3…</span><span class="dot idle"></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Lone driver, and folded</h3>
+        <p class="note">POD-267 stands. One agent fuses into its issue row as the fleet glyph. A rail with a single leaf is just a box by another name.</p>
+        <div class="sidebar" style="--issue:#e5606a">
+          <div class="irow tinted" style="--issue:#e5606a">
+            <div class="idsq" style="--issue:#e5606a"><span>POD</span><span>280</span></div>
+            <div class="ibody">
+              <div class="ititle">Folded superagent bar</div>
+              <div class="istatus"><span class="live"><span class="brl">⠏</span> working</span><span class="timer">· 06:20</span></div>
+            </div>
+            <span class="kchip claude" style="opacity:.9"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+        <p class="note" style="margin:16px 2px 8px;font-size:11px">Folded: the chevron still eats the whole tree in one click. The fleet summary on line 1 keeps the count and the live state visible, so nothing is lost by closing it.</p>
+        <div class="sidebar" style="--issue:#4d8ef0">
+          <div class="irow tinted" style="--issue:#4d8ef0">
+            <div class="idsq" style="--issue:#4d8ef0"><span>POD</span><span>263</span></div>
+            <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+            <div class="ibody">
+              <div class="ititle">Merge lock lease expiry</div>
+              <div class="istatus"><span class="live"><span class="brl">⠴</span> 3 agents · working</span><span class="timer">· 04:41</span></div>
+            </div>
+            <span class="kchip claude" style="width:15px;height:15px;border-radius:4px"><svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+            <span class="kchip" style="width:15px;height:15px;border-radius:4px;margin-left:-4px"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.2 19.6 7.6v8.8L12 20.8 4.4 16.4V7.6z"/></svg></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Unowned worktree (L6)</h3>
+        <p class="note">Nothing above it to hang from, so the label <em>is</em> the parent node. <code>repo · branch</code> keeps its selectable hairline and the sessions hang beneath it. One grammar, two roles.</p>
+        <div class="sidebar" style="--tree-guide:#2a3552;--tree-guide-sub:#222c45;--row-hover:#1e1e28">
+          <div style="border:1px solid #1e2a4c;border-radius:6px;padding:1px 6px 4px;background:linear-gradient(#0e1626,#0e1626)">
+            <div class="tree-label" style="padding-left:0">podium · main · 2</div>
+            <div class="tree tree--agents" style="margin-left:4px">
+              <div class="tnode"><div class="trow">
+                <span class="kchip claude"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.6l1.6 5.6 4.4-3.6-2.4 5.1 5.8-.6-4.9 3.2 5 3-5.9-.5 2.5 5.2-4.5-3.7L12 21.4l-1.6-5.5-4.5 3.7 2.5-5.2-5.9.5 5-3-4.9-3.2 5.8.6-2.4-5.1 4.4 3.6z"/></svg></span>
+                <span class="tname">Roster refactor</span><span class="dot"></span></div></div>
+              <div class="tnode"><div class="trow">
+                <span class="kchip"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.6 10.2l2.4 2-2.4 2M13 15.4h3"/></svg></span>
+                <span class="tname">shell — git log</span><span class="dot idle"></span></div></div>
+            </div>
+          </div>
+          <p class="note" style="margin:12px 2px 0;font-size:11px">The one place a container survives: it is a top-level selectable surface, not a nested one. Open question 3 below.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ 3. DECISIONS ============ -->
+  <section>
+    <h2><span class="num">04</span>Five more decisions, and why</h2>
+    <p class="sub">Section 02 settled how the two groups separate. These are the rest, and each is a thing to argue with.</p>
+
+    <div class="rules">
+      <div class="rule"><div class="n">01</div><div>
+        <h4>The border and the fill go; the label stays.</h4>
+        <p>The band carried three signals to say one thing: <em>a border</em>, <em>a tone tier</em>, <em>a mono label</em>. The label already says it in words and gives the count. The other two were a card nested inside a card, which DESIGN.md's Carved Rule forbids on its own terms: if a resting surface needs to differ from its neighbour, change its tone or engrave it, never stack it.</p>
+        <p>What still does the L2 work: the <code>AGENTS · N</code> mono header, the kind chip instead of an ID square, one-line rows against the issue's two, and the mono ref on the right edge. Four differentiators, zero containers.</p>
+      </div></div>
+
+      <div class="rule"><div class="n">02</div><div>
+        <h4>One rail geometry, reused everywhere under the row.</h4>
+        <p>Today the band sits <em>adjacent</em> to the subtask tree at <code>ml-8</code>, with its own nesting rules, while sub-issues hang off <code>.tree-children</code> at <code>left:16px</code>. Two indent systems inside one unfolded row. Both segments now use the same rail at <code>16px</code> and differ by hue, label and row weight instead (section 02).</p>
+        <p>Net effect on width: agent rows start at <code>36px</code> instead of <code>42px</code>, so every session name gets 6px back and long coordinator names truncate less.</p>
+      </div></div>
+
+      <div class="rule"><div class="n">03</div><div>
+        <h4>The rail ends where the last child is, and rounds into it.</h4>
+        <p>The current guide is an absolutely-positioned span from <code>top:0</code> to <code>bottom:12px</code>, a guess that overshoots a short last row and undershoots a tall one. The hybrid draws the vertical on each child and truncates the last one to <code>var(--tree-elbow)</code> with a <code>6px</code> bottom-left radius. The group's end becomes a fact of the markup, at any child count, with no measurement.</p>
+      </div></div>
+
+      <div class="rule"><div class="n">04</div><div>
+        <h4>Roster rows join the issue's colour channel.</h4>
+        <p>Rail hue is settled in section 02: coloured for plan, neutral for execution. Within either, a subagent's rail steps down 25 points from its parent's so depth reads as recession without a second indent cue.</p>
+        <p>Roster rows currently opt <em>out</em> of the tint (<code>bg-[#1c2a47]</code> hard-coded) because the band's navy fill was underneath them. With the fill gone they opt in: hover and selection use the issue's <code>--child-hover-bg</code>/<code>--child-active-bg</code>, exactly like sub-issue rows. Row and unfolded block finally read as one coloured card.</p>
+      </div></div>
+
+      <div class="rule"><div class="n">05</div><div>
+        <h4>The ✳ goes. The kind chip is the agent's mark.</h4>
+        <p>Every roster row draws a terracotta <code>✳</code> and then a 20px kind chip beside it: two glyphs for one job, and the ✳ is Claude's brand clay even on a Codex row, which the Reserved Hues rule prohibits. Keep the chip (it says <em>which</em> agent), drop the asterisk, reclaim 14px.</p>
+        <p>The chip itself moves to Chip Navy <code>#16223c</code> from <code>#22222c</code>, a grey predating the navy palette, and from 20px to 18px so it never competes with the 26px identity square.</p>
+      </div></div>
+
+      <div class="rule"><div class="n">06</div><div>
+        <h4>No new motion.</h4>
+        <p>The rail does not draw itself in. Expanding uses the existing arrival treatment on the whole block; the guide arrives with it, then holds perfectly still. Stillness is the "needs you" signal, so the working spinner and the counting timer stay the only perpetual motion on the surface.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ============ 4. CUTS ============ -->
+  <section>
+    <h2><span class="num">05</span>What leaves, what arrives</h2>
+    <p class="sub">Everything functional is preserved: close-on-hover, Continue on error, rename on double-click, the context menu, snooze, coordinator badge, draft/unread/outcome chips, stale fold, consumed-children fold.</p>
+    <div class="cuts">
+      <div class="cutbox out">
+        <h4>Removed</h4>
+        <ul>
+          <li><b>The band container</b> · <code>rounded-[6px] border border-[#1e2a4c] bg-[#0e1626] px-1.5 pb-1</code></li>
+          <li><b>The <code>ml-8</code> offset</b>, and its second indent system</li>
+          <li><b>The ✳ roster glyph</b> · redundant with the kind chip, wrong hue off Claude</li>
+          <li><b>The <code>ml-3 border-l pl-0.5</code> subagent nest</b> · replaced by the rail</li>
+          <li><b>Hard-coded roster tones</b> <code>#1c2a47</code> / <code>#16223c</code> on row hover + active</li>
+          <li><b>The <code>[data-tree-band]</code> stub exclusion</b> · no longer a special case</li>
+          <li><b>The rail label's counter</b> · <code>rowStatusLine</code> already states both counts on the row</li>
+        </ul>
+      </div>
+      <div class="cutbox in">
+        <h4>Added</h4>
+        <ul>
+          <li><b><code>.tree</code> / <code>.tnode</code></b> · ~20 lines of CSS, no JS, no measurement</li>
+          <li><b>A second labeled segment</b> · <code>SUBTASKS</code>, bounded the same way as <code>AGENTS</code></li>
+          <li><b>Four rail vars</b> · plan and agents, each with a depth-2 step</li>
+          <li><b><code>--tree-elbow</code></b> · row half-height, one tunable number</li>
+          <li><b>Tint-aware roster rows</b> via the existing <code>--child-*-bg</code> vars</li>
+          <li><b><code>role="group"</code> + <code>aria-label="Agents"</code></b>; rails are <code>aria-hidden</code></li>
+          <li><b>18px Chip-Navy kind chip</b> replacing the 20px <code>#22222c</code> one</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5. SPEC ============ -->
+  <section>
+    <h2><span class="num">06</span>Implementation spec</h2>
+    <p class="sub">Geometry is fixed and token-driven so a second surface cannot drift. Ready to transcribe.</p>
+
+    <div class="spec">
+      <div class="spec-col">
+        <div class="scroll">
+        <table>
+          <thead><tr><th>Token</th><th>Value</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>rail x</td><td><code>16px</code></td><td>Same as today's sub-issue guide</td></tr>
+            <tr><td>stub</td><td><code>9px</code></td><td>Rail → row gap</td></tr>
+            <tr><td>content start</td><td><code>36px</code></td><td>Was 42px</td></tr>
+            <tr><td>--tree-elbow</td><td><code>12px</code> / <code>18px</code></td><td>Agent node / issue node half-height</td></tr>
+            <tr><td>elbow radius</td><td><code>6px</code></td><td>Last child only</td></tr>
+            <tr><td>--tree-guide</td><td><code>mix(--issue 55%, --border)</code></td><td>Plan segment, depth 1</td></tr>
+            <tr><td>--tree-guide-sub</td><td><code>mix(--issue 30%, --border)</code></td><td>Plan segment, depth 2+</td></tr>
+            <tr><td>--tree-guide-agents</td><td><code>#2b3550</code></td><td>Agents segment, depth 1</td></tr>
+            <tr><td>--tree-guide-agents-sub</td><td><code>#222b42</code></td><td>Subagents, depth 2+</td></tr>
+            <tr><td>segment gap</td><td><code>5px</code></td><td>Between sibling <code>.tree</code> blocks</td></tr>
+            <tr><td>neutral rail</td><td><code>#243356</code></td><td>Uncoloured fallback</td></tr>
+            <tr><td>row height</td><td><code>24px</code> min</td><td>Unchanged</td></tr>
+            <tr><td>kind chip</td><td><code>18px / r5 / #16223c</code></td><td>Was 20px / #22222c</td></tr>
+            <tr><td>label</td><td><code>7.5px mono .11em #7a84a0</code></td><td>Type unchanged; counter removed</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <div class="scroll">
+        <table>
+          <thead><tr><th>File</th><th>Change</th></tr></thead>
+          <tbody>
+            <tr><td>styles.css</td><td>Replace the <code>.tree-children</code> rules with the <code>.tree</code> block; keep the old selector as an alias for one release if another surface still uses it.</td></tr>
+            <tr><td>sidebar-common.tsx</td><td><code>AgentRosterBand</code> → <code>AgentTreeGroup</code>: same props, renders label + <code>.tree</code>, no border or fill. <code>GroupedSessionRows</code> emits <code>.tnode</code> wrappers instead of <code>ml-3 border-l</code>. <code>PanelRow</code>'s roster branch drops the ✳ and uses <code>--child-*-bg</code> for hover/active. <code>NativeSubagentIndicator</code> becomes a leaf node.</td></tr>
+            <tr><td>SidebarUnified.tsx</td><td><code>WorkRowShell</code>: render two sibling <code>.tree</code> blocks, <code>.tree--agents</code> then <code>.tree--plan</code>, each with its own mono label and no counter. Sub-issue nodes get <code>.tnode--issue</code>. Drop the <code>[data-tree-band]</code> special case and the <code>ml-8</code> offset; set the four rail vars.</td></tr>
+            <tr><td>WorkerLabel.tsx</td><td><code>KindIcon</code> chip: <code>size-5 bg-[#22222c]</code> → <code>size-[18px] bg-[#16223c]</code>, hover <code>#1c2a47</code>.</td></tr>
+            <tr><td>roster.test.tsx</td><td>Band assertions retarget to the two groups + their labels; add a last-child-elbow structural case, a “no counter in the rail label” case, and a “no ✳ in roster rows” case.</td></tr>
+            <tr><td>e2e/browser/*</td><td>The <code>agent-roster-band</code> test id stays on the new group, so existing selectors keep working.</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div>
+<pre><span class="c">/* styles.css — replaces the .tree-children block */</span>
+<span class="k">.tree</span> {
+  <span class="v">--rail</span>: var(--tree-guide, var(--border));
+  <span class="v">--tree-elbow</span>: 12px;
+  position: relative;
+  margin-left: 16px;
+  padding-left: 14px;
+}
+<span class="k">.tree > *</span> { position: relative; }
+
+<span class="c">/* vertical segment — every child, label included */</span>
+<span class="k">.tree > *::before</span> {
+  content: ""; position: absolute;
+  left: -14px; top: 0; bottom: 0;
+  width: 1px; background: var(--rail);
+  pointer-events: none;
+}
+
+<span class="c">/* horizontal stub at the row's centre */</span>
+<span class="k">.tree > .tnode::after</span> {
+  content: ""; position: absolute;
+  left: -14px; top: var(--tree-elbow);
+  width: 9px; height: 1px; background: var(--rail);
+  pointer-events: none;
+}
+
+<span class="c">/* last child: the rail becomes the elbow and stops */</span>
+<span class="k">.tree > .tnode:last-child::before</span> {
+  bottom: auto; height: var(--tree-elbow);
+  width: 10px; background: none;
+  border-left: 1px solid var(--rail);
+  border-bottom: 1px solid var(--rail);
+  border-bottom-left-radius: 6px;
+}
+<span class="k">.tree > .tnode:last-child::after</span> { display: none; }
+
+<span class="c">/* depth 2+: quieter rail, tighter offset */</span>
+<span class="k">.tree--sub</span> {
+  <span class="v">--rail</span>: var(--tree-guide-sub, var(--hairline-soft));
+  margin-left: 6px;
+}
+
+<span class="c">/* hue says kind: plan carries the issue tint, execution stays neutral */</span>
+<span class="k">.tree--plan</span>   { <span class="v">--rail</span>: var(--tree-guide, var(--border)); }
+<span class="k">.tree--agents</span> { <span class="v">--rail</span>: var(--tree-guide-agents, #2b3550); }
+<span class="k">.tree--agents .tree--sub</span> {
+  <span class="v">--rail</span>: var(--tree-guide-agents-sub, #222b42);
+}
+
+<span class="c">/* two segments, one boundary: the gap between them */</span>
+<span class="k">.tree + .tree</span> { margin-top: 5px; }
+
+<span class="c">/* a full-weight issue row is taller, so its elbow sits lower */</span>
+<span class="k">.tnode--issue</span> { <span class="v">--tree-elbow</span>: 18px; }</pre>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============ 6. OPEN ============ -->
+  <section>
+    <h2><span class="num">07</span>Three things to decide before I build</h2>
+    <div class="qs">
+      <div class="q">
+        <h4><span>01</span>Does <code>SUBTASKS</code> earn its own label?</h4>
+        <p>The gap, the hue change and the full-weight rows may already bound the agents group on their own, in which case the second label is one more line of chrome on every issue that has both.</p>
+        <span class="rec">Recommendation: <b>keep it.</b> Symmetry is what makes two segments read as two groups; an unlabeled tail reads as leftovers from the first one.</span>
+      </div>
+
+      <div class="q">
+        <h4><span>02</span>Does the ✳ go in this change or a separate one?</h4>
+        <p>Dropping it is the single most visible row-level edit here, and it is technically independent of the container question.</p>
+        <span class="rec">Recommendation: <b>same change.</b> Without the band's fill the rows have to carry themselves, and a duplicate glyph is exactly the noise that makes an unboxed row look unfinished.</span>
+      </div>
+      <div class="q">
+        <h4><span>03</span>Does the unowned-worktree band keep its box?</h4>
+        <p>It is top-level and selectable. There is no parent row for a rail to hang from, and its hairline firms on selection. Removing the box there costs a real affordance.</p>
+        <span class="rec">Recommendation: <b>keep the box there, label becomes the parent node.</b> The rule is “no container nested inside another container”, not “no containers”.</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>POD-281 · Tree guide agent hierarchy</span>
+    <span>Concept POD-229 · Superade theme · DESIGN.md §4 Carved, §5 Issue-colour channel</span>
+  </footer>
+</div>
+</body>
+</html>

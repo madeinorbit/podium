@@ -1,0 +1,4 @@
+Script started on 2026-07-22 10:10:05+02:00 [COMMAND="/home/podium/.podium/bin/abduco -a podium-49a10c7a-7035-4a0f-96c7-1d76f0dd6272 < f" <not executed on terminal>]
+bash: line 1: f: No such file or directory
+
+Script done on 2026-07-22 10:10:05+02:00 [COMMAND_EXIT_CODE="1"]

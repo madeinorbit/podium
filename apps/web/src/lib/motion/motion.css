@@ -80,8 +80,10 @@
     transform: scale(1);
   }
 }
+/* Hold the amber attention flash for ~2s, then ease out (POD-323). */
 @keyframes podium-row-flash {
-  0% {
+  0%,
+  69% {
     background-color: rgba(245, 158, 11, 0.32);
   }
   100% {
@@ -146,7 +148,8 @@
   animation: podium-pop-in 0.4s ease;
 }
 .morph-row-flash {
-  animation: podium-row-flash 0.9s ease-out;
+  /* 2s hold + ~0.9s fade (matches previous fade length). */
+  animation: podium-row-flash 2.9s ease-out;
 }
 .morph-tick-in {
   animation: podium-tick-in 0.35s ease;

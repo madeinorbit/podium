@@ -1,0 +1,406 @@
+<title>Settings Redesign — POD-127</title>
+<style>
+  :root {
+    --bg: #f6f7fa;
+    --surface: #ffffff;
+    --ink: #1a2440;
+    --ink-2: #3c4664;
+    --muted: #5e6a86;
+    --seam: #e2e6ef;
+    --accent: #1d4ed8;
+    --chip-bg: #eef1f7;
+    --code-bg: #eef1f7;
+    --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0f1c;
+      --surface: #121b30;
+      --ink: #e9ebf4;
+      --ink-2: #c2c8da;
+      --muted: #96a0b8;
+      --seam: #243356;
+      --accent: #f5c518;
+      --chip-bg: #16223c;
+      --code-bg: #0e1626;
+      --warn: #e0b23e;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f7fa; --surface: #ffffff; --ink: #1a2440; --ink-2: #3c4664; --muted: #5e6a86;
+    --seam: #e2e6ef; --accent: #1d4ed8; --chip-bg: #eef1f7; --code-bg: #eef1f7; --warn: #9a6700;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a0f1c; --surface: #121b30; --ink: #e9ebf4; --ink-2: #c2c8da; --muted: #96a0b8;
+    --seam: #243356; --accent: #f5c518; --chip-bg: #16223c; --code-bg: #0e1626; --warn: #e0b23e;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Geist", "Geist Variable", Inter, system-ui, -apple-system, sans-serif;
+    line-height: 1.55;
+    margin: 0;
+    font-size: 15px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 56px 24px 96px; }
+  .wide { max-width: 1120px; margin-left: auto; margin-right: auto; }
+
+  h1 { font-size: 30px; line-height: 1.2; margin: 8px 0 12px; letter-spacing: -0.015em; text-wrap: balance; }
+  h2 { font-size: 20px; margin: 56px 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+  h3 { font-size: 15px; margin: 28px 0 6px; }
+  p  { margin: 10px 0; max-width: 68ch; }
+  p.lede { font-size: 17px; color: var(--ink-2); max-width: 62ch; }
+  .meta { font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; color: var(--muted); letter-spacing: 0.04em; }
+  .muted { color: var(--muted); }
+  .rule { border: 0; border-top: 1px solid var(--seam); margin: 40px 0; }
+  code { font-family: "Geist Mono", ui-monospace, Menlo, monospace; font-size: 0.86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  strong { color: var(--ink); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 14px 0; }
+  th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); padding: 6px 12px 6px 0; border-bottom: 1px solid var(--seam); }
+  td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--seam); vertical-align: top; }
+  td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); }
+
+  .finding { display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--seam); }
+  .finding:last-child { border-bottom: 0; }
+  .finding .n { font-family: "Geist Mono", ui-monospace, monospace; font-size: 12px; color: var(--accent); font-weight: 600; padding-top: 2px; }
+  .finding p { margin: 2px 0 0; font-size: 14px; }
+  .finding .t { font-weight: 600; font-size: 14px; }
+
+  figure { margin: 20px 0; }
+  figure img { max-width: 100%; border: 1px solid var(--seam); border-radius: 8px; display: block; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin-top: 8px; max-width: 70ch; }
+
+  .mock-frame { margin: 24px 0 8px; overflow-x: auto; border-radius: 10px; }
+  .mock-caption { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; max-width: 74ch; }
+
+  /* ============ PRODUCT MOCKUPS — fixed Superade theme, deliberately single-theme ============ */
+  .pm { --p-bg:#0a0f1c; --p-panel:#121b30; --p-chip:#16223c; --p-rail:#0e1626; --p-engraved:#070b16;
+        --p-seam:#243356; --p-hair:#1e2a4c; --p-border-strong:#364a78;
+        --p-ink-strong:#f3f3f8; --p-ink:#d7d7e0; --p-muted:#9a9aa8; --p-dim:#6c7690; --p-faint:#525c78; --p-label:#7a84a0;
+        --p-yellow:#f5c518; --p-blue:#2f6bff; --p-red:#e5303f;
+        background: var(--p-bg); color: var(--p-ink);
+        font-family: "Geist", Inter, system-ui, sans-serif; font-size: 12px; line-height: 1.5;
+        border: 1px solid var(--p-seam); border-radius: 10px;
+        user-select: none; }
+  .pm * { box-sizing: border-box; }
+  .pm .mono { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
+
+  /* desktop mock */
+  .pm-desktop { width: 1080px; height: 660px; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  .pm-titlebar { display: flex; align-items: center; justify-content: space-between; height: 42px; flex: none;
+                 padding: 0 14px 0 18px; border-bottom: 1px solid var(--p-hair); }
+  .pm-titlebar .t { font-weight: 600; font-size: 12.5px; color: var(--p-ink-strong); }
+  .pm-titlebar .x { color: var(--p-dim); font-size: 13px; padding: 4px 8px; border-radius: 6px; }
+  .pm-body { display: flex; flex: 1; min-height: 0; }
+
+  .pm-nav { width: 216px; flex: none; background: var(--p-rail); border-right: 1px solid var(--p-hair);
+            box-shadow: inset -3px 0 6px -3px rgb(0 0 0 / 0.7); padding: 12px 10px 12px; overflow-y: auto; }
+  .pm-search { display: flex; align-items: center; gap: 7px; height: 28px; margin: 0 2px 12px;
+               background: var(--p-bg); border: 1px solid var(--p-hair); border-radius: 6px; padding: 0 9px;
+               color: var(--p-faint); font-size: 11.5px; }
+  .pm-search .k { margin-left: auto; font-size: 9px; border: 1px solid var(--p-hair); border-radius: 4px; padding: 0 4px; color: var(--p-faint); }
+  .pm-group { margin: 14px 4px 4px; font-size: 8.5px; font-weight: 500; letter-spacing: 0.12em; color: var(--p-label); }
+  .pm-nav a { display: block; padding: 5px 10px; border-radius: 6px; color: var(--p-muted); font-size: 12.5px; text-decoration: none; }
+  .pm-nav a.on { background: var(--p-chip); color: var(--p-ink-strong); font-weight: 500; }
+  .pm-nav a:hover:not(.on) { color: var(--p-ink); background: rgb(255 255 255 / 0.03); }
+
+  .pm-content { flex: 1; overflow-y: auto; padding: 26px 40px 80px; }
+  .pm-col { max-width: 620px; }
+  .pm-h { font-size: 15px; font-weight: 600; color: var(--p-ink-strong); margin: 0 0 3px; }
+  .pm-sub { font-size: 12px; color: var(--p-muted); margin: 0 0 18px; max-width: 58ch; }
+  .pm-sec { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--p-hair); }
+  .pm-sec-h { font-size: 12.5px; font-weight: 600; color: var(--p-ink-strong); margin: 0 0 2px; }
+  .pm-sec-sub { font-size: 11.5px; color: var(--p-dim); margin: 0 0 8px; max-width: 58ch; }
+
+  .pm-row { display: grid; grid-template-columns: 1fr 240px; gap: 16px; align-items: center; padding: 9px 0; }
+  .pm-row + .pm-row { border-top: 1px solid rgb(30 42 76 / 0.55); }
+  .pm-row .lbl { font-size: 12.5px; color: var(--p-ink); }
+  .pm-row .dsc { font-size: 11px; color: var(--p-dim); margin-top: 1px; max-width: 44ch; }
+  .pm-row .ctl { justify-self: end; width: 100%; display: flex; justify-content: flex-end; }
+
+  .pm-select { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 30px;
+               background: var(--p-bg); border: 1px solid var(--p-border-strong); border-radius: 6px;
+               padding: 0 10px; font-size: 12px; color: var(--p-ink); cursor: default; }
+  .pm-select .cv { color: var(--p-faint); font-size: 10px; }
+  .pm-select .id { color: var(--p-dim); margin-left: 6px; font-size: 11px; }
+
+  .pm-switch { width: 30px; height: 17px; border-radius: 9px; background: var(--p-chip); border: 1px solid var(--p-border-strong);
+               position: relative; cursor: pointer; flex: none; transition: background 150ms; }
+  .pm-switch::after { content: ""; position: absolute; top: 1.5px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+                      background: var(--p-muted); transition: transform 150ms cubic-bezier(0.22,1,0.36,1), background 150ms; }
+  .pm-switch.on { background: var(--p-yellow); border-color: var(--p-yellow); }
+  .pm-switch.on::after { transform: translateX(12px); background: #0a0f1c; }
+  .pm-switch:focus-visible { outline: 2px solid var(--p-blue); outline-offset: 2px; }
+
+  .pm-note { font-size: 11px; color: var(--p-dim); background: var(--p-rail); border: 1px solid var(--p-hair);
+             border-radius: 6px; padding: 8px 10px; margin: 8px 0 2px; max-width: 56ch; }
+
+  .pm-savebar { position: absolute; left: 224px; right: 8px; bottom: 8px;
+                display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 16px;
+                background: var(--p-chip); border: 1px solid var(--p-border-strong); border-radius: 8px;
+                box-shadow: 0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5);
+                transform: translateY(64px); opacity: 0; transition: transform 220ms cubic-bezier(0.22,1,0.36,1), opacity 180ms; }
+  .pm-savebar.show { transform: translateY(0); opacity: 1; }
+  .pm-savebar .msg { font-size: 12px; color: var(--p-ink); }
+  .pm-savebar .spacer { flex: 1; }
+  .pm-btn { height: 30px; padding: 0 12px; border-radius: 6px; font-size: 12px; font-weight: 500; border: 0; cursor: pointer; }
+  .pm-btn.primary { background: var(--p-yellow); color: #0a0f1c; }
+  .pm-btn.ghost { background: transparent; color: var(--p-muted); }
+  .pm-btn.ghost:hover { color: var(--p-ink); }
+
+  /* phones */
+  .pm-phones { display: flex; gap: 24px; flex-wrap: wrap; }
+  .pm-phone { width: 300px; height: 520px; overflow: hidden; display: flex; flex-direction: column; }
+  .pm-phone .pm-titlebar { padding: 0 12px; }
+  .pm-phone .list { padding: 10px 10px 20px; overflow: hidden; }
+  .pm-phone .pm-group { margin: 14px 8px 4px; }
+  .pm-cell { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px; border-radius: 7px;
+             color: var(--p-ink); font-size: 13px; }
+  .pm-cell .ch { color: var(--p-faint); font-size: 11px; }
+  .pm-cell:active { background: var(--p-chip); }
+  .pm-back { color: var(--p-yellow); font-size: 12px; }
+
+  /* stepper */
+  .pm-steps { counter-reset: s; margin: 10px 0 0; padding: 0; list-style: none; }
+  .pm-steps li { counter-increment: s; display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 8px 0; font-size: 12px; color: var(--p-ink); }
+  .pm-steps li::before { content: counter(s); font-family: "Geist Mono", ui-monospace, monospace; font-size: 10px;
+                         width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--p-border-strong);
+                         color: var(--p-muted); display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .pm-steps li.done::before { content: "✓"; color: var(--p-blue); border-color: var(--p-blue); }
+  .pm-steps li.now::before { color: #0a0f1c; background: var(--p-yellow); border-color: var(--p-yellow); font-weight: 700; }
+  .pm-code { display: inline-block; font-family: "Geist Mono", ui-monospace, monospace; font-size: 14px; letter-spacing: 0.18em;
+             background: var(--p-engraved); border: 1px solid var(--p-hair); border-radius: 6px; padding: 6px 12px; color: var(--p-ink-strong); }
+  .pm-timer { font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--p-dim); }
+
+  .pill { display: inline-block; font-family: "Geist Mono", ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em;
+          padding: 2px 8px; border: 1px solid var(--seam); border-radius: 99px; color: var(--muted); margin-right: 6px; }
+
+  .plan { margin: 14px 0; }
+  .plan .ph { display: grid; grid-template-columns: 88px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--seam); }
+  .plan .ph:last-child { border-bottom: 0; }
+  .plan .tag { font-family: "Geist Mono", ui-monospace, monospace; font-size: 11px; color: var(--accent); font-weight: 600; padding-top: 2px; }
+  .plan p { margin: 2px 0 0; font-size: 14px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pm-savebar, .pm-switch::after, .pm-switch { transition: none; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="meta">POD-127 · DESIGN PROPOSAL · SETTINGS · 2026-07-21</div>
+  <h1>Settings, made instrument-grade</h1>
+  <p class="lede">The settings surface is the last major pane that predates the Superade system: a flat 17-item nav, controls flung to the viewport edge, prose interrupting rows, and a permanent Save footer. This proposal regroups the IA, rebuilds the layout on the carved-navy grammar, and makes saving honest — without touching the section components' logic.</p>
+
+  <h2>What's wrong today</h2>
+  <figure>
+    <img src="data:image/jpeg;base64," alt="Current settings — New sessions tab: flat nav list, controls at far right, prose between rows" />
+    <figcaption>Current <code>/settings/sessions</code> on the live instance. The nav is a scrolling flat list (already cut off at top); the content column spans the full remaining width, pushing every control to the far edge.</figcaption>
+  </figure>
+
+  <div class="findings">
+    <div class="finding"><span class="n">F1</span><div><span class="t">Flat 17-item nav with no grouping.</span><p>Agents-config, connections, infrastructure, and app preferences interleave in one list. Finding "Hibernation" or "Background LLM" means reading all 17 labels; the list scrolls, so some are always hidden.</p></div></div>
+    <div class="finding"><span class="n">F2</span><div><span class="t">No max-width; label–control gap grows with the window.</span><p>The <code>Row</code> primitive puts a 180px label next to a full-flex control. At desktop widths the eye travels ~700px between a label and its value — the single biggest reason the page feels unfinished.</p></div></div>
+    <div class="finding"><span class="n">F3</span><div><span class="t">Prose paragraphs break the row rhythm.</span><p>Explainers (billing notes, subagent notes, theme-seeding notes) render as full-width paragraphs <em>between</em> rows, so the form reads as interleaved article + form. The explanation belongs to the row it explains.</p></div></div>
+    <div class="finding"><span class="n">F4</span><div><span class="t">The save model is ambient and mixed.</span><p>A permanent footer shows Save even when nothing changed; six sections (Appearance, Accounts, Network, Machines, Security, Updates) self-persist and ignore that button entirely. "Reset to defaults" sits one casual click away in the same bar, unguarded.</p></div></div>
+    <div class="finding"><span class="n">F5</span><div><span class="t">Sparse tabs read as broken.</span><p>Appearance shows three unaligned fields in a huge void; Integrations and Background LLM are similar. Density is Podium's brand — emptiness here reads as neglect, not calm.</p></div></div>
+    <div class="finding"><span class="n">F6</span><div><span class="t">Off-system styling.</span><p>13px generic rows, no mono labels, no engraved tiers, no hairline seams. It's the one surface that looks like a website settings page inside an instrument.</p></div></div>
+  </div>
+
+  <h2>Direction</h2>
+  <p>Register: <strong>product / Restrained</strong> (per PRODUCT.md — no override earned here). Anchor: Linear's settings — grouped rail, centered column, per-row definition. Three moves:</p>
+  <table>
+    <tr><td>Carve the nav</td><td>The section rail becomes a recessed Rail-Navy column with mono uppercase group labels — the same grammar as WORK/TRAY in the shell. Four groups replace the flat list; a filter field sits on top.</td></tr>
+    <tr><td>One measured column</td><td>Content lives in a 620px column. Each row is a two-cell grid: label + its own 11px description on the left, a 240px control on the right. Hairline seams between rows, section breaks as carved dividers. All existing prose collapses into row descriptions.</td></tr>
+    <tr><td>Honest saving</td><td>The permanent footer dies. Blob-backed sections get a floating "unsaved changes" bar that appears only when dirty (Save / Discard); self-persisting sections show nothing — they already apply instantly. Reset to defaults moves into a guarded spot.</td></tr>
+  </table>
+
+  <h2>The new information architecture</h2>
+  <p>Seventeen flat tabs become four named groups. Every existing route (<code>/settings/:tab</code>) keeps working — this is regrouping, not renaming.</p>
+  <table>
+    <thead><tr><th>Group</th><th>Sections</th><th>Rationale</th></tr></thead>
+    <tr><td>AGENTS</td><td>New sessions · Superagent · Background LLM · Workflow · Hibernation</td><td>Everything that decides how agents run. The most-visited group sits first.</td></tr>
+    <tr><td>CONNECTIONS</td><td>Accounts · API keys · Notifications · Integrations</td><td>Credentials and outbound channels. (Candidate follow-up: merge Accounts + API keys into "Accounts &amp; keys" — the product copy already refers to them as one place.)</td></tr>
+    <tr><td>WORKSPACE</td><td>Repos · Machines · Network</td><td>The infrastructure this instance manages.</td></tr>
+    <tr><td>INSTANCE</td><td>Appearance · Security · Privacy · Updates · Experimental</td><td>The app itself. Privacy stays adjacent to Security (SP-f933's findability promise holds — one group, clearly labeled).</td></tr>
+  </table>
+
+  <h2 class="">The redesigned surface</h2>
+  <p>Live mockup, built on the DESIGN.md tokens (Race Navy chassis, engraved rail, ink ramp, mono labels, 32px-scale controls). <strong>Flip any switch</strong> to see the dirty-state save bar appear.</p>
+</div>
+
+<div class="wide" style="padding: 0 24px;">
+  <div class="mock-frame">
+    <div class="pm pm-desktop">
+      <div class="pm-titlebar"><span class="t">Settings</span><span class="x">✕</span></div>
+      <div class="pm-body">
+        <nav class="pm-nav">
+          <div class="pm-search"><span>⌕</span><span>Find a setting…</span><span class="k">/</span></div>
+          <div class="pm-group">AGENTS</div>
+          <a class="on">New sessions</a><a>Superagent</a><a>Background LLM</a><a>Workflow</a><a>Hibernation</a>
+          <div class="pm-group">CONNECTIONS</div>
+          <a>Accounts</a><a>API keys</a><a>Notifications</a><a>Integrations</a>
+          <div class="pm-group">WORKSPACE</div>
+          <a>Repos</a><a>Machines</a><a>Network</a>
+          <div class="pm-group">INSTANCE</div>
+          <a>Appearance</a><a>Security</a><a>Privacy</a><a>Updates</a><a>Experimental</a>
+        </nav>
+        <div class="pm-content">
+          <div class="pm-col">
+            <h3 class="pm-h" style="margin-top:0">New sessions</h3>
+            <p class="pm-sub">Defaults every new coding agent starts with. The account is a CLI login on this server.</p>
+
+            <div class="pm-row">
+              <div><div class="lbl">Account</div><div class="dsc">Runs Claude Code's programmatic mode on this account; usage counts against its limits.</div></div>
+              <div class="ctl"><div class="pm-select"><span>Claude Code<span class="id">· till@…</span></span><span class="cv">▾</span></div></div>
+            </div>
+            <div class="pm-row">
+              <div><div class="lbl">Model</div></div>
+              <div class="ctl"><div class="pm-select"><span>Auto</span><span class="cv">▾</span></div></div>
+            </div>
+            <div class="pm-row">
+              <div><div class="lbl">Subagents</div><div class="dsc">Built-in subagents share the harness. Podium-coordinated subagents are coming soon.</div></div>
+              <div class="ctl"><div class="pm-select"><span>Built-in (the harness's own)</span><span class="cv">▾</span></div></div>
+            </div>
+            <div class="pm-row">
+              <div><div class="lbl">New session opens on</div></div>
+              <div class="ctl"><div class="pm-select"><span>Auto — chat on mobile, terminal on desktop</span><span class="cv">▾</span></div></div>
+            </div>
+            <div class="pm-row">
+              <div><div class="lbl">Match agent theme to Podium</div><div class="dsc">Seeds each CLI's per-session theme flag so agent colors follow the issue-tinted terminal. Your global agent config is never modified.</div></div>
+              <div class="ctl"><button class="pm-switch on" aria-label="Match agent theme"></button></div>
+            </div>
+
+            <div class="pm-sec">
+              <h4 class="pm-sec-h">Auto-continue on errors</h4>
+              <p class="pm-sec-sub">Re-send "continue" on an increasing delay when an agent stops on a retryable error. Can keep an agent running — and consuming tokens — indefinitely.</p>
+              <div class="pm-row" style="border-top:0">
+                <div><div class="lbl">Auto-continue</div></div>
+                <div class="ctl"><button class="pm-switch" aria-label="Auto-continue"></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pm-savebar" id="savebar">
+        <span class="msg">Unsaved changes in <strong>New sessions</strong></span>
+        <span class="spacer"></span>
+        <button class="pm-btn ghost" onclick="document.getElementById('savebar').classList.remove('show')">Discard</button>
+        <button class="pm-btn primary" onclick="document.getElementById('savebar').classList.remove('show')">Save changes</button>
+      </div>
+    </div>
+  </div>
+  <p class="mock-caption">Desktop. The rail is engraved (Rail Navy + inset shadow), group labels are 8.5px tracked Geist Mono — the shell's own label voice. Rows: label + description left, 240px control right, hairline seams between. The save bar floats only while dirty; Superade Yellow appears exactly once, on the one action being asked for (the Signal Rule).</p>
+</div>
+
+<div class="wrap">
+  <h2>Key states &amp; secondary surfaces</h2>
+
+  <h3>Connect flows become steppers</h3>
+  <p>The Telegram connect flow is the most stateful thing in settings — today it's a numbered prose block plus a button. It becomes a proper sequence with live state (this is a real ordered process, so the numbers carry information):</p>
+</div>
+
+<div class="wide" style="padding: 0 24px;">
+  <div class="mock-frame">
+    <div class="pm" style="width: 560px; padding: 18px 20px;">
+      <h4 class="pm-sec-h" style="margin:0 0 2px">Connect Telegram</h4>
+      <p class="pm-sec-sub" style="margin-bottom:4px">Podium is polling for your start message. <span class="pm-timer">4:37</span> left.</p>
+      <ol class="pm-steps">
+        <li class="done">Bot token saved — <span class="mono" style="font-size:10.5px">@podium_ops_bot</span></li>
+        <li class="now">Open the link and send the prefilled start message&nbsp;&nbsp;<span class="pm-code">podium-8F3K</span></li>
+        <li>Podium fills the chat ID and confirms here</li>
+      </ol>
+    </div>
+  </div>
+  <p class="mock-caption">Steps complete themselves as the poll advances; the countdown is a tabular-nums mono timer — the agent-state grammar reused. Failure states replace step 2 with the error and a retry, never a toast.</p>
+</div>
+
+<div class="wrap">
+  <h3>Mobile: index → section</h3>
+  <p>Today the 17 tabs render as a horizontally scrolling chip strip. On phones, settings becomes two levels: the grouped index is the first screen, a section is the second, back returns. Same components, same routes.</p>
+</div>
+
+<div class="wide" style="padding: 0 24px;">
+  <div class="mock-frame">
+    <div class="pm-phones">
+      <div class="pm pm-phone">
+        <div class="pm-titlebar"><span class="t">Settings</span><span class="x">✕</span></div>
+        <div class="list">
+          <div class="pm-group">AGENTS</div>
+          <div class="pm-cell"><span>New sessions</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>Superagent</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>Background LLM</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>Workflow</span><span class="ch">›</span></div>
+          <div class="pm-group">CONNECTIONS</div>
+          <div class="pm-cell"><span>Accounts</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>API keys</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>Notifications</span><span class="ch">›</span></div>
+          <div class="pm-group">WORKSPACE</div>
+          <div class="pm-cell"><span>Repos</span><span class="ch">›</span></div>
+          <div class="pm-cell"><span>Machines</span><span class="ch">›</span></div>
+        </div>
+      </div>
+      <div class="pm pm-phone">
+        <div class="pm-titlebar"><span class="pm-back">‹ Settings</span><span class="t">New sessions</span><span style="width:52px"></span></div>
+        <div class="list" style="padding: 14px 16px;">
+          <div class="pm-row" style="grid-template-columns: 1fr; gap: 6px;">
+            <div><div class="lbl">Account</div></div>
+            <div class="pm-select"><span>Claude Code<span class="id">· till@…</span></span><span class="cv">▾</span></div>
+          </div>
+          <div class="pm-row" style="grid-template-columns: 1fr; gap: 6px;">
+            <div><div class="lbl">Model</div></div>
+            <div class="pm-select"><span>Auto</span><span class="cv">▾</span></div>
+          </div>
+          <div class="pm-row" style="grid-template-columns: 1fr auto;">
+            <div><div class="lbl">Match agent theme</div><div class="dsc">CLI colors follow the issue tint.</div></div>
+            <div class="ctl" style="width:auto"><button class="pm-switch on" aria-label="Match agent theme"></button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="mock-caption">On narrow screens rows stack label-over-control except switches, which stay inline. The dirty save bar docks above the safe area.</p>
+</div>
+
+<div class="wrap">
+  <h3>The rest of the state matrix</h3>
+  <table>
+    <tr><td>Loading</td><td>Skeleton rows in the content column (label + control ghosts), never a "Loading settings…" string. The nav renders immediately.</td></tr>
+    <tr><td>Saved</td><td>The dirty bar's Save resolves in place — button flashes "Saved ✓" for 1.2s, then the bar slides away. No detached "Saved." text.</td></tr>
+    <tr><td>Save error</td><td>The bar stays, turns its message into the error (Alert Red text), keeps Save enabled for retry. Errors live where the action was.</td></tr>
+    <tr><td>Leaving dirty</td><td>Switching sections with unsaved changes keeps the bar (the blob is one document — this is honest today and stays). Closing settings while dirty asks once.</td></tr>
+    <tr><td>Reset to defaults</td><td>Moves to the bottom of INSTANCE › Experimental as an explicit destructive-styled action with a confirm step. It leaves the ambient footer forever.</td></tr>
+    <tr><td>Sparse sections</td><td>Appearance gains a live theme preview row (mini terminal swatch per theme); single-toggle sections merge into their group neighbors' rhythm rather than floating alone.</td></tr>
+    <tr><td>Search</td><td><code>/</code> focuses the filter; typing filters nav items by section <em>and row labels</em>, jumping to the first match. Phase 3 makes it cross-section (flatten row index).</td></tr>
+    <tr><td>Keyboard</td><td>↑/↓ move sections when the nav has focus, Esc closes settings (unchanged), the dirty bar's Save binds ⌘S while settings is open.</td></tr>
+  </table>
+
+  <h2>What doesn't change</h2>
+  <p>The load-whole-blob / save-whole-blob architecture, the <code>SECTION_VIEWS</code> lookup, deep-linkable <code>/settings/:tab</code> routes, the Telegram poll living in the view, and all section business logic. This is a shell-and-primitives redesign: <code>SettingsView.tsx</code> (nav, header, save bar) and <code>shared.tsx</code> (<code>Section</code>/<code>Row</code> grow a <code>description</code> prop and the grid layout), then a mechanical sweep moving each section's prose into row descriptions.</p>
+
+  <h2>Build plan</h2>
+  <div class="plan">
+    <div class="ph"><span class="tag">PHASE 1</span><div><strong>Shell + primitives.</strong><p>Grouped engraved nav with filter field, 620px content column, new Row grid with descriptions, dirty-tracking save bar (blob sections only), Reset relocation, skeleton loading. All 17 sections render correctly in the new shell with their existing markup.</p></div></div>
+    <div class="ph"><span class="tag">PHASE 2</span><div><strong>Section sweep.</strong><p>Move every inline explainer into row descriptions; rebuild the Telegram connect flow as the stepper; Appearance theme-preview row; mobile index→section navigation.</p></div></div>
+    <div class="ph"><span class="tag">PHASE 3</span><div><strong>Depth.</strong><p>Cross-section row search, Accounts + API keys merge ("Accounts &amp; keys"), ⌘S save binding, per-row deep links (<code>/settings/sessions#auto-continue</code>).</p></div></div>
+  </div>
+
+  <h2>Open questions</h2>
+  <p><span class="pill">Q1</span>Merge Accounts + API keys now (Phase 1 IA change, copy already treats them as one) or defer to Phase 3? I'd defer — the merge touches credential flows worth their own review.</p>
+  <p><span class="pill">Q2</span>Auto-save instead of the dirty bar? Linear auto-saves everything. The whole-blob save makes true per-field autosave risky today (partial intents overwrite each other across devices); the dirty bar is the honest step, autosave a candidate after per-field mutations exist server-side.</p>
+
+  <hr class="rule" />
+  <p class="meta">PODIUM · POD-127 · MOCKUPS RENDER THE SUPERADE THEME (CANONICAL DARK); DOC CHROME FOLLOWS YOUR VIEWER THEME</p>
+</div>
+
+<script>
+  document.querySelectorAll('.pm-switch').forEach((sw) => {
+    sw.addEventListener('click', () => {
+      sw.classList.toggle('on')
+      const bar = document.getElementById('savebar')
+      if (bar && sw.closest('.pm-desktop')) bar.classList.add('show')
+    })
+  })
+</script>
