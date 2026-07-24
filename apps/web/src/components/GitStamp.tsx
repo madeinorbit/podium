@@ -40,15 +40,17 @@ export function GitStamp({
     const ahead = suppressAhead ? undefined : m.ahead
     const hasAction = m.mismatch || m.dirty !== undefined || ahead !== undefined
     if (!hasAction) return null
+    // Yellow is the "needs you" signal alone (DESIGN.md, The Signal Rule).
+    // Uncommitted / ahead are facts, not asks — they read as dim mono, no chip
+    // box, so the row's one amber voice stays the decision chip (POD-293). Only
+    // a wrong-branch mismatch is a genuine fault and keeps an alert tone.
     return (
       <span
         data-testid="git-stamp"
         data-density="stamp"
         title={m.title}
-        className={`inline-flex flex-none items-center gap-1 rounded-[4px] border px-1 font-mono text-[9px] leading-[13px] ${
-          m.mismatch
-            ? 'border-destructive/40 bg-destructive/10 text-destructive'
-            : 'border-warning/35 bg-warning/10 text-warning'
+        className={`inline-flex flex-none items-center gap-1.5 font-mono text-[9px] leading-[13px] ${
+          m.mismatch ? 'text-destructive' : 'text-[#6c7690]'
         } ${className}`}
       >
         {m.mismatch && <span>Wrong branch</span>}

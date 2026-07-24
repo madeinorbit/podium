@@ -113,7 +113,16 @@ function agentIconFor(kind: AgentKind) {
 /** Compact execution presence that survives a collapsed issue row. The full
  * roster remains below the row; this summary answers "who is here?" without
  * making the operator keep every fleet expanded. */
-function IssueFleetSummary({ sessions }: { sessions: SessionMeta[] }): JSX.Element | null {
+function IssueFleetSummary({
+  sessions,
+  unread = false,
+}: {
+  sessions: SessionMeta[]
+  /** An unopened update since last read (POD-293): a single info dot on the
+   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
+   *  as "this agent has something new", never a free-floating third dot. */
+  unread?: boolean
+}): JSX.Element | null {
   if (sessions.length === 0) return null
   const shown = sessions.slice(0, 2)
   const overflow = Math.max(0, sessions.length - shown.length)
@@ -124,6 +133,7 @@ function IssueFleetSummary({ sessions }: { sessions: SessionMeta[] }): JSX.Eleme
   const label = [
     `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
     nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
+    unread ? 'new update' : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -135,6 +145,13 @@ function IssueFleetSummary({ sessions }: { sessions: SessionMeta[] }): JSX.Eleme
       title={label}
       data-testid="issue-fleet-summary"
     >
+      {unread && (
+        <span
+          className="absolute -top-1 -right-1 z-[1] size-[7px] rounded-full border-2 border-[#16161c] bg-info"
+          data-testid="row-unread-dot"
+          aria-hidden="true"
+        />
+      )}
       {shown.map((session, index) => {
         const AgentIcon = agentIconFor(session.agentKind)
         return (
@@ -623,6 +640,84 @@ const ROW_LAYOUT_TRANSITION = {
 }
 type TransitionWorkRow = RowTransitionItem<WorkPlacement>
 
+/** How a folded row ended, in one dim mono word (POD-293). Merged is the common
+ *  closed outcome; snooze shows the time left. Nothing here is an ask, so none
+ *  of it is amber. */
+function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number): string {
+  if (lane === 'snoozed') {
+    const until = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
+    if (!Number.isFinite(until)) return 'snoozed'
+    const mins = Math.max(0, Math.round((until - now) / 60000))
+    if (mins < 60) return 'snoozed <1h'
+    const hours = Math.round(mins / 60)
+    if (hours < 24) return `snoozed ${hours}h`
+    return `snoozed ${Math.round(hours / 24)}d`
+  }
+  if (issue.gitState?.merged) return 'merged'
+  switch (issue.closedReason) {
+    case 'superseded':
+      return 'superseded'
+    case 'duplicate':
+      return 'duplicate'
+    case 'wontfix':
+      return "won't fix"
+    default:
+      return 'closed'
+  }
+}
+
+/** A folded (closed / suspended) issue on ONE dim line (POD-293): ref · title ·
+ *  how it ended. Out of triage means no avatars, timers, pills, git or unread —
+ *  the whole vocabulary of an open row drops away. Roughly half a live row's
+ *  height, so a long archive scans in a glance. Clicking reopens the issue;
+ *  the fold's own archive overlay still rides on top for closed rows. */
+function FoldedWorkRow({
+  issue,
+  lane,
+  now,
+  active,
+  onSelect,
+  onContextMenu,
+}: {
+  issue: IssueWire
+  lane: 'closed' | 'snoozed'
+  now: number
+  active: boolean
+  onSelect: () => void
+  onContextMenu?: (e: ReactMouseEvent) => void
+}): JSX.Element {
+  const marker = foldedMarker(issue, lane, now)
+  return (
+    <button
+      data-pressable
+      type="button"
+      data-testid="folded-work-row"
+      data-lane={lane}
+      data-selected={active ? 'true' : 'false'}
+      onClick={onSelect}
+      onContextMenu={onContextMenu}
+      title={`${issueDisplayRef(issue)} · ${issue.title}`}
+      className={cn(
+        'group/crow flex w-full min-w-0 items-center gap-2.5 rounded-[6px] px-2 py-[3px] pr-8 text-left transition-colors',
+        active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+      )}
+    >
+      <span className="flex-none font-mono text-[9px] font-semibold tracking-[.02em] tabular-nums text-[#525c78]">
+        {issueDisplayRef(issue)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-[#828ba6]">{issue.title}</span>
+      <span
+        className={cn(
+          'flex-none font-mono text-[8.5px]',
+          marker === 'merged' ? 'text-info/80' : 'text-[#525c78]',
+        )}
+      >
+        {marker}
+      </span>
+    </button>
+  )
+}
+
 /** Project-local disclosure for actively deferred work. Disclosure changes
  * reuse the row-arrival one-shot: collapsing prunes the visible keys, so each
  * later expansion gets one fresh arrival without inventing another motion. */
@@ -644,6 +739,7 @@ function SnoozedIssueFold({
   return (
     <div className="min-w-0" data-testid="snoozed-issue-fold">
       <button
+        data-pressable
         type="button"
         className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
         aria-expanded={!collapsed}
@@ -1074,7 +1170,20 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     const exiting = item.phase === 'exiting'
     const draggable = row.kind === 'issue' && !isIssueSnoozed(row.issue, now)
     const inner =
-      row.kind === 'issue' ? (
+      folded && row.kind === 'issue' ? (
+        // Closed / suspended issues drop to one dim line (POD-293) — no chrome,
+        // no unread, just how the work ended and a click back into it.
+        <FoldedWorkRow
+          issue={row.issue}
+          lane={lane as 'closed' | 'snoozed'}
+          now={now}
+          active={selectedIssueId === row.issue.id}
+          onSelect={() => {
+            setSelectedClosedPlacement({ issueId: row.issue.id, folded })
+            selectIssue(row.issue)
+          }}
+        />
+      ) : row.kind === 'issue' ? (
         <UnifiedIssueRow
           row={row}
           allWorktreePaths={allWorktreePaths}
@@ -1402,7 +1511,7 @@ function WorkRowShell({
     <div className="min-w-0" data-testid={testId}>
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[5px] pr-2 pl-3.5',
+          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[6.5px] pr-2 pl-3.5',
           !active && !hex && 'hover:bg-[#20202a]',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
@@ -1466,7 +1575,7 @@ function WorkRowShell({
             <span className="flex min-w-0 items-center gap-1.5">
               <span
                 className={cn(
-                  'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px]',
+                  'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]',
                   // Selection lifts to semibold per the handoff; UNREAD keeps its
                   // email-style medium independent of selection (#126).
                   active ? 'font-semibold' : unread && 'font-medium',
@@ -1475,20 +1584,11 @@ function WorkRowShell({
               >
                 {label}
               </span>
-              {/* Unread is explicit copy instead of another blue dot. Blue dots
-                  elsewhere mean live agent / git state, so a position-dependent
-                  third meaning made completed rows look active (POD-236). */}
-              {unread && !active && (
-                <span
-                  className="flex-none rounded-[4px] bg-info/15 px-1 text-[8px] font-semibold tracking-wide text-info uppercase"
-                  role="img"
-                  aria-label="Unread update"
-                  title="New result since you last opened this issue"
-                  data-testid="row-unread-chip"
-                >
-                  new message
-                </span>
-              )}
+              {/* Unread no longer shouts a banner (POD-293): the bold title
+                  above and the info dot on the fleet glyph (in `extras`) carry
+                  it, so the row keeps one attention voice. Prior art on why a
+                  free-floating blue dot was rejected: POD-236 — this dot is
+                  bound to the agent identity, not a third positional meaning. */}
               {extras}
               {waitingCount > 0 && (
                 <span
@@ -1574,8 +1674,12 @@ function WorkRowShell({
           children, a tinted guide, and colour-mixed active/hover on the child
           rows — all via vars with neutral fallbacks so uncoloured rows (and
           every other PanelRow context) are untouched. */}
-      {!collapsed && band && !hasTreeChildren && band}
-      {!collapsed && hasTreeChildren && (
+      {/* Subtasks are rows, agents are a count (POD-293): the child ISSUE tree
+          stays visible — it's real tracked work you can select — while only the
+          agent ROSTER band folds behind the chevron. So `collapsed` gates the
+          band alone; `hasTreeChildren` renders regardless. */}
+      {!hasTreeChildren && !collapsed && band}
+      {hasTreeChildren && (
         <div
           className="tree-children relative rounded-b-[7px] pt-0.5 pb-1"
           data-drag-scope={childDragScope}
@@ -1597,7 +1701,7 @@ function WorkRowShell({
             className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
             aria-hidden="true"
           />
-          {band && <div data-tree-band>{band}</div>}
+          {!collapsed && band && <div data-tree-band>{band}</div>}
           {children}
         </div>
       )}
@@ -1649,7 +1753,14 @@ function UnifiedIssueRow({
   const { issue, sessions: mine, startedByChildren = [] } = row
   const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
+  // Agents are a count, not always-on rows (POD-293): a non-pinned issue folds
+  // its roster/subtask detail by default, so the list reads as one calm line per
+  // task with the fleet glyph carrying "N agents". Pinned issues — the ones you
+  // chose to watch — stay expanded. Per-issue toggles still persist and win.
+  const [collapsed, toggle] = useCollapsed(
+    `podium:sidebar:unified-issue:${issue.id}`,
+    !issue.pinned,
+  )
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   // Commit a rename: trim, and no-op on empty/whitespace or an unchanged title so
@@ -1681,7 +1792,6 @@ function UnifiedIssueRow({
   const capped = startedByDepth >= 1
   const rollup = capped ? branchRollup(issues, issue.id) : null
   const showRollup = rollup !== null && rollup.total > 0
-  const hasFoldableDetail = showSessions || showRollup || (!capped && hasStartedBy)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   // What this row is asking of the human, if anything (POD-279).
@@ -1694,6 +1804,7 @@ function UnifiedIssueRow({
       issue={issue}
       state={phase}
       selected={active}
+      size={30}
       badge={waitingCount > 0 ? { kind: 'dot' } : null}
       onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
@@ -1798,6 +1909,8 @@ function UnifiedIssueRow({
           />
         }
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
+        // The chevron folds the agent ROSTER only (POD-293) — subtasks are
+        // always-visible rows, so a subtask-only issue needs no toggle.
         gitStamp={
           issue.gitState && (
             <GitStamp
@@ -1810,8 +1923,8 @@ function UnifiedIssueRow({
           )
         }
         unread={unread}
-        expandable={!draftAgentOnly && hasFoldableDetail}
-        collapsed={draftAgentOnly || !hasFoldableDetail ? true : collapsed}
+        expandable={!draftAgentOnly && showSessions}
+        collapsed={draftAgentOnly ? true : collapsed}
         onToggle={toggle}
         band={band}
         hasTreeChildren={showRollup || (!capped && hasStartedBy)}
@@ -1858,7 +1971,7 @@ function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && <IssueFleetSummary sessions={mine} />}
+            {!draftAgentOnly && <IssueFleetSummary sessions={mine} unread={unread} />}
             {/* No started-by/epic jargon chips (POD-85): the dashed provenance
                 nest and the expand chevron already say it visually. */}
             {issue.pinned && (

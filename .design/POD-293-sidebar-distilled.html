@@ -1,0 +1,646 @@
+<style>
+  /* ============ Podium — Sidebar distilled concept ============ */
+  :root{
+    --race:#0a0f1c; --panel:#111a2e; --panel-2:#0f1728; --chip:#16223c;
+    --engraved:#070b16; --bar:#0b1120;
+    --seam:#243356; --hair:#1e2a4c;
+    --yellow:#f5c518; --blue:#6f9dff; --blue-strong:#2f6bff; --red:#e5303f;
+    --terra:#d97757; --mint:#3eb489;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --ink-muted:#9a9aa8;
+    --ink-dim:#6c7690; --ink-faint:#525c78; --label:#7a84a0;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 12% -10%, #14203a 0%, rgba(20,32,58,0) 60%),
+      radial-gradient(900px 500px at 110% 0%, #12182c 0%, rgba(18,24,44,0) 55%),
+      var(--race);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+    min-height:100vh;
+  }
+  .stage{max-width:1120px;margin:0 auto;padding:56px 28px 80px}
+
+  /* ---------- header ---------- */
+  .eyebrow{
+    font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--label);display:flex;align-items:center;gap:10px;margin:0 0 18px;
+  }
+  .eyebrow .dot{width:5px;height:5px;border-radius:50%;background:var(--yellow);box-shadow:0 0 10px 1px rgba(245,197,24,.5)}
+  h1{
+    font-size:34px;line-height:1.08;font-weight:600;letter-spacing:-.02em;
+    color:var(--ink-strong);margin:0 0 14px;text-wrap:balance;max-width:20ch;
+  }
+  h1 em{font-style:normal;color:var(--yellow)}
+  .lede{font-size:15px;color:var(--ink-muted);max-width:60ch;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+
+  /* ---------- compare grid ---------- */
+  .compare{
+    display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:44px;align-items:start;
+  }
+  .col-head{display:flex;align-items:baseline;gap:10px;margin:0 0 12px;padding-left:2px}
+  .col-head .k{
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    padding:3px 8px;border-radius:5px;font-weight:600;
+  }
+  .col-head.now .k{color:var(--ink-muted);background:rgba(154,154,168,.1);border:1px solid var(--hair)}
+  .col-head.next .k{color:#151007;background:var(--yellow)}
+  .col-head .cap{font-size:12px;color:var(--ink-dim)}
+
+  /* ---------- the sidebar panel ---------- */
+  .sidebar{
+    background:linear-gradient(180deg,var(--panel) 0%,var(--panel-2) 100%);
+    border:1px solid var(--seam);
+    border-radius:12px;
+    padding:12px 9px 10px;
+    box-shadow:
+      inset 3px 0 6px -3px rgba(0,0,0,.85),
+      inset -3px 0 6px -3px rgba(0,0,0,.85),
+      inset 0 3px 6px -3px rgba(0,0,0,.75),
+      0 24px 60px -24px rgba(0,0,0,.7);
+    overflow:hidden;position:relative;
+  }
+  .seclabel{
+    font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--label);display:flex;align-items:center;gap:8px;padding:10px 6px 6px;font-weight:600;
+  }
+  .seclabel.first{padding-top:4px}
+  .seclabel .rule{flex:1;height:1px;background:var(--hair)}
+  .seclabel svg{width:11px;height:11px;flex:none;opacity:.85}
+
+  /* ============ ROW (shared skeleton) ============ */
+  .row{
+    display:grid;align-items:center;gap:9px;position:relative;border-radius:8px;
+    grid-template-columns:auto 1fr auto;
+  }
+
+  /* ID square */
+  .sq{
+    position:relative;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-family:var(--mono);font-weight:600;border-radius:7px;line-height:1.15;
+  }
+  .sq .p{color:inherit;opacity:.72}
+  .sq .n{color:inherit;letter-spacing:.02em}
+  /* neutral / outlined */
+  .sq.neutral{background:#182338;border:1px solid #33456e;color:#c3cbe0}
+  /* colored fills */
+  .sq.rose{background:#f43f5e;color:#4a0715;border:1px solid rgba(244,63,94,.4)}
+  .sq.green{background:#22c55e;color:#052e14;border:1px solid rgba(34,197,94,.4)}
+  .sq.violet{background:#8b5cf6;color:#1e0b44;border:1px solid rgba(139,92,246,.4)}
+  .sq.dashed{background:#141d30;border:1px dashed #3a4a70;color:#7d88a4}
+
+  /* corner badges */
+  .badge{position:absolute;border-radius:50%;border:2px solid var(--panel);}
+  .badge.wait{width:9px;height:9px;background:var(--yellow);top:-4px;right:-4px}
+  .badge.work{
+    width:14px;height:14px;top:-5px;right:-5px;background:#0c1f2e;border:1.5px solid var(--blue);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .badge.work::before{content:"⠋";font-family:var(--mono);font-size:8px;color:var(--blue);animation:spB .8s steps(1,end) infinite}
+  @keyframes spB{0%{content:"⠋"}11%{content:"⠙"}22%{content:"⠹"}33%{content:"⠸"}44%{content:"⠼"}55%{content:"⠴"}66%{content:"⠦"}77%{content:"⠧"}88%{content:"⠇"}100%{content:"⠏"}}
+  @media (prefers-reduced-motion:reduce){.badge.work::before{animation:none;content:"⠿"}}
+
+  /* center block */
+  .body{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .title{
+    font-size:12.5px;font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .title.unread{font-weight:600;color:var(--ink-strong)}
+  .status{
+    font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    display:flex;align-items:center;gap:5px;
+  }
+  .status .ask{color:var(--yellow);font-weight:600}
+  .status .live{color:var(--blue)}
+  .status .sep{color:var(--ink-faint)}
+
+  /* right gutter */
+  .gutter{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none}
+  .g-line{display:flex;align-items:center;gap:6px;height:18px}
+  .facts{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);display:flex;gap:7px;align-items:center}
+  .facts svg{width:8px;height:8px;opacity:.8}
+
+  /* agent avatar */
+  .av{width:19px;height:19px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex:none;position:relative}
+  .av.claude{background:rgba(217,119,87,.16);border:1px solid rgba(217,119,87,.4)}
+  .av.oai{background:rgba(154,154,168,.12);border:1px solid rgba(154,154,168,.32)}
+  .av svg{width:12px;height:12px}
+  .av .unreaddot{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--blue-strong);top:-3px;right:-3px;border:1.5px solid var(--panel);box-shadow:0 0 6px rgba(47,107,255,.6)}
+
+  /* count pill (needs-you) */
+  .count{
+    min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:var(--yellow);color:#161006;
+    font-family:var(--mono);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;
+  }
+  .count.mute{background:transparent;border:1px solid var(--hair);color:var(--ink-dim);font-weight:600}
+
+  /* legacy chips (used only in NOW column) */
+  .chip{
+    font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 5px;border-radius:4px;white-space:nowrap;flex:none;
+  }
+  .chip.msg{color:var(--blue);background:rgba(47,107,255,.12);border:1px solid rgba(47,107,255,.3)}
+  .chip.pill-y{color:var(--yellow);border:1px solid rgba(245,197,24,.5);background:rgba(245,197,24,.08);text-transform:none;font-weight:600;letter-spacing:0}
+  .chip.git{color:var(--yellow);border:1px solid rgba(245,197,24,.35);background:rgba(245,197,24,.06);text-transform:none;font-weight:600;letter-spacing:0}
+  .ref{font-family:var(--mono);font-size:9px;color:var(--ink-dim);display:flex;align-items:center;gap:2px}
+
+  /* NOW column dense row */
+  .row.now{grid-template-columns:auto 1fr auto;padding:6px 6px;gap:8px}
+  .row.now .stack{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+  .row.now .line{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+  .statusicon{width:11px;height:11px;flex:none;color:var(--ink-dim)}
+
+  /* NEXT column comfy row */
+  .row.next{padding:8px 8px;margin-bottom:1px}
+  .row.next:hover{background:rgba(255,255,255,.02)}
+  .row.next:hover .facts{color:var(--ink-dim)}
+
+  /* selected row + bridge notch */
+  .row.sel{
+    background:color-mix(in srgb, var(--sel) 26%, var(--panel));
+    border:1px solid color-mix(in srgb, var(--sel) 70%, transparent);
+    padding:8px 8px;
+  }
+  .row.sel .title{font-weight:600;color:var(--ink-strong)}
+  .row.sel .notch{
+    position:absolute;right:-10px;top:9px;bottom:9px;width:11px;border-radius:0 3px 3px 0;
+    background:linear-gradient(90deg, color-mix(in srgb,var(--sel) 85%,transparent), color-mix(in srgb,var(--sel) 12%,transparent));
+  }
+  .row.now.sel{padding:6px 6px}
+
+  /* pinned wrapper (NOW = loud, NEXT = calm) */
+  .pinwrap.now{border:1px solid rgba(244,63,94,.5);background:rgba(244,63,94,.12);border-radius:9px;padding:2px;margin-bottom:4px}
+  .pinwrap.next{border-radius:9px;padding:1px;margin-bottom:4px;background:linear-gradient(180deg,rgba(244,63,94,.08),rgba(244,63,94,.02));border:1px solid rgba(244,63,94,.22)}
+
+  /* agents band */
+  .band{margin:2px 4px 4px;border:1px solid var(--hair);border-radius:8px;background:rgba(7,11,22,.5);padding:6px 8px}
+  .band .bl{font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px}
+  .arow{display:flex;align-items:center;gap:8px;padding:3px 2px}
+  .arow .an{font-size:11px;color:var(--ink-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .arow .aref{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint)}
+  .arow .sdot{width:7px;height:7px;border-radius:50%;flex:none}
+  .arow .sdot.wait{background:var(--yellow)}
+  .arow .sdot.live{background:var(--blue)}
+
+  /* tree children */
+  .tree{position:relative;margin-left:16px;padding-left:12px}
+  .tree::before{content:"";position:absolute;left:0;top:-2px;bottom:12px;width:1px;background:var(--hair)}
+  .tchild{position:relative}
+  .tchild::before{content:"";position:absolute;left:-12px;top:50%;width:9px;height:1px;background:var(--hair)}
+
+  /* closed fold */
+  .fold{display:flex;align-items:center;gap:9px;padding:11px 6px 3px;color:var(--ink-dim);font-size:12px;margin-top:4px;border-top:1px solid var(--hair)}
+  .fold .chev{font-size:10px;color:var(--ink-faint)}
+  .fold .n{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .fold .rule{flex:1}
+
+  /* dimmed suspended row */
+  .row.dim{opacity:.5}
+
+  /* ---------- the cuts ---------- */
+  .cuts{margin-top:56px;border-top:1px solid var(--hair);padding-top:34px}
+  .cuts h2{font-size:13px;font-weight:600;color:var(--ink-strong);margin:0 0 4px;letter-spacing:-.01em}
+  .cuts .sub{font-size:12px;color:var(--ink-dim);margin:0 0 24px}
+  .cutgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 40px}
+  .cut{display:grid;grid-template-columns:auto 1fr;gap:14px;padding:16px 0;border-top:1px solid var(--hair)}
+  .cut .mk{font-family:var(--mono);font-size:11px;color:var(--yellow);font-weight:600;padding-top:1px}
+  .cut h3{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 5px}
+  .cut p{font-size:12.5px;color:var(--ink-muted);margin:0;line-height:1.55}
+  .cut p .b4{color:var(--ink-dim)}
+  .cut p code{font-family:var(--mono);font-size:11px;color:var(--blue);background:rgba(47,107,255,.1);padding:1px 4px;border-radius:3px}
+
+  /* ---------- kept strip ---------- */
+  .kept{margin-top:40px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    border:1px solid var(--hair);border-radius:10px;padding:16px 18px;background:rgba(7,11,22,.4)}
+  .kept .lab{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--label);margin-right:6px}
+  .kept .tag{font-size:12px;color:var(--ink-muted);display:flex;align-items:center;gap:6px}
+  .kept .tag svg{width:12px;height:12px;color:var(--mint)}
+  .kept .tag + .tag::before{content:"";width:3px;height:3px;border-radius:50%;background:var(--ink-faint);margin-right:10px}
+
+  .foot{margin-top:34px;font-size:11px;color:var(--ink-faint);font-family:var(--mono);line-height:1.7}
+  .foot b{color:var(--ink-dim);font-weight:400}
+
+  /* ---------- feature sections ---------- */
+  .feature{margin-top:52px;border-top:1px solid var(--hair);padding-top:34px}
+  .feature h2{font-size:15px;font-weight:600;color:var(--ink-strong);margin:0 0 5px;letter-spacing:-.01em}
+  .feature h2 em{font-style:normal;color:var(--yellow)}
+  .feature .sub{font-size:12.5px;color:var(--ink-dim);margin:0 0 22px;max-width:64ch}
+  .feature-body{display:grid;grid-template-columns:340px 1fr;gap:34px;align-items:start}
+
+  .demo-cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--label);margin:0 0 9px;padding-left:2px}
+
+  /* two-rail tree (POD-281 distinction, distilled) */
+  .railseg{position:relative;margin:2px 0 2px 15px;padding-left:15px}
+  .railseg::before{content:"";position:absolute;left:0;top:-3px;width:1.5px;border-radius:2px}
+  .railseg.agents::before{background:#2b3550;bottom:12px}
+  .railseg.subtasks::before{background:rgba(148,163,184,.55);bottom:14px}
+  .railseg .rl,.subtaskseg .rl{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);padding:2px 0 4px 2px}
+  .agentline{position:relative;display:flex;align-items:center;gap:8px;padding:4px 2px}
+  .agentline::before{content:"";position:absolute;left:-15px;top:50%;width:11px;height:1.5px;background:#2b3550}
+  .agentline .nm{font-size:11px;color:var(--ink-muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .agentline .st{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint)}
+  .agentline .st.ask{color:var(--yellow);font-weight:600}
+  .agentline .st.live{color:var(--blue)}
+  .subtaskseg .tchild::before{background:rgba(148,163,184,.55)}
+  .subtaskseg{position:relative;margin-left:15px;padding-left:15px}
+  .subtaskseg::before{content:"";position:absolute;left:0;top:-3px;bottom:16px;width:1.5px;background:rgba(148,163,184,.55);border-radius:2px}
+  .subtaskseg .tk{position:relative}
+  .subtaskseg .tk::before{content:"";position:absolute;left:-15px;top:50%;width:11px;height:1.5px;background:rgba(148,163,184,.55)}
+
+  /* notes column */
+  .notes{display:flex;flex-direction:column;gap:2px}
+  .note{display:grid;grid-template-columns:auto 1fr;gap:13px;padding:15px 0;border-top:1px solid var(--hair)}
+  .note:first-child{border-top:0;padding-top:2px}
+  .note .mk{font-family:var(--mono);font-size:11px;color:var(--yellow);font-weight:600;padding-top:1px}
+  .note h3{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 5px}
+  .note p{font-size:12.5px;color:var(--ink-muted);margin:0;line-height:1.55}
+  .note p code{font-family:var(--mono);font-size:11px;color:var(--blue);background:rgba(47,107,255,.1);padding:1px 4px;border-radius:3px}
+  .note p b{color:var(--ink);font-weight:600}
+
+  /* mini tab strip illustration */
+  .tabstrip{display:flex;gap:3px;margin-top:11px;padding:6px;background:var(--engraved);border:1px solid var(--hair);border-radius:8px}
+  .tabc{display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:6px;font-size:11px;color:var(--ink-muted);background:var(--chip);border:1px solid var(--seam);white-space:nowrap}
+  .tabc.on{color:var(--ink-strong);background:color-mix(in srgb,#8b5cf6 22%,var(--chip));border-color:rgba(139,92,246,.6)}
+  .tabc .lock{font-size:9px;color:var(--ink-faint)}
+  .tabc .sdot{width:6px;height:6px;border-radius:50%}
+  .tabc .sdot.live{background:var(--blue)} .tabc .sdot.ask{background:var(--yellow)}
+
+  /* dense closed / suspended fold */
+  .foldhead{display:flex;align-items:center;gap:8px;padding:9px 6px 5px;color:var(--ink-dim);font-size:12px}
+  .foldhead .chev{font-size:10px;color:var(--ink-faint)}
+  .foldhead .n{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+  .foldhead .rule{flex:1;height:1px;background:var(--hair)}
+  .foldhead .arch{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);display:flex;align-items:center;gap:4px;cursor:pointer}
+  .foldhead .arch svg{width:11px;height:11px}
+  .foldhead .arch:hover{color:var(--ink-muted)}
+  .crow{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:9px;padding:3px 8px;border-radius:6px}
+  .crow:hover{background:rgba(255,255,255,.02)}
+  .crow .cid{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--ink-faint);letter-spacing:.02em;flex:none}
+  .crow .ct{font-size:12px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crow .cmark{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);display:flex;align-items:center;gap:4px}
+  .crow .cmark svg{width:9px;height:9px}
+  .crow .cmark.merged{color:#5f7fb0}
+  .crow .carch{opacity:0;color:var(--ink-faint);cursor:pointer;display:flex;transition:opacity .12s}
+  .crow:hover .carch{opacity:.7}
+  .crow .carch svg{width:12px;height:12px}
+  .buglabel{margin-top:16px;display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(229,48,63,.28);background:rgba(229,48,63,.06);border-radius:9px;padding:12px 14px}
+  .buglabel svg{width:15px;height:15px;color:var(--red);flex:none;margin-top:1px}
+  .buglabel p{margin:0;font-size:12px;color:var(--ink-muted);line-height:1.5}
+  .buglabel p b{color:var(--ink);font-weight:600}
+  .buglabel code{font-family:var(--mono);font-size:11px;color:#f0a0a8;background:rgba(229,48,63,.1);padding:1px 4px;border-radius:3px}
+
+  @media (max-width:860px){
+    .compare{grid-template-columns:1fr;gap:34px}
+    .cutgrid{grid-template-columns:1fr}
+    .feature-body{grid-template-columns:1fr;gap:24px}
+    h1{font-size:27px}
+  }
+</style>
+
+<div class="stage">
+
+  <p class="eyebrow"><span class="dot"></span> POD-293 · Sidebar concept · distilled</p>
+  <h1>One row, <em>one signal</em></h1>
+  <p class="lede">The vocabulary is already right — ID squares, pinned favorites, the review pills, the working spinner. It just <b>all shouts at once</b>. This keeps every piece of data and gives the row a spine: three zones, and only the one thing that needs you is allowed to be loud.</p>
+
+  <div class="compare">
+
+    <!-- ===================== NOW ===================== -->
+    <div>
+      <div class="col-head now"><span class="k">Now</span><span class="cap">every row, everything, at full volume</span></div>
+      <div class="sidebar">
+
+        <div class="seclabel first">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76V17h6v-6.24l3-2.5V4H6v4.26z"/></svg>
+          PINNED<span class="rule"></span>
+        </div>
+
+        <div class="pinwrap now">
+          <div class="row now sel" style="--sel:#f43f5e">
+            <div class="sq rose" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">187</span><span class="badge wait"></span></div>
+            <div class="body"><div class="title unread">YC demo flow audit</div>
+              <div class="line" style="justify-content:flex-start;margin-top:3px">
+                <svg class="statusicon" viewBox="0 0 24 24" fill="none" stroke="#f5c518" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+                <span class="chip pill-y">needs review</span><span class="ref">· 12h ago</span>
+              </div>
+            </div>
+            <div class="stack">
+              <div class="line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="av oai"><svg viewBox="0 0 24 24" fill="none" stroke="#9a9aa8" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/></svg></span><span class="count">2</span></div>
+            </div>
+            <div class="notch"></div>
+          </div>
+          <div class="band">
+            <div class="bl">Agents · 2</div>
+            <div class="arow"><span class="av claude" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="an">YC audit merge</span><span class="aref">POD-187-C</span><span style="font-size:9px;color:var(--yellow)">needs answer</span><span class="sdot wait"></span></div>
+            <div class="arow"><span class="av claude" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="an">Narration technical rewrite</span><span class="aref">POD-187-B</span><span class="sdot live"></span></div>
+          </div>
+        </div>
+
+        <div class="seclabel">PODIUM<span class="rule"></span></div>
+
+        <!-- 291 done -->
+        <div class="row now">
+          <div class="sq neutral" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">291</span></div>
+          <div class="body"><div class="title unread">Sidebar chat drops sticky questions</div>
+            <div class="line" style="justify-content:flex-start;margin-top:3px">
+              <svg class="statusicon" viewBox="0 0 24 24" fill="none" stroke="#3eb489" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+              <span class="ref">done · 8:28 total</span>
+            </div>
+          </div>
+          <div class="stack"><div class="line"><span class="chip msg">new message</span><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+        </div>
+
+        <!-- 259 ready to merge -->
+        <div class="row now">
+          <div class="sq neutral" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">259</span><span class="badge wait"></span></div>
+          <div class="body"><div class="title">Bug: mobile navigation regressions</div>
+            <div class="line" style="justify-content:flex-start;margin-top:3px">
+              <svg class="statusicon" viewBox="0 0 24 24" fill="none" stroke="#f5c518" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+              <span class="chip pill-y">⑂ ready to merge · 1</span><span class="ref">· 18h ago</span>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="line"><span class="av oai"><svg viewBox="0 0 24 24" fill="none" stroke="#9a9aa8" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/></svg></span><span class="count">1</span></div>
+            <div class="line"><span class="chip git">3 uncommitted</span><span class="ref">⇢ 241</span></div>
+          </div>
+        </div>
+
+        <!-- 289 needs review -->
+        <div class="row now">
+          <div class="sq neutral" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">289</span><span class="badge wait"></span></div>
+          <div class="body"><div class="title unread">Task board priority sort</div>
+            <div class="line" style="justify-content:flex-start;margin-top:3px">
+              <svg class="statusicon" viewBox="0 0 24 24" fill="none" stroke="#f5c518" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+              <span class="chip pill-y">needs review</span><span class="ref">· 19h ago</span>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="line"><span class="chip msg">new message</span><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="count">2</span></div>
+            <div class="line"><span class="ref">⇢ 287</span></div>
+          </div>
+        </div>
+
+        <!-- 270 working w/ children -->
+        <div class="row now">
+          <div class="sq neutral" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">270</span><span class="badge work"></span></div>
+          <div class="body"><div class="title">Quota and unread bug intake</div>
+            <div class="line" style="justify-content:flex-start;margin-top:3px">
+              <span class="ref" style="color:var(--blue)">⠿ 3 agents · working · 21:38</span>
+            </div>
+          </div>
+          <div class="stack"><div class="line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+        </div>
+        <div class="tree">
+          <div class="tchild"><div class="row now">
+            <div class="sq neutral" style="width:24px;height:24px;font-size:6px"><span class="p">POD</span><span class="n">272</span><span class="badge work"></span></div>
+            <div class="body"><div class="title" style="font-size:12px">Bug: unread chip on open task</div>
+              <div class="line" style="justify-content:flex-start;margin-top:3px"><span class="ref" style="color:var(--blue)">working · 21:38</span></div></div>
+            <div class="stack"><div class="line"><span class="chip git">1 commit ahead</span><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+          </div></div>
+        </div>
+
+        <!-- 252 suspended -->
+        <div class="row now dim">
+          <div class="sq dashed" style="width:26px;height:26px;font-size:6.5px"><span class="p">POD</span><span class="n">252</span></div>
+          <div class="body"><div class="title">Finished delegates read as pending</div>
+            <div class="line" style="justify-content:flex-start;margin-top:3px"><span class="ref">2 agents · queued · 1/1 subtasks</span></div></div>
+          <div class="stack"><div class="line"><span class="chip msg">new message</span><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+        </div>
+
+        <div class="fold"><span class="chev">▸</span> Closed <span class="n">· 45</span><span class="rule"></span></div>
+      </div>
+    </div>
+
+    <!-- ===================== NEXT ===================== -->
+    <div>
+      <div class="col-head next"><span class="k">Distilled</span><span class="cap">same six issues, same facts</span></div>
+      <div class="sidebar">
+
+        <div class="seclabel first">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76V17h6v-6.24l3-2.5V4H6v4.26z"/></svg>
+          PINNED<span class="rule"></span>
+        </div>
+
+        <div class="pinwrap next">
+          <div class="row next sel" style="--sel:#f43f5e">
+            <div class="sq rose" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">187</span><span class="badge wait"></span></div>
+            <div class="body"><div class="title unread">YC demo flow audit</div>
+              <div class="status"><span class="ask">needs review</span><span class="sep">·</span>12h</div>
+            </div>
+            <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg><span class="unreaddot"></span></span><span class="count">2</span></div></div>
+            <div class="notch"></div>
+          </div>
+          <div class="band">
+            <div class="bl">Agents · 2</div>
+            <div class="arow"><span class="sdot wait"></span><span class="an">YC audit merge</span><span class="aref">·C</span></div>
+            <div class="arow"><span class="sdot live"></span><span class="an">Narration technical rewrite</span><span class="aref">·B</span></div>
+          </div>
+        </div>
+
+        <div class="seclabel">PODIUM<span class="rule"></span></div>
+
+        <!-- 291 done -->
+        <div class="row next">
+          <div class="sq neutral" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">291</span></div>
+          <div class="body"><div class="title unread">Sidebar chat drops sticky questions</div>
+            <div class="status">done<span class="sep">·</span>8:28</div>
+          </div>
+          <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg><span class="unreaddot"></span></span></div></div>
+        </div>
+
+        <!-- 259 ready to merge -->
+        <div class="row next">
+          <div class="sq neutral" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">259</span><span class="badge wait"></span></div>
+          <div class="body"><div class="title">Bug: mobile navigation regressions</div>
+            <div class="status"><span class="ask">⑂ ready to merge</span><span class="sep">·</span>18h</div>
+          </div>
+          <div class="gutter">
+            <div class="g-line"><span class="av oai"><svg viewBox="0 0 24 24" fill="none" stroke="#9a9aa8" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/></svg></span><span class="count">1</span></div>
+            <div class="facts"><span>3 uncommitted</span></div>
+          </div>
+        </div>
+
+        <!-- 289 needs review -->
+        <div class="row next">
+          <div class="sq neutral" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">289</span><span class="badge wait"></span></div>
+          <div class="body"><div class="title unread">Task board priority sort</div>
+            <div class="status"><span class="ask">needs review</span><span class="sep">·</span>19h</div>
+          </div>
+          <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg><span class="unreaddot"></span></span><span class="count">2</span></div></div>
+        </div>
+
+        <!-- 270 working w/ children -->
+        <div class="row next">
+          <div class="sq neutral" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">270</span><span class="badge work"></span></div>
+          <div class="body"><div class="title">Quota and unread bug intake</div>
+            <div class="status"><span class="live">working</span><span class="sep">·</span>3 agents<span class="sep">·</span>21:38</div>
+          </div>
+          <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+        </div>
+        <div class="tree">
+          <div class="tchild"><div class="row next" style="padding:6px 8px">
+            <div class="sq neutral" style="width:28px;height:28px;font-size:7px"><span class="p">POD</span><span class="n">272</span><span class="badge work"></span></div>
+            <div class="body"><div class="title" style="font-size:12px">Bug: unread chip on open task</div>
+              <div class="status"><span class="live">working</span><span class="sep">·</span>21:38</div></div>
+            <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div><div class="facts">1↑</div></div>
+          </div></div>
+        </div>
+
+        <!-- 252 suspended -->
+        <div class="row next dim">
+          <div class="sq dashed" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">252</span></div>
+          <div class="body"><div class="title">Finished delegates read as pending</div>
+            <div class="status">queued<span class="sep">·</span>2 agents<span class="sep">·</span>1/1</div></div>
+          <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div></div>
+        </div>
+
+        <div class="fold"><span class="chev">▸</span> Closed <span class="n">· 45</span><span class="rule"></span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== THE CUTS ===================== -->
+  <div class="cuts">
+    <h2>Four cuts. No data lost.</h2>
+    <p class="sub">Every fact in the left column is still in the right one — it just stopped competing.</p>
+    <div class="cutgrid">
+      <div class="cut">
+        <div class="mk">01</div>
+        <div><h3>Yellow means exactly one thing</h3>
+        <p><span class="b4">It marked review pills, merge pills, uncommitted counts and badges — so it marked nothing.</span> Now yellow is reserved for <b>"you're needed"</b>. Uncommitted and commit refs drop to dim mono. Suddenly the three rows that actually want you pop.</p></div>
+      </div>
+      <div class="cut">
+        <div class="mk">02</div>
+        <div><h3>Unread is a dot, not a banner</h3>
+        <p><span class="b4"><code>NEW MESSAGE</code> appeared nine times — it became wallpaper.</span> A blue dot on the agent avatar says the same thing in a tenth of the space, and the eye can skip the rows that don't have one.</p></div>
+      </div>
+      <div class="cut">
+        <div class="mk">03</div>
+        <div><h3>One status line, one voice</h3>
+        <p><span class="b4">A status icon, a boxed pill, a timer and an "ago" stamp said the state four ways.</span> They fold into a single mono line — <code>needs review · 12h</code> — the ask tinted, everything else dim. The redundant ⓘ / ✓ icon is gone.</p></div>
+      </div>
+      <div class="cut">
+        <div class="mk">04</div>
+        <div><h3>A right gutter that holds still</h3>
+        <p><span class="b4">Chips, avatars and refs floated at every x and y.</span> Now the right edge is one fixed column: the single attention token on top, quiet git facts beneath — revealed on hover. Bigger rows, so <b>POD-187</b> finally reads.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== AGENTS vs SUBTASKS ===================== -->
+  <div class="feature">
+    <h2>Agents are a count. Subtasks are <em>rows</em>.</h2>
+    <p class="sub">POD-281 drew the right line — agents and sub-issues are different things and shouldn't share a box. This keeps that line and pushes one step further: the sidebar is for triage, so the agent <b>detail</b> moves to where you act on it.</p>
+    <div class="feature-body">
+      <div>
+        <p class="demo-cap">One task, expanded</p>
+        <div class="sidebar" style="box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85),inset -3px 0 6px -3px rgba(0,0,0,.85),0 18px 40px -20px rgba(0,0,0,.6)">
+          <div class="row next">
+            <div class="sq neutral" style="width:32px;height:32px;font-size:8px"><span class="p">POD</span><span class="n">270</span><span class="badge work"></span></div>
+            <div class="body"><div class="title">Quota and unread bug intake</div>
+              <div class="status"><span class="live">working</span><span class="sep">·</span>3 agents<span class="sep">·</span>1/2 subtasks<span class="sep">·</span>21:38</div></div>
+            <div class="gutter"><div class="g-line"><span style="font-size:11px;color:var(--ink-faint)">▾</span></div></div>
+          </div>
+
+          <div class="railseg agents">
+            <div class="rl">Agents · 3 · live workers</div>
+            <div class="agentline"><span class="av claude" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="nm">Coordinator</span><span class="st live">working · 21:38</span></div>
+            <div class="agentline"><span class="av oai" style="width:16px;height:16px"><svg viewBox="0 0 24 24" fill="none" stroke="#9a9aa8" stroke-width="1.6"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8"/></svg></span><span class="nm">Read-state auditor</span><span class="st live">working · 6:12</span></div>
+            <div class="agentline"><span class="av claude" style="width:16px;height:16px;opacity:.55"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span><span class="nm" style="opacity:.7">Quota probe</span><span class="st">idle</span></div>
+          </div>
+
+          <div class="subtaskseg">
+            <div class="rl">Subtasks · 1 open</div>
+            <div class="tk">
+              <div class="row next" style="padding:6px 8px">
+                <div class="sq neutral" style="width:28px;height:28px;font-size:7px"><span class="p">POD</span><span class="n">272</span><span class="badge work"></span></div>
+                <div class="body"><div class="title" style="font-size:12px">Bug: unread chip on open task</div>
+                  <div class="status"><span class="live">working</span><span class="sep">·</span>21:38</div></div>
+                <div class="gutter"><div class="g-line"><span class="av claude"><svg viewBox="0 0 24 24" fill="none" stroke="#d97757" stroke-width="2.3" stroke-linecap="round"><path d="M12 3.5v17M4.6 7.75l14.8 8.5M19.4 7.75l-14.8 8.5"/></svg></span></div><div class="facts">1↑</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note"><div class="mk">›</div><div>
+          <h3>In the list, agents are a number</h3>
+          <p>The row already says <code>3 agents · working</code>. That count <b>is</b> the signal: a fan-out is running here. No agent gets its own row by default — that's the density we just removed. If one needs you, its yellow bubbles up to the row's single token; you don't have to expand to know.</p>
+        </div></div>
+        <div class="note"><div class="mk">›</div><div>
+          <h3>Two rails, one meaning each</h3>
+          <p>Expand and the distinction is visible, not implied: a <b>neutral rail</b> of one-line workers (who + state, nothing else), and an <b>issue-tinted rail</b> of subtasks — real sub-issues with their own IDs you can select. Only subtasks are ever full rows.</p>
+        </div></div>
+        <div class="note"><div class="mk">›</div><div>
+          <h3>Inside the task, workers are tabs you can't close</h3>
+          <p>The confusion was closable agent tabs — closing a live worker means nothing. Make them <b>non-closable while live</b>; they retire themselves when they finish (as delegate sessions already decay). The agent area becomes an honest live roster; the sidebar just counts it.</p>
+          <div class="tabstrip">
+            <span class="tabc on"><span class="sdot live"></span>Coordinator<span class="lock">live</span></span>
+            <span class="tabc"><span class="sdot live"></span>Read-state auditor<span class="lock">live</span></span>
+            <span class="tabc" style="opacity:.55">Quota probe<span class="lock">done ✕</span></span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CLOSED & SUSPENDED ===================== -->
+  <div class="feature">
+    <h2>Closed &amp; suspended, on <em>one line</em>.</h2>
+    <p class="sub">Below the live work sits the archive. The moment an issue stops needing you, it stops taking up room — half the row height, none of the noise, the archive still one click away.</p>
+    <div class="feature-body">
+      <div>
+        <p class="demo-cap">Below the task list</p>
+        <div class="sidebar" style="box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85),inset -3px 0 6px -3px rgba(0,0,0,.85),0 18px 40px -20px rgba(0,0,0,.6)">
+          <div class="foldhead"><span class="chev">▾</span> Suspended <span class="n">· 3</span><span class="rule"></span><span class="arch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg>archive all</span></div>
+          <div class="crow"><span class="cid">POD-252</span><span class="ct">Finished delegates read as pending</span><span class="cmark">queued</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+          <div class="crow"><span class="cid">POD-244</span><span class="ct">Mobile pane gesture polish</span><span class="cmark">snoozed 3h</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+          <div class="crow"><span class="cid">POD-238</span><span class="ct">Tab overflow menu spec</span><span class="cmark">snoozed 1d</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+
+          <div class="foldhead" style="border-top:1px solid var(--hair);margin-top:6px;padding-top:10px"><span class="chev">▾</span> Closed <span class="n">· 45</span><span class="rule"></span><span class="arch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg>archive all</span></div>
+          <div class="crow"><span class="cid">POD-283</span><span class="ct">Closed review decision state</span><span class="cmark merged"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7" cy="6" r="2.4"/><circle cx="7" cy="18" r="2.4"/><circle cx="17" cy="12" r="2.4"/><path d="M7 8.4v7.2M9.4 6.6h3.2A2.8 2.8 0 0115 9.4v.6"/></svg>merged</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+          <div class="crow"><span class="cid">POD-235</span><span class="ct">Shared test coverage policy</span><span class="cmark merged"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7" cy="6" r="2.4"/><circle cx="7" cy="18" r="2.4"/><circle cx="17" cy="12" r="2.4"/><path d="M7 8.4v7.2M9.4 6.6h3.2A2.8 2.8 0 0115 9.4v.6"/></svg>merged</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+          <div class="crow"><span class="cid">POD-216</span><span class="ct">Sticky latest user message</span><span class="cmark">superseded</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+          <div class="crow"><span class="cid">POD-201</span><span class="ct">Host health chip states</span><span class="cmark">closed</span><span class="carch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4"/></svg></span></div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note"><div class="mk">›</div><div>
+          <h3>One line, because there's nothing to do</h3>
+          <p>An item that's done or parked is out of triage. So the row drops to <b>ID · title · how it ended</b> — <code>merged</code>, <code>superseded</code>, <code>snoozed 3h</code>. No avatars, no timers, no status pills, no counts. Roughly half the height, so 45 closed issues scan in a glance.</p>
+        </div></div>
+        <div class="note"><div class="mk">›</div><div>
+          <h3>Archive stays one click away</h3>
+          <p>Hover any row for a per-item archive; each fold header carries <b>archive all</b> to clear the group. The shortcut you liked, kept — just quieter until you reach for it.</p>
+        </div></div>
+        <div class="buglabel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+          <p><b>No unread down here.</b> A closed or suspended issue has nothing to announce — the concept forbids the <code>new message</code> badge on these rows outright. Today <b>POD-271</b> still shows one; that's a real state bug (unread not clearing on close/suspend), and an agent is tracing exactly where the guard is missing so it gets a fix, not just a paint-over.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== KEPT ===================== -->
+  <div class="kept">
+    <span class="lab">Kept intact</span>
+    <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Pinned favorites</span>
+    <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Manual drag-sort</span>
+    <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Issue-color squares</span>
+    <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Sub-issue tree</span>
+    <span class="tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>Selected bridge notch</span>
+    <span class="tag" style="color:var(--yellow)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 3l9 16H3z"/></svg><span style="color:var(--ink-muted)">Reworked: agent count, one-line archive</span></span>
+  </div>
+
+  <p class="foot"><b>Concept mock — system-ui stands in for Geist Variable / Geist Mono; the shipped sidebar keeps the real faces.</b><br>Superade tokens throughout · dark is the canonical theme · hover a Distilled row to reveal its git facts.</p>
+
+</div>

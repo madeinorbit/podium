@@ -202,26 +202,28 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
   })
 
-  it('keeps a compact fleet summary when an agent roster is collapsed', () => {
+  it('shows agents as a count by default, folding the roster behind the chevron (POD-293)', () => {
     render(<SidebarUnified />)
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    // A non-pinned issue folds its roster by default: the fleet glyph carries
+    // the count, and the AGENTS box is not spent until you ask for it.
     const fleet = waitingRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     expect(fleet).toBeTruthy()
     expect(fleet.querySelector('.rounded-full')).toBeNull()
-    expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeTruthy()
-
-    const collapse = screen.getByRole('button', { name: 'Collapse Partly working issue' })
-    fireEvent.click(collapse)
-
     expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
-    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
     expect(
       screen
         .getByRole('button', { name: 'Expand Partly working issue' })
         .getAttribute('aria-expanded'),
     ).toBe('false')
+
+    const expand = screen.getByRole('button', { name: 'Expand Partly working issue' })
+    fireEvent.click(expand)
+
+    expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeTruthy()
+    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
   })
 
   it('makes completion explicit and keeps clean git silent', () => {

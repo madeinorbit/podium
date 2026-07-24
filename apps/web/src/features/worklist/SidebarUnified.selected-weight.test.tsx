@@ -166,8 +166,8 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     const plain = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
     // The selection ring is an inset box-shadow (inline style), never a border
     // or padding change — a click must not shift the list by a pixel.
-    expect(active.className).toContain('py-[5px]')
-    expect(plain.className).toContain('py-[5px]')
+    expect(active.className).toContain('py-[6.5px]')
+    expect(plain.className).toContain('py-[6.5px]')
     expect(active.className.split(/\s+/)).not.toContain('border')
     expect(active.style.boxShadow).toContain('inset')
   })
@@ -186,16 +186,19 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(plain.getAttribute('data-issue-row')).toBe('a')
   })
 
-  it('an unread, unselected row names the new message; the selected row never does', () => {
+  it('marks unread with a quiet info dot on the agent glyph, never a banner (POD-293)', () => {
     render(<SidebarUnified />)
     const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    const chip = unreadRow.querySelector('[data-testid="row-unread-chip"]') as HTMLElement
-    expect(chip).toBeTruthy()
-    expect(chip.textContent).toBe('new message')
-    expect(chip.getAttribute('aria-label')).toBe('Unread update')
+    // The shouted "new message" banner is gone — unread is a single info dot
+    // bound to the fleet glyph (plus the bold title tested above).
+    expect(unreadRow.querySelector('[data-testid="row-unread-chip"]')).toBeNull()
+    const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]') as HTMLElement
+    expect(dot).toBeTruthy()
+    // The dot lives inside the fleet summary, not free-floating (POD-236).
+    expect(dot.closest('[data-testid="issue-fleet-summary"]')).toBeTruthy()
     const activeRow = rowButton('Read selected issue').closest(
       '[class*="group/row"]',
     ) as HTMLElement
-    expect(activeRow.querySelector('[data-testid="row-unread-chip"]')).toBeNull()
+    expect(activeRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
   })
 })

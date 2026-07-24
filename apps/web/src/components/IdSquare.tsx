@@ -66,10 +66,14 @@ export function IdSquare({
   onPrimary,
   primaryOnly = false,
   onColorChange,
+  size = 26,
 }: {
   issue: IssueWire
   state: IdSquareState
   selected?: boolean
+  /** Square edge in px. Desktop rows run 30 for a readable prefix/number
+   *  (POD-293); the rail, tray and mobile header pass their own smaller size. */
+  size?: number
   /** Corner status badge (waiting dot/count, working spinner, done check). */
   badge?: IdSquareBadge | null
   /** The surface the corner badge punches out of (sidebar vs rail background). */
@@ -187,9 +191,10 @@ export function IdSquare({
         ? '1px dashed #6c6c78'
         : '1px solid #8d8d9a'
   const squareStyle: CSSProperties = {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
+    width: size,
+    height: size,
+    borderRadius: Math.round((size / 26) * 7),
+    fontSize: Math.round((size / 26) * 6.5 * 10) / 10,
     border,
     background: hex ?? '#25252f',
     color: hex
