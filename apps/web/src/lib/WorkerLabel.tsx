@@ -104,12 +104,11 @@ export function KindIcon({
       : 'text-foreground'
   if (chip) {
     // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
-    // quiet navy — the same fleet-avatar grammar, so an agent row is identifiable
-    // at a glance instead of a uniform grey chip.
+    // quiet navy — solid fills so the chip never ghosts through a neighbour.
     const chipTint = dimmed
       ? 'border-[#2a3550] bg-[#141d30]'
       : kind === 'claude-code'
-        ? 'border-[#d97757]/40 bg-[#d97757]/15'
+        ? 'border-[#d97757]/50 bg-[#2a1a14]'
         : 'border-[#33456e] bg-[#182338]'
     return (
       <span

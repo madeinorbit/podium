@@ -266,7 +266,8 @@ export function StaleSection({
 }
 
 /** Nested indicator for live native (in-process Task) subagents under a
- *  parent session. Count-only — named per-subagent identity is deferred. */
+ *  parent session. Count-only — named per-subagent identity is deferred.
+ *  Machine-voice mono, no chevron: these are not foldable rows. */
 function NativeSubagentIndicator({
   count,
   dense = false,
@@ -276,18 +277,18 @@ function NativeSubagentIndicator({
 }): JSX.Element | null {
   if (count <= 0) return null
   const label = nativeSubagentLabel(count)
+  const line = `with ${label}`
   return (
     <div
       data-testid="native-subagent-indicator"
       className={cn(
-        'flex items-center gap-1.5 py-[5px] pr-2 text-muted-foreground/80',
-        dense ? 'min-h-6 pl-1.5 text-[10.5px]' : 'min-h-7 pl-[30px] text-[11.5px]',
+        'py-[3px] pr-2 font-mono text-muted-foreground/75',
+        dense ? 'min-h-5 pl-1.5 text-[9.5px]' : 'min-h-6 pl-[30px] text-[10px]',
       )}
       title={`${label} running inside this session (native Task tool)`}
-      aria-label={label}
+      aria-label={line}
     >
-      <ChevronRight size={11} className="flex-none opacity-70" aria-hidden="true" />
-      <span>{label}</span>
+      {line}
     </div>
   )
 }

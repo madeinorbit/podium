@@ -4,7 +4,7 @@
 import type { SessionMeta } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AgentRosterBand, PanelRow } from './sidebar-common'
+import { AgentRosterBand, GroupedSessionRows, PanelRow } from './sidebar-common'
 
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (store: unknown) => unknown) =>
@@ -131,5 +131,30 @@ describe('PanelRow roster variant', () => {
       />,
     )
     expect(screen.getByTitle("Send 'continue' to the errored agent")).toBeTruthy()
+  })
+})
+
+describe('native subagent indicator', () => {
+  it('renders a monotype "with N subagents" line with no fold chevron', () => {
+    render(
+      <GroupedSessionRows
+        sessions={[
+          session({
+            agentState: {
+              phase: 'working',
+              since: '2026-07-18T10:01:00.000Z',
+              nativeSubagentCount: 4,
+            },
+          }),
+        ]}
+        render={(s) => <div key={s.sessionId}>{s.title}</div>}
+        dense
+      />,
+    )
+    const indicator = screen.getByTestId('native-subagent-indicator')
+    expect(indicator.textContent).toBe('with 4 subagents')
+    expect(indicator.className).toContain('font-mono')
+    // Not a disclosure — no chevron affordance that looks expandable.
+    expect(indicator.querySelector('svg')).toBeNull()
   })
 })

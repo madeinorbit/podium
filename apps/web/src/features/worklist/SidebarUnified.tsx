@@ -146,7 +146,7 @@ function IssueFleetSummary({
       {shown.map((session, index) => {
         const AgentIcon = agentIconFor(session.agentKind)
         // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
-        // navy — a larger, brand-glyphed tile reads which agent is here at a glance.
+        // navy — solid fills so stacked tiles don't ghost through each other.
         const claude = session.agentKind === 'claude-code'
         // The row's unopened-update dot rides the corner of the LAST tile (the
         // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
@@ -160,10 +160,11 @@ function IssueFleetSummary({
             className={cn(
               'relative flex size-[19px] items-center justify-center rounded-[6px] border',
               claude
-                ? 'border-[#d97757]/40 bg-[#d97757]/15 text-claude'
-                : 'border-[#9aa4c0]/35 bg-[#9aa4c0]/[.12] text-[#c3cbe0]',
+                ? 'border-[#d97757]/50 bg-[#2a1a14] text-claude'
+                : 'border-[#33456e] bg-[#182338] text-[#c3cbe0]',
               index > 0 && '-ml-1',
             )}
+            style={{ zIndex: index + 1 }}
           >
             {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
             {showDot && (
@@ -177,12 +178,19 @@ function IssueFleetSummary({
         )
       })}
       {overflow > 0 && (
-        <span className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-[#9aa4c0]/35 bg-[#9aa4c0]/[.12] px-0.5 font-mono text-[8px] text-[#9aa4c0]">
+        <span
+          className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-[#33456e] bg-[#182338] px-0.5 font-mono text-[8px] text-[#9aa4c0]"
+          style={{ zIndex: shown.length + 1 }}
+        >
           +{overflow}
         </span>
       )}
       {nativeCount > 0 && (
-        <span className="-mt-2 -ml-1 rounded-[4px] border border-[#50392f] bg-[#241915] px-[2px] font-mono text-[7px] leading-[11px] text-[#d97757]">
+        <span
+          className="-mt-2 -ml-1 rounded-[4px] border border-[#50392f] bg-[#241915] px-[2px] font-mono text-[7px] leading-[11px] text-[#d97757]"
+          style={{ zIndex: shown.length + 2 }}
+          data-testid="issue-fleet-subagent-count"
+        >
           ×{nativeCount}
         </span>
       )}
@@ -411,7 +419,9 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   const newAgentAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    <div className="mx-2 mt-2.5 flex items-center gap-2">
+    // mr-4 clears the absolutely-positioned collapse control on the sidebar's
+    // right edge (translateX(50%) into the content column).
+    <div className="ml-2 mr-4 mt-2.5 flex items-center gap-2">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"

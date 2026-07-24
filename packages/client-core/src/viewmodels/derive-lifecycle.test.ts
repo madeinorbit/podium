@@ -113,6 +113,9 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     const r = row(done)
     expect(rowInClosedFold(r, null, false, new Set(), NOW)).toBe(false)
     expect(rowAwaitsTuck(r, null, false, new Set(), NOW)).toBe(true)
+    // Selecting the open done row must not hide Tuck away — only tuck/grace does.
+    expect(rowAwaitsTuck(r, done.id, false, new Set(), NOW)).toBe(true)
+    expect(rowInClosedFold(r, done.id, false, new Set(), NOW)).toBe(false)
     // Tucking it folds it into Closed at once, and it stops awaiting dismissal.
     expect(rowInClosedFold(r, null, false, new Set([done.id]), NOW)).toBe(true)
     expect(rowAwaitsTuck(r, null, false, new Set([done.id]), NOW)).toBe(false)

@@ -1908,6 +1908,23 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
  * Pinned rows are removed before grouping, so pinning also wins. */
 const EMPTY_TUCKED: ReadonlySet<string> = new Set()
 
+/** Settled finished-issue facts shared by fold membership and the tuck-away
+ *  control. Selection is intentionally NOT here: selecting a done row must keep
+ *  "Tuck away" visible; only fold placement cares about selection. */
+function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
+  if (row.kind !== 'issue') return false
+  const { issue } = row
+  return (
+    isClosedTopLevelIssue(issue) &&
+    !issue.unread &&
+    Boolean(issue.readAt) &&
+    !issue.needsHuman &&
+    !issueAwaitingMerge(issue) &&
+    rowWaitingCount(row) === 0 &&
+    !rowSessions(row).some(isSessionWorking)
+  )
+}
+
 /** Eligibility for the closed fold BEFORE the operator's dismissal is consulted:
  *  a read, settled, top-level closure with nothing still asked of the human. */
 function closedFoldEligible(
@@ -1915,18 +1932,11 @@ function closedFoldEligible(
   selectedIssueId: string | null,
   selectedIssueWasFolded: boolean,
 ): row is UnifiedIssueRow {
-  if (row.kind !== 'issue') return false
+  if (!finishedIssueSettled(row)) return false
   const { issue } = row
-  return (
-    isClosedTopLevelIssue(issue) &&
-    !issue.unread &&
-    Boolean(issue.readAt) &&
-    (issue.id !== selectedIssueId || selectedIssueWasFolded) &&
-    !issue.needsHuman &&
-    !issueAwaitingMerge(issue) &&
-    rowWaitingCount(row) === 0 &&
-    !rowSessions(row).some(isSessionWorking)
-  )
+  // A selected closure keeps the lane it occupied when clicked: a settled folded
+  // row stays folded, while a newly-read open row stays open until focus moves.
+  return issue.id !== selectedIssueId || selectedIssueWasFolded
 }
 
 export function rowInClosedFold(
@@ -1948,16 +1958,16 @@ export function rowInClosedFold(
 }
 
 /** A finished issue held OPEN in the live list for the operator to dismiss
- *  (POD-293): fold-eligible, but not yet tucked and still inside the grace
- *  window. The sidebar shows its "tuck away" control only for these rows. */
+ *  (POD-293): settled and still inside the grace window, not yet tucked.
+ *  Selection does not hide the control — only tuck or the grace timeout does. */
 export function rowAwaitsTuck(
   row: UnifiedWorkRow,
-  selectedIssueId: string | null = null,
-  selectedIssueWasFolded = false,
+  _selectedIssueId: string | null = null,
+  _selectedIssueWasFolded = false,
   tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
-  if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
+  if (!finishedIssueSettled(row)) return false
   return (
     !tuckedIds.has(row.issue.id) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
   )
