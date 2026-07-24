@@ -397,6 +397,7 @@ export function AgentRosterBand({
   labelHint,
   className,
   testId = 'agent-roster-band',
+  variant = 'box',
   children,
 }: {
   /** Band label, machine voice — "Agents" (L2) or "repo · branch" (L6). */
@@ -408,6 +409,10 @@ export function AgentRosterBand({
   labelHint?: string
   className?: string
   testId?: string
+  /** 'box' — the bordered rail-navy card (worktree bands). 'rail' — the agent
+   *  roster hung on a light neutral guide, no card (POD-293): agents are detail,
+   *  not a boxed section that spends a whole tone tier. */
+  variant?: 'box' | 'rail'
   children: ReactNode
 }): JSX.Element {
   const labelRow = (
@@ -418,6 +423,33 @@ export function AgentRosterBand({
   )
   const labelClass =
     'flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono text-[7.5px] font-medium uppercase tracking-[0.11em] text-[#7a84a0]'
+  const header = onLabelClick ? (
+    <button
+      data-pressable
+      type="button"
+      className={cn(labelClass, 'cursor-pointer hover:text-[#9aa4c0]')}
+      onClick={onLabelClick}
+      title={labelHint}
+    >
+      {labelRow}
+    </button>
+  ) : (
+    <div className={labelClass} title={labelHint}>
+      {labelRow}
+    </div>
+  )
+  if (variant === 'rail') {
+    // Hung on a light neutral guide, no card — the roster is detail behind the
+    // chevron, not a boxed section (POD-293). Rail hue #2b3550 keeps agents
+    // visually distinct from the issue-tinted subtask tree.
+    return (
+      <div className={cn('relative min-w-0 pl-3', className)} data-testid={testId}>
+        <span className="absolute top-[7px] bottom-2 left-1 w-px bg-[#2b3550]" aria-hidden="true" />
+        {header}
+        {children}
+      </div>
+    )
+  }
   return (
     <div
       className={cn(
@@ -427,21 +459,7 @@ export function AgentRosterBand({
       )}
       data-testid={testId}
     >
-      {onLabelClick ? (
-        <button
-          data-pressable
-          type="button"
-          className={cn(labelClass, 'cursor-pointer hover:text-[#9aa4c0]')}
-          onClick={onLabelClick}
-          title={labelHint}
-        >
-          {labelRow}
-        </button>
-      ) : (
-        <div className={labelClass} title={labelHint}>
-          {labelRow}
-        </div>
-      )}
+      {header}
       {children}
     </div>
   )
@@ -611,16 +629,9 @@ export function PanelRow({
             setMenuAnchor({ x: e.clientX, y: e.clientY })
           }}
         >
-          {/* Roster grammar (L2): the terracotta agent glyph opens every row —
-              execution's mark, never worn by an issue row. */}
-          {roster && (
-            <span
-              className="w-3.5 flex-none text-center text-[10px] leading-none text-[#d97757]"
-              aria-hidden="true"
-            >
-              ✳
-            </span>
-          )}
+          {/* The kind chip (WorkerLabel) already carries the agent's mark, so the
+              extra terracotta ✳ was the same fact twice in one row (POD-293 /
+              POD-281): dropped. */}
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
@@ -683,7 +694,19 @@ export function PanelRow({
             </span>
           )}
           {meta && (
-            <span className="rowmeta flex-none text-[10px] text-[#d4a017] opacity-80 transition-opacity group-hover:opacity-100">
+            <span
+              className={cn(
+                'rowmeta flex-none text-[10px] opacity-80 transition-opacity group-hover:opacity-100',
+                // Amber is the "needs you" signal alone (POD-293): only an
+                // attention badge earns it. A parked "paused" or any other
+                // state reads dim; a hard error reads red.
+                badge?.tone === 'attention'
+                  ? 'text-attention'
+                  : badge?.tone === 'error'
+                    ? 'text-destructive'
+                    : 'text-[#6c7690]',
+              )}
+            >
               {meta}
             </span>
           )}

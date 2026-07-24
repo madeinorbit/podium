@@ -271,9 +271,12 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
     const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
     expect(chip.textContent).toBe('ready to merge · 2')
-    expect(chip.querySelector('svg')).toBeTruthy()
-    expect(chip.className).toContain('bg-attention/10')
-    // The chip absorbs the merge axis: the git stamp must not repeat
+    // POD-293: the ask is the row's one amber voice as a plain weighted word —
+    // no boxed chip, no icon (the boxed pill made every review row shout).
+    expect(chip.className).toContain('text-attention')
+    expect(chip.className).toContain('font-semibold')
+    expect(chip.querySelector('svg')).toBeNull()
+    // The word absorbs the merge axis: the git stamp must not repeat
     // "2 commits ahead" in a second amber counter (POD-279).
     expect(row.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })

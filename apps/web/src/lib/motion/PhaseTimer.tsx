@@ -36,6 +36,7 @@ export function PhaseTimer({
   showSpinner = true,
   plainLanguage = false,
   leadingSeparator = false,
+  mutedWaiting = false,
   className,
 }: {
   phase: MotionPhase
@@ -53,6 +54,10 @@ export function PhaseTimer({
   plainLanguage?: boolean
   /** Prefix the time with a quiet middle dot when it follows a status phrase. */
   leadingSeparator?: boolean
+  /** Render the waiting "ago" stamp in dim ink instead of amber (POD-293): in
+   *  the work sidebar the ask itself is the one amber signal, so the timestamp
+   *  beside it must not double it. The flip-in morph still passes through amber. */
+  mutedWaiting?: boolean
   className?: string
 }): JSX.Element | null {
   const morph = usePhaseMorph(phase)
@@ -84,7 +89,10 @@ export function PhaseTimer({
       <span
         key="waiting"
         className={cn('font-mono tabular-nums', morph === 'waiting' && 'morph-flip-ago', className)}
-        style={{ fontSize: size, color: 'var(--motion-waiting)' }}
+        style={{
+          fontSize: size,
+          color: mutedWaiting ? 'var(--ink-dim, #6c7690)' : 'var(--motion-waiting)',
+        }}
         title={`Waiting since ${new Date(sinceMs).toLocaleString()}`}
       >
         {leadingSeparator && <span aria-hidden="true">· </span>}

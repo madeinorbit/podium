@@ -10,15 +10,12 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
-  CircleAlert,
-  Eye,
   FolderPlus,
-  GitBranch,
   Pin,
   Plus,
   Search,
 } from 'lucide-react'
-import { LayoutGroup, motion, MotionConfig, useReducedMotion } from 'motion/react'
+import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import type {
   CSSProperties,
   JSX,
@@ -64,8 +61,8 @@ import {
   resolveDefaultAgent,
   resolveTargetMachine,
   rowMotionPhase,
-  rowPendingDecision,
   rowMotionTiming,
+  rowPendingDecision,
   rowStatusLine,
   rowUnreadEmphasized,
   rowWaitingCount,
@@ -835,7 +832,10 @@ function ClosedIssueFold<T>({
                   data-pressable
                   type="button"
                   data-hover-reveal
-                  className="absolute top-1.5 right-1 z-20 flex size-6 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
+                  // Sized and centred to the one-line folded row (POD-293): a
+                  // 20px control vertically centred at the right inset, not the
+                  // old tall-row top offset that hung off a 26px line.
+                  className="absolute top-1/2 right-1.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
                   aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
                   title="Archive — remove from sidebar"
                   data-testid="closed-issue-archive"
@@ -845,7 +845,7 @@ function ClosedIssueFold<T>({
                     onArchive(issueRow.issue.id)
                   }}
                 >
-                  <Archive size={12} aria-hidden="true" />
+                  <Archive size={11} aria-hidden="true" />
                 </button>
               </div>
             )
@@ -1615,19 +1615,18 @@ function WorkRowShell({
                 data-testid="row-lifecycle-status"
                 data-phase={phase}
                 style={
+                  // Yellow is the one signal (POD-293): a waiting row is NOT
+                  // tinted amber wholesale — the ask (decision word / count pill /
+                  // square dot) carries it, and the status/time read dim. Only
+                  // working (blue) and done (grey) tint their lockup.
                   phase === 'working'
                     ? { color: 'var(--motion-working)' }
-                    : phase === 'waiting'
-                      ? { color: 'var(--motion-waiting)' }
-                      : phase === 'done'
-                        ? { color: 'var(--motion-total)' }
-                        : undefined
+                    : phase === 'done'
+                      ? { color: 'var(--motion-total)' }
+                      : undefined
                 }
               >
                 {phase === 'working' && <BrailleSpinner size={9} />}
-                {phase === 'waiting' && (
-                  <CircleAlert size={9} strokeWidth={2} className="flex-none" aria-hidden="true" />
-                )}
                 {phase === 'done' && (
                   <Check
                     size={10}
@@ -1857,7 +1856,12 @@ function UnifiedIssueRow({
   // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
   const band =
     !draftAgentOnly && showSessions ? (
-      <AgentRosterBand label="Agents" count={mine.length} className="mt-0.5 mb-[3px] ml-8">
+      <AgentRosterBand
+        label="Agents"
+        count={mine.length}
+        variant="rail"
+        className="mt-0.5 mb-[3px] ml-8"
+      >
         <GroupedSessionRows sessions={visible} render={renderRow} dense />
         <StaleSection sessions={stale} render={renderRow} dense />
       </AgentRosterBand>
@@ -1871,21 +1875,18 @@ function UnifiedIssueRow({
         label={label}
         statusLine={
           decision !== null ? (
-            // The one chip that answers "what is being asked of me here" —
-            // a merge states its commit count so the row is a fact, not a mood
-            // (POD-279). The git stamp's own "N commits ahead" is suppressed
+            // The one word that answers "what is being asked of me here" — a
+            // merge states its commit count so the row is a fact, not a mood
+            // (POD-279). It is the row's single amber voice (POD-293): plain
+            // weighted text, no box, no icon — the boxed chip made every review
+            // row shout. The git stamp's own "N commits ahead" is suppressed
             // below: one voice per region (DESIGN.md, The Signal Rule).
             <span
               data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
               data-decision={decision}
               title={pendingDecisionTitle(issue, decision)}
-              className="inline-flex h-3 flex-none items-center gap-1 rounded-[3px] border border-attention/35 bg-attention/10 px-1 text-attention"
+              className="flex-none font-semibold text-attention"
             >
-              {decision === 'merge' ? (
-                <GitBranch size={9} strokeWidth={1.8} aria-hidden="true" />
-              ) : (
-                <Eye size={9} strokeWidth={1.8} aria-hidden="true" />
-              )}
               {pendingDecisionLabel(issue, decision)}
             </span>
           ) : (
@@ -1905,6 +1906,7 @@ function UnifiedIssueRow({
             showSpinner={false}
             plainLanguage
             leadingSeparator
+            mutedWaiting
             className="flex-none"
           />
         }

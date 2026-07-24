@@ -68,7 +68,7 @@ describe('AgentRosterBand', () => {
 })
 
 describe('PanelRow roster variant', () => {
-  it('opens with the terracotta agent glyph and keeps the mono ref + coordinator badge', () => {
+  it('drops the redundant terracotta glyph and keeps the mono ref + coordinator badge', () => {
     render(
       <PanelRow
         session={session({ displayRef: 'POD-210-A' })}
@@ -78,7 +78,9 @@ describe('PanelRow roster variant', () => {
         coordinator
       />,
     )
-    expect(screen.getByText('✳')).toBeTruthy()
+    // The kind chip already marks the agent, so the extra ✳ was the same fact
+    // twice in one row (POD-293 / POD-281): removed.
+    expect(screen.queryByText('✳')).toBeNull()
     expect(screen.getByTestId('session-issue-linkage').textContent).toBe('POD-210-A')
     expect(screen.getByTestId('coordinator-badge')).toBeTruthy()
   })
