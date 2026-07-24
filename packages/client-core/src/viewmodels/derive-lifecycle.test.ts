@@ -103,8 +103,8 @@ describe('issue/session lifecycle in the unified sidebar', () => {
   })
 
   it('holds a freshly finished issue open until tucked, then folds it (POD-293)', () => {
-    // Read + settled but finished only 30 minutes ago: it no longer vanishes on
-    // read — it stays a live "done" row the operator can dismiss.
+    // Settled but finished only 30 minutes ago: it no longer vanishes on finish —
+    // it stays a live "done" row the operator can dismiss. Read is not required.
     const done = issue({
       stage: 'done',
       closedReason: 'done',
@@ -116,6 +116,20 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     // Selecting the open done row must not hide Tuck away — only tuck/grace does.
     expect(rowAwaitsTuck(r, done.id, false, new Set(), NOW)).toBe(true)
     expect(rowInClosedFold(r, done.id, false, new Set(), NOW)).toBe(false)
+    // Unread / never-read finished work still offers tuck (manual dismiss path;
+    // the old auto-fold-on-read gate no longer applies).
+    const unread = row(
+      issue({
+        id: 'unread-done',
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-07-23T11:30:00.000Z',
+        unread: true,
+        readAt: undefined,
+      }),
+    )
+    expect(rowAwaitsTuck(unread, null, false, new Set(), NOW)).toBe(true)
+    expect(rowInClosedFold(unread, null, false, new Set(), NOW)).toBe(false)
     // Tucking folds into Closed at once — even while still selected — and stops
     // awaiting dismissal. Selection lane-stickiness must not delay explicit tuck.
     expect(rowInClosedFold(r, done.id, false, new Set([done.id]), NOW)).toBe(true)

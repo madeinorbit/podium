@@ -176,14 +176,17 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(row.getAttribute('style')).toContain('--row-hover-bg')
   })
 
-  it('folds read closures per project while unread and selected closures keep full rows', () => {
+  it('folds settled closures per project; selected open finished rows keep the full lane', () => {
     render(<SidebarUnified />)
 
-    const toggle = screen.getByRole('button', { name: 'Closed · 2' })
+    // Unread no longer blocks fold eligibility (manual tuck path). Past-grace
+    // finished rows — read or not — land in Closed; only selection stickiness
+    // keeps a selected finished row open without an explicit tuck.
+    const toggle = screen.getByRole('button', { name: 'Closed · 3' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Closed alpha')).toBeNull()
     expect(screen.queryByText('Closed beta')).toBeNull()
-    expect(screen.getByText('Closed result unseen')).toBeTruthy()
+    expect(screen.queryByText('Closed result unseen')).toBeNull()
     expect(screen.getByText('Closed result selected')).toBeTruthy()
 
     fireEvent.click(toggle)
@@ -191,6 +194,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Closed alpha')).toBeTruthy()
     expect(screen.getByText('Closed beta')).toBeTruthy()
+    expect(screen.getByText('Closed result unseen')).toBeTruthy()
     expect(rowButton('Closed alpha').closest('[data-drag-key="closed-a"]')?.className).toContain(
       'opacity-50',
     )

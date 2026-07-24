@@ -742,6 +742,9 @@ describe('groupUnifiedWorkRows', () => {
         id,
         stage: 'done',
         closedReason: 'done',
+        // Fresh finish: still inside the grace window so only an explicit tuck
+        // places a row in Closed (POD-293).
+        closedAt: new Date(NOW - HOUR).toISOString(),
         unread: false,
         readAt: new Date(NOW - HOUR).toISOString(),
         ...over,
@@ -752,6 +755,8 @@ describe('groupUnifiedWorkRows', () => {
     })
     const rows: UnifiedWorkRow[] = [
       closedRow('settled'),
+      // Unread no longer blocks tuck/fold eligibility; without tuck it stays open
+      // inside the grace window like any other finished row.
       closedRow('unread', { unread: true, readAt: undefined }),
       closedRow('selected'),
       closedRow('child', { parentId: 'parent' }),
@@ -765,7 +770,7 @@ describe('groupUnifiedWorkRows', () => {
     ]
 
     // A settled closure folds once the operator tucks it (POD-293); the rest
-    // stay in the live list for their own reasons (unread, selected, awaiting…).
+    // stay in the live list (not tucked, selected, awaiting, working…).
     // Untucked selection stays open (lane stickiness); tucked selection folds.
     const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW, new Set(['settled']))
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])

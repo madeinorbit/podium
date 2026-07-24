@@ -1093,8 +1093,9 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   }, [selectedIssueId])
 
   // Tuck-away (POD-293): a finished row folds into Closed only when the operator
-  // dismisses it — not the instant it is read — so completed work stops
-  // vanishing out from under them. The dismissed ids persist in ui-state; the
+  // dismisses it (or after the finished-grace backstop) — not the instant it
+  // finishes — so completed work stops vanishing out from under them. Read is
+  // not required for the control. The dismissed ids persist in ui-state; the
   // effect restores them whenever the live set changes, and `tuck` adds one
   // optimistically so the row folds the moment the control is pressed.
   const [tuckedIds, setTuckedIds] = useState<ReadonlySet<string>>(() => new Set())

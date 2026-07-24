@@ -1901,23 +1901,23 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
   return row.kind === 'issue' && isIssueSnoozed(row.issue, now)
 }
 
-/** POD-183 fold membership. Attention always outranks structure: unread,
- * working, needs-you, and awaiting-merge closures keep their full row. A
- * selected closure keeps the lane it occupied when clicked: a settled folded
- * row stays folded, while a newly-read open row stays open until focus moves.
- * Pinned rows are removed before grouping, so pinning also wins. */
+/** POD-183 / POD-293 fold membership. Attention outranks structure for live
+ * asks: working, needs-you, and awaiting-merge keep their full row. Finished
+ * top-level closures no longer require a read stamp — that gate existed for
+ * auto-fold-on-read; manual tuck (POD-293) offers "Tuck away" as soon as the
+ * work is settled. A selected open finished row stays open until tuck, grace,
+ * or focus moves. Pinned rows are removed before grouping, so pinning also wins. */
 const EMPTY_TUCKED: ReadonlySet<string> = new Set()
 
 /** Settled finished-issue facts shared by fold membership and the tuck-away
  *  control. Selection is intentionally NOT here: selecting a done row must keep
- *  "Tuck away" visible; only fold placement cares about selection. */
+ *  "Tuck away" visible; only fold placement cares about selection. Read/unread
+ *  is also not here — tuck is the dismiss path, not acknowledgment-of-read. */
 function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
   if (row.kind !== 'issue') return false
   const { issue } = row
   return (
     isClosedTopLevelIssue(issue) &&
-    !issue.unread &&
-    Boolean(issue.readAt) &&
     !issue.needsHuman &&
     !issueAwaitingMerge(issue) &&
     rowWaitingCount(row) === 0 &&
@@ -1926,7 +1926,7 @@ function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
 }
 
 /** Eligibility for the closed fold BEFORE the operator's dismissal is consulted:
- *  a read, settled, top-level closure with nothing still asked of the human. */
+ *  a settled top-level closure with nothing still asked of the human. */
 function closedFoldEligible(
   row: UnifiedWorkRow,
   selectedIssueId: string | null,
@@ -1935,7 +1935,7 @@ function closedFoldEligible(
   if (!finishedIssueSettled(row)) return false
   const { issue } = row
   // A selected closure keeps the lane it occupied when clicked: a settled folded
-  // row stays folded, while a newly-read open row stays open until focus moves.
+  // row stays folded, while an open finished row stays open until focus moves.
   return issue.id !== selectedIssueId || selectedIssueWasFolded
 }
 
@@ -1949,11 +1949,11 @@ export function rowInClosedFold(
   if (!finishedIssueSettled(row)) return false
   // Explicit tuck always folds — even while the row is selected. Lane stickiness
   // ("selected open stays open until focus moves") only applies to passive
-  // placement (grace auto-fold / read-into-closed), not operator dismissal.
+  // placement (grace auto-fold), not operator dismissal.
   if (tuckedIds.has(row.issue.id)) return true
   if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
   // POD-293: a freshly finished issue no longer drops into the fold the instant
-  // it is read — it stays a live "done" row carrying the tuck-away control, and
+  // it finishes — it stays a live "done" row carrying the tuck-away control, and
   // folds only once the operator dismisses it, or after the finished-grace
   // window tidies it away on its own so the live list can't accrete history.
   return now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
@@ -1961,7 +1961,7 @@ export function rowInClosedFold(
 
 /** A finished issue held OPEN in the live list for the operator to dismiss
  *  (POD-293): settled and still inside the grace window, not yet tucked.
- *  Selection does not hide the control — only tuck or the grace timeout does. */
+ *  Selection and read state do not hide the control — only tuck or grace does. */
 export function rowAwaitsTuck(
   row: UnifiedWorkRow,
   _selectedIssueId: string | null = null,
