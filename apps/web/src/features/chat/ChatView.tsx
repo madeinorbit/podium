@@ -206,6 +206,9 @@ export function ChatView({
   // Full-screen image preview (SendUserFile / image tags), null when closed.
   const [lightbox, setLightbox] = useState<string | null>(null)
   const stickyPrompts = useStickyPromptsPreference()
+  // The superagent side panel is too short to give a pinned prompt anywhere to
+  // go, so sticky questions are suppressed there regardless of the preference.
+  const stickyEnabled = stickyPrompts.enabled && !compact
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -344,7 +347,7 @@ export function ChatView({
   // expanding the full virtualized transcript.
   const rowsToRender = useMemo(() => {
     const out: { row: ChatRow; index: number }[] = []
-    if (stickyPrompts.enabled && renderStart > 0) {
+    if (stickyEnabled && renderStart > 0) {
       for (let i = renderStart - 1; i >= 0; i--) {
         const row = rows[i]
         if (row && isOperatorPromptRow(row, headless)) {
@@ -357,7 +360,7 @@ export function ChatView({
       out.push({ row, index: renderStart + ri })
     })
     return out
-  }, [headless, renderStart, rows, stickyPrompts.enabled, visibleRows])
+  }, [headless, renderStart, rows, stickyEnabled, visibleRows])
 
   // Native sticky positioning keeps the real prompt row in the transcript.
   // As the next prompt approaches, translate the current row by exactly the
@@ -372,7 +375,7 @@ export function ChatView({
       scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
     )
 
-    if (!stickyPrompts.enabled) {
+    if (!stickyEnabled) {
       for (const prompt of prompts) {
         prompt.style.removeProperty('transform')
         prompt.style.removeProperty('visibility')
@@ -419,7 +422,7 @@ export function ChatView({
       if (isActive) prompt.dataset.stuck = 'true'
       else delete prompt.dataset.stuck
     }
-  }, [stickyPrompts.enabled])
+  }, [stickyEnabled])
 
   // Reconcile after row-window changes before paint, including when the
   // continuation prompt is mounted for a virtualized long answer.
@@ -1088,7 +1091,7 @@ export function ChatView({
                 collapseContext={headless}
                 compact={compact}
                 ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
-                stickyOperator={stickyPrompts.enabled && isOperatorPromptRow(row, headless)}
+                stickyOperator={stickyEnabled && isOperatorPromptRow(row, headless)}
               />
             )
           })}
