@@ -264,8 +264,9 @@ export function SidebarUnified(): JSX.Element {
           edge (negative margin + matching padding) so the selected row's bridge
           notch can paint OVER the aside border into the engraved column —
           overflow clips at the padding box, so the notch survives (#41). Rows
-          sit at the column's 8px side inset (13 − 5); the column's 3px rhythm
-          continues between project groups via the flex gap. */}
+          sit at the column's 8px side inset (13 − 5). Within a project group
+          the 3px row gap holds; between groups the project-group mb-2.5
+          clusters repo + snoozed/done as one unit. */}
       <div
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-2.5 pl-2"
@@ -1375,7 +1376,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           <motion.div
             layout="position"
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-            className="flex min-w-0 flex-col gap-[3px]"
+            className="mb-2.5 flex min-w-0 flex-col gap-[3px]"
             data-testid="pinned-section"
             data-drag-scope="pinned"
           >
@@ -1388,7 +1389,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
             layout="position"
             transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
             key={group.key}
-            className="flex min-w-0 flex-col gap-[3px]"
+            className="mb-2.5 flex min-w-0 flex-col gap-[3px] last:mb-0"
             data-testid="project-group"
             data-drag-scope={`group:${group.key}`}
           >
