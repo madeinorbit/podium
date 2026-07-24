@@ -46,10 +46,11 @@ export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }
   { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
 ]
 
-// The workspace "+" (new tab) menu offers AGENTS only [spec:SP-75b1] — shells
-// are excluded here (a shell spawned as a tab is a regular panel-system
-// participant, offered elsewhere), so the tab list filters 'shell' out.
-const TAB_AGENTS = NEW_AGENTS.filter((a) => a.kind !== 'shell')
+// The workspace "+" (new tab) menu lists every agent kind, including 'New Shell'.
+// (SP-75b1 had excluded shells from this menu; we deliberately keep them here.)
+// Each row is still capability-gated below; a shell is always allowed on an
+// online machine (agentCapabilityRejection returns undefined for 'shell').
+const TAB_AGENTS = NEW_AGENTS
 
 const MINI_LIMIT = 8
 // Fewer hits shown inside each machine's submenu to keep it compact.
