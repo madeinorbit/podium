@@ -55,7 +55,7 @@ describe('RightRail', () => {
     const square = screen.getByTestId('issue-id-square')
     // The square language's chrome, not the old borderless text cell.
     expect(square.style.border).not.toBe('')
-    expect(square.style.background).toBe('#25252f') // uncoloured fill
+    expect(square.style.background).toBe('#141d30') // uncoloured navy fill (resting, POD-293)
     fireEvent.click(square)
     expect(onPanelChange).toHaveBeenLastCalledWith('issue')
   })

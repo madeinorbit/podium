@@ -16,7 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { Archive, Columns2, FileText, Plus, X } from 'lucide-react'
+import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
@@ -571,18 +571,34 @@ function SortableTab({
           )}
         </button>
       )}
-      <button
-        data-pressable
-        type="button"
-        className={cn(
-          'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
-          active ? 'inline-flex' : 'hidden group-hover:inline-flex',
-        )}
-        title={tab.kind === 'session' ? 'Kill session' : 'Close file'}
-        onClick={onClose}
-      >
-        <X size={11} aria-hidden="true" />
-      </button>
+      {tab.kind === 'session' ? (
+        // Workers stay with the task (POD-293): a session tab is a member of the
+        // task, not a disposable view — so no one-click close. A dim lock stands
+        // where the ✕ was; killing an agent lives on the tab's right-click menu.
+        <span
+          className={cn(
+            'h-5 w-5 flex-none items-center justify-center rounded text-(--issue-muted)',
+            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
+          )}
+          title="Workers stay with the task — kill from the right-click menu"
+          aria-hidden="true"
+        >
+          <Lock size={10} />
+        </span>
+      ) : (
+        <button
+          data-pressable
+          type="button"
+          className={cn(
+            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
+            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
+          )}
+          title="Close file"
+          onClick={onClose}
+        >
+          <X size={11} aria-hidden="true" />
+        </button>
+      )}
       {tab.kind === 'session' && menuAnchor && (
         <SessionContextMenu
           session={tab.session}

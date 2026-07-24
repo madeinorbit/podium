@@ -105,7 +105,10 @@ vi.mock('@/app/store', () => {
       }),
       issue('finished', 'Finished issue', {
         stage: 'done',
-        closedAt: '2026-07-06T12:00:00.000Z',
+        // Recent relative to the render's real clock (the sidebar reads live
+        // `now`): a hard-coded past date would age out of the finished-visibility
+        // window and silently drop the row, rotting the test over wall time.
+        closedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         unread: true,
         gitState: {
           updatedAt: '2026-07-06T12:00:00.000Z',
@@ -235,7 +238,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(status.getAttribute('data-phase')).toBe('done')
     expect(status.textContent).toContain('done')
     expect(status.textContent).toContain('5:40 total')
-    expect(status.querySelector('svg')).toBeTruthy()
+    // Completion is stated in words now (POD-293): the done ✓ glyph is gone from
+    // line 2 — "done · 5:40 total" in mono carries it, one clean voice, no icon.
+    expect(status.querySelector('svg')).toBeNull()
     expect(doneRow.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
@@ -268,7 +273,10 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .getByText('Reviewable issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(row.querySelector('[data-phase="waiting"]')).toBeTruthy()
-    expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+    // POD-293: a decision row states its ask in words, so the amber count pill is
+    // suppressed — the square's amber dot still marks the row as waiting.
+    expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
+    expect(row.querySelector('[data-testid="issue-id-square"][data-badge="dot"]')).toBeTruthy()
     const chip = row.querySelector('[data-testid="awaiting-merge-status"]') as HTMLElement
     expect(chip.textContent).toBe('ready to merge · 2')
     // POD-293: the ask is the row's one amber voice as a plain weighted word —
@@ -291,7 +299,8 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
 
     const merge = rowFor('Review with branch')
     expect(merge.querySelector('[data-phase="waiting"]')).toBeTruthy()
-    expect(merge.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+    // The decision word is the row's one amber voice (POD-293) — no count pill.
+    expect(merge.querySelector('[aria-label="1 waiting on you"]')).toBeNull()
     const mergeChip = merge.querySelector('[data-decision="merge"]') as HTMLElement
     expect(mergeChip.textContent).toBe('ready to merge · 1')
 

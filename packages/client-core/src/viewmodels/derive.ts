@@ -1906,10 +1906,14 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
  * selected closure keeps the lane it occupied when clicked: a settled folded
  * row stays folded, while a newly-read open row stays open until focus moves.
  * Pinned rows are removed before grouping, so pinning also wins. */
-export function rowInClosedFold(
+const EMPTY_TUCKED: ReadonlySet<string> = new Set()
+
+/** Eligibility for the closed fold BEFORE the operator's dismissal is consulted:
+ *  a read, settled, top-level closure with nothing still asked of the human. */
+function closedFoldEligible(
   row: UnifiedWorkRow,
   selectedIssueId: string | null,
-  selectedIssueWasFolded = false,
+  selectedIssueWasFolded: boolean,
 ): row is UnifiedIssueRow {
   if (row.kind !== 'issue') return false
   const { issue } = row
@@ -1925,6 +1929,40 @@ export function rowInClosedFold(
   )
 }
 
+export function rowInClosedFold(
+  row: UnifiedWorkRow,
+  selectedIssueId: string | null,
+  selectedIssueWasFolded = false,
+  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
+  now: number = Date.now(),
+): row is UnifiedIssueRow {
+  if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
+  // POD-293: a freshly finished issue no longer drops into the fold the instant
+  // it is read — it stays a live "done" row carrying the tuck-away control, and
+  // folds only once the operator dismisses it, or after the finished-grace
+  // window tidies it away on its own so the live list can't accrete history.
+  return (
+    tuckedIds.has(row.issue.id) ||
+    now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
+  )
+}
+
+/** A finished issue held OPEN in the live list for the operator to dismiss
+ *  (POD-293): fold-eligible, but not yet tucked and still inside the grace
+ *  window. The sidebar shows its "tuck away" control only for these rows. */
+export function rowAwaitsTuck(
+  row: UnifiedWorkRow,
+  selectedIssueId: string | null = null,
+  selectedIssueWasFolded = false,
+  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
+  now: number = Date.now(),
+): row is UnifiedIssueRow {
+  if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
+  return (
+    !tuckedIds.has(row.issue.id) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
+  )
+}
+
 /**
  * Bucket unified WORK rows by repo (stable repoId when known, repoPath
  * otherwise — so the same repo on two machines/paths merges into one group).
@@ -1937,6 +1975,7 @@ export function groupUnifiedWorkRows(
   selectedIssueId: string | null = null,
   selectedIssueWasFolded = false,
   now: number = Date.now(),
+  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
 ): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
@@ -1955,7 +1994,7 @@ export function groupUnifiedWorkRows(
       byKey.set(key, group)
       groups.push(group)
     }
-    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded)) {
+    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded, tuckedIds, now)) {
       group.closedRows.push(row)
     } else if (rowInSnoozedFold(row, now)) {
       group.snoozedRows.push(row)

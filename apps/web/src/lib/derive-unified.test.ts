@@ -764,7 +764,9 @@ describe('groupUnifiedWorkRows', () => {
       closedRow('done-only', { closedReason: undefined }),
     ]
 
-    const [group] = groupUnifiedWorkRows(rows, 'selected')
+    // A settled closure folds once the operator tucks it (POD-293); the rest
+    // stay in the live list for their own reasons (unread, selected, awaiting…).
+    const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW, new Set(['settled']))
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
     expect(
       group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
@@ -791,6 +793,8 @@ describe('groupUnifiedWorkRows', () => {
       [closedRow('oldest', 3), closedRow('selected', 2), closedRow('newest', 1)],
       'selected',
       true,
+      NOW,
+      new Set(['oldest', 'selected', 'newest']),
     )
 
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['newest', 'selected', 'oldest'])

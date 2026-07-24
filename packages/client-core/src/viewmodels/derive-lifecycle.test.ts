@@ -2,6 +2,7 @@ import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   groupUnifiedWorkRows,
+  rowAwaitsTuck,
   rowInClosedFold,
   rowInSnoozedFold,
   type SidebarSections,
@@ -83,11 +84,12 @@ describe('issue/session lifecycle in the unified sidebar', () => {
 
   it('folds a read closed issue even when a historical stale offer remains (POD-290)', () => {
     // Closing retires offers server-side; this guards residual client state so
-    // finished work cannot keep demanding a decision forever.
+    // finished work cannot keep demanding a decision forever. Past the finished
+    // grace window it folds on its own, offer or not (POD-293).
     const closed = issue({
       stage: 'done',
       closedReason: 'done',
-      closedAt: '2026-07-23T09:00:00.000Z',
+      closedAt: '2026-07-21T09:00:00.000Z',
     })
     const offered = session({
       issueId: closed.id,
@@ -97,7 +99,23 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         createdAt: '2026-07-23T10:00:00.000Z',
       },
     })
-    expect(rowInClosedFold(row(closed, [offered]), null)).toBe(true)
+    expect(rowInClosedFold(row(closed, [offered]), null, false, new Set(), NOW)).toBe(true)
+  })
+
+  it('holds a freshly finished issue open until tucked, then folds it (POD-293)', () => {
+    // Read + settled but finished only 30 minutes ago: it no longer vanishes on
+    // read — it stays a live "done" row the operator can dismiss.
+    const done = issue({
+      stage: 'done',
+      closedReason: 'done',
+      closedAt: '2026-07-23T11:30:00.000Z',
+    })
+    const r = row(done)
+    expect(rowInClosedFold(r, null, false, new Set(), NOW)).toBe(false)
+    expect(rowAwaitsTuck(r, null, false, new Set(), NOW)).toBe(true)
+    // Tucking it folds it into Closed at once, and it stops awaiting dismissal.
+    expect(rowInClosedFold(r, null, false, new Set([done.id]), NOW)).toBe(true)
+    expect(rowAwaitsTuck(r, null, false, new Set([done.id]), NOW)).toBe(false)
   })
 
   it('keeps open review work with a live offer out of the closed fold', () => {

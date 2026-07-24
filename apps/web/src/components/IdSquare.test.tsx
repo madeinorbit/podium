@@ -77,7 +77,7 @@ describe('IdSquare identity', () => {
     ).toBe('ENG')
   })
 
-  it('keeps the fixed 26px / 7px / 6.5px square in every state', () => {
+  it('keeps the fixed 26px square, 7px radius and mono 7px type in every state', () => {
     render(
       <IdSquare
         issue={issue({ linearIdentifier: 'pod-128' })}
@@ -93,24 +93,25 @@ describe('IdSquare identity', () => {
     expect(el.getAttribute('style')).toContain('height: 26px')
     expect(el.getAttribute('style')).toContain('border-radius: 7px')
     expect(el.className).toContain('font-mono')
-    expect(el.className).toContain('text-[6.5px]')
+    expect(el.className).toContain('text-[7px]')
     expect(el.className).toContain('font-semibold')
   })
 })
 
 describe('IdSquare square language', () => {
-  it('renders solid grey for working and dashed/dimmed for queued or idle', () => {
+  it('renders the solid navy square for working and dashed/dimmed for queued or idle', () => {
     const onColorChange = vi.fn()
     const { rerender } = render(
       <IdSquare issue={issue()} state="working" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('style')).toContain('border: 1px solid #8d8d9a')
-    expect(square().getAttribute('style')).toContain('color: #c5c5d0')
+    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
+    expect(square().getAttribute('style')).toContain('background: #182338')
+    expect(square().getAttribute('style')).toContain('color: #c3cbe0')
     expect(square().style.opacity).toBe('1')
 
     rerender(<IdSquare issue={issue()} state="queued" onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border: 1px dashed #6c6c78')
-    expect(square().getAttribute('style')).toContain('color: #8d8d9a')
+    expect(square().getAttribute('style')).toContain('border: 1px dashed #3a4a70')
+    expect(square().getAttribute('style')).toContain('color: #7d88a4')
     expect(square().style.opacity).toBe('0.65')
 
     rerender(<IdSquare issue={issue()} state="idle" onColorChange={onColorChange} />)
@@ -130,7 +131,7 @@ describe('IdSquare square language', () => {
 
     rerender(<IdSquare issue={issue()} state="idle" selected onColorChange={onColorChange} />)
     expect(square().getAttribute('style')).toContain('border: 1px solid #c8d2e0')
-    expect(square().getAttribute('style')).toContain('color: #e8edf5')
+    expect(square().getAttribute('style')).toContain('color: #eef2f8')
     expect(square().getAttribute('style')).toContain('rgba(148,163,184,.3)')
     expect(square().style.opacity).toBe('1')
   })
@@ -140,11 +141,11 @@ describe('IdSquare square language', () => {
     const { rerender } = render(
       <IdSquare issue={issue()} state="waiting" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('style')).toContain('border: 1px solid #8d8d9a')
+    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
     expect(square().style.opacity).toBe('1')
 
     rerender(<IdSquare issue={issue()} state="done" onColorChange={onColorChange} />)
-    expect(square().getAttribute('style')).toContain('border: 1px solid #8d8d9a')
+    expect(square().getAttribute('style')).toContain('border: 1px solid #33456e')
     expect(square().style.opacity).toBe('1')
   })
 

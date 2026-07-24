@@ -444,7 +444,10 @@ export function AgentRosterBand({
     // visually distinct from the issue-tinted subtask tree.
     return (
       <div className={cn('relative min-w-0 pl-3', className)} data-testid={testId}>
-        <span className="absolute top-[7px] bottom-2 left-1 w-px bg-[#2b3550]" aria-hidden="true" />
+        <span
+          className="absolute top-[7px] bottom-2 left-1 w-[1.5px] rounded-full bg-[#2b3550]"
+          aria-hidden="true"
+        />
         {header}
         {children}
       </div>
@@ -475,6 +478,7 @@ export function PanelRow({
   trailingMeta,
   coordinator = false,
   roster = false,
+  stub = false,
   issueDisplayRef,
 }: {
   session: SessionMeta
@@ -498,6 +502,10 @@ export function PanelRow({
   /** Roster-band row (POD-170, L2): terracotta glyph, tighter box, chip hover —
    *  the mono-voiced agent grammar. Controls (close/continue/snooze) carry over. */
   roster?: boolean
+  /** Draw the tree connector stub from the roster rail to this row (POD-293):
+   *  the agent list reads as a tree hung on its guide, like the concept. Only
+   *  the rail-hung issue roster sets it — the boxed worktree band has no guide. */
+  stub?: boolean
   /** Human-facing ref for the session's attached issue. Legacy sessions may
    *  lack their own minted displayRef, but internal issue IDs must stay hidden. */
   issueDisplayRef?: string
@@ -584,6 +592,15 @@ export function PanelRow({
       )}
       data-session={session.sessionId}
     >
+      {stub && (
+        // Tree connector to the roster rail (POD-293): a short horizontal seam
+        // ties this agent row back to the vertical guide, so the fan-out reads
+        // as a tree rather than a loose stack.
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 left-[-8px] h-[1.5px] w-[7px] -translate-y-1/2 rounded-full bg-[#2b3550]"
+        />
+      )}
       {editing ? (
         <div
           className={cn(
@@ -745,25 +762,29 @@ export function PanelRow({
         </Button>
       )}
       {/* Hover overlay: close, floated over the row's right edge (before the
-          dot) so revealing it never reflows the row. Panel-pinning is retired
+          dot) so revealing it never reflows the row. Sub-agent roster rows omit
+          it (POD-293): a task's workers aren't dismissed one-off from the list —
+          killing stays on the row's right-click menu. Panel-pinning is retired
           (POD-169) — issue-pinning is the only pin concept. */}
-      <div
-        data-hover-reveal
-        className={cn(
-          'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
-          roster ? 'bg-[#16223c]' : active ? 'bg-[#232330]' : 'bg-[#20202a]',
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 flex-none text-muted-foreground/70 hover:text-destructive"
-          title="Close session"
-          onClick={() => void guardedKill(session.sessionId)}
+      {!roster && (
+        <div
+          data-hover-reveal
+          className={cn(
+            'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
+            active ? 'bg-[#232330]' : 'bg-[#20202a]',
+          )}
         >
-          <X size={12} aria-hidden="true" />
-        </Button>
-      </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-6 flex-none text-muted-foreground/70 hover:text-destructive"
+            title="Close session"
+            onClick={() => void guardedKill(session.sessionId)}
+          >
+            <X size={12} aria-hidden="true" />
+          </Button>
+        </div>
+      )}
       {/* Rightmost + always visible. On attention rows: the snooze control.
           Elsewhere only when snoozed (an un-snooze affordance). */}
       {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}

@@ -6,7 +6,7 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
   Archive,
-  Check,
+  ArrowDownToLine,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -60,6 +60,7 @@ import {
   type RepoNavView,
   resolveDefaultAgent,
   resolveTargetMachine,
+  rowAwaitsTuck,
   rowMotionPhase,
   rowMotionTiming,
   rowPendingDecision,
@@ -79,7 +80,6 @@ import {
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import {
-  BrailleSpinner,
   PhaseTimer,
   type RowTransitionItem,
   type RowTransitionTarget,
@@ -137,36 +137,47 @@ function IssueFleetSummary({
     .join(' · ')
   return (
     <span
-      className="relative ml-0.5 flex flex-none items-center"
+      className="ml-0.5 flex flex-none items-center"
       role="img"
       aria-label={label}
       title={label}
       data-testid="issue-fleet-summary"
     >
-      {unread && (
-        <span
-          className="absolute -top-1 -right-1 z-[1] size-[7px] rounded-full border-2 border-[#16161c] bg-info"
-          data-testid="row-unread-dot"
-          aria-hidden="true"
-        />
-      )}
       {shown.map((session, index) => {
         const AgentIcon = agentIconFor(session.agentKind)
+        // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
+        // navy — a larger, brand-glyphed tile reads which agent is here at a glance.
+        const claude = session.agentKind === 'claude-code'
+        // The row's unopened-update dot rides the corner of the LAST tile (the
+        // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
+        // row background — reads as "this fleet has something new", not a third
+        // free-floating mark.
+        const showDot = unread && index === shown.length - 1
         return (
           <span
             key={session.sessionId}
             data-agent-kind={session.agentKind}
             className={cn(
-              'flex size-[17px] items-center justify-center rounded-[5px] border border-[#2c3958] bg-[#111b2d] text-[#d97757]',
+              'relative flex size-[19px] items-center justify-center rounded-[6px] border',
+              claude
+                ? 'border-[#d97757]/40 bg-[#d97757]/15 text-claude'
+                : 'border-[#9aa4c0]/35 bg-[#9aa4c0]/[.12] text-[#c3cbe0]',
               index > 0 && '-ml-1',
             )}
           >
-            {AgentIcon ? <AgentIcon size={10} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+            {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+            {showDot && (
+              <span
+                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,#16161c)] bg-info"
+                data-testid="row-unread-dot"
+                aria-hidden="true"
+              />
+            )}
           </span>
         )
       })}
       {overflow > 0 && (
-        <span className="-ml-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-[5px] border border-[#2c3958] bg-[#111b2d] px-0.5 font-mono text-[8px] text-[#9aa4c0]">
+        <span className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-[#9aa4c0]/35 bg-[#9aa4c0]/[.12] px-0.5 font-mono text-[8px] text-[#9aa4c0]">
           +{overflow}
         </span>
       )}
@@ -1058,6 +1069,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     archiveIssue,
     applySortPatches,
   } = useUnifiedWork(derivation)
+  const uiState = useStoreSelector((s) => s.uiState)
   const shouldReduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
@@ -1070,16 +1082,37 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     )
   }, [selectedIssueId])
 
+  // Tuck-away (POD-293): a finished row folds into Closed only when the operator
+  // dismisses it — not the instant it is read — so completed work stops
+  // vanishing out from under them. The dismissed ids persist in ui-state; the
+  // effect restores them whenever the live set changes, and `tuck` adds one
+  // optimistically so the row folds the moment the control is pressed.
+  const [tuckedIds, setTuckedIds] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    setTuckedIds((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const row of work) {
+        if (row.kind !== 'issue') continue
+        if (uiState.get(`podium:sidebar:tucked:${row.issue.id}`) === 'true' && !next.has(row.issue.id)) {
+          next.add(row.issue.id)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [work, uiState])
+  const tuck = (id: string) => {
+    uiState.set(`podium:sidebar:tucked:${id}`, 'true')
+    setTuckedIds((prev) => new Set(prev).add(id))
+  }
+  const selectedWasFolded =
+    selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
+
   const { pinned, rest } = useMemo(() => splitPinnedWork(work), [work])
   const targetGroups = useMemo(
-    () =>
-      groupUnifiedWorkRows(
-        rest,
-        selectedIssueId,
-        selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded,
-        now,
-      ),
-    [now, rest, selectedClosedPlacement, selectedIssueId],
+    () => groupUnifiedWorkRows(rest, selectedIssueId, selectedWasFolded, now, tuckedIds),
+    [now, rest, selectedIssueId, selectedWasFolded, tuckedIds],
   )
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
@@ -1206,6 +1239,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           onRenameIssue={renameIssue}
           onColorChangeIssue={setIssueColor}
           onGripDown={draggable ? onGripDown : undefined}
+          onTuck={
+            rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, tuckedIds, now)
+              ? () => tuck(row.issue.id)
+              : undefined
+          }
         />
       ) : (
         <UnifiedWorktreeRow
@@ -1413,6 +1451,7 @@ function WorkRowShell({
   hex,
   phase,
   waitingCount,
+  showWaitingPill = true,
   timeMeta,
   active,
   unread = false,
@@ -1432,6 +1471,7 @@ function WorkRowShell({
   statusExtra,
   gitStamp,
   onGripDown,
+  onTuck,
   band,
   hasTreeChildren,
   childDragScope,
@@ -1447,6 +1487,9 @@ function WorkRowShell({
   phase: MotionPhase
   /** Amber line-1 pill count (0 = no pill). */
   waitingCount: number
+  /** Render the amber count pill (POD-293). False on rows that already carry an
+   *  amber decision word, so "needs you" isn't said twice in the same region. */
+  showWaitingPill?: boolean
   /** Line 2's lifecycle meta (the PhaseTimer). */
   timeMeta?: ReactNode
   active: boolean
@@ -1479,6 +1522,9 @@ function WorkRowShell({
   /** Manual-sort grip (POD-168): when set, a ⠿ handle fades in on the row's
    *  left edge on hover and pointerdown starts a drag. */
   onGripDown?: (e: ReactPointerEvent) => void
+  /** Dismiss a finished row into the Closed fold (POD-293): when set, a quiet
+   *  "tuck away" control rides the row's right edge. Absent on live rows. */
+  onTuck?: () => void
   /** Agent roster band (POD-170, L2): rendered adjacent to the row, outside
    * the subtask tree, and folded with the row's other secondary detail. */
   band?: ReactNode
@@ -1509,15 +1555,40 @@ function WorkRowShell({
           '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, #16161c)`,
         } as CSSProperties)
       : {}
+  // A coloured issue's expanded block reads as ONE carved card (POD-293): the row
+  // and its agent/subtask detail share a continuous tint inside a single
+  // issue-toned hairline (The Tint, Never Fill Rule), instead of the tint
+  // stopping at the row edge and the agents sitting bare on the chassis.
+  const hasDetail = hasTreeChildren || (!collapsed && Boolean(band))
+  const carded = Boolean(hex) && hasDetail
   return (
-    <div className="min-w-0" data-testid={testId}>
+    <div
+      className={cn('min-w-0', carded && 'rounded-[8px] border')}
+      style={
+        carded
+          ? {
+              // Subtle by design (POD-293): the issue-toned hairline is what
+              // unifies the card; the fill is only a whisper so the row stays the
+              // one strongly-coloured surface and the detail reads recessed.
+              borderColor: `color-mix(in srgb, ${hex} 34%, transparent)`,
+              background: `color-mix(in srgb, ${hex} 5%, #14141a)`,
+            }
+          : undefined
+      }
+      data-testid={testId}
+    >
       <div
         className={cn(
           'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[6.5px] pr-2 pl-3.5',
+          carded && 'rounded-b-none',
           !active && !hex && 'hover:bg-[#20202a]',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
-          phase === 'done' && !active && !unread && 'opacity-70',
+          // A finished row that still carries the tuck-away control stays at full
+          // strength (POD-293) so the control reads crisp — the grey "done" status
+          // already says it's finished; the dim only returns once it can't be
+          // dismissed here (e.g. an unread completion).
+          phase === 'done' && !active && !unread && !onTuck && 'opacity-70',
           morph === 'waiting' && 'morph-row-flash',
           deemphasized && !active && 'scale-[0.98] opacity-70',
         )}
@@ -1592,7 +1663,14 @@ function WorkRowShell({
                   free-floating blue dot was rejected: POD-236 — this dot is
                   bound to the agent identity, not a third positional meaning. */}
               {extras}
-              {waitingCount > 0 && (
+              {/* The amber count earns its pill only on a row that ISN'T already
+                  saying "needs you" in words (POD-293): a review / merge decision
+                  carries the amber voice itself and the fleet tiles already show
+                  how many agents are here, so a second amber number beside them
+                  was the same signal three times. On a wordless waiting row (an
+                  agent's question) the pill stays — there it IS the needs-you
+                  signal, and its count survives the row being collapsed. */}
+              {showWaitingPill && waitingCount > 0 && (
                 <span
                   key={`pill:${waitingCount}`}
                   className={cn(
@@ -1606,8 +1684,13 @@ function WorkRowShell({
                 </span>
               )}
             </span>
+            {/* Line 2 is set in mono (POD-293): the machine voice tabulates the
+                status word, timer and git counters onto one even baseline —
+                baseline-aligned so the right-side facts ("22 uncommitted", the
+                spin-off tick) sit level with the status word, not lifted toward
+                the agent tiles on the line above. */}
             <span
-              className="flex min-w-0 items-center gap-1.5 text-[10px]"
+              className="flex min-w-0 items-baseline gap-1.5 font-mono text-[9.5px]"
               style={{ color: tints.status }}
             >
               {/* One lifecycle lockup is the row's first-glance answer. Agent
@@ -1628,15 +1711,9 @@ function WorkRowShell({
                       : undefined
                 }
               >
-                {phase === 'working' && <BrailleSpinner size={9} />}
-                {phase === 'done' && (
-                  <Check
-                    size={10}
-                    strokeWidth={2.4}
-                    className="flex-none text-success"
-                    aria-hidden="true"
-                  />
-                )}
+                {/* The working spinner rides the ID square's corner badge now
+                    (POD-293), and a done row needs no ✓ beside its "done · Ns" —
+                    so line 2 stays a clean one-voice status phrase. */}
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium">
                   {statusLine}
                 </span>
@@ -1645,6 +1722,38 @@ function WorkRowShell({
               {gitStamp}
               {statusExtra}
             </span>
+          </button>
+        )}
+        {/* Tuck-away (POD-293): a finished task no longer vanishes into Closed on
+            its own the moment it's read — it holds its place with this explicit
+            control, styled in the sidebar's own raised-chip vocabulary (chip
+            navy over a seam hairline, machine voice). No amber: nothing is being
+            asked here. On hover it firms and the glyph nudges DOWN — a small,
+            honest cue that pressing it folds the row down into Closed, where it
+            stays reachable (click to reopen, or start an agent to pick it up).
+            It kills nothing and closes nothing — the task is already finished. */}
+        {onTuck && (
+          <button
+            data-pressable
+            type="button"
+            data-testid="tuck-away"
+            // Full content-height (POD-293): the control stretches to align with
+            // the top of the square and the bottom of the status line, reading as
+            // one clean right-edge action rather than a small floating chip.
+            className="group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-[#243356] bg-[#16223c] px-2 font-mono text-[9px] tracking-[0.02em] text-[#7a84a0] transition-colors hover:border-[#364a78] hover:bg-[#1b2b49] hover:text-[#e6e9f2]"
+            title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
+            aria-label={`Tuck ${label} into Closed`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onTuck()
+            }}
+          >
+            <ArrowDownToLine
+              size={11}
+              aria-hidden="true"
+              className="text-[#525c78] transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-[#9aa4c0]"
+            />
+            <span>Tuck away</span>
           </button>
         )}
         {/* Bridge notch (§2.5): grows from the selected row's right edge over the
@@ -1679,29 +1788,35 @@ function WorkRowShell({
           stays visible — it's real tracked work you can select — while only the
           agent ROSTER band folds behind the chevron. So `collapsed` gates the
           band alone; `hasTreeChildren` renders regardless. */}
-      {!hasTreeChildren && !collapsed && band}
-      {hasTreeChildren && (
+      {hasDetail && (
         <div
-          className="tree-children relative rounded-b-[7px] pt-0.5 pb-1"
-          data-drag-scope={childDragScope}
-          data-testid={childrenTestId}
+          className={cn(
+            'tree-children relative pt-0.5 pb-1',
+            carded ? 'rounded-b-[8px]' : 'rounded-b-[7px]',
+          )}
+          data-drag-scope={hasTreeChildren ? childDragScope : undefined}
+          data-testid={hasTreeChildren ? childrenTestId : undefined}
           style={
             hex
               ? ({
                   '--tree-guide': `color-mix(in srgb, ${hex} 55%, var(--border))`,
                   '--child-active-bg': `color-mix(in srgb, ${hex} 26%, #16161c)`,
                   '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, #16161c)`,
-                  // Same 12% mix as the unselected coloured row, so row +
-                  // unfolded block read as one continuous coloured card.
-                  background: `color-mix(in srgb, ${hex} 12%, #16161c)`,
+                  // Recessed and subtle (POD-293): the detail sits on a darker
+                  // navy than the row with only a whisper of the issue hue, so the
+                  // card reads carved-in — the coloured row above, a quiet well
+                  // below — rather than one uniform slab of tint.
+                  background: `color-mix(in srgb, ${hex} 6%, #0e1422)`,
                 } as CSSProperties)
               : undefined
           }
         >
-          <span
-            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
-            aria-hidden="true"
-          />
+          {hasTreeChildren && (
+            <span
+              className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
+              aria-hidden="true"
+            />
+          )}
           {!collapsed && band && <div data-tree-band>{band}</div>}
           {children}
         </div>
@@ -1730,6 +1845,7 @@ function UnifiedIssueRow({
   onRenameIssue,
   onColorChangeIssue,
   onGripDown,
+  onTuck,
   /** Visual nesting depth for started-by children (0 = top-level). */
   startedByDepth = 0,
 }: {
@@ -1749,6 +1865,9 @@ function UnifiedIssueRow({
   onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
   /** Manual-sort drag start (POD-168); absent = row not draggable. */
   onGripDown?: (e: ReactPointerEvent, issueId: string) => void
+  /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
+   *  tuckable done row, so the control is hidden. */
+  onTuck?: () => void
   startedByDepth?: number
 }): JSX.Element {
   const { issue, sessions: mine, startedByChildren = [] } = row
@@ -1806,7 +1925,15 @@ function UnifiedIssueRow({
       state={phase}
       selected={active}
       size={30}
-      badge={waitingCount > 0 ? { kind: 'dot' } : null}
+      // The ask wins the corner (amber dot); otherwise a working row shows the
+      // blue spinner badge on the square itself (POD-293), not beside line 2.
+      badge={
+        waitingCount > 0
+          ? { kind: 'dot' }
+          : phase === 'working'
+            ? { kind: 'spinner' }
+            : null
+      }
       onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
   )
@@ -1851,6 +1978,7 @@ function UnifiedIssueRow({
       onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
       dotRight
       roster
+      stub
       coordinator={isCoordinatorSession(issue, session.sessionId)}
       issueDisplayRef={issue.displayRef}
     />
@@ -1875,6 +2003,7 @@ function UnifiedIssueRow({
         deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
+        onTuck={onTuck}
         statusLine={
           decision !== null ? (
             // The one word that answers "what is being asked of me here" — a
@@ -1898,6 +2027,9 @@ function UnifiedIssueRow({
         hex={hex}
         phase={phase}
         waitingCount={waitingCount}
+        // Suppress the amber pill when the row already states its ask in words
+        // (needs review / ready to merge) — one amber voice per region (POD-293).
+        showWaitingPill={decision === null}
         timeMeta={
           <PhaseTimer
             phase={timing.phase}
@@ -1950,7 +2082,7 @@ function UnifiedIssueRow({
         statusExtra={
           origin && (
             <span
-              className="flex-none font-mono text-[10px] tabular-nums"
+              className="flex-none font-mono text-[9px] leading-[13px] tabular-nums"
               data-testid="spinoff-origin-tick"
               title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
             >

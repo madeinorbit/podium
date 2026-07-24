@@ -103,9 +103,17 @@ export function KindIcon({
       ? 'text-claude'
       : 'text-foreground'
   if (chip) {
+    // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
+    // quiet navy — the same fleet-avatar grammar, so an agent row is identifiable
+    // at a glance instead of a uniform grey chip.
+    const chipTint = dimmed
+      ? 'border-[#2a3550] bg-[#141d30]'
+      : kind === 'claude-code'
+        ? 'border-[#d97757]/40 bg-[#d97757]/15'
+        : 'border-[#33456e] bg-[#182338]'
     return (
       <span
-        className={`flex size-5 flex-none items-center justify-center rounded-[5px] bg-[#22222c] transition-colors group-hover:bg-[#2c2c38] ${tone}`}
+        className={`flex size-5 flex-none items-center justify-center rounded-[6px] border ${chipTint} ${tone}`}
         title={panelLabel(kind)}
       >
         <Icon size={12} aria-label={panelLabel(kind)} />
