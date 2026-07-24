@@ -105,6 +105,11 @@ const DAEMON_HEARTBEAT_INTERVAL_MS = 10_000
 // bounded 256 KB ring) protects everyone else.
 const SEND_BUFFER_LIMIT_BYTES = 16 * 1024 * 1024
 
+/** Freshly-attached daemons get polled this often (see the attach site) … */
+const INVENTORY_SETTLE_INTERVAL_MS = 10_000
+/** … for this long, which covers a turnkey enrollment installing all three CLIs. */
+const INVENTORY_SETTLE_WINDOW_MS = 3 * 60_000
+
 // A malformed frame is dropped so it can't wedge the connection — but the drop is
 // logged (never silent), throttled so a misbehaving peer can't flood the journal.
 const FRAME_WARN_THROTTLE_MS = 1_000
@@ -251,6 +256,23 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // `helloOk` reply must be the first frame.
       send = (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES)
       registry.modules.sessions.attachDaemon(machineId, send)
+      // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
+      // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
+      // loop only re-reports once a minute. Everything that gates on capability reads
+      // that stale list — the handoff picker says "no Claude" for up to a minute after
+      // the CLI is already installed and logged in. Poll the fresh daemon briefly so
+      // it fills in seconds after each install lands, then fall back to its own loop.
+      const settle = setInterval(
+        () => send?.({ type: 'inventoryRequest' }),
+        INVENTORY_SETTLE_INTERVAL_MS,
+      )
+      settle.unref?.()
+      const stopSettle = setTimeout(() => clearInterval(settle), INVENTORY_SETTLE_WINDOW_MS)
+      stopSettle.unref?.()
+      ws.on('close', () => {
+        clearInterval(settle)
+        clearTimeout(stopSettle)
+      })
       if (auth.pairingGrant?.copyAgentCredentials) {
         void relayAgentCredentials(registry, machineId)
       }
