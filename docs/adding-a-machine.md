@@ -92,7 +92,7 @@ Grok, then in `--join` mode it:
   a detached daemon automatically when user systemd is unavailable.
 
 The new machine then shows up under **Settings → Machines**. The pairing code is single-use
-and expires after ~10 minutes; click **New code** for a fresh one if it lapses.
+and expires after 1 hour; click **New code** for a fresh one if it lapses.
 
 > **"Finish setup to get a one-line join command."** If the Add-machine dialog shows only a
 > pairing code and this message, the server hasn't completed its networking step yet — there's
