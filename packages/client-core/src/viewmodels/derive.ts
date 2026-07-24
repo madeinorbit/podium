@@ -1965,11 +1965,14 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionMeta): AgentBadge | null {
+export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
-  // dot, sidebar meta, chat activity) amber until that offer is cleared.
-  if (meta.offer) {
+  // dot, sidebar meta, chat activity) amber until that offer is cleared —
+  // except on a finished issue, where the close retired the decision (POD-290).
+  const issueFinished =
+    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+  if (meta.offer && !issueFinished) {
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
   const s = meta.agentState
@@ -2136,16 +2139,32 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  * predicate). A finished run (`idle.kind === 'done'` or `ended`) is `done`;
  * starting/exited/uninstrumented-quiet sessions fall through to `queued`.
  */
-export function motionPhase(s: SessionMeta): MotionPhase {
+export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   const state = s.agentState
   // Offers outlive the turn that created them, so attention must win over the
-  // transcript's terminal idle/done verdict.
-  if (attentionGroup(s) === 'needsYou') return 'waiting'
+  // transcript's terminal idle/done verdict — unless the owning issue is already
+  // finished. Closing retires offers server-side (POD-290); this guard also
+  // drops historical stale offers so a closed row cannot keep demanding a
+  // decision. Open review work still counts.
+  if (attentionGroup(s) === 'needsYou') {
+    const finished =
+      issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
+  }
   if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
     return 'done'
   }
   if (isSessionWorking(s)) return 'working'
   return 'queued'
+}
+
+/** True when attention would still be needsYou even without a standing offer —
+ *  questions, permissions, errors, open todos. Used so a finished issue only
+ *  ignores offer-driven attention, not a real live need. */
+function hasNonOfferNeedsYou(s: SessionMeta): boolean {
+  if (!s.offer) return attentionGroup(s) === 'needsYou'
+  const withoutOffer = { ...s, offer: undefined }
+  return attentionGroup(withoutOffer) === 'needsYou'
 }
 
 /** Canonical timer inputs derived from one session's persisted runtime state.
@@ -2195,13 +2214,13 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   ) {
     return 'done'
   }
-  return aggregateMotionPhase(sessions)
+  return aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member
  *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
-export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
-  const phases = sessions.map(motionPhase)
+export function aggregateMotionPhase(sessions: SessionMeta[], issue?: IssueWire): MotionPhase {
+  const phases = sessions.map((s) => motionPhase(s, issue))
   if (phases.includes('waiting')) return 'waiting'
   if (phases.includes('working')) return 'working'
   if (phases.length > 0 && phases.every((p) => p === 'done')) return 'done'
@@ -2214,7 +2233,8 @@ export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
  *  pill sums needs-you across the WHOLE branch — visible children and rolled-up
  *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
-  const sessions = rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+  const issue = row.kind === 'issue' ? row.issue : undefined
+  const sessions = rowSessions(row).filter((s) => motionPhase(s, issue) === 'waiting').length
   return sessions + (row.kind === 'issue' ? pendingDecisionStats(row).count : 0)
 }
 
@@ -2301,7 +2321,7 @@ export function deepAttentionSource(
     const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
     const kind =
       rowPendingDecision(r) ??
-      (r.sessions.some((s) => motionPhase(s) === 'waiting') ? 'session' : null)
+      (r.sessions.some((s) => motionPhase(s, r.issue) === 'waiting') ? 'session' : null)
     if (depth > 0 && kind !== null) {
       // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
       // later sibling deterministically; any deepest source serves the whisper.
@@ -2316,7 +2336,7 @@ export function deepAttentionSource(
  *  only)? Distinguishes a visible yellow (the child row explains itself) from
  *  one hidden behind the roll-up (the parent must whisper the source). */
 function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
-  if (row.sessions.some((s) => motionPhase(s) === 'waiting')) return true
+  if (row.sessions.some((s) => motionPhase(s, row.issue) === 'waiting')) return true
   if (rowPendingDecision(row) !== null) return true
   if (depth <= 0) return false
   return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
@@ -2372,11 +2392,12 @@ export function rowStatusLine(
         return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
       }
     }
+    const issue = row.kind === 'issue' ? row.issue : undefined
     const urgent = mostUrgentSession(
-      sessions.filter((s) => motionPhase(s) === 'waiting'),
+      sessions.filter((s) => motionPhase(s, issue) === 'waiting'),
       now,
     )
-    const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
+    const label = urgent ? (agentBadge(urgent, issue)?.label ?? 'needs you') : 'needs you'
     return head + label + progress
   }
   if (phase === 'working') return head + 'working' + progress
@@ -2414,7 +2435,8 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
     }
   }
   if (phase === 'waiting') {
-    const anchor = earliest(sessions.filter((s) => motionPhase(s) === 'waiting'))
+    const issue = row.kind === 'issue' ? row.issue : undefined
+    const anchor = earliest(sessions.filter((s) => motionPhase(s, issue) === 'waiting'))
     if (anchor) {
       return { phase, sinceMs: Date.parse(anchor.offer?.createdAt ?? '') || since(anchor) }
     }

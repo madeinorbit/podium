@@ -48,6 +48,12 @@ export function deriveTrayItems(
 ): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of issues.filter(live)) {
+    // Finished work is not attention (POD-198 / POD-290): a closed issue must
+    // not keep a delegate offer (or any other tray card) demanding a decision
+    // after the work completed through another session.
+    const finished = issue.stage === 'done' || issue.closedReason != null
+    if (finished) continue
+
     if (issue.needsHuman) {
       items.push({
         kind: 'question',
@@ -83,10 +89,6 @@ export function deriveTrayItems(
     if (issue.stage === 'review' && !hasOffer && !issue.needsHuman) {
       items.push({ kind: 'review', issue, since: issue.updatedAt })
     }
-    // Finished/done issues deliberately get NO card [POD-198]: an Archive
-    // nudge is cleanup, not attention — on an agent-throughput day a finished
-    // card per closed issue floods the column. Archiving lives on the
-    // board/sidebar.
   }
   // Stable global sort (§2.3-v3): newest-first, identical whatever is
   // selected. Selection never re-sorts.

@@ -36,8 +36,10 @@ export function RightRail({
   onPanelChange: (panel: RightPanelTab | null) => void
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
-  const phase = issue ? aggregateMotionPhase(issue.sessions) : 'queued'
-  const waitingCount = issue ? issue.sessions.filter((s) => motionPhase(s) === 'waiting').length : 0
+  const phase = issue ? aggregateMotionPhase(issue.sessions, issue) : 'queued'
+  const waitingCount = issue
+    ? issue.sessions.filter((s) => motionPhase(s, issue) === 'waiting').length
+    : 0
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
   const panelAllowed = (panel: RightPanelTab): boolean =>

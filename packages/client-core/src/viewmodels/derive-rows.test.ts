@@ -178,6 +178,18 @@ describe('rowWaitingCount — the amber pill / rail badge number', () => {
   it('counts a completed session with a pending offer as waiting', () => {
     expect(rowWaitingCount(issueRow([offered()]))).toBe(1)
   })
+
+  it('ignores a stale offer once the issue is closed (POD-290)', () => {
+    expect(
+      rowWaitingCount(
+        issueRow([offered()], false, {
+          stage: 'done',
+          closedReason: 'done',
+          closedAt: '2026-07-23T09:00:00.000Z',
+        }),
+      ),
+    ).toBe(0)
+  })
 })
 
 describe('rowStatusLine — the second line copy grammar', () => {

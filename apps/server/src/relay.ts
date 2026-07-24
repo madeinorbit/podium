@@ -1116,6 +1116,9 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // Closing an issue retires standing session offers (POD-290) so finished
+      // work cannot keep demanding a decision after the close flip.
+      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans

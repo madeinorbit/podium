@@ -83,45 +83,51 @@ export function deriveTrayItems(
 ): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of trayScopeIssues(issues, selectedIssueId)) {
-    if (issue.needsHuman) {
-      items.push({
-        kind: 'question',
-        issue,
-        text: issue.humanQuestion?.trim() || 'Needs your input.',
-        since: issue.updatedAt,
-      })
-    }
-    // Agent action offers [spec:SP-c7f1]: a live session's suggested next
-    // actions are exactly "an item that needs a human" — the same dynamic
-    // offer channel the chat composer bar and native PTY bar render, surfaced
-    // here so the tray is action-complete. This replaced the old hardcoded
-    // review cards: review-ready work announces itself through an offer.
-    // Same session filter as everywhere else: shells can't offer, headless
-    // (superagent-embedded) threads keep theirs in the super chat.
-    // Whether ANY eligible session carries an offer — dismissed ones count:
-    // an optimistically-hidden offer means the user just acted on it, and the
-    // review backstop below must not pop in for that beat.
-    let hasOffer = false
-    for (const session of issue.sessions ?? []) {
-      if (session.archived || session.headless === true || session.agentKind === 'shell') continue
-      const offer = session.offer
-      if (!offer) continue
-      hasOffer = true
-      if (dismissedOffers?.has(offerKey(session.sessionId, offer.createdAt))) continue
-      items.push({ kind: 'offer', issue, session, offer, since: offer.createdAt })
-    }
-    // Review backstop [POD-118]: stage=review with no live offer renders a
-    // minimal deterministic card. The offer is the richer announcement (its
-    // own buttons), but its lifecycle must not be load-bearing for review
-    // visibility — a hook-forced agent turn or a restart can consume it.
-    // A needsHuman question already gives the issue a card; don't double up.
-    if (issue.stage === 'review' && !hasOffer && !issue.needsHuman) {
-      items.push({ kind: 'review', issue, since: issue.updatedAt })
+    const finished = issue.stage === 'done' || issue.closedReason != null
+    // Questions / offers / review cards are open-work attention only. A closed
+    // issue with a leftover delegate offer must not keep demanding a decision
+    // after the work finished elsewhere (POD-290). The finished Archive card
+    // below is the only tray surface for completed work.
+    if (!finished) {
+      if (issue.needsHuman) {
+        items.push({
+          kind: 'question',
+          issue,
+          text: issue.humanQuestion?.trim() || 'Needs your input.',
+          since: issue.updatedAt,
+        })
+      }
+      // Agent action offers [spec:SP-c7f1]: a live session's suggested next
+      // actions are exactly "an item that needs a human" — the same dynamic
+      // offer channel the chat composer bar and native PTY bar render, surfaced
+      // here so the tray is action-complete. This replaced the old hardcoded
+      // review cards: review-ready work announces itself through an offer.
+      // Same session filter as everywhere else: shells can't offer, headless
+      // (superagent-embedded) threads keep theirs in the super chat.
+      // Whether ANY eligible session carries an offer — dismissed ones count:
+      // an optimistically-hidden offer means the user just acted on it, and the
+      // review backstop below must not pop in for that beat.
+      let hasOffer = false
+      for (const session of issue.sessions ?? []) {
+        if (session.archived || session.headless === true || session.agentKind === 'shell') continue
+        const offer = session.offer
+        if (!offer) continue
+        hasOffer = true
+        if (dismissedOffers?.has(offerKey(session.sessionId, offer.createdAt))) continue
+        items.push({ kind: 'offer', issue, session, offer, since: offer.createdAt })
+      }
+      // Review backstop [POD-118]: stage=review with no live offer renders a
+      // minimal deterministic card. The offer is the richer announcement (its
+      // own buttons), but its lifecycle must not be load-bearing for review
+      // visibility — a hook-forced agent turn or a restart can consume it.
+      // A needsHuman question already gives the issue a card; don't double up.
+      if (issue.stage === 'review' && !hasOffer && !issue.needsHuman) {
+        items.push({ kind: 'review', issue, since: issue.updatedAt })
+      }
     }
     // Deterministic finished card: a recently-done human issue gets an Archive
     // action — archiving is the acknowledgment that removes card and sidebar
     // row immediately.
-    const finished = issue.stage === 'done' || issue.closedReason != null
     const finishedAt = Date.parse(issue.closedAt ?? issue.updatedAt) || 0
     if (finished && issue.audience === 'human' && now - finishedAt <= FINISHED_WINDOW_MS) {
       items.push({ kind: 'finished', issue, since: issue.closedAt ?? issue.updatedAt })

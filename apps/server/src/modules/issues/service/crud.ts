@@ -29,6 +29,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** Cascade an archive onto member sessions — implemented by the attention
    *  layer (issue #133); update() detects the archive flip and calls it. */
   protected abstract cascadeArchiveSessions(row: IssueRow): void
+  /** Retire pending session offers when the issue closes — implemented by the
+   *  attention layer (POD-290); update() detects the closed-predicate flip and
+   *  calls it so finished work cannot keep demanding a decision. */
+  protected abstract retireIssueOffers(row: IssueRow): void
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
@@ -424,6 +428,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         ...(row.parentId ? { parentId: row.parentId } : {}),
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
+      // Closing completes the work: retire standing agent offers so a
+      // delegate's "Merge / Send back" cannot demand a decision forever after
+      // the coordinator finished through another session (POD-290).
+      this.retireIssueOffers(row)
       this.emitReadyAfterClose(row, opts?.actorSessionId)
       this.archiveClosedSubtree(row.id)
     }

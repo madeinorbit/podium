@@ -326,4 +326,20 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       setArchived(s.sessionId, true)
     }
   }
+
+  /** Retire pending agent action offers on every member session when the issue
+   *  closes (POD-290). Offers only clear on a user turn into THAT session, so a
+   *  delegate that ends with `podium offer` leaves the decision live forever if
+   *  the coordinator completes the merge through a different session. Closing is
+   *  the explicit "work is finished" flip — clear standing offers so finished
+   *  work cannot keep demanding attention. No-ops when the clear hook is absent
+   *  (test deps) or a session has no offer. */
+  protected retireIssueOffers(row: IssueRow): void {
+    const clearOffer = this.deps.clearSessionOffer
+    if (!clearOffer) return
+    for (const s of sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)) {
+      if (!s.offer) continue
+      clearOffer(s.sessionId)
+    }
+  }
 }

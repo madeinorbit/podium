@@ -10,6 +10,7 @@ import { SessionStore } from './store'
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
   const setSessionArchived = vi.fn()
+  const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -29,10 +30,18 @@ function harness(sessions: SessionMeta[] = []) {
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
+    clearSessionOffer,
     onWorktreesChanged,
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService(deps), setSessionArchived, onWorktreesChanged }
+  return {
+    store,
+    deps,
+    svc: new IssueService(deps),
+    setSessionArchived,
+    clearSessionOffer,
+    onWorktreesChanged,
+  }
 }
 
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
@@ -411,6 +420,81 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect(h.svc.get(done.id)?.archived).toBe(true)
     // The open child's agent keeps its session — the cascade never touched it.
     expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
+  })
+})
+
+describe('IssueService close retires session offers (POD-290)', () => {
+  const offered = (cwd: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+    ({
+      ...sess(cwd, 'idle'),
+      offer: {
+        message: 'Ready to merge',
+        actions: [{ label: 'Merge', prompt: 'Merge it' }],
+        createdAt: '2026-06-30T00:00:00.000Z',
+      },
+      ...over,
+    }) as SessionMeta
+
+  it('closing clears offers on every member session (delegate + coordinator)', () => {
+    const delegate = offered('/r/wt/delegate')
+    const coordinator = offered('/r/wt/coord')
+    const outsider = offered('/elsewhere')
+    const { svc, clearSessionOffer } = harness([delegate, coordinator, outsider])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+
+    expect(clearSessionOffer).toHaveBeenCalledTimes(2)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/delegate')
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/coord')
+    expect(clearSessionOffer).not.toHaveBeenCalledWith('/elsewhere')
+  })
+
+  it('board drag / CLI update({ stage: done }) retires offers the same way', () => {
+    const member = offered('/r/wt')
+    const { svc, clearSessionOffer } = harness([member])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.update(w.id, { stage: 'done' })
+
+    expect(clearSessionOffer).toHaveBeenCalledTimes(1)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt')
+  })
+
+  it('skips sessions without an offer and is a no-op on re-close', () => {
+    const withOffer = offered('/r/wt/offer')
+    const bare = sess('/r/wt/bare', 'idle')
+    const { svc, clearSessionOffer } = harness([withOffer, bare])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+    expect(clearSessionOffer).toHaveBeenCalledTimes(1)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/offer')
+
+    clearSessionOffer.mockClear()
+    svc.close(w.id)
+    expect(clearSessionOffer).not.toHaveBeenCalled()
+  })
+
+  it('explicit issueId attachment retires offers even when cwd is outside the worktree', () => {
+    const attached = offered('/elsewhere/agent', { sessionId: 'attached', issueId: undefined })
+    // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
+    const sessions: SessionMeta[] = []
+    const { svc, clearSessionOffer } = harness(sessions)
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    sessions.push({ ...attached, issueId: w.id } as SessionMeta)
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+
+    expect(clearSessionOffer).toHaveBeenCalledWith('attached')
   })
 })
 

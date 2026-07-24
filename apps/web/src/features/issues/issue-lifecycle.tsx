@@ -36,7 +36,9 @@ export function issueCloseConcerns(issue: IssueWire): IssueCloseConcern[] {
     concerns.push({
       key: 'offers',
       label: `${offers.length} pending decision${offers.length === 1 ? '' : 's'}`,
-      detail: 'Resolve or explicitly dismiss the agent offer before closing.',
+      // Closing retires standing offers (POD-290); surface them so "Close anyway"
+      // is an explicit choice rather than a silent drop.
+      detail: 'Closing retires these pending agent decisions.',
       blocking: true,
       icon: 'attention',
     })

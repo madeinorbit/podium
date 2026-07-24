@@ -56,6 +56,29 @@ describe('deriveTrayItems', () => {
     expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['review:r', 'question:q'])
   })
 
+  it('drops offers on closed/done issues so finished work cannot demand a decision (POD-290)', () => {
+    const offer = {
+      message: 'Merge to main?',
+      actions: [{ label: 'Merge', prompt: 'Merge it' }],
+      createdAt: '2026-07-14T12:00:00Z',
+    }
+    const closed = makeIssue({
+      id: 'closed',
+      stage: 'done',
+      closedReason: 'done',
+      sessions: [session({ sessionId: 'delegate', offer })] as SessionMeta[],
+    })
+    const review = makeIssue({
+      id: 'review',
+      stage: 'review',
+      sessions: [session({ sessionId: 'live', offer })] as SessionMeta[],
+      updatedAt: '2026-07-14T13:00:00Z',
+    })
+    expect(deriveTrayItems([closed, review]).map((i) => `${i.kind}:${i.issue.id}`)).toEqual([
+      'offer:review',
+    ])
+  })
+
   it('review backstop [POD-118]: yields to a live offer, a dismissed offer, or a question', () => {
     const offer = { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' }
     // No offer at all → the backstop card carries the review stage.

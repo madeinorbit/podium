@@ -81,7 +81,9 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     expect(unifiedWorkList(sections, [issue({ stage: 'backlog' })], [], [], NOW)).toEqual([])
   })
 
-  it('keeps a read closed issue with a pending offer out of the closed fold', () => {
+  it('folds a read closed issue even when a historical stale offer remains (POD-290)', () => {
+    // Closing retires offers server-side; this guards residual client state so
+    // finished work cannot keep demanding a decision forever.
     const closed = issue({
       stage: 'done',
       closedReason: 'done',
@@ -95,7 +97,20 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         createdAt: '2026-07-23T10:00:00.000Z',
       },
     })
-    expect(rowInClosedFold(row(closed, [offered]), null)).toBe(false)
+    expect(rowInClosedFold(row(closed, [offered]), null)).toBe(true)
+  })
+
+  it('keeps open review work with a live offer out of the closed fold', () => {
+    const review = issue({ stage: 'review' })
+    const offered = session({
+      issueId: review.id,
+      offer: {
+        message: 'Ready to merge',
+        actions: [{ label: 'Merge', prompt: 'Merge it' }],
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+    })
+    expect(rowInClosedFold(row(review, [offered]), null)).toBe(false)
   })
 
   it('folds only actively snoozed issues and leaves returned rows open', () => {
