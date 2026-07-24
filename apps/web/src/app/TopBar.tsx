@@ -99,6 +99,7 @@ function UtilityNavItem({
   const active = view === target
   return (
     <button
+      data-pressable
       type="button"
       onClick={() => onSelect(target)}
       aria-current={active ? 'page' : undefined}

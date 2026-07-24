@@ -1,6 +1,6 @@
 import { Popover } from '@base-ui/react/popover'
 import type { JSX, ReactElement, ReactNode } from 'react'
-import { useState } from 'react'
+import { cloneElement, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -15,8 +15,9 @@ export function HealthPopover({
   children,
   pinnedWide = true,
 }: {
-  /** The chip button; rendered as the popover trigger. */
-  trigger: ReactElement
+  /** The chip button; rendered as the popover trigger. Its props are widened so
+   *  the shell can stamp the `data-pinned` flag onto it (see below). */
+  trigger: ReactElement<Record<string, unknown>>
   /** Panel content, told whether the panel is pinned (clicked) or hover-only. */
   children: (pinned: boolean) => ReactNode
   /** Widen the panel from 296px to 336px once pinned. */
@@ -42,7 +43,15 @@ export function HealthPopover({
         if (!next) setPinned(false)
       }}
     >
-      <Popover.Trigger render={trigger} openOnHover delay={80} />
+      {/* Base UI marks the trigger `data-popup-open` for the hover preview too,
+          so the chip needs its own flag to render pinned as a distinct rung —
+          otherwise a panel you clicked open looks exactly like one you merely
+          pointed at, and nothing on screen says which. */}
+      <Popover.Trigger
+        render={cloneElement(trigger, { 'data-pinned': pinned ? '' : undefined })}
+        openOnHover
+        delay={80}
+      />
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="end" sideOffset={6} className="isolate z-50">
           <Popover.Popup

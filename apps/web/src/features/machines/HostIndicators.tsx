@@ -8,8 +8,8 @@ import { hostMemoryView } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
-import { LoadPanel } from './LoadPanel'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
+import { LoadPanel } from './LoadPanel'
 import { QuotaIndicator } from './QuotaIndicator'
 import { machineNeedsUpdate, useServerAppVersion } from './version-skew'
 
@@ -26,6 +26,9 @@ const SEVERITY = {
     compact: 'text-destructive',
   },
 } as const
+
+/** Memory severity → the `data-tone` the header readout colours itself by. */
+const TONE_KEY = { ok: 'ok', warn: 'warn', critical: 'crit' } as const
 
 /**
  * Host health strip. Just two glyphs: a memory icon with a fullness bar (one per
@@ -195,6 +198,9 @@ export function HeaderHostIndicators(): JSX.Element {
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
+      {/* POD-318 — the hairline that ends the chrome actions and starts the
+          health readouts, so the right end of the bar reads as two groups. */}
+      <span className="header-strip-seam" aria-hidden="true" />
       {hostMetrics.length === 0 && (
         <button
           data-pressable
@@ -243,7 +249,7 @@ export function HeaderHostIndicators(): JSX.Element {
                   )}
                   aria-hidden="true"
                 />
-                <span className="max-w-[12ch] truncate">{host.hostname}</span>
+                <span className="header-machine-name">{host.hostname}</span>
                 {needsUpdate && (
                   <CircleArrowUp
                     size={12}
@@ -251,11 +257,20 @@ export function HeaderHostIndicators(): JSX.Element {
                     aria-label="Update available"
                   />
                 )}
-                <span className="header-meter" role="presentation">
-                  <span
-                    className={cn('block h-full', tone.fill)}
-                    style={{ width: `${memory.pct}%` }}
-                  />
+                {/* The bar used to sit unlabelled beside the hostname, one pixel
+                    tier away from the quota meters and indistinguishable from
+                    them. Named and numbered, it says what it measures. */}
+                <span className="header-readout">
+                  <span className="header-mark">MEM</span>
+                  <span className="header-meter" role="presentation">
+                    <span
+                      className={cn('block h-full', tone.fill)}
+                      style={{ width: `${memory.pct}%` }}
+                    />
+                  </span>
+                  <span className="header-value" data-tone={TONE_KEY[memory.severity]}>
+                    {memory.pct}%
+                  </span>
                 </span>
               </button>
             }

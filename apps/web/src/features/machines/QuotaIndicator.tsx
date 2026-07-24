@@ -166,10 +166,13 @@ export function QuotaIndicator({
             className="header-quota-chip"
             aria-label={poolSummary ? `Agent quota: ${poolSummary}` : 'Agent quota'}
           >
-            <span>quota</span>
+            {/* A group label, not a fourth pool: it names the marks to its
+                right, so it sits a tier above them in the mono ramp. */}
+            <span className="header-quota-label">quota</span>
             <span className="header-quota-pools" role="presentation">
               {pools.map(({ group, percent, models }) => {
-                const poolTone = TONE[percentTone(percent)]
+                const poolKey = percentTone(percent)
+                const poolTone = TONE[poolKey]
                 const meter = (
                   <span className="header-meter header-quota-meter">
                     <span
@@ -180,7 +183,7 @@ export function QuotaIndicator({
                 )
                 return (
                   <span key={group.key} className="header-quota-pool">
-                    <span className="header-quota-pool-label">{agentShortLabel(group.agent)}</span>
+                    <span className="header-mark">{agentShortLabel(group.agent)}</span>
                     {/* The fallback rail exists only for a pool that reports
                         model-scoped buckets — a single-quota harness renders
                         exactly the meter it always has. */}
@@ -204,6 +207,11 @@ export function QuotaIndicator({
                         </span>
                       </span>
                     )}
+                    {/* 30px of meter is ~3% per pixel; the number is what tells
+                        you a pool is at 78 rather than 62. */}
+                    <span className="header-value" data-tone={poolKey}>
+                      {Math.round(percent)}%
+                    </span>
                   </span>
                 )
               })}

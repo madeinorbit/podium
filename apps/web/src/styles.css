@@ -104,59 +104,178 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 4px;
   overflow: hidden;
 }
+/* POD-318 — the seam that ends the chrome-action run (usage, settings) and
+   starts the health readouts. Grouping by hairline is how every other section
+   of the shell divides; a wider gap alone read as one undifferentiated run. */
+.header-strip-seam {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-right: 3px;
+  background: var(--border);
+}
+/* POD-318 — both health chips are real chrome cells: a 26px target in the 44px
+   bar carrying the accent wash every other chrome cell uses. Previously they
+   were zero-padding transparent buttons whose only hover feedback was the
+   global [data-pressable] brightness filter — invisible on a transparent
+   element, and an ~11px-tall hit area at the far edge of the window. */
 .header-machine-chip,
 .header-quota-chip {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
   font-size: 10.5px;
   white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
 }
-.header-quota-chip {
-  color: var(--text-dim);
+.header-machine-chip:hover,
+.header-quota-chip:hover,
+.header-machine-chip[data-popup-open],
+.header-quota-chip[data-popup-open] {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--text-strong);
 }
+/* Pinned is its own rung, not a repeat of hover: a chip whose panel is held
+   open by a click stays anchored once the pointer leaves it. */
+.header-machine-chip[data-pinned],
+.header-quota-chip[data-pinned] {
+  border-color: var(--border-strong);
+  background: var(--secondary);
+}
+/* The strip clips its overflow, which would eat the global outline-offset ring,
+   so the keyboard ring lives inside the chip's own border box. */
+.header-machine-chip:focus-visible,
+.header-quota-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--ring) 65%, transparent);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 40%, transparent);
+  outline: none;
+  color: var(--text-strong);
+}
+/* A hostname is an ID — machine voice, so Geist Mono (DESIGN.md §3). */
+.header-machine-name {
+  max-width: 12ch;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  transition: color 150ms ease;
+}
+.header-machine-chip:hover .header-machine-name,
+.header-machine-chip[data-popup-open] .header-machine-name {
+  color: var(--text-strong);
+}
+/* Every meter in the strip reads the same grammar: mark · meter · number, so a
+   memory bar and a quota bar can no longer be mistaken for each other. */
+.header-readout,
 .header-quota-pools,
 .header-quota-pool {
   display: inline-flex;
   align-items: center;
 }
-.header-quota-pools {
-  gap: 8px;
-}
+.header-readout,
 .header-quota-pool {
   gap: 4px;
 }
-.header-quota-pool-label {
+.header-quota-pools {
+  gap: 13px;
+}
+/* The series mark (MEM, CC, CX, GR) names the meter that follows it. */
+.header-mark {
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  transition: color 150ms ease;
 }
+/* The group label names the three pool marks to its right, so it sits a tier
+   above them — the same mono micro-label the shell uses for WORK / TRAY. */
+.header-quota-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 150ms ease;
+}
+/* The number the bar can't give you: 25px of meter is ~4% per pixel, and 75%
+   (warn) from 60% is the whole decision. Dim at rest so the bars still lead;
+   it takes signal colour only once a window crosses a threshold. */
+.header-value {
+  min-width: 3.6ch;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transition: color 150ms ease;
+}
+.header-value[data-tone="warn"] {
+  color: var(--warning);
+}
+.header-value[data-tone="crit"] {
+  color: var(--destructive);
+}
+.header-machine-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
+.header-quota-chip:hover :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]),
+.header-machine-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]),
+.header-quota-chip[data-popup-open]
+  :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]) {
+  color: var(--muted-foreground);
+}
+/* Carved, not raised: the track was --secondary, a navy light enough that an
+   empty meter still read as a filled blue bar. It is a groove now, so the fill
+   is the only thing with light in it. */
 .header-meter {
   display: inline-block;
-  width: 34px;
+  width: 36px;
   height: 3.5px;
+  flex: none;
   overflow: hidden;
   border-radius: 2px;
-  background: var(--secondary);
+  background: var(--engraved);
+  transition: background-color 150ms ease;
 }
 .header-quota-meter {
-  width: 25px;
+  width: 30px;
+}
+.header-machine-chip:hover .header-meter,
+.header-quota-chip:hover .header-meter,
+.header-machine-chip[data-popup-open] .header-meter,
+.header-quota-chip[data-popup-open] .header-meter {
+  background: color-mix(in srgb, var(--engraved) 50%, var(--border) 50%);
+}
+.header-meter > span {
+  transition: filter 150ms ease;
+}
+.header-machine-chip:hover .header-meter > span,
+.header-quota-chip:hover .header-meter > span,
+.header-machine-chip[data-popup-open] .header-meter > span,
+.header-quota-chip[data-popup-open] .header-meter > span {
+  filter: brightness(1.14);
 }
 /* POD-271 — the fallback rail. A pool's meter answers "can I work"; a limit
-   scoped to one model can't change that answer, so it gets its own 2px tier
-   under the meter instead of recolouring it. One segment per model bucket,
-   sharing the meter's width so the header never grows; absent entirely for a
-   harness that reports no scoped limits. */
+   scoped to one model can't change that answer, so it gets its own tier under
+   the meter instead of recolouring it. One segment per model bucket, sharing
+   the meter's width so the header never grows; absent entirely for a harness
+   that reports no scoped limits. */
 .header-quota-stack {
   position: relative;
   display: inline-flex;
@@ -168,25 +287,50 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
    has model buckets. */
 .header-quota-rail {
   position: absolute;
-  top: 5.5px;
+  top: 5px;
   left: 0;
   display: inline-flex;
-  width: 25px;
+  width: 30px;
   gap: 2px;
 }
 .header-quota-rail-seg {
   display: block;
   flex: 1;
-  height: 2px;
+  height: 1.75px;
   overflow: hidden;
   border-radius: 1px;
-  background: var(--secondary);
+  background: color-mix(in srgb, var(--engraved) 55%, var(--border) 45%);
 }
-.header-machine-chip:hover,
-.header-quota-chip:hover,
-.header-machine-chip[data-popup-open],
-.header-quota-chip[data-popup-open] {
-  color: var(--text-strong);
+/* POD-318 — a spent model bucket used to render as full-strength red under the
+   meter, so the subordinate tier shouted louder than the gating one. Held under
+   the meter's weight instead, and brought up only while the chip is hovered. */
+.header-quota-rail-seg > span {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+.header-quota-chip:hover .header-quota-rail-seg > span,
+.header-quota-chip[data-popup-open] .header-quota-rail-seg > span {
+  opacity: 0.85;
+}
+/* A narrow window drops the numbers a quiet pool doesn't need — but never the
+   one that crossed a threshold, which is the whole reason to look. */
+@media (max-width: 1200px) {
+  .header-value[data-tone="ok"] {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header-machine-chip,
+  .header-quota-chip,
+  .header-machine-name,
+  .header-mark,
+  .header-quota-label,
+  .header-value,
+  .header-meter,
+  .header-meter > span,
+  .header-quota-rail-seg > span {
+    transition: none;
+  }
 }
 
 /* Health popovers (POD-173): the quota / machine-load chips' anchored panel.

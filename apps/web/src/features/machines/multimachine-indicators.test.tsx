@@ -258,6 +258,63 @@ describe('quota overlay groups by account', () => {
     expect(chip.querySelectorAll('.header-quota-rail')).toHaveLength(0)
     expect(chip.querySelectorAll('.header-quota-meter')).toHaveLength(1)
   })
+
+  // POD-318: the number is the readout the 30px meter can't give — and it is the
+  // only thing that takes signal colour, so its tone must track the threshold.
+  it('prints each pool percentage and tones it at the warn/crit thresholds', async () => {
+    quotaSummary.mockResolvedValue([
+      {
+        machineId: 'solo',
+        machineName: 'solo',
+        hostname: 'solo',
+        agents: [
+          {
+            agent: 'claude-code' as const,
+            status: 'ok' as const,
+            account: { email: 'a@example.com', plan: 'max' },
+            windows: [
+              { key: '5h', label: '5-hour', usedPercent: 62, resetsAt: '', windowMinutes: 300 },
+            ],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+          {
+            agent: 'codex' as const,
+            status: 'ok' as const,
+            account: { email: 'b@example.com', plan: 'pro' },
+            windows: [
+              { key: 'wk', label: 'Weekly', usedPercent: 94, resetsAt: '', windowMinutes: 10080 },
+            ],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+        ],
+      },
+    ])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    const read = (mark: string) => {
+      const pool = [...chip.querySelectorAll('.header-quota-pool')].find(
+        (p) => p.querySelector('.header-mark')?.textContent === mark,
+      )
+      const value = pool?.querySelector<HTMLElement>('.header-value')
+      return { text: value?.textContent, tone: value?.dataset.tone }
+    }
+    expect(read('CC')).toEqual({ text: '62%', tone: 'ok' })
+    expect(read('CX')).toEqual({ text: '94%', tone: 'crit' })
+  })
+})
+
+// POD-318: Base UI flags the trigger `data-popup-open` for the HOVER preview
+// too, so pinned needs its own marker — without it a panel you clicked open
+// renders exactly like one you merely pointed at.
+describe('header chips mark a pinned panel apart from a hover preview', () => {
+  it('sets data-pinned only once the chip is clicked', async () => {
+    quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    expect(chip.hasAttribute('data-pinned')).toBe(false)
+    fireEvent.click(chip)
+    await waitFor(() => expect(chip.hasAttribute('data-pinned')).toBe(true))
+  })
 })
 
 // POD-838: the header machine chips flag a daemon whose build trails the server —
