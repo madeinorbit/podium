@@ -296,9 +296,94 @@ if ! "$BIN/$COMMAND" channel "$CHANNEL" >/dev/null; then
 fi
 done_ "Installed instance '$INSTANCE' to $DEST"
 
-# --- PATH hint ---
+# --- persist PATH -----------------------------------------------------------------
+# The copy-paste install runs in ONE shell, so exporting PATH here dies with this process:
+# the next SSH login had no `podium` at all (POD-327). Append a self-guarding snippet to the
+# startup files of every shell we support so `$BIN` survives future logins. Service contexts
+# never read these files — user units carry an explicit `Environment=PATH` (renderDaemonUnit
+# in apps/cli/src/cli-systemd.ts). Opt out with PODIUM_NO_MODIFY_PATH=1.
+PATH_MARKER="# >>> podium installer (PATH) >>>"
+PATH_FILES_WRITTEN=""
+PATH_PERSISTED=""
+
+append_path_snippet() { # append_path_snippet <startup-file>; idempotent, never fatal
+  rc="$1"
+  if [ -e "$rc" ] && grep -Fq "$PATH_MARKER" "$rc" 2>/dev/null; then
+    PATH_PERSISTED=1                            # a previous install already wrote it
+    return 0
+  fi
+  mkdir -p "$(dirname "$rc")" 2>/dev/null || return 0
+  # Written UNEXPANDED: the snippet re-resolves $HOME and re-checks PATH on every source,
+  # so it stays correct if $HOME moves and never stacks duplicate entries.
+  {
+    printf '\n%s\n' "$PATH_MARKER"
+    printf '%s\n' '# Keeps ~/.local/bin (where podium is installed) on PATH. Delete this block to opt out.'
+    printf '%s\n' 'case ":${PATH-}:" in'
+    printf '%s\n' '  *":$HOME/.local/bin:"*) ;;'
+    printf '%s\n' '  *) PATH="$HOME/.local/bin${PATH:+:$PATH}"; export PATH ;;'
+    printf '%s\n' 'esac'
+    printf '%s\n' "# <<< podium installer (PATH) <<<"
+  } >> "$rc" 2>/dev/null || return 0
+  PATH_FILES_WRITTEN="$PATH_FILES_WRITTEN $rc"
+  PATH_PERSISTED=1
+}
+
+write_fish_path_snippet() { # fish cannot parse the POSIX snippet; conf.d/ is auto-sourced
+  fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d"
+  if [ -e "$fish_conf/podium-path.fish" ] && \
+     grep -Fq "$PATH_MARKER" "$fish_conf/podium-path.fish" 2>/dev/null; then
+    PATH_PERSISTED=1
+    return 0
+  fi
+  mkdir -p "$fish_conf" 2>/dev/null || return 0
+  cat > "$fish_conf/podium-path.fish" 2>/dev/null <<'FISH' || return 0
+# >>> podium installer (PATH) >>>
+# Keeps ~/.local/bin (where podium is installed) on PATH. Delete this file to opt out.
+if not contains -- $HOME/.local/bin $PATH
+    set -gx PATH $HOME/.local/bin $PATH
+end
+# <<< podium installer (PATH) <<<
+FISH
+  PATH_FILES_WRITTEN="$PATH_FILES_WRITTEN $fish_conf/podium-path.fish"
+  PATH_PERSISTED=1
+}
+
+if [ -z "${PODIUM_NO_MODIFY_PATH:-}" ] && [ "$BIN" = "$HOME/.local/bin" ]; then
+  append_path_snippet "$HOME/.profile"            # sh/dash login, and bash's last resort
+  for shadowing_rc in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.zprofile"; do
+    # Present-only: each of these SHADOWS ~/.profile for its shell, so skipping them would
+    # silently lose the snippet; creating them would shadow ~/.profile where it isn't today.
+    if [ -f "$shadowing_rc" ]; then append_path_snippet "$shadowing_rc"; fi
+  done
+  if [ -f "$HOME/.bashrc" ] || command -v bash >/dev/null 2>&1; then
+    append_path_snippet "$HOME/.bashrc"           # interactive non-login bash
+  fi
+  ZDOT="${ZDOTDIR:-$HOME}"
+  if [ -f "$ZDOT/.zshrc" ] || command -v zsh >/dev/null 2>&1; then
+    append_path_snippet "$ZDOT/.zshrc"
+  fi
+  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/fish" ] || command -v fish >/dev/null 2>&1; then
+    write_fish_path_snippet
+  fi
+fi
+
+if [ -n "$PATH_FILES_WRITTEN" ]; then
+  done_ "Added $BIN to your PATH for new shells"
+fi
+
+# What the operator still has to do, printed once by outro() at the end. The snippet only
+# reaches FUTURE shells — THIS one is already past reading its startup files.
 PATH_HINT=""
-case ":$PATH:" in *":$BIN:"*) : ;; *) PATH_HINT="$BIN" ;; esac
+case ":$PATH:" in
+  *":$BIN:"*) : ;;
+  *)
+    if [ -n "$PATH_PERSISTED" ]; then
+      PATH_HINT="New shells will find $COMMAND. For this one: export PATH=\"$BIN:\$PATH\""
+    else
+      PATH_HINT="First add $BIN to your PATH."
+    fi
+    ;;
+esac
 PATH="$BIN:$PATH"; export PATH
 
 # --- can we supervise with user systemd? -------------------------------------------
@@ -409,7 +494,7 @@ ready() { # ready <headline>
   printf '\n%s%s✓ %s%s\n\n' "$BOLD" "$BRAND" "$1" "$RESET"
 }
 outro() {
-  [ -z "$PATH_HINT" ] || printf '\n  %sFirst add %s to your PATH.%s\n' "$DIM" "$PATH_HINT" "$RESET"
+  [ -z "$PATH_HINT" ] || printf '\n  %s%s%s\n' "$DIM" "$PATH_HINT" "$RESET"
   printf '\n'
 }
 

@@ -13,7 +13,7 @@ Podium wraps the *real* agent CLIs in real PTYs (tmux-style, no `-p` flag abstra
 
 ## Install
 
-Prebuilt headless bundles are published for Linux x86_64 and ARM64. The installer selects the host architecture, installs missing runtime tools through the host package manager, **verifies its Ed25519 signature**, and drops `podium` into `~/.local/bin`:
+Prebuilt headless bundles are published for Linux x86_64 and ARM64. The installer selects the host architecture, installs missing runtime tools through the host package manager, **verifies its Ed25519 signature**, and drops `podium` into `~/.local/bin` — adding that directory to your `PATH` in your shell's startup files so it survives future logins (`PODIUM_NO_MODIFY_PATH=1` opts out):
 
 ```bash
 curl -fsSL https://github.com/madeinorbit/podium/releases/download/edge/install.sh | sh -s -- --channel edge

@@ -115,6 +115,51 @@ sh "$ROOT/install.sh"
 test -x "$HOME/.local/bin/podium"            || { echo FAIL: no launcher symlink; exit 1; }
 test -f "$HOME/.local/share/podium/VERSION"  || { echo FAIL: bundle not installed; exit 1; }
 
+echo "== install persists ~/.local/bin on PATH for future login shells =="
+# POD-327: the one-liner runs in a single shell, so an in-process `export PATH` is gone by the
+# next SSH login. Probe REAL shells with a scrubbed environment (env -i) so a host that already
+# has podium on PATH cannot mask a regression — assert the resolved path, not just success.
+CLEAN_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for probe in "sh -l" "bash -l" "bash -i"; do
+  resolved="$(env -i HOME="$HOME" PATH="$CLEAN_PATH" TERM=dumb \
+    $probe -c 'command -v podium' 2>/dev/null || true)"
+  test "$resolved" = "$HOME/.local/bin/podium" \
+    || { echo "FAIL: '$probe' resolved podium to '${resolved:-<nothing>}'"; exit 1; }
+done
+
+echo "== PATH persistence is idempotent and covers the shells we support =="
+PATH_HOME="$WORK/path-home"; mkdir -p "$PATH_HOME/.config/fish"
+# Pre-create the startup files that SHADOW ~/.profile for their shell, plus the rc files, so
+# the assertions do not depend on which shells happen to be installed on the test host.
+for f in .profile .bashrc .bash_profile .zshrc .zprofile; do printf '# pre-existing\n' > "$PATH_HOME/$f"; done
+env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+for f in .profile .bashrc .bash_profile .zshrc .zprofile; do
+  hits="$(grep -cF '>>> podium installer (PATH) >>>' "$PATH_HOME/$f" || true)"
+  test "$hits" = 1 || { echo "FAIL: $f has $hits PATH blocks after two installs (want 1)"; exit 1; }
+  grep -F '# pre-existing' "$PATH_HOME/$f" >/dev/null \
+    || { echo "FAIL: install.sh clobbered existing $f"; exit 1; }
+done
+FISH_CONF="$PATH_HOME/.config/fish/conf.d/podium-path.fish"
+test -f "$FISH_CONF" || { echo "FAIL: no fish PATH snippet"; exit 1; }
+grep -F 'set -gx PATH $HOME/.local/bin $PATH' "$FISH_CONF" >/dev/null \
+  || { echo "FAIL: fish snippet is not fish syntax"; exit 1; }
+if command -v fish >/dev/null 2>&1; then
+  fish --no-execute "$FISH_CONF" || { echo "FAIL: fish rejects the generated snippet"; exit 1; }
+fi
+# Sourcing twice must not stack duplicate PATH entries (the snippet self-guards).
+dupes="$(env -i HOME="$PATH_HOME" PATH="$CLEAN_PATH" sh -c \
+  '. "$HOME/.profile"; . "$HOME/.profile"; echo "$PATH"' | tr ':' '\n' | grep -cx "$PATH_HOME/.local/bin" || true)"
+test "$dupes" = 1 || { echo "FAIL: sourcing twice yielded $dupes copies of ~/.local/bin"; exit 1; }
+
+echo "== PODIUM_NO_MODIFY_PATH leaves startup files untouched =="
+OPTOUT_HOME="$WORK/optout-home"; mkdir -p "$OPTOUT_HOME"
+env HOME="$OPTOUT_HOME" PODIUM_STATE_DIR="$OPTOUT_HOME/.podium" PODIUM_NO_MODIFY_PATH=1 \
+  sh "$ROOT/install.sh" >/dev/null
+if grep -rlF 'podium installer (PATH)' "$OPTOUT_HOME" >/dev/null 2>&1; then
+  echo "FAIL: PODIUM_NO_MODIFY_PATH still edited startup files"; exit 1
+fi
+
 echo "== named install has an independent root and bound command =="
 printf 'keep\n' > "$HOME/.local/share/podium/DEFAULT-SENTINEL"
 rm -f "$WORK/stub.log"
@@ -300,6 +345,10 @@ grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
 grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
   || { echo "FAIL: fallback unit drifted from renderDaemonUnit (no RestartPreventExitStatus)"; exit 1; }
+# A service context inherits none of the login shell's PATH, so the unit must carry its own
+# (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from the daemon.
+grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium-daemon.service" >/dev/null \
+  || { echo "FAIL: fallback unit has no Environment=PATH covering %h/.local/bin"; exit 1; }
 
 echo "== --no-auto-update skips the timer =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"

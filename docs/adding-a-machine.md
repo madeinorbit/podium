@@ -25,6 +25,21 @@ When it finishes it prints `Done. Run: podium`. Then start it:
 podium
 ```
 
+### `PATH` persistence
+
+The installer appends a small guarded block to the startup files of the shells it supports —
+`~/.profile`, `~/.bashrc`, `~/.zshrc`, plus `~/.bash_profile` / `~/.bash_login` / `~/.zprofile`
+when they already exist (each shadows `~/.profile` for its shell) and
+`~/.config/fish/conf.d/podium-path.fish` for fish. Each block only prepends `~/.local/bin` when
+it is not already on `PATH`, so re-running the installer or sourcing a file twice never stacks
+duplicates. The **current** shell is not affected: open a new login shell, or run
+`export PATH="$HOME/.local/bin:$PATH"` once.
+
+Set `PODIUM_NO_MODIFY_PATH=1` to skip this entirely (for images or config management that own
+`PATH` themselves); the installer then just prints the directory to add. Systemd services do not
+read shell startup files at all — the user units ship their own `Environment=PATH`, so the daemon
+finds the agent CLIs regardless of this setting.
+
 With no config yet, `podium` immediately runs in `all-in-one` mode (server + daemon in one
 process) on port **18787** and prints a setup URL. You have two ways to finish setup:
 
@@ -147,10 +162,11 @@ Run `podium join-config <TOKEN>` as that user first so the daemon has its config
 
 ## Troubleshooting
 
-- **`podium: command not found` after install.** The binary symlinks into `~/.local/bin`,
-  which may not be on your `PATH` (the installer prints `Note: add ~/.local/bin to your PATH`
-  when this is the case). Add it: `export PATH="$HOME/.local/bin:$PATH"` (and persist it in
-  your shell profile).
+- **`podium: command not found` right after install.** The binary symlinks into `~/.local/bin`,
+  and the installer persists that directory on `PATH` for *future* shells — the shell you ran the
+  installer in is unchanged. Open a new login shell, or run `export PATH="$HOME/.local/bin:$PATH"`
+  once. If it is still missing in a new shell, your shell reads a startup file the installer did
+  not touch (see [`PATH` persistence](#path-persistence)); add the line there yourself.
 - **Prerequisite bootstrap fails.** The installer can use apt, apk, dnf, yum, zypper, or pacman
   and runs unattended as root or through passwordless `sudo`. On another distro, install
   `ca-certificates`, `curl` (or `wget`), `openssl`, `git`, `tar`, `gzip`, `bash`, and
