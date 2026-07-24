@@ -74,7 +74,7 @@ describe('AccountsSection', () => {
       }),
     )
     // Refetched, so the row shows the server's masked identity — not local state.
-    expect(await screen.findByText('● sk-a…f9x2')).toBeTruthy()
+    expect(await screen.findByText('sk-a…f9x2')).toBeTruthy()
     expect(screen.queryByDisplayValue('sk-ant-secret')).toBeNull()
   })
 

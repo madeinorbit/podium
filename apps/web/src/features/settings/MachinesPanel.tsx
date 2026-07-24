@@ -110,7 +110,7 @@ export function MachinesPanel(): JSX.Element {
           >
             Add machine
           </DialogTrigger>
-          <DialogContent showCloseButton>
+          <DialogContent showCloseButton className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Add a machine</DialogTitle>
               <DialogDescription>
@@ -290,7 +290,7 @@ function PairingCodeDisplay({
   return (
     // min-w-0: the dialog is a CSS grid, whose items default to min-width:auto — without this a
     // long, unbreakable URL/token pushes the whole popup wider than its max-width.
-    <div className="min-w-0 space-y-2">
+    <div className="min-w-0 space-y-3">
       {publicUrl && (
         // Show which URL the join code points at — the #1 thing that goes wrong (a throwaway
         // tunnel URL). One click to change it in Settings → Network.
@@ -324,19 +324,27 @@ function PairingCodeDisplay({
           {code}
         </code>
       </div>
-      <div className="flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
-          Command to run on the other machine
-        </span>
-        {joinCommand ? (
-          <div className="flex items-start gap-2">
-            <code className="flex-1 break-all rounded bg-muted px-2 py-1.5 text-[11px] leading-relaxed">
-              {joinCommand}
-            </code>
-            <Button type="button" variant="outline" size="sm" className="flex-none" onClick={copy}>
-              {copied ? 'Copied' : 'Copy'}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+            Command to run on the other machine
+          </span>
+          {joinCommand && (
+            <Button type="button" size="sm" className="flex-none" onClick={copy}>
+              {copied ? 'Copied' : 'Copy command'}
             </Button>
-          </div>
+          )}
+        </div>
+        {joinCommand ? (
+          // Meant to be copied, not read: keep it to a single line on a carved surface that
+          // scrolls horizontally, so a long install command can't balloon and dominate the
+          // dialog. The Copy button above is the real affordance; `title` exposes the full text.
+          <code
+            className="block max-w-full overflow-x-auto whitespace-nowrap rounded-md border bg-muted px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground [scrollbar-width:thin]"
+            title={joinCommand}
+          >
+            {joinCommand}
+          </code>
         ) : (
           <p className="text-[12px] text-muted-foreground">
             Finish setup to get a one-line join command.
