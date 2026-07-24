@@ -1,12 +1,14 @@
 import type { AgentKind, AgentQuotaWire } from '@podium/protocol'
 import { fetchClaudeQuota } from './quota-claude'
 import { fetchCodexQuota } from './quota-codex'
+import { fetchGrokQuota } from './quota-grok'
 
 export type QuotaFetcher = (deps: { homeDir?: string; now?: number }) => Promise<AgentQuotaWire>
 
 const DEFAULT_FETCHERS: { agent: AgentKind; fetch: QuotaFetcher }[] = [
   { agent: 'claude-code', fetch: fetchClaudeQuota },
   { agent: 'codex', fetch: fetchCodexQuota },
+  { agent: 'grok', fetch: fetchGrokQuota },
 ]
 // The status chip polls every 60s; a 60s TTL is always exactly stale by the next
 // poll, so the memo never serves and we re-fetch every poll. Keep the TTL above the
