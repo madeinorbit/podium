@@ -173,6 +173,15 @@ export const codexAdapter: HarnessAdapter = {
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
         ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
+        // Codex's workspace-write sandbox denies network — including LOOPBACK — and
+        // Podium hands every agent a CLI that reaches the daemon over
+        // http://127.0.0.1:<relay>. Without this, `podium …` dies with a bare
+        // connection refusal for any command the user has not separately approved
+        // (approval escalates it out of the sandbox). That asymmetry is what made
+        // `podium offer` / `podium worktree` look broken while an already-approved
+        // `podium issue` in the same session worked fine.
+        '-c',
+        'sandbox_workspace_write.network_access=true',
         ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
       ],
       cwd: opts.cwd,
