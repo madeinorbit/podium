@@ -95,6 +95,10 @@ export default defineConfig({
       workbox: {
         // Precache the built shell so an installed app cold-starts instantly.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // The main app chunk has grown past workbox's 2 MiB default; without a
+        // higher ceiling SW generation throws and fails the whole build. Give
+        // headroom so the shell still precaches (POD-292).
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // SPA fallback for navigations — but never shadow the live API/WS routes
         // or the dedicated Expo mobile SPA served by the backend under /mobile.
         navigateFallback: '/index.html',
