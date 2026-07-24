@@ -306,6 +306,85 @@ describe('IssueService unread (#124)', () => {
       }).unread,
     ).toBe(true)
   })
+
+  // POD-325: pin / drag-reorder are human board organization, not new content.
+  // unread = lastActivity > readAt; activity includes updatedAt — so those
+  // patches must not advance updatedAt past readAt.
+  it('pin / unpin / sortKey-only update leave a read issue read', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.markIssueRead(w.id)
+    expect(svc.get(w.id)!.unread).toBe(false)
+    const readAt = store.issues.getIssue(w.id)!.readAt
+    const updatedAt = store.issues.getIssue(w.id)!.updatedAt
+
+    const pinned = svc.update(w.id, { pinned: true })
+    expect(pinned.pinned).toBe(true)
+    expect(pinned.unread).toBe(false)
+    expect(pinned.readAt).toBe(readAt)
+    expect(pinned.updatedAt).toBe(updatedAt)
+
+    const unpinned = svc.update(w.id, { pinned: false })
+    expect(unpinned.pinned).toBe(false)
+    expect(unpinned.unread).toBe(false)
+    expect(unpinned.updatedAt).toBe(updatedAt)
+
+    const reordered = svc.update(w.id, { sortKey: 'x2c' })
+    expect(reordered.sortKey).toBe('x2c')
+    expect(reordered.unread).toBe(false)
+    expect(reordered.updatedAt).toBe(updatedAt)
+
+    // Combined organizational patch (pin + reorder) also stays read.
+    const both = svc.update(w.id, { pinned: true, sortKey: 'x2d' })
+    expect(both.pinned).toBe(true)
+    expect(both.sortKey).toBe('x2d')
+    expect(both.unread).toBe(false)
+    expect(both.updatedAt).toBe(updatedAt)
+  })
+
+  it('content update after markRead still flips unread (organizational whitelist is narrow)', () => {
+    // Mutable clock so a content patch can stamp updatedAt strictly after readAt
+    // (computeUnread uses lastActivity > readAt, not >=).
+    let clock = '2026-06-30T00:00:00.000Z'
+    const store = new SessionStore(':memory:')
+    const broadcast = vi.fn()
+    const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      store,
+      listSessions: () => [],
+      getSettings: () =>
+        normalizeSettings({
+          gitWorkflow: {
+            defaultParentBranch: '',
+            mergeStyle: 'ff-only',
+            autoRebaseBeforeMerge: true,
+          },
+          sessionDefaults: { agent: 'claude-code' },
+        }),
+      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+      broadcast,
+      ...issueTestPlumbing((msg) => broadcast(msg)),
+      setSessionArchived: vi.fn(),
+      clearSessionOffer: vi.fn(),
+      onWorktreesChanged: vi.fn(),
+      now: () => clock,
+    }
+    const svc = new IssueService(deps)
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.markIssueRead(w.id)
+    expect(svc.get(w.id)!.unread).toBe(false)
+    clock = '2026-06-30T00:00:01.000Z'
+    const renamed = svc.update(w.id, { title: 'Y' })
+    expect(renamed.title).toBe('Y')
+    expect(renamed.unread).toBe(true)
+    // Same clock step: pin alone must still leave a re-read issue read.
+    svc.markIssueRead(w.id)
+    expect(svc.get(w.id)!.unread).toBe(false)
+    clock = '2026-06-30T00:00:02.000Z'
+    const pinned = svc.update(w.id, { pinned: true })
+    expect(pinned.unread).toBe(false)
+    expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
+  })
 })
 
 describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {

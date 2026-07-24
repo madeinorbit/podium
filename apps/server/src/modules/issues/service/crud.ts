@@ -8,6 +8,19 @@ import { IssueServiceReads } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 
+/**
+ * Board-organization fields only — pin / drag-reorder. These must not bump
+ * `updatedAt` (and therefore must not re-flip derived `unread` via
+ * `computeUnread`: lastActivity > readAt). Whitelist: any new IssuePatch field
+ * defaults to content/activity behavior so accidental omission stays safe.
+ */
+const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['pinned', 'sortKey'])
+
+function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
+  const keys = Object.keys(patch) as (keyof IssuePatch)[]
+  return keys.length > 0 && keys.every((k) => ORGANIZATIONAL_PATCH_KEYS.has(k))
+}
+
 /** Prepared half of the atomic issue/session lifecycle transaction. */
 export interface IssueLifecyclePlan {
   issueId: string
@@ -389,7 +402,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // the sidebar's completion-decay window the way updatedAt would.
     if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
     else if (wasClosed && !this.isClosed(row)) row.closedAt = null
-    const wire = this.persist(row)
+    // Organizational-only patches (pin / sortKey reorder) are not activity: do
+    // not advance updatedAt past readAt or computeUnread re-marks the issue
+    // unread after a purely human board edit (POD-325).
+    const wire = this.persist(row, {
+      touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
+    })
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
     // changes both parents' childCount. Those rows' wires must reach clients too.

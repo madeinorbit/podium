@@ -447,10 +447,11 @@ export abstract class IssueServiceCore {
     // A brand-new row has no committed state (backup null): the post-commit
     // rows.set() below is what keeps a failed create out of the map.
     const backup = this.deps.store.issues.getIssue(row.id)
-    // touch:false = read-tracking writes (markIssueRead/Unread): reading is not
-    // activity, so it must not bump updatedAt — the stamp would land a tick AFTER
-    // markIssueRead's readAt and computeUnread (lastActivity > readAt) would flip
-    // the issue straight back to unread. It also must not reorder sidebar recency.
+    // touch:false = non-activity writes: (1) read-tracking (markIssueRead/Unread)
+    // and (2) organizational-only patches (pinned/sortKey via update). Those must
+    // not bump updatedAt — the stamp would land a tick AFTER readAt and
+    // computeUnread (lastActivity > readAt) would flip the issue straight back to
+    // unread. It also must not reorder sidebar recency.
     if (opts?.touch !== false) row.updatedAt = this.now()
     let wire: IssueWire
     try {
