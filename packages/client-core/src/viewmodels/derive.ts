@@ -1946,15 +1946,17 @@ export function rowInClosedFold(
   tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
+  if (!finishedIssueSettled(row)) return false
+  // Explicit tuck always folds — even while the row is selected. Lane stickiness
+  // ("selected open stays open until focus moves") only applies to passive
+  // placement (grace auto-fold / read-into-closed), not operator dismissal.
+  if (tuckedIds.has(row.issue.id)) return true
   if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
   // POD-293: a freshly finished issue no longer drops into the fold the instant
   // it is read — it stays a live "done" row carrying the tuck-away control, and
   // folds only once the operator dismisses it, or after the finished-grace
   // window tidies it away on its own so the live list can't accrete history.
-  return (
-    tuckedIds.has(row.issue.id) ||
-    now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
-  )
+  return now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
 }
 
 /** A finished issue held OPEN in the live list for the operator to dismiss

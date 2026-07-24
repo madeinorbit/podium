@@ -116,8 +116,11 @@ describe('issue/session lifecycle in the unified sidebar', () => {
     // Selecting the open done row must not hide Tuck away — only tuck/grace does.
     expect(rowAwaitsTuck(r, done.id, false, new Set(), NOW)).toBe(true)
     expect(rowInClosedFold(r, done.id, false, new Set(), NOW)).toBe(false)
-    // Tucking it folds it into Closed at once, and it stops awaiting dismissal.
+    // Tucking folds into Closed at once — even while still selected — and stops
+    // awaiting dismissal. Selection lane-stickiness must not delay explicit tuck.
+    expect(rowInClosedFold(r, done.id, false, new Set([done.id]), NOW)).toBe(true)
     expect(rowInClosedFold(r, null, false, new Set([done.id]), NOW)).toBe(true)
+    expect(rowAwaitsTuck(r, done.id, false, new Set([done.id]), NOW)).toBe(false)
     expect(rowAwaitsTuck(r, null, false, new Set([done.id]), NOW)).toBe(false)
   })
 
