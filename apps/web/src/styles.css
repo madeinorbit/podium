@@ -1211,16 +1211,16 @@ a.ref-link--session::before {
 
 /* Rendered markdown preview (.md panels) — a READING surface, not chrome, and the
    one place in the app that deliberately steps off the 12px instrument scale. Set
-   the way iA Writer sets a document: a measured column of ~65 characters, generous
+   the way iA Writer sets a document: a measured column of ~88 characters, generous
    leading, a full blank line between paragraphs, and rules instead of boxes. Scoped
    so it never touches chat/markdown surfaces. Theme tokens throughout; no signal
    hues (The Signal Rule) — a document is never asking anything of the operator. */
 .markdown-preview {
-  /* The single knob: how wide the text column may run — ~68 characters of Geist
+  /* The single knob: how wide the text column may run — ~88 characters of Geist
      at the size below. Expressed in em so it tracks font-size (`ch` measures the
      "0" glyph, which is far wider than the average letter in a proportional face
-     and lands the column near 85 characters). */
-  --md-measure: 34em;
+     and lands the column near 110 characters). */
+  --md-measure: 44.2em;
   font-size: 15px;
   line-height: 1.75;
   color: var(--foreground);
