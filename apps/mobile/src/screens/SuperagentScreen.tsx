@@ -222,6 +222,7 @@ export function SuperagentScreen() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {empty ? (
             <EmptyState
+              fill
               title="Hand off some work"
               body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
             />

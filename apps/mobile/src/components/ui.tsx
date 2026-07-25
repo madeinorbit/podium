@@ -51,13 +51,17 @@ export function EmptyState({
   title,
   body,
   icon,
+  fill,
 }: {
   title: string
   body?: string
   icon?: ReactNode
+  /** Claim the leftover height and centre in it — for empty states that stand
+   *  in for a scroller, so whatever is docked below (a composer) stays docked. */
+  fill?: boolean
 }) {
   return (
-    <View style={styles.empty}>
+    <View style={[styles.empty, fill && styles.emptyFill]}>
       {icon ? <View style={styles.emptyIcon}>{icon}</View> : null}
       <Text style={styles.emptyTitle}>{title}</Text>
       {body ? <Text style={styles.emptyBody}>{body}</Text> : null}
@@ -103,6 +107,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xxl,
     paddingVertical: space.xxl * 2,
     gap: space.sm,
+  },
+  emptyFill: {
+    flex: 1,
+    minHeight: 0,
+    justifyContent: 'center',
+    paddingVertical: space.xxl,
   },
   emptyIcon: {
     width: 56,

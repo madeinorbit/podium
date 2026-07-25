@@ -293,7 +293,7 @@ export function SessionScreen() {
             <TerminalPane sessionId={sessionId} />
           </View>
         ) : loaded && items.length === 0 && pendingTurns.length === 0 ? (
-          <EmptyState title="No transcript yet" body="Send a message to get things moving." />
+          <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
         ) : (
           <TranscriptList
             items={items}
