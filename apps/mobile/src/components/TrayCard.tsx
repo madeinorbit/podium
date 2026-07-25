@@ -1,8 +1,8 @@
 import { relativeTime } from '@podium/client-core/focus'
+import type { TrayItem } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 import { useState } from 'react'
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import type { TrayItem } from '../lib/derive-tray'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { effectiveIssueColorHex, FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -25,7 +25,6 @@ export interface TrayCardActions {
    *  session composer for now — mobile routes the chip text as a session turn
    *  when an asking session exists, else opens the issue). */
   onResolve: (issue: IssueWire) => void
-  onArchive: (issue: IssueWire) => void
   /** Open the artifact lightbox / viewer for a thumb. */
   onOpenArtifact: (issue: IssueWire, artifact: IssuePanelArtifact) => void
 }
@@ -35,7 +34,7 @@ function agentName(session: SessionMeta | undefined): string | null {
   return session.name ?? null
 }
 
-/** The offer/question/review/finished card [POD-131] — POD-113 grammar in the
+/** The offer/question/review card [POD-131] — POD-113 grammar in the
  *  Superade palette: issue colour = identity tint (never state), yellow
  *  ago-stamp, primary action as a yellow button. */
 export function TrayCard({
@@ -263,45 +262,21 @@ export function TrayCard({
     )
   }
 
-  if (item.kind === 'review') {
-    return (
-      <View
-        style={[styles.card, { backgroundColor: flow.rowBg(hex), borderColor: alpha(hex, 0.3) }]}
-      >
-        {header}
-        <Text style={styles.headline}>Ready for review</Text>
-        <View style={styles.actRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open task"
-            style={[styles.btn, styles.btnPrimary]}
-            onPress={() => actions.onOpenIssue(issue)}
-          >
-            <Text style={styles.btnPrimaryText}>Review</Text>
-          </Pressable>
-          {sessionLink}
-        </View>
-      </View>
-    )
-  }
-
-  // finished
+  // Review backstop [POD-118] — the last kind in the union.
   return (
-    <View style={[styles.card, styles.cardDone, { backgroundColor: flow.rowBg(hex) }]}>
-      <View style={styles.top}>
-        <IdSquare issue={issue} state="done" size={18} ringColor={flow.rowBg(hex)} />
-        <Text style={styles.ref}>{`POD-${issue.seq}`}</Text>
-        <Text style={styles.doneText} numberOfLines={1}>
-          {issue.closedReason ?? 'done'}
-        </Text>
+    <View style={[styles.card, { backgroundColor: flow.rowBg(hex), borderColor: alpha(hex, 0.3) }]}>
+      {header}
+      <Text style={styles.headline}>Ready for review</Text>
+      <View style={styles.actRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Archive task"
-          style={[styles.btn, styles.btnSecondary, styles.btnCompact]}
-          onPress={() => actions.onArchive(issue)}
+          accessibilityLabel="Open task"
+          style={[styles.btn, styles.btnPrimary]}
+          onPress={() => actions.onOpenIssue(issue)}
         >
-          <Text style={styles.btnSecondaryText}>Archive ✓</Text>
+          <Text style={styles.btnPrimaryText}>Review</Text>
         </Pressable>
+        {sessionLink}
       </View>
     </View>
   )
@@ -314,11 +289,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 9,
     gap: 7,
-  },
-  cardDone: {
-    opacity: 0.8,
-    borderColor: color.hairline,
-    paddingVertical: 7,
   },
   top: {
     flexDirection: 'row',
@@ -402,11 +372,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnCompact: {
-    minHeight: 24,
-    paddingHorizontal: 9,
-    marginLeft: 'auto',
-  },
   btnPrimary: {
     backgroundColor: color.accent,
   },
@@ -465,13 +430,6 @@ const styles = StyleSheet.create({
   },
   cancel: {
     ...mono(400),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  doneText: {
-    ...mono(400),
-    flex: 1,
-    minWidth: 0,
     color: color.textDim,
     fontSize: font.tiny,
   },

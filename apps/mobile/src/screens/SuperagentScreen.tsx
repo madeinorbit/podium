@@ -1,72 +1,97 @@
-import { LinearGradient } from 'expo-linear-gradient'
+import type { TranscriptItem } from '@podium/protocol'
+import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobileClient } from '../client/MobileClientProvider'
-import type { SuperagentMessage, SuperagentThread } from '../client/trpc'
+import type { SuperagentMessage } from '../client/trpc'
 import { Composer } from '../components/Composer'
+import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
+import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { FLOW_SLATE } from '../theme/issueColors'
-import { alpha, mix } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
-
-function threadLabel(thread: SuperagentThread): string {
-  if (thread.id === 'global') return 'Global'
-  if (thread.title?.trim()) return thread.title.trim()
-  if (thread.kind === 'concierge' && thread.repoPath) {
-    return thread.repoPath.split('/').filter(Boolean).pop() ?? thread.id
-  }
-  return thread.id
-}
+import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 
 /**
- * Delegation desk: chat with the headless orchestrator. The global thread is
- * always there; btw/concierge threads show as chips. Live turn output streams
- * in via the thread's headless session; history is the durable record.
+ * The Super agent — the phone half of the engraved column's overarching chat
+ * [POD-338]. It is the desktop surface, not a variant of it:
+ *
+ *  - ONE thread, always `global` (desktop `THREAD_ID`). The old global/btw chip
+ *    strip is gone: per-thread history is not a phone decision, and the scope
+ *    label already says the chat is overarching.
+ *  - The SAME Flat Field transcript the session chat renders (the desktop
+ *    embeds `ChatView` here for exactly this reason) instead of a second,
+ *    bespoke chat vocabulary.
+ *  - Laid out like every other tab: safe-area header, one scroller, composer
+ *    docked directly above the tab bar — no hand-tuned lift leaving dead space.
  */
+const THREAD_ID = 'global'
+
+/** Superagent history rows → the transcript items the Flat Field renderer
+ *  speaks. Tool/system rows collapse to quiet lines, exactly as in a session. */
+function toTranscript(rows: SuperagentMessage[]): TranscriptItem[] {
+  const items: TranscriptItem[] = []
+  for (const row of rows) {
+    const text = row.content.trim()
+    if (row.role === 'tool') {
+      if (!row.toolName && !text) continue
+      items.push({
+        id: `super:${row.id}`,
+        role: 'tool',
+        ts: row.createdAt,
+        text: '',
+        ...(row.toolName ? { toolName: row.toolName } : {}),
+        ...(text ? { toolInput: text.split('\n')[0] } : {}),
+      })
+      continue
+    }
+    if (!text) continue
+    items.push({
+      id: `super:${row.id}`,
+      role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'assistant',
+      ts: row.createdAt,
+      text,
+    })
+  }
+  return items
+}
+
 export function SuperagentScreen() {
   const client = useMobileClient()
   const { trpc, subscribeHeadless } = client
-  const [threads, setThreads] = useState<SuperagentThread[]>([])
-  const [threadId, setThreadId] = useState('global')
+  const insets = useSafeAreaInsets()
   const [history, setHistory] = useState<SuperagentMessage[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [podiumSid, setPodiumSid] = useState<string | undefined>(undefined)
-
-  const refreshThreads = useCallback(async () => {
-    try {
-      const list = await trpc.superagent.listThreads.query()
-      setThreads(list.filter((t) => !t.archived))
-    } catch {
-      // metadata-only failure; the global thread still works
-    }
-  }, [trpc])
+  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
 
   const refreshHistory = useCallback(async () => {
     try {
-      const rows = await trpc.superagent.history.query({ threadId })
-      setHistory(rows)
+      setHistory(await trpc.superagent.history.query({ threadId: THREAD_ID }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [trpc, threadId])
+  }, [trpc])
 
+  // The global thread's headless session id — the only thread lookup left now
+  // that the chat never switches scope.
   useEffect(() => {
-    void refreshThreads()
-  }, [refreshThreads])
-
-  useEffect(() => {
-    setHistory([])
-    setLiveText('')
-    setStatusLabel(null)
-    setError(null)
+    let alive = true
+    void trpc.superagent.listThreads
+      .query()
+      .then((list) => {
+        if (alive) setPodiumSid(list.find((t) => t.id === THREAD_ID)?.podiumSessionId)
+      })
+      .catch(() => {})
     void refreshHistory()
-    setPodiumSid(threads.find((t) => t.id === threadId)?.podiumSessionId)
-  }, [refreshHistory, threadId, threads])
+    return () => {
+      alive = false
+    }
+  }, [trpc, refreshHistory])
 
   // Live turn activity: stream the assistant's in-progress text and refresh the
   // durable history at turn boundaries.
@@ -99,157 +124,139 @@ export function SuperagentScreen() {
     return () => clearInterval(id)
   }, [running, refreshHistory])
 
+  // Drop an optimistic turn once the durable history carries it.
+  useEffect(() => {
+    if (pendingTurns.length === 0) return
+    const echoed = new Set(history.filter((m) => m.role === 'user').map((m) => m.content.trim()))
+    setPendingTurns((prev) => {
+      const next = prev.filter((turn) => !echoed.has(turn.text))
+      return next.length === prev.length ? prev : next
+    })
+  }, [history, pendingTurns.length])
+
   const send = useCallback(
-    async (text: string) => {
+    (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
       setError(null)
       setRunning(true)
-      setHistory((prev) => [
-        ...prev,
-        { id: -Date.now(), role: 'user', content: text, createdAt: new Date().toISOString() },
-      ])
-      try {
-        const ack = await trpc.superagent.sendTurn.mutate({ threadId, text })
-        if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
-        void refreshThreads()
-      } catch (e) {
-        setRunning(false)
-        setError(e instanceof Error ? e.message : String(e))
-      }
+      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
+      void trpc.superagent.sendTurn
+        .mutate({ threadId: THREAD_ID, text: trimmed })
+        .then((ack) => {
+          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
+        })
+        .catch((e: unknown) => {
+          setRunning(false)
+          setError(e instanceof Error ? e.message : String(e))
+        })
     },
-    [trpc, threadId, refreshThreads],
+    [trpc],
   )
 
   const interrupt = useCallback(async () => {
     try {
-      await trpc.superagent.interruptTurn.mutate({ threadId })
+      await trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID })
       setRunning(false)
     } catch {
       // already stopped
     }
-  }, [trpc, threadId])
+  }, [trpc])
 
-  const visible = useMemo(
-    () => history.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim()),
-    [history],
-  )
-  const data = useMemo(() => [...visible].reverse(), [visible])
+  const clear = useCallback(async () => {
+    try {
+      await trpc.superagent.clear.mutate({ threadId: THREAD_ID })
+      setHistory([])
+      setPendingTurns([])
+      setLiveText('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }, [trpc])
+
+  // The streaming answer rides the transcript as a live assistant item, so the
+  // in-progress turn wears the same prose voice as the settled one.
+  const items = useMemo(() => {
+    const base = toTranscript(history)
+    if (running && liveText.trim()) {
+      base.push({ id: 'super:live', role: 'assistant', text: liveText.trim() })
+    }
+    return base
+  }, [history, liveText, running])
+
+  const empty = items.length === 0 && pendingTurns.length === 0 && !running
 
   return (
     <Screen noHeader>
-      {/* Engraved canvas: slate context glow fading into #0a0a0e (colour-flow §2.4). */}
-      <View style={styles.engraved}>
-        <LinearGradient
-          colors={[mix(FLOW_SLATE, 9, color.engraved), color.engraved]}
-          style={styles.glow}
-          pointerEvents="none"
-        />
-        {/* Super-agent section bar — the compact #08080c bar grammar. */}
-        <View style={styles.saBar}>
-          <Text style={styles.saGlyph}>✦</Text>
-          <Text style={styles.saTitle}>Super agent</Text>
-          <Text style={styles.saScope}>OVERARCHING</Text>
-          {running ? (
+      <View style={styles.column}>
+        {/* Super-agent section bar — the desktop SectionBar, at bar density. */}
+        <View style={[styles.bar, { paddingTop: insets.top + 7 }]}>
+          <Text style={styles.glyph}>✦</Text>
+          <Text style={styles.title}>Super agent</Text>
+          <Text style={styles.scope}>OVERARCHING</Text>
+          <View style={styles.barActions}>
+            {running ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Stop turn"
+                onPress={() => void interrupt()}
+                hitSlop={8}
+              >
+                <Text style={styles.stop}>Stop</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Stop turn"
-              onPress={() => void interrupt()}
+              accessibilityLabel="Clear context — start the chat fresh"
+              onPress={() => void clear()}
               hitSlop={8}
-              style={styles.stopWrap}
             >
-              <Text style={styles.stop}>Stop</Text>
+              <Icon as={Eraser} size={13} color={color.textFaint} />
             </Pressable>
-          ) : null}
+          </View>
         </View>
-        {threads.length > 1 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chips}
-            contentContainerStyle={styles.chipsContent}
-          >
-            {[
-              { id: 'global' } as SuperagentThread,
-              ...threads.filter((t) => t.id !== 'global'),
-            ].map((t) => (
-              <Pressable
-                key={t.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Thread ${threadLabel(t)}`}
-                onPress={() => setThreadId(t.id)}
-                style={[styles.chip, threadId === t.id && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, threadId === t.id && styles.chipTextActive]}>
-                  {threadLabel(t)}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        ) : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <FlatList
-          inverted
-          data={data}
-          keyExtractor={(m) => String(m.id)}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            running ? (
-              <View style={styles.liveRow}>
-                {liveText ? (
-                  <View style={[styles.block, styles.agentBlock]}>
-                    <Text style={styles.roleLabel}>SUPER AGENT</Text>
-                    <Text style={styles.blockText}>{liveText}</Text>
-                  </View>
-                ) : (
-                  <View style={styles.statusRow}>
-                    <BrailleSpinner size={11} />
-                    <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
-                  </View>
-                )}
-              </View>
-            ) : null
-          }
-          renderItem={({ item: m }) => (
-            <View style={[styles.block, m.role === 'user' ? styles.youBlock : styles.agentBlock]}>
-              <Text style={[styles.roleLabel, m.role === 'user' && styles.youLabel]}>
-                {m.role === 'user' ? 'YOU' : 'SUPER AGENT'}
-              </Text>
-              <Text style={styles.blockText} selectable>
-                {m.content.trim()}
-              </Text>
-            </View>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {empty ? (
+            <EmptyState
+              title="Hand off some work"
+              body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
+            />
+          ) : (
+            <TranscriptList
+              items={items}
+              live={running}
+              pendingTurns={pendingTurns}
+              onAnswer={async () => {}}
+            />
           )}
-          ListEmptyComponent={
-            !running ? (
-              <View style={styles.emptyFlip}>
-                <EmptyState
-                  title="Hand off some work"
-                  body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
-                />
-              </View>
-            ) : null
-          }
-        />
-        <View style={styles.composerLift}>
-          <Composer placeholder="Delegate a task…" onSend={(text) => void send(text)} />
-        </View>
+          {running && !liveText.trim() ? (
+            <View style={styles.statusRow}>
+              <BrailleSpinner size={11} />
+              <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
+            </View>
+          ) : null}
+          <Composer placeholder="Delegate a task…" onSend={send} />
+        </KeyboardAvoidingView>
       </View>
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  engraved: {
+  column: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: color.engraved,
   },
-  glow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 220,
+  flex: {
+    flex: 1,
+    minHeight: 0,
   },
-  saBar: {
+  bar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
@@ -257,108 +264,43 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.hairlineBar,
     paddingHorizontal: 13,
-    paddingVertical: 7,
+    paddingBottom: 7,
   },
-  saGlyph: {
+  glyph: {
     color: color.accent,
     fontSize: 12,
   },
-  saTitle: {
+  title: {
     ...sans(600),
     color: color.text,
     fontSize: font.small,
   },
-  saScope: {
+  scope: {
     ...monoLabel(8),
     color: color.textMicro,
   },
-  stopWrap: {
-    marginLeft: 'auto',
-  },
-  composerLift: {
-    paddingBottom: 86,
-  },
-  chips: {
-    flexGrow: 0,
-  },
-  chipsContent: {
-    gap: 6,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  chip: {
-    borderRadius: radius.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: 5,
-    backgroundColor: color.surface,
-    borderColor: color.hairlineBar,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  chipActive: {
-    backgroundColor: color.accentSoft,
-    borderColor: color.accentBorder,
-  },
-  chipText: {
-    ...sans(600),
-    color: color.textDim,
-    fontSize: font.tiny + 1,
-  },
-  chipTextActive: {
-    color: color.accent,
-  },
-  listContent: {
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    flexGrow: 1,
-  },
-  liveRow: {
-    marginBottom: space.sm,
-  },
-  // Chat feed grammar: role blocks with a 3px left rule — blue = you,
-  // green = the agent (engraved-column spec).
-  block: {
-    borderLeftWidth: 3,
-    paddingLeft: 10,
-    paddingVertical: 2,
-    marginBottom: space.md,
-    gap: 3,
-  },
-  youBlock: {
-    borderLeftColor: alpha(color.info, 0.75),
-  },
-  agentBlock: {
-    borderLeftColor: alpha(color.working, 0.75),
-  },
-  roleLabel: {
-    ...sans(600),
-    color: color.working,
-    fontSize: font.micro,
-    letterSpacing: 0.63,
-  },
-  youLabel: {
-    color: color.info,
-  },
-  blockText: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.body,
-    lineHeight: 19,
-  },
-  statusRow: {
+  barActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingLeft: 13,
-  },
-  status: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
+    gap: space.md,
+    marginLeft: 'auto',
   },
   stop: {
     ...sans(700),
     color: color.danger,
     fontSize: font.small,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.lg,
+    paddingBottom: space.xs,
+  },
+  status: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: font.tiny,
   },
   error: {
     ...sans(400),
@@ -366,8 +308,5 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingBottom: space.xs,
-  },
-  emptyFlip: {
-    transform: [{ scaleY: -1 }],
   },
 })

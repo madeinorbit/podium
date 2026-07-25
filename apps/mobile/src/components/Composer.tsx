@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
+import type { NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, mono, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -29,6 +30,17 @@ export function Composer({
     setText('')
   }
 
+  // A physical keyboard (the phone web app on a desktop browser, or a paired
+  // Bluetooth keyboard) must submit on Enter — the multiline field otherwise
+  // only ever inserts a newline and the composer reads as "it doesn't send".
+  // Shift+Enter keeps the newline, matching the desktop composer.
+  const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const native = e.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean }
+    if (native.key !== 'Enter' || native.shiftKey) return
+    e.preventDefault?.()
+    send()
+  }
+
   return (
     <View style={styles.row}>
       <View style={[styles.field, armed && styles.fieldArmed]}>
@@ -44,6 +56,9 @@ export function Composer({
           placeholderTextColor={color.textFaint}
           multiline
           editable={!disabled}
+          onKeyPress={onKeyPress}
+          submitBehavior="submit"
+          onSubmitEditing={send}
         />
       </View>
       <PressableScale
@@ -102,6 +117,9 @@ const styles = StyleSheet.create({
   },
   input: {
     ...mono(400),
+    // The armed yellow border IS the focus signal (The Signal Rule); the
+    // browser's own focus ring would draw a second, competing one.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
     flex: 1,
     color: color.text,
     fontSize: font.body,

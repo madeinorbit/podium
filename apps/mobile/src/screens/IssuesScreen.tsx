@@ -1,3 +1,4 @@
+import { boardIssues } from '@podium/client-core/viewmodels'
 import type { IssueStage, IssueWire } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ChevronRight, Layers, Plus } from 'lucide-react-native'
@@ -35,9 +36,15 @@ export function IssuesScreen() {
   const client = useMobileClient()
   const [showDone, setShowDone] = useState(false)
 
+  // The board's population is the desktop board's population (POD-338): no
+  // archived or tombstoned rows, no DRAFT vessels (the placeholder issue every
+  // bare session lives in until it is titled — a session container, not work),
+  // and no agent-audience decomposition at top level.
+  const board = useMemo(() => boardIssues(client.issues), [client.issues])
+
   const sections = useMemo(() => {
     const byStage = new Map<IssueStage, IssueWire[]>()
-    for (const issue of client.issues) {
+    for (const issue of board) {
       const list = byStage.get(issue.stage) ?? []
       list.push(issue)
       byStage.set(issue.stage, list)
@@ -49,7 +56,7 @@ export function IssuesScreen() {
         data: (byStage.get(stage) ?? []).sort((a, b) => a.priority - b.priority || b.seq - a.seq),
       }))
       .filter((s) => s.data.length > 0)
-  }, [client.issues, showDone])
+  }, [board, showDone])
 
   const repoName = (issue: IssueWire) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
 

@@ -22,7 +22,6 @@ export function IssueScreen() {
   const issue = client.issueById(issueId)
   const now = Date.now()
   const [stageMenuOpen, setStageMenuOpen] = useState(false)
-  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const sessions = useMemo(
@@ -44,21 +43,6 @@ export function IssueScreen() {
       await client.trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  const startAgent = async () => {
-    if (starting) return
-    setStarting(true)
-    setError(null)
-    try {
-      await client.trpc.issues.start.mutate({ id: issue.id })
-      // The spawned session lands in metadata via the live stream; the attached
-      // sessions list below picks it up. Stay here so the user sees it appear.
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setStarting(false)
     }
   }
 
@@ -123,32 +107,6 @@ export function IssueScreen() {
             />
           ))
         )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start agent on this task"
-          disabled={starting}
-          onPress={() => void startAgent()}
-          style={({ pressed }) => [
-            styles.startBtn,
-            (pressed || starting) && styles.startBtnPressed,
-          ]}
-        >
-          <Text style={styles.startText}>
-            {starting ? 'Starting…' : 'Start agent on this task'}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start a custom session on this task"
-          onPress={() =>
-            router.push(
-              `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(issue.worktreePath ?? issue.repoPath)}`,
-            )
-          }
-          style={styles.customLink}
-        >
-          <Text style={styles.customLinkText}>Custom session…</Text>
-        </Pressable>
 
         <SectionHeader label={`Comments (${(issue.comments ?? []).length})`} />
         {(issue.comments ?? []).map((comment) => (
@@ -217,31 +175,6 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
-  },
-  startBtn: {
-    marginHorizontal: space.lg,
-    marginTop: space.lg,
-    backgroundColor: color.accent,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    paddingVertical: space.md,
-  },
-  startBtnPressed: {
-    opacity: 0.85,
-  },
-  startText: {
-    color: color.accentText,
-    fontSize: font.body,
-    ...sans(700),
-  },
-  customLink: {
-    alignItems: 'center',
-    paddingVertical: space.sm,
-  },
-  customLinkText: {
-    color: color.accent,
-    fontSize: font.small,
-    ...sans(600),
   },
   comment: {
     marginHorizontal: space.lg,

@@ -29,18 +29,29 @@ function itemKey(item: TranscriptItem): string {
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
- * lies flat on the chassis; the operator's turns are the only elevated surface
- * and stick to the top while their turn scrolls. Tool runs are muted mono
+ * lies flat on the chassis; the operator's turns are the only elevated surface.
+ * They do NOT stick to the top (POD-338) — a phone viewport is too short to
+ * spend a permanent band on a message you already read. Tool runs are muted mono
  * one-liners with per-call ✓/✕ verdicts; the final answer gets the page's only
  * yellow (a keyline, not a box); an answered ask collapses to a one-line receipt.
  */
 interface Row {
   key: string
-  kind: 'user' | 'prose' | 'answer' | 'tools' | 'question' | 'receipt' | 'quiet'
+  kind: 'user' | 'prose' | 'answer' | 'tools' | 'question' | 'receipt' | 'quiet' | 'pending'
   item: TranscriptItem
   blocks?: ChatBlock[]
   /** Pre-formatted text for 'quiet' rows (system lines, churn durations). */
   quietText?: string
+  /** Optimistic turn text for 'pending' rows (not yet echoed by the server). */
+  pendingText?: string
+}
+
+/** A turn the operator just sent, painted before the server echoes it back —
+ *  the phone twin of the desktop chat's optimistic bubble (POD-338). Without it
+ *  a send into a parked session looks like nothing happened at all. */
+export interface PendingTurn {
+  id: string
+  text: string
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -220,6 +231,7 @@ export function TranscriptList({
   onAnswer,
   onLoadOlder,
   onRefPress,
+  pendingTurns,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -228,21 +240,26 @@ export function TranscriptList({
   onLoadOlder?: () => void
   /** Tap handler for POD-refs in message text (opens the task peek sheet). */
   onRefPress?: (ref: string) => void
+  /** Turns sent but not yet echoed by the server, appended at the tail. */
+  pendingTurns?: readonly PendingTurn[]
 }) {
-  const rows = useMemo(() => buildRows(items), [items])
+  const rows = useMemo(() => {
+    const built = buildRows(items)
+    for (const turn of pendingTurns ?? []) {
+      built.push({
+        key: `pending:${turn.id}`,
+        kind: 'pending',
+        item: { id: turn.id, role: 'user', text: turn.text } as TranscriptItem,
+        pendingText: turn.text,
+      })
+    }
+    return built
+  }, [items, pendingTurns])
   const pending = useMemo(() => latestPendingQuestion(items), [items])
   const listRef = useRef<FlatList<Row>>(null)
-  // Chronological (not inverted) so user turns can stick to the TOP while
-  // their turn scrolls — RN sticky headers only stick upward. Bottom-pinning
-  // is done by hand: scrollToEnd on growth while the user sits at the tail.
+  // Chronological (not inverted). Bottom-pinning is done by hand: scrollToEnd
+  // on growth while the user sits at the tail.
   const pinned = useRef(true)
-  const stickyIndices = useMemo(() => {
-    const idx: number[] = []
-    rows.forEach((r, i) => {
-      if (r.kind === 'user') idx.push(i)
-    })
-    return idx
-  }, [rows])
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -259,7 +276,6 @@ export function TranscriptList({
       data={rows}
       keyExtractor={(row) => row.key}
       contentContainerStyle={styles.content}
-      stickyHeaderIndices={stickyIndices}
       // Keeps the viewport steady when older pages prepend above.
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       onScroll={onScroll}
@@ -287,6 +303,22 @@ export function TranscriptList({
               </View>
             )
           }
+          case 'pending':
+            return (
+              <View style={styles.userWrap}>
+                <View style={[styles.userCard, styles.userCardPending]}>
+                  <View style={styles.userLabelRow}>
+                    <Text style={styles.userLabel}>You</Text>
+                    <Text style={styles.userTime}>sending…</Text>
+                  </View>
+                  <MessageText
+                    text={row.pendingText ?? ''}
+                    style={styles.userText}
+                    onRefPress={onRefPress}
+                  />
+                </View>
+              </View>
+            )
           case 'question': {
             const isLivePending = live && pending != null && itemKey(pending) === row.key
             return (
@@ -353,6 +385,10 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
+    // A short conversation rests on the composer instead of hanging from the
+    // header — the desktop chat's bottom-anchored feel (POD-338).
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   rowWrap: {
     marginBottom: space.lg,
@@ -375,6 +411,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
+  },
+  userCardPending: {
+    opacity: 0.7,
+    borderStyle: 'dashed',
   },
   userLabelRow: {
     flexDirection: 'row',

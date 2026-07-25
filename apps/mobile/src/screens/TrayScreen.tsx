@@ -1,5 +1,5 @@
 import { groupSessions, relativeTime, withoutShells } from '@podium/client-core/focus'
-import { artifactKind } from '@podium/client-core/viewmodels'
+import { artifactKind, deriveTrayItems } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { Plus, Settings } from 'lucide-react-native'
@@ -13,7 +13,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
-import { deriveTrayItems } from '../lib/derive-tray'
 import { effectiveIssueColorHex, FLOW_SLATE, flow } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
@@ -21,7 +20,8 @@ import { color, font, mono, radius, sans, space } from '../theme/theme'
 /**
  * The Tray — home [POD-131]. The phone IS the engraved column: a GLOBAL
  * decision queue (never filtered, never re-sorted on selection — POD-129's
- * Scope Law). Decisions first, finished last, newest first within each group.
+ * Scope Law), deriving from the SAME model as the desktop column. Newest
+ * first; nothing that isn't an open ask ever appears.
  * Super Agent chat lives in its own tab.
  */
 
@@ -105,16 +105,17 @@ export function TrayScreen() {
     () => new Set(askSessions.map((s) => s.issueId).filter(Boolean)),
     [askSessions],
   )
-  const items = useMemo(
+  // Exactly the desktop tray's contract (POD-338): the SAME derivation, global
+  // scope, and no archive-cleanup cards — finished work is not attention
+  // [POD-198], it is dismissed from the Work list's Closed fold.
+  const decisions = useMemo(
     () =>
-      deriveTrayItems(client.issues, null, undefined, now).filter(
+      deriveTrayItems(client.issues).filter(
         // A session's inline question card covers its issue's needsHuman card.
         (i) => !(i.kind === 'question' && askIssueIds.has(i.issue.id)),
       ),
-    [client.issues, askIssueIds, now],
+    [client.issues, askIssueIds],
   )
-  const decisions = items.filter((i) => i.kind !== 'finished')
-  const finished = items.filter((i) => i.kind === 'finished')
   const needsYouCount = askSessions.length + erroredSessions.length + decisions.length
 
   const issueFor = (session: SessionMeta): IssueWire | undefined =>
@@ -125,7 +126,6 @@ export function TrayScreen() {
     onOpenSession: (session) => router.push(`/session/${session.sessionId}`),
     onOpenIssue: (issue) => router.push(`/issue/${encodeURIComponent(issue.id)}`),
     onResolve: (issue) => void client.trpc.issues.clearNeedsHuman.mutate({ id: issue.id }),
-    onArchive: (issue) => void client.trpc.issues.archive.mutate({ id: issue.id }),
     onOpenArtifact: (issue, artifact: IssuePanelArtifact) => {
       const kind = artifactKind(artifact.entry ?? artifact.path)
       if (artifact.artifactId && kind === 'image') {
@@ -139,7 +139,7 @@ export function TrayScreen() {
     },
   }
 
-  const empty = needsYouCount === 0 && finished.length === 0
+  const empty = needsYouCount === 0
 
   return (
     <Screen
@@ -209,16 +209,6 @@ export function TrayScreen() {
             </View>
           ))}
           {decisions.map((item) => (
-            <TrayCard
-              key={`${item.kind}:${item.issue.id}:${item.since}`}
-              item={item}
-              issues={client.issues}
-              httpOrigin={client.serverConfig.httpOrigin}
-              actions={cardActions}
-              now={now}
-            />
-          ))}
-          {finished.map((item) => (
             <TrayCard
               key={`${item.kind}:${item.issue.id}:${item.since}`}
               item={item}

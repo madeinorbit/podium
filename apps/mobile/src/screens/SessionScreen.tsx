@@ -20,7 +20,7 @@ import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
-import { TranscriptList } from '../components/TranscriptList'
+import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
 import { TerminalPane } from '../terminal/TerminalPane'
@@ -45,6 +45,10 @@ export function SessionScreen() {
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [loaded, setLoaded] = useState(false)
+  // Turns sent from this screen, painted until the server echoes them into the
+  // transcript (POD-338). A parked session queues the message and answers
+  // minutes later — without this the composer reads as if it never sent.
+  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
@@ -64,6 +68,7 @@ export function SessionScreen() {
     let unsubscribe: (() => void) | null = null
     setItems([])
     setLoaded(false)
+    setPendingTurns([])
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
@@ -89,6 +94,26 @@ export function SessionScreen() {
       unsubscribe?.()
     }
   }, [readTranscript, subscribeTranscript, sessionId])
+
+  useEffect(() => {
+    if (pendingTurns.length === 0) return
+    const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
+    setPendingTurns((prev) => {
+      const next = prev.filter((turn) => !echoed.has(turn.text.trim()))
+      return next.length === prev.length ? prev : next
+    })
+  }, [items, pendingTurns.length])
+
+  const send = useCallback(
+    (text: string) => {
+      if (!sessionId) return
+      const trimmed = text.trim()
+      if (!trimmed) return
+      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
+      void client.sendMessage(sessionId, trimmed)
+    },
+    [client.sendMessage, sessionId],
+  )
 
   const loadOlder = useCallback(() => {
     const p = paging.current
@@ -170,7 +195,6 @@ export function SessionScreen() {
     onOpenSession: () => {},
     onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
     onResolve: (target) => void client.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
-    onArchive: (target) => void client.trpc.issues.archive.mutate({ id: target.id }),
     onOpenArtifact: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
   }
 
@@ -268,12 +292,13 @@ export function SessionScreen() {
           <View style={styles.terminalWrap}>
             <TerminalPane sessionId={sessionId} />
           </View>
-        ) : loaded && items.length === 0 ? (
+        ) : loaded && items.length === 0 && pendingTurns.length === 0 ? (
           <EmptyState title="No transcript yet" body="Send a message to get things moving." />
         ) : (
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
+            pendingTurns={pendingTurns}
             onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
             onLoadOlder={loadOlder}
             onRefPress={(ref) => {
@@ -311,12 +336,7 @@ export function SessionScreen() {
             />
           </View>
         ) : null}
-        {view === 'chat' ? (
-          <Composer
-            placeholder="Message the agent…"
-            onSend={(text) => void client.sendMessage(sessionId, text)}
-          />
-        ) : null}
+        {view === 'chat' ? <Composer placeholder="Message the agent…" onSend={send} /> : null}
       </KeyboardAvoidingView>
       <TaskPeekSheet issue={peekIssue} session={session} onClose={() => setPeekIssue(null)} />
       <ActionSheet
@@ -385,6 +405,11 @@ const styles = StyleSheet.create({
   },
   terminalWrap: {
     flex: 1,
+    // minHeight 0 is what keeps the native pane INSIDE the viewport: without it
+    // the terminal's flex child can only grow, and a tall agent frame pushes the
+    // pane past the bottom of the screen (POD-338).
+    minHeight: 0,
+    overflow: 'hidden',
     backgroundColor: color.bgSunken,
   },
   offerWrap: {

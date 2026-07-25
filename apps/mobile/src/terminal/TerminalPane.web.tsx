@@ -34,10 +34,18 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
   })
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
       {connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 260, width: '100%' }} />
+      {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
+          SHRINK to the viewport. The old `minHeight: 260` floor meant a short
+          phone screen could not contain the pane and the agent frame ran off the
+          bottom of the screen (POD-338). `overflow: hidden` keeps a mid-resize
+          xterm frame from spilling either. */}
+      <div
+        ref={containerRef}
+        style={{ flex: 1, minHeight: 0, width: '100%', overflow: 'hidden' }}
+      />
     </View>
   )
 }

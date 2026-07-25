@@ -1,148 +1,221 @@
-import { attentionGroup } from '@podium/client-core/focus'
-import { sessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useRouter } from 'expo-router'
+import { relativeTime } from '@podium/client-core/focus'
 import {
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  MessageSquare,
-  Pin,
-  PinOff,
-  Plus,
-  X,
-} from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+  agentBadge,
+  draftIssueLabel,
+  formatClock,
+  groupUnifiedWorkRows,
+  isDraftAgentVessel,
+  type MotionPhase,
+  pendingDecisionLabel,
+  rowAwaitsTuck,
+  rowMotionPhase,
+  rowMotionTiming,
+  rowPendingDecision,
+  rowStatusLine,
+  rowUnreadEmphasized,
+  rowWaitingCount,
+  sessionDotTone,
+  sessionTitle,
+  sidebarSections,
+  splitPinnedWork,
+  type UnifiedIssueRow,
+  type UnifiedWorkGroup,
+  type UnifiedWorkRow,
+  unifiedWorkList,
+} from '@podium/client-core/viewmodels'
+import { type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
+import { useRouter } from 'expo-router'
+import { ArrowDownToLine, ChevronDown, ChevronRight, Pin, Plus } from 'lucide-react-native'
+import { useCallback, useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
+import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare, type IdSquareState } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
-import { BrailleSpinner } from '../components/StatusGlyphs'
+import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
-import { EmptyState, Pill, StatusDot } from '../components/ui'
-import { buildWorkSections, type WorkIssue } from '../lib/work-sections'
+import { EmptyState, StatusDot } from '../components/ui'
+import { useCollapsed } from '../hooks/useCollapsed'
+import { useNow } from '../hooks/useNow'
 import { FLOW_SLATE, flow, issueColorHex } from '../theme/issueColors'
+import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
-/** Same key prefix as desktop sidebar tuck (POD-293) so state can align later. */
-const tuckKey = (id: string) => `podium:sidebar:tucked:${id}`
+/**
+ * Work — the desktop sidebar, on the phone [POD-338].
+ *
+ * Not an approximation: the rows come from the SAME derivation the wide
+ * sidebar runs (`sidebarSections` → `unifiedWorkList` → `splitPinnedWork` →
+ * `groupUnifiedWorkRows`), so pinned band, project groups, manual sort order,
+ * agent rosters, tuck-away, and the Snoozed / Closed folds all behave exactly
+ * as they do at the desk. Only the row CHROME is native — one thumb-sized
+ * two-line row per task, tapping through to the task screen.
+ */
 
-function squareState(issue: IssueWire, sessions: SessionMeta[]): IdSquareState {
-  if (issue.needsHuman || sessions.some((session) => attentionGroup(session) === 'needsYou')) {
-    return 'waiting'
-  }
-  if (sessions.some((session) => attentionGroup(session) === 'working')) return 'working'
-  if (sessions.length > 0) return 'idle'
-  if (issue.stage === 'done' || issue.closedReason != null) return 'queued'
-  return 'queued'
+const SQUARE_STATE: Record<MotionPhase, IdSquareState> = {
+  working: 'working',
+  waiting: 'waiting',
+  done: 'done',
+  queued: 'queued',
 }
 
-/**
- * Mobile work sidebar / taskbar: issue-first navigation with nested agent
- * sessions, pinned band, sortKey order, and tuck-away for finished work —
- * the phone counterpart of the desktop Work sections.
- */
+/** How a folded row ended, in one dim mono word — twin of the desktop's
+ *  `foldedMarker`. Nothing here is an ask, so none of it is amber. */
+function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number): string {
+  if (lane === 'snoozed') {
+    const until = issue.deferUntil ? Date.parse(issue.deferUntil) : Number.NaN
+    if (!Number.isFinite(until)) return 'snoozed'
+    const mins = Math.max(0, Math.round((until - now) / 60000))
+    if (mins < 60) return 'snoozed <1h'
+    const hours = Math.round(mins / 60)
+    return hours < 24 ? `snoozed ${hours}h` : `snoozed ${Math.round(hours / 24)}d`
+  }
+  if (issue.gitState?.merged) return 'merged'
+  switch (issue.closedReason) {
+    case 'superseded':
+      return 'superseded'
+    case 'duplicate':
+      return 'duplicate'
+    case 'wontfix':
+      return "won't fix"
+    default:
+      return 'closed'
+  }
+}
+
+/** Line 2's timer stamp — the desktop PhaseTimer's exact vocabulary: a running
+ *  `m:ss` clock while working, a frozen "10h ago" while waiting, the `∑` compute
+ *  total once done, and NOTHING while queued (the dimmed row already says it). */
+function timeStamp(row: UnifiedWorkRow, now: number): string | null {
+  const timing = rowMotionTiming(row)
+  if (timing.phase === 'done') {
+    return timing.totalMs !== undefined ? `∑ ${formatClock(timing.totalMs)}` : null
+  }
+  if (!Number.isFinite(timing.sinceMs) || timing.sinceMs <= 0) return null
+  if (timing.phase === 'working') {
+    return formatClock(Math.max(0, now - timing.sinceMs) + (timing.baseMs ?? 0))
+  }
+  if (timing.phase === 'waiting') return relativeTime(new Date(timing.sinceMs).toISOString(), now)
+  return null
+}
+
+interface WorkSection {
+  key: string
+  label: string
+  pinned: boolean
+  data: UnifiedWorkRow[]
+  snoozedRows: UnifiedIssueRow[]
+  closedRows: UnifiedIssueRow[]
+}
+
 export function WorkScreen() {
   const router = useRouter()
   const client = useMobileClient()
-  const [peek, setPeek] = useState<{ issue: IssueWire; session?: SessionMeta } | null>(null)
-  const [tuckedIds, setTuckedIds] = useState<ReadonlySet<string>>(() => new Set())
-  const [closedOpen, setClosedOpen] = useState<ReadonlySet<string>>(() => new Set())
+  const now = useNow(30_000)
+  const [peek, setPeek] = useState<IssueWire | null>(null)
+  const [menuIssue, setMenuIssue] = useState<IssueWire | null>(null)
 
-  // Hydrate tucked ids from AsyncStorage (mirrors desktop ui-state keys).
-  // Reopened work drops a stale tuck so the next close offers Tuck away again.
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      const next = new Set<string>()
-      for (const issue of client.issues) {
-        const finished = issue.closedReason != null || issue.stage === 'done'
-        try {
-          if (!finished) {
-            if ((await AsyncStorage.getItem(tuckKey(issue.id))) === 'true') {
-              await AsyncStorage.removeItem(tuckKey(issue.id))
-            }
-            continue
-          }
-          const v = await AsyncStorage.getItem(tuckKey(issue.id))
-          if (v === 'true') next.add(issue.id)
-        } catch {
-          // Offline storage glitch — skip this id.
-        }
-      }
-      if (!cancelled) setTuckedIds(next)
+  const { sections, allWorktreePaths, issueCount, agentCount } = useMemo(() => {
+    const nav = sidebarSections(client.repos, client.sessions, client.pins, now, client.issues)
+    const paths = [...nav.pinnedRepos, ...nav.repos].flatMap((repo) =>
+      repo.worktrees.map((worktree) => worktree.path),
+    )
+    const work = unifiedWorkList(nav, client.issues, client.sessions, paths, now)
+    const { pinned, rest } = splitPinnedWork(work)
+    const groups: UnifiedWorkGroup[] = groupUnifiedWorkRows(rest, null, false, now)
+    const list: WorkSection[] = []
+    if (pinned.length > 0) {
+      list.push({
+        key: 'pinned',
+        label: 'Pinned',
+        pinned: true,
+        data: pinned,
+        snoozedRows: [],
+        closedRows: [],
+      })
     }
-    void load()
-    return () => {
-      cancelled = true
+    for (const group of groups) {
+      if (group.rows.length + group.snoozedRows.length + group.closedRows.length === 0) continue
+      list.push({
+        key: group.key,
+        label: group.label,
+        pinned: false,
+        data: group.rows,
+        snoozedRows: group.snoozedRows,
+        closedRows: group.closedRows,
+      })
     }
-  }, [client.issues])
+    const open = [...pinned, ...groups.flatMap((g) => g.rows)]
+    return {
+      sections: list,
+      allWorktreePaths: paths,
+      issueCount: open.filter((row) => row.kind === 'issue').length,
+      agentCount: new Set(
+        open.flatMap((row) =>
+          (row.kind === 'issue'
+            ? (row.aggregateSessions ?? row.sessions)
+            : row.worktree.sessions
+          ).map((s) => s.sessionId),
+        ),
+      ).size,
+    }
+  }, [client.repos, client.sessions, client.pins, client.issues, now])
 
-  const tuck = useCallback(async (id: string) => {
-    try {
-      await AsyncStorage.setItem(tuckKey(id), 'true')
-    } catch {
-      // Still fold optimistically.
-    }
-    setTuckedIds((prev) => new Set(prev).add(id))
-  }, [])
-
-  const togglePin = useCallback(
-    async (issue: IssueWire) => {
-      try {
-        await client.trpc.issues.update.mutate({
-          id: issue.id,
-          patch: { pinned: !issue.pinned },
-        })
-      } catch {
-        // Store / network will surface via connection banner.
-      }
+  const openIssue = useCallback(
+    (issue: IssueWire) => {
+      void client.markIssueRead(issue.id)
+      router.push(`/issue/${encodeURIComponent(issue.id)}`)
     },
-    [client.trpc],
+    [client.markIssueRead, router],
   )
 
-  const sections = useMemo(
-    () =>
-      buildWorkSections(client.issues, client.sessions, {
-        now: Date.now(),
-        tuckedIds,
-      }),
-    [client.issues, client.sessions, tuckedIds],
-  )
+  const menuActions = useMemo<SheetAction[]>(() => {
+    const issue = menuIssue
+    if (!issue) return []
+    return [
+      { label: 'Open task', onPress: () => openIssue(issue) },
+      { label: 'Peek', onPress: () => setPeek(issue) },
+      {
+        label: issue.pinned ? 'Unpin' : 'Pin to top',
+        onPress: () => {
+          void client.trpc.issues.update
+            .mutate({ id: issue.id, patch: { pinned: !issue.pinned } })
+            .catch(() => {})
+        },
+      },
+      ...(issue.tuckedAt != null
+        ? [
+            {
+              label: 'Bring back from Closed',
+              onPress: () => void client.setIssueTucked(issue.id, false),
+            },
+          ]
+        : []),
+    ]
+  }, [menuIssue, openIssue, client.trpc, client.setIssueTucked])
 
-  const listSections = useMemo(
-    () =>
-      sections.map((section) => ({
-        ...section,
-        // Flatten open rows; closed fold is rendered via section footer.
-        data: section.data,
-      })),
-    [sections],
+  const renderRow = (row: UnifiedWorkRow) => (
+    <WorkRow
+      row={row}
+      allWorktreePaths={allWorktreePaths}
+      now={now}
+      onOpenIssue={openIssue}
+      onOpenSession={(sessionId) => router.push(`/session/${sessionId}`)}
+      onLongPress={(issue) => setMenuIssue(issue)}
+      onTuck={
+        row.kind === 'issue' && rowAwaitsTuck(row, null, false, now)
+          ? () => void client.setIssueTucked(row.issue.id, true)
+          : undefined
+      }
+    />
   )
-
-  const issueCount = sections.reduce((total, section) => total + section.data.length, 0)
-  const sessionCount = sections.reduce(
-    (total, section) =>
-      total + section.data.reduce((sectionTotal, row) => sectionTotal + row.sessions.length, 0),
-    0,
-  )
-
-  const toggleClosed = (key: string) => {
-    setClosedOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
 
   return (
     <Screen
       large
       title="Work"
-      subtitle={`${issueCount} active task${issueCount === 1 ? '' : 's'} · ${sessionCount} agent${sessionCount === 1 ? '' : 's'}`}
+      subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
       right={
         <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
           <Icon as={Plus} size={19} color={color.text} />
@@ -150,214 +223,351 @@ export function WorkScreen() {
       }
     >
       <SectionList
-        sections={listSections}
-        keyExtractor={({ issue }) => issue.id}
+        sections={sections}
+        keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
         contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled
+        stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionLabel}>{section.title}</Text>
-            <Text style={styles.sectionCount}>{section.data.length}</Text>
-            <View style={styles.sectionRule} />
+          <View style={styles.groupLabel}>
+            {section.pinned ? <Icon as={Pin} size={9} color={color.accent} /> : null}
+            <Text style={styles.groupLabelText} numberOfLines={1}>
+              {section.label}
+            </Text>
+            <View style={styles.rule} />
           </View>
         )}
-        renderSectionFooter={({ section }) => {
-          if (section.closed.length === 0) return null
-          const open = closedOpen.has(section.key)
-          return (
-            <View style={styles.closedBlock}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${open ? 'Hide' : 'Show'} closed in ${section.title}`}
-                onPress={() => toggleClosed(section.key)}
-                style={({ pressed }) => [styles.closedToggle, pressed && styles.pressed]}
-              >
-                <Icon
-                  as={open ? ChevronDown : ChevronRight}
-                  size={14}
-                  color={color.textFaint}
-                />
-                <Text style={styles.closedToggleText}>
-                  Closed · {section.closed.length}
-                </Text>
-              </Pressable>
-              {open
-                ? section.closed.map((row) => (
-                    <FoldedRow
-                      key={row.issue.id}
-                      row={row}
-                      onPress={() =>
-                        router.push(`/issue/${encodeURIComponent(row.issue.id)}`)
-                      }
-                    />
-                  ))
-                : null}
-            </View>
-          )
-        }}
-        renderItem={({ item }) => (
-          <WorkspaceRow
-            row={item}
-            onOpenIssue={() => router.push(`/issue/${encodeURIComponent(item.issue.id)}`)}
-            onPeek={() => setPeek({ issue: item.issue })}
-            onOpenSession={(sessionId) => router.push(`/session/${sessionId}`)}
-            onTuck={item.awaitsTuck ? () => void tuck(item.issue.id) : undefined}
-            onTogglePin={() => void togglePin(item.issue)}
-          />
+        renderItem={({ item }) => renderRow(item)}
+        renderSectionFooter={({ section }) => (
+          <View style={styles.folds}>
+            {section.snoozedRows.length > 0 ? (
+              <Fold
+                storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
+                label="Snoozed"
+                rows={section.snoozedRows}
+                lane="snoozed"
+                now={now}
+                onOpen={openIssue}
+                onLongPress={setMenuIssue}
+              />
+            ) : null}
+            {section.closedRows.length > 0 ? (
+              <Fold
+                storageKey={`podium:sidebar:closed-fold:${section.key}`}
+                label="Closed"
+                rows={section.closedRows}
+                lane="closed"
+                now={now}
+                onOpen={openIssue}
+                onLongPress={setMenuIssue}
+              />
+            ) : null}
+          </View>
         )}
         ListEmptyComponent={
           <EmptyState
-            title="No active work"
-            body="Planning, in-progress, and review tasks appear here with their agents — same list as the desktop sidebar."
+            title="No work yet"
+            body="Tasks and their agents appear here — the same list, in the same order, as the desktop sidebar."
           />
         }
       />
-      <TaskPeekSheet
-        issue={peek?.issue ?? null}
-        session={peek?.session}
-        onClose={() => setPeek(null)}
+      <TaskPeekSheet issue={peek} onClose={() => setPeek(null)} />
+      <ActionSheet
+        visible={menuIssue !== null}
+        title={menuIssue ? `${issueDisplayRef(menuIssue)} ${menuIssue.title}` : ''}
+        actions={menuActions}
+        onClose={() => setMenuIssue(null)}
       />
     </Screen>
   )
 }
 
-function FoldedRow({ row, onPress }: { row: WorkIssue; onPress: () => void }) {
-  const reason = row.issue.closedReason?.replace(/_/g, ' ') ?? row.issue.stage
+/** A project-local disclosure (Snoozed / Closed): the collapsed default and the
+ *  one-line folded rows of the desktop fold, at thumb size. */
+function Fold({
+  storageKey,
+  label,
+  rows,
+  lane,
+  now,
+  onOpen,
+  onLongPress,
+}: {
+  storageKey: string
+  label: string
+  rows: UnifiedIssueRow[]
+  lane: 'closed' | 'snoozed'
+  now: number
+  onOpen: (issue: IssueWire) => void
+  onLongPress: (issue: IssueWire) => void
+}) {
+  const [collapsed, toggle] = useCollapsed(storageKey, true)
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Open closed issue ${row.issue.seq}: ${row.issue.title}`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
-    >
-      <Text style={styles.foldedSeq}>#{row.issue.seq}</Text>
-      <Text style={styles.foldedTitle} numberOfLines={1}>
-        {row.issue.title}
-      </Text>
-      <Text style={styles.foldedReason}>{reason}</Text>
-    </Pressable>
+    <View style={styles.fold}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${rows.length}`}
+        onPress={toggle}
+        style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}
+      >
+        <Icon as={collapsed ? ChevronRight : ChevronDown} size={11} color={color.textMicro} />
+        <Text style={styles.foldToggleText}>{`${label} · ${rows.length}`}</Text>
+        <View style={styles.foldRule} />
+      </Pressable>
+      {collapsed
+        ? null
+        : rows.map((row) => (
+            <Pressable
+              key={row.issue.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${issueDisplayRef(row.issue)} ${row.issue.title}`}
+              onPress={() => onOpen(row.issue)}
+              onLongPress={() => onLongPress(row.issue)}
+              delayLongPress={350}
+              style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
+            >
+              <Text style={styles.foldedRef}>{issueDisplayRef(row.issue)}</Text>
+              <Text style={styles.foldedTitle} numberOfLines={1}>
+                {row.issue.title}
+              </Text>
+              <Text
+                style={[
+                  styles.foldedMarker,
+                  foldedMarker(row.issue, lane, now) === 'merged' && styles.foldedMerged,
+                ]}
+              >
+                {foldedMarker(row.issue, lane, now)}
+              </Text>
+            </Pressable>
+          ))}
+    </View>
   )
 }
 
-function WorkspaceRow({
+function WorkRow({
   row,
+  allWorktreePaths,
+  now,
+  depth = 0,
   onOpenIssue,
-  onPeek,
   onOpenSession,
+  onLongPress,
   onTuck,
-  onTogglePin,
 }: {
-  row: WorkIssue
-  onOpenIssue: () => void
-  onPeek: () => void
+  row: UnifiedWorkRow
+  allWorktreePaths: string[]
+  now: number
+  depth?: number
+  onOpenIssue: (issue: IssueWire) => void
   onOpenSession: (sessionId: string) => void
-  onTuck?: () => void
-  onTogglePin: () => void
+  onLongPress: (issue: IssueWire) => void
+  onTuck?: (() => void) | undefined
 }) {
-  const { issue, sessions } = row
-  const hex = issueColorHex(issue.color) ?? FLOW_SLATE
-  const now = Date.now()
+  const issue = row.kind === 'issue' ? row.issue : undefined
+  const worktree = row.kind === 'worktree' ? row.worktree : undefined
+  const sessions = row.kind === 'issue' ? row.sessions : row.worktree.sessions
+  const hex = issue ? issueColorHex(issue.color) : undefined
+  const accent = hex ?? FLOW_SLATE
+  const phase = rowMotionPhase(row)
+  const waiting = rowWaitingCount(row)
+  const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
+  const unread = rowUnreadEmphasized(row)
+  const startedByChildren = row.kind === 'issue' ? (row.startedByChildren ?? []) : []
+  // A draft vessel's only content is its agents — its row IS the agent, so it
+  // clicks straight into the session and never folds out (desktop POD-282).
+  const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
+  const label = issue
+    ? draftOnly
+      ? draftIssueLabel(issue, sessions, allWorktreePaths)
+      : issue.title
+    : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
+  const expandable = !draftOnly && sessions.length > 0
+  const [collapsed, toggle] = useCollapsed(
+    issue
+      ? `podium:sidebar:unified-issue:${issue.id}`
+      : `podium:sidebar:wt:${worktree?.path ?? ''}`,
+    !(issue?.pinned ?? false),
+  )
+  const stamp = timeStamp(row, now)
+  const statusLine =
+    issue && decision ? pendingDecisionLabel(issue, decision) : rowStatusLine(row, now, 1)
+
+  const press = () => {
+    if (issue) {
+      if (draftOnly && sessions[0]) onOpenSession(sessions[0].sessionId)
+      else onOpenIssue(issue)
+      return
+    }
+    if (sessions[0]) onOpenSession(sessions[0].sessionId)
+  }
 
   return (
-    <View style={[styles.workspace, { backgroundColor: flow.rowBg(hex) }]}>
-      <View style={styles.issueRow}>
+    <View style={[styles.rowBlock, depth > 0 && styles.rowNested]}>
+      <View
+        style={[
+          styles.row,
+          hex ? { backgroundColor: flow.rowBg(hex) } : null,
+          phase === 'queued' && styles.rowQueued,
+          phase === 'done' && !onTuck && styles.rowDone,
+          issue?.audience === 'agent' && styles.rowInternal,
+        ]}
+      >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Open issue ${issue.seq}: ${issue.title}`}
-          onPress={onOpenIssue}
-          onLongPress={onTogglePin}
+          accessibilityLabel={issue ? `${issueDisplayRef(issue)} ${label}` : `Worktree ${label}`}
+          onPress={press}
+          onLongPress={issue ? () => onLongPress(issue) : undefined}
           delayLongPress={350}
-          style={({ pressed }) => [styles.issueMain, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
         >
-          <IdSquare issue={issue} state={squareState(issue, sessions)} ringColor={flow.rowBg(hex)} />
-          <View style={styles.issueTitles}>
-            <Text style={[styles.issueTitle, { color: flow.text(hex) }]} numberOfLines={2}>
-              {issue.title}
-            </Text>
-            <View style={styles.issueMeta}>
-              <Pill label={issue.stage.replace('_', ' ')} />
-              {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
+          {issue ? (
+            <IdSquare
+              issue={issue}
+              state={SQUARE_STATE[phase]}
+              ringColor={hex ? flow.rowBg(hex) : color.surface}
+              {...(waiting > 0 ? { badge: { kind: 'waiting' as const, count: waiting } } : {})}
+            />
+          ) : (
+            <View style={styles.worktreeSquare}>
+              <Text style={styles.worktreeGlyph}>⌥</Text>
+            </View>
+          )}
+          <View style={styles.rowText}>
+            <View style={styles.rowTitleLine}>
+              <Text
+                style={[
+                  styles.rowTitle,
+                  unread && styles.rowTitleUnread,
+                  hex ? { color: flow.text(hex) } : null,
+                ]}
+                numberOfLines={1}
+              >
+                {label}
+              </Text>
+              {waiting > 0 && !decision ? <CountPill count={waiting} size={14} /> : null}
               {sessions.length > 0 ? (
-                <Text style={[styles.agentCount, { color: flow.muted(hex) }]}>
-                  {sessions.length} agent{sessions.length === 1 ? '' : 's'}
-                </Text>
+                <Text style={styles.fleet}>{`${sessions.length}⏣`}</Text>
               ) : null}
             </View>
+            <View style={styles.rowStatusLine}>
+              {phase === 'working' ? <BrailleSpinner size={9} /> : null}
+              <Text
+                style={[
+                  styles.status,
+                  decision ? styles.statusDecision : null,
+                  !decision && phase === 'working' ? styles.statusWorking : null,
+                  !decision && phase === 'done' ? styles.statusDone : null,
+                ]}
+                numberOfLines={1}
+              >
+                {statusLine}
+              </Text>
+              {stamp ? <Text style={styles.stamp}>{stamp}</Text> : null}
+            </View>
           </View>
-          <Icon as={ChevronRight} size={16} color={flow.muted(hex)} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={issue.pinned ? `Unpin task ${issue.seq}` : `Pin task ${issue.seq}`}
-          onPress={onTogglePin}
-          hitSlop={6}
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-        >
-          <Icon
-            as={issue.pinned ? PinOff : Pin}
-            size={14}
-            color={issue.pinned ? color.accent : color.textDim}
-          />
         </Pressable>
         {onTuck ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Tuck away finished task ${issue.seq}`}
+            accessibilityLabel={`Tuck ${label} into Closed`}
             onPress={onTuck}
-            hitSlop={6}
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.tuck, pressed && styles.pressed]}
           >
-            <Icon as={X} size={15} color={color.textDim} />
+            <Icon as={ArrowDownToLine} size={11} color={color.textMicro} />
+            <Text style={styles.tuckText}>Tuck</Text>
           </Pressable>
-        ) : (
+        ) : expandable ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Peek task ${issue.seq}`}
-            onPress={onPeek}
-            hitSlop={6}
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+            accessibilityState={{ expanded: !collapsed }}
+            accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} agents on ${label}`}
+            onPress={toggle}
+            style={({ pressed }) => [styles.chevron, pressed && styles.pressed]}
           >
-            <Icon as={Eye} size={15} color={color.textDim} />
+            <Icon as={collapsed ? ChevronRight : ChevronDown} size={14} color={color.textFaint} />
           </Pressable>
-        )}
+        ) : null}
       </View>
-      {sessions.map((session) => {
-        const model = sessionCardModel(session, issue, now)
-        return (
-          <Pressable
-            key={session.sessionId}
-            accessibilityRole="button"
-            accessibilityLabel={`Open session ${model.title}`}
-            onPress={() => onOpenSession(session.sessionId)}
-            style={({ pressed }) => [styles.sessionRow, pressed && styles.pressed]}
-          >
-            <View style={styles.treeStem} />
-            <Icon as={MessageSquare} size={13} color={color.textFaint} />
-            <View style={styles.sessionTitles}>
-              <Text style={styles.sessionTitle} numberOfLines={1}>
-                {model.title}
-              </Text>
-              <Text style={styles.sessionSub} numberOfLines={1}>
-                {model.summary ?? model.subtitle}
-              </Text>
-            </View>
-            {model.dotTone === 'working' ? (
-              <BrailleSpinner size={10} />
-            ) : (
-              <StatusDot
-                toneKey={
-                  model.dotTone === 'attention'
-                    ? 'needsYou'
-                    : model.dotTone === 'error'
-                      ? 'danger'
-                      : 'idle'
-                }
-              />
-            )}
-          </Pressable>
-        )
-      })}
+      {expandable && !collapsed ? (
+        <View style={styles.roster}>
+          <View style={styles.rosterGuide} />
+          <Text style={styles.rosterLabel}>{`AGENTS · ${sessions.length}`}</Text>
+          {sessions.map((session) => (
+            <AgentRow
+              key={session.sessionId}
+              session={session}
+              issue={issue}
+              onPress={() => onOpenSession(session.sessionId)}
+            />
+          ))}
+        </View>
+      ) : null}
+      {startedByChildren.map((child) => (
+        <WorkRow
+          key={child.issue.id}
+          row={child}
+          allWorktreePaths={allWorktreePaths}
+          now={now}
+          depth={depth + 1}
+          onOpenIssue={onOpenIssue}
+          onOpenSession={onOpenSession}
+          onLongPress={onLongPress}
+        />
+      ))}
+      {hex && !collapsed && expandable ? (
+        <View
+          style={[styles.cardEdge, { borderColor: alpha(accent, 0.34) }]}
+          pointerEvents="none"
+        />
+      ) : null}
     </View>
+  )
+}
+
+/** One agent under its task: identity, one status word, one dot. */
+function AgentRow({
+  session,
+  issue,
+  onPress,
+}: {
+  session: SessionMeta
+  issue: IssueWire | undefined
+  onPress: () => void
+}) {
+  const badge = agentBadge(session, issue)
+  const dot = sessionDotTone(session)
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open session ${sessionTitle(session)}`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.agentRow, pressed && styles.pressed]}
+    >
+      <View style={styles.agentStub} />
+      <Text style={styles.agentName} numberOfLines={1}>
+        {sessionTitle(session)}
+      </Text>
+      {badge?.label ? (
+        <Text
+          style={[
+            styles.agentMeta,
+            badge.tone === 'attention' && styles.agentMetaAttention,
+            badge.tone === 'error' && styles.agentMetaError,
+          ]}
+          numberOfLines={1}
+        >
+          {badge.label}
+        </Text>
+      ) : null}
+      {dot === 'working' ? (
+        <BrailleSpinner size={9} />
+      ) : (
+        <StatusDot
+          size={6}
+          toneKey={dot === 'attention' ? 'needsYou' : dot === 'error' ? 'danger' : 'idle'}
+        />
+      )}
+    </Pressable>
   )
 }
 
@@ -365,149 +575,261 @@ const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
     paddingBottom: 120,
+    paddingHorizontal: space.sm + 2,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md + 2,
-    paddingVertical: space.sm,
-    backgroundColor: color.bg,
-    zIndex: 1,
-  },
-  sectionLabel: {
-    ...monoLabel(9),
-    color: color.label,
-  },
-  sectionCount: {
-    ...mono(600),
-    color: color.textFaint,
-    fontSize: font.micro,
-  },
-  sectionRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
-  workspace: {
-    marginHorizontal: space.sm + 2,
-    marginBottom: 4,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-  },
-  issueRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  issueMain: {
-    flex: 1,
-    minHeight: 54,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
-  issueTitles: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
-  },
-  issueTitle: {
-    ...sans(600),
-    fontSize: font.small,
-    lineHeight: 16,
-  },
-  issueMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    flexWrap: 'wrap',
-  },
-  agentCount: {
-    ...mono(400),
-    fontSize: font.micro,
-  },
-  iconBtn: {
-    width: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: color.border,
-  },
-  sessionRow: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingLeft: 21,
-    paddingRight: 11,
-    paddingVertical: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairline,
-  },
-  treeStem: {
-    width: 8,
-    height: 14,
-    borderLeftWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: color.borderStrong,
-    borderBottomLeftRadius: 3,
-  },
-  sessionTitles: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
-  },
-  sessionTitle: {
-    ...sans(500),
-    color: color.body,
-    fontSize: font.small,
-  },
-  sessionSub: {
-    ...sans(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  closedBlock: {
-    marginHorizontal: space.sm + 2,
-    marginBottom: space.sm,
-  },
-  closedToggle: {
+  groupLabel: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
+    paddingHorizontal: 4,
+    paddingTop: space.md,
+    paddingBottom: 3,
+  },
+  groupLabelText: {
+    ...monoLabel(8.5),
+    color: color.label,
+    flexShrink: 1,
+  },
+  rule: {
+    flex: 1,
+    minWidth: 16,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
+  },
+  rowBlock: {
+    marginBottom: 3,
+    borderRadius: radius.md + 1,
+    overflow: 'hidden',
+  },
+  rowNested: {
+    marginLeft: space.md,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: radius.md + 1,
+  },
+  rowQueued: {
+    opacity: 0.72,
+  },
+  rowDone: {
+    opacity: 0.75,
+  },
+  rowInternal: {
+    opacity: 0.8,
+  },
+  rowMain: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingLeft: 9,
+    paddingRight: 6,
+    paddingVertical: 6,
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rowTitle: {
+    ...sans(400),
+    flexShrink: 1,
+    color: color.body,
+    fontSize: 12.5,
+  },
+  rowTitleUnread: {
+    ...sans(600),
+    color: color.text,
+  },
+  fleet: {
+    ...mono(400),
+    marginLeft: 'auto',
+    color: color.textMicro,
+    fontSize: font.micro,
+  },
+  rowStatusLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  status: {
+    ...mono(500),
+    flexShrink: 1,
+    color: color.textFaint,
+    fontSize: 9.5,
+  },
+  statusDecision: {
+    ...mono(600),
+    color: color.needsYou,
+  },
+  statusWorking: {
+    color: color.working,
+  },
+  statusDone: {
+    color: color.textMicro,
+  },
+  stamp: {
+    ...mono(400),
+    marginLeft: 'auto',
+    color: color.textMicro,
+    fontSize: 9.5,
+  },
+  chevron: {
+    width: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // A chip, not a slab (desktop POD-293): the control is a quiet right-edge
+  // action on a finished row, so it must not out-weigh the row it dismisses.
+  tuck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 4,
+    height: 26,
+    marginRight: 6,
+    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surfaceHigh,
+  },
+  tuckText: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: 9,
+    letterSpacing: 0.2,
+  },
+  roster: {
+    position: 'relative',
+    paddingLeft: 26,
+    paddingBottom: 4,
+    backgroundColor: color.rail,
+  },
+  rosterGuide: {
+    position: 'absolute',
+    left: 17,
+    top: 6,
+    bottom: 8,
+    width: 1.5,
+    borderRadius: 1,
+    backgroundColor: '#2b3550',
+  },
+  rosterLabel: {
+    ...monoLabel(7.5),
+    color: color.label,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  agentRow: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingRight: 10,
+  },
+  agentStub: {
+    width: 7,
+    height: 1,
+    backgroundColor: '#2b3550',
+  },
+  agentName: {
+    ...sans(400),
+    flexShrink: 1,
+    color: color.body,
+    fontSize: font.small,
+  },
+  agentMeta: {
+    ...mono(400),
+    marginLeft: 'auto',
+    color: color.textMicro,
+    fontSize: 9.5,
+  },
+  agentMetaAttention: {
+    color: color.needsYou,
+  },
+  agentMetaError: {
+    color: color.danger,
+  },
+  worktreeSquare: {
+    width: 26,
+    height: 26,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.elevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  worktreeGlyph: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: 11,
+  },
+  cardEdge: {
+    ...StyleSheet.absoluteFill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md + 1,
+  },
+  folds: {
+    gap: 2,
+  },
+  fold: {
+    minWidth: 0,
+  },
+  foldToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 31,
     paddingHorizontal: 4,
   },
-  closedToggleText: {
-    ...monoLabel(9),
-    color: color.textFaint,
+  foldToggleText: {
+    ...mono(500),
+    color: color.textMicro,
+    fontSize: 10,
+    letterSpacing: 0.35,
+  },
+  foldRule: {
+    flex: 1,
+    minWidth: 16,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   foldedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    minHeight: 36,
+    gap: 9,
+    minHeight: 34,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: radius.sm,
   },
-  foldedSeq: {
-    ...mono(500),
-    color: color.textFaint,
-    fontSize: font.micro,
+  foldedRef: {
+    ...mono(600),
+    color: color.textMicro,
+    fontSize: 9,
   },
   foldedTitle: {
     ...sans(400),
     flex: 1,
-    color: color.textDim,
-    fontSize: font.small,
-  },
-  foldedReason: {
-    ...mono(400),
+    minWidth: 0,
     color: color.textFaint,
-    fontSize: font.micro,
-    textTransform: 'uppercase',
+    fontSize: 12,
+  },
+  foldedMarker: {
+    ...mono(400),
+    color: color.textMicro,
+    fontSize: 8.5,
+  },
+  foldedMerged: {
+    color: alpha(color.info, 0.7),
   },
   pressed: {
     opacity: 0.65,

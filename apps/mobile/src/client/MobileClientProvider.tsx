@@ -19,8 +19,10 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ServerConfig } from '@podium/client-core/transport'
+import type { PinState } from '@podium/client-core/viewmodels'
 import type {
   ConversationSummaryWire,
+  GitRepositoryWire,
   HeadlessActivityEvent,
   IssueWire,
   SessionMeta,
@@ -50,6 +52,10 @@ import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage 
 export interface MobileClientValue {
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** Repo registry + pin state — the Work list derives the desktop sidebar's
+   *  project groups from exactly these (POD-338). */
+  repos: GitRepositoryWire[]
+  pins: PinState
   conversations: ConversationSummaryWire[]
   connected: boolean
   cursor: number | null
@@ -75,6 +81,10 @@ export interface MobileClientValue {
   renameSession(sessionId: string, name: string): Promise<void>
   snooze(sessionId: string, until: string | null): Promise<void>
   clearSnooze(sessionId: string): Promise<void>
+  /** Tuck a finished issue into the Work list's Closed fold, or bring it back
+   *  (POD-333): server state, so the fold agrees across every client. */
+  setIssueTucked(id: string, tucked: boolean): Promise<void>
+  markIssueRead(id: string): Promise<void>
   /** Round-robin triage order: needsYou, then idle, then working. */
   focusSessionIds: string[]
   outboxSize: number
@@ -90,6 +100,8 @@ function demoValue(config: ServerConfig): MobileClientValue {
   return {
     sessions,
     issues: DEMO_ISSUES,
+    repos: [],
+    pins: { panels: [], worktrees: [], repos: [] },
     conversations: [],
     connected: true,
     cursor: null,
@@ -133,6 +145,8 @@ function demoValue(config: ServerConfig): MobileClientValue {
     renameSession: noop,
     snooze: noop,
     clearSnooze: noop,
+    setIssueTucked: noop,
+    markIssueRead: noop,
     focusSessionIds: [...groups.needsYou, ...groups.idle, ...groups.working].map(
       (s) => s.sessionId,
     ),
@@ -200,7 +214,7 @@ function LiveBridge({
   children: ReactNode
 }) {
   const store = useStore<MobileTrpc>()
-  const { hub, trpc, replica, sessions, issues, conversations, outboxSize } = store
+  const { hub, trpc, replica, sessions, issues, repos, pins, conversations, outboxSize } = store
   const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
   useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
 
@@ -252,6 +266,8 @@ function LiveBridge({
     () => ({
       sessions,
       issues,
+      repos,
+      pins,
       conversations,
       connected,
       cursor: replica.getCursor(),
@@ -276,10 +292,14 @@ function LiveBridge({
       renameSession: store.renameSession,
       snooze: store.setSnooze,
       clearSnooze: store.clearSnooze,
+      setIssueTucked: store.setIssueTucked,
+      markIssueRead: store.markIssueRead,
     }),
     [
       sessions,
       issues,
+      repos,
+      pins,
       conversations,
       connected,
       replica,
@@ -300,6 +320,8 @@ function LiveBridge({
       store.renameSession,
       store.setSnooze,
       store.clearSnooze,
+      store.setIssueTucked,
+      store.markIssueRead,
     ],
   )
 
