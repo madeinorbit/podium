@@ -4,6 +4,7 @@ import {
   accumulateFileLinkPaths,
   buildChatRows,
   dedupeByCursor,
+  freshOlderPage,
   isBatchableTool,
   mergeByCursor,
   pairToolResults,
@@ -41,6 +42,14 @@ describe('buildChatRows with SendUserFile', () => {
     expect(mid?.kind === 'block' && mid.block.item.toolName).toBe('SendUserFile')
   })
 })
+
+/** A real Podium cursor: base64url `[fileId, offset, uuid, sub]` — the encoding
+ *  packages/transcript/src/cursor-codec.ts stamps every item with. */
+const cursor = (fileId: string, offset: number, sub = 0): string =>
+  btoa(JSON.stringify([fileId, offset, null, sub]))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
 
 const it_ = (id: string, cursor?: string): TranscriptItem => ({
   id,
@@ -125,6 +134,44 @@ describe('mergeByCursor', () => {
     // c2 is identical → no replace; only c3 is genuinely new.
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
+
+  // POD-341: a delta is not always newer. The server replays its WHOLE per-session
+  // transcript cache to a (re)subscribing client whose `since` cursor it can't find
+  // — routine after a file roll or a socket drop — so a frame can carry items that
+  // belong ABOVE the held tail. Appending those rendered the superagent's answer
+  // above the prompt that produced it.
+  it('inserts an item that is OLDER than the held tail at its cursor position', () => {
+    const prev = [it_('answer', cursor('f1', 900))]
+    const merged = mergeByCursor(prev, [
+      it_('prompt', cursor('f1', 100)),
+      it_('tool', cursor('f1', 400)),
+    ])
+    expect(merged.map((i) => i.id)).toEqual(['prompt', 'tool', 'answer'])
+  })
+
+  it('keeps a replayed run in transcript order around held items', () => {
+    const prev = [it_('b', cursor('f1', 200)), it_('d', cursor('f1', 400))]
+    const merged = mergeByCursor(prev, [
+      it_('a', cursor('f1', 100)),
+      it_('c', cursor('f1', 300)),
+      it_('e', cursor('f1', 500)),
+    ])
+    expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
+  it('orders by sub-index within one record (parallel tool results)', () => {
+    const prev = [it_('r2', cursor('f1', 100, 2))]
+    const merged = mergeByCursor(prev, [it_('r1', cursor('f1', 100, 1))])
+    expect(merged.map((i) => i.id)).toEqual(['r1', 'r2'])
+  })
+
+  it('appends across a file roll — a new file is newer, whatever its offsets', () => {
+    // Post-roll cursors restart at offset 0 in a DIFFERENT file; they must not sort
+    // themselves in among the previous file's items.
+    const prev = [it_('old', cursor('f1', 9000))]
+    const merged = mergeByCursor(prev, [it_('new', cursor('f2', 0))])
+    expect(merged.map((i) => i.id)).toEqual(['old', 'new'])
+  })
 })
 
 const pathItem = (id: string, paths: string[]): TranscriptItem => ({
@@ -180,6 +227,26 @@ describe('dedupeByCursor', () => {
   it('preserves order and items without cursors (dedupes by id)', () => {
     const list = [it_('a'), it_('a'), it_('b', 'c2')]
     expect(dedupeByCursor(list).map((i) => i.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('freshOlderPage', () => {
+  it('keeps a genuinely older page (only the one-item seam overlap is dropped)', () => {
+    const held = [it_('b', 'c2'), it_('c', 'c3')]
+    const page = [it_('a', 'c1'), it_('b', 'c2')]
+    expect(freshOlderPage(page, held).map((i) => i.id)).toEqual(['a'])
+  })
+
+  // POD-341: an anchored `before` read whose anchor names a rolled-away file comes
+  // back as the NEWEST window instead of an older page. Every item in it is already
+  // held, so the page is empty and nothing gets prepended above older content.
+  it('drops a fully-held page (the reader is echoing the newest window back)', () => {
+    const held = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
+    expect(freshOlderPage([it_('b', 'c2'), it_('c', 'c3')], held)).toEqual([])
+  })
+
+  it('passes an empty page straight through', () => {
+    expect(freshOlderPage([], [it_('a', 'c1')])).toEqual([])
   })
 })
 

@@ -24,14 +24,70 @@ export {
 
 /** Identity key for dedup/merge: the opaque cursor when present (stable across
  *  re-reads), else the synthesized `id` (a few items have no cursor). */
-function itemKey(item: TranscriptItem): string {
+export function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
+}
+
+/** Where one item sits in its transcript FILE, decoded from its cursor. Within a
+ *  file, (offset, sub) is a total order — the same order the disk reader emits. */
+interface CursorPos {
+  fileId: string
+  offset: number
+  sub: number
+}
+
+/**
+ * Decode a cursor's position, or null when it isn't a Podium cursor (a
+ * synthesized id, a test stub, a future encoding). Cursors are base64url
+ * `[fileId, offset, uuid, sub]` — see packages/transcript/src/cursor-codec.ts,
+ * which encodes them with node's Buffer; the web bundle has no Buffer, so this
+ * decodes with atob instead of importing @podium/transcript (a daemon/server-only
+ * package).
+ */
+function decodeCursorPos(cursor: string | undefined): CursorPos | null {
+  if (!cursor) return null
+  try {
+    const b64 = cursor.replace(/-/g, '+').replace(/_/g, '/')
+    const parts = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) as unknown
+    if (!Array.isArray(parts) || parts.length !== 4) return null
+    const [fileId, offset, , sub] = parts as [unknown, unknown, unknown, unknown]
+    if (typeof fileId !== 'string' || typeof offset !== 'number' || typeof sub !== 'number')
+      return null
+    return { fileId, offset, sub }
+  } catch {
+    return null
+  }
+}
+
+/** Negative when `a` precedes `b` in their (shared) file. */
+function comparePos(a: CursorPos, b: CursorPos): number {
+  return a.offset - b.offset || a.sub - b.sub
+}
+
+/**
+ * Index a NEW item belongs at in `list`, or -1 for "append" (the normal live-tail
+ * case, and the fallback whenever the cursors don't decode). Scans from the tail
+ * and stops at the first same-file item that precedes the addition, so an ordinary
+ * append costs one comparison.
+ */
+function insertionIndex(list: TranscriptItem[], item: TranscriptItem): number {
+  const pos = decodeCursorPos(item.cursor)
+  if (!pos) return -1
+  let insertAt = -1
+  for (let i = list.length - 1; i >= 0; i--) {
+    const other = decodeCursorPos(list[i]?.cursor)
+    if (!other || other.fileId !== pos.fileId) continue
+    if (comparePos(other, pos) < 0) return insertAt // everything earlier is older too
+    insertAt = i // this held item is NEWER — the addition goes above it
+  }
+  return insertAt
 }
 
 /**
  * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
  * whose key is already present REPLACES the held one in place (preserving its
- * position); a new key is appended (deltas are newer → appended). Order preserved.
+ * position); a new key lands at its CURSOR POSITION — normally the tail, since
+ * deltas are normally newer. Order preserved.
  * Returns `prev` unchanged (referentially) when nothing actually changed, so a
  * no-op delta doesn't trigger a re-render.
  *
@@ -40,6 +96,14 @@ function itemKey(item: TranscriptItem): string {
  * re-emits it at the SAME cursor once its newline lands with the complete content.
  * A skip-on-seen (first-wins) merge would pin the earlier, possibly truncated
  * version; replacing lets the completed record supersede it.
+ *
+ * Position-not-append is load-bearing too [POD-341]: a delta is NOT always newer
+ * than the held window. The server replays its whole per-session transcript cache
+ * when a (re)subscribing client's `since` cursor isn't in it — after a transcript
+ * file roll or a socket drop that is the common case — so a frame can carry items
+ * OLDER than the tail we already hold. Appending those put the superagent's answer
+ * ABOVE the prompt that produced it. Cursors carry (file, byte offset), so the
+ * held window stays in transcript order regardless of the order frames arrive in.
  */
 export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
   if (delta.length === 0) return prev
@@ -52,6 +116,7 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
   for (const it of delta) {
     const key = itemKey(it)
     const at = indexByKey.get(key)
+    if (at === -1) continue // a duplicate WITHIN this delta — already taken as an addition
     if (at !== undefined) {
       const existing = (next ?? prev)[at]
       if (existing !== undefined && !sameItemContent(existing, it)) {
@@ -59,12 +124,19 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
         next[at] = it
       }
     } else {
-      indexByKey.set(key, prev.length + additions.length)
+      indexByKey.set(key, -1)
       additions.push(it)
     }
   }
   if (!next && additions.length === 0) return prev
-  return [...(next ?? prev), ...additions]
+  if (additions.length === 0) return next ?? prev
+  const out = [...(next ?? prev)]
+  for (const item of additions) {
+    const at = insertionIndex(out, item)
+    if (at < 0) out.push(item)
+    else out.splice(at, 0, item)
+  }
+  return out
 }
 
 /** Cheap content equality for the fields a re-emitted (growing) record changes —
@@ -140,6 +212,24 @@ export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
     out.push(it)
   }
   return out
+}
+
+/**
+ * The genuinely-older part of a back-page, ready to PREPEND [POD-341].
+ *
+ * An anchored `before` read can come back as the NEWEST window instead of an
+ * older page: the disk reader falls back to the default window when the anchor's
+ * cursor names a transcript file that has rolled away (packages/transcript
+ * slice.ts — "losing the position is safe"), which is exactly what a client
+ * holding a pre-roll head cursor asks for. Prepending that window put newer items
+ * above older ones. Items the window already holds can never be "earlier", so
+ * filtering against them keeps the legitimate one-item paging seam working and
+ * turns the fallback window into an empty page (the caller then stops paging).
+ */
+export function freshOlderPage(page: TranscriptItem[], held: TranscriptItem[]): TranscriptItem[] {
+  if (page.length === 0) return page
+  const heldKeys = new Set(held.map(itemKey))
+  return page.filter((it) => !heldKeys.has(itemKey(it)))
 }
 
 /** Case-insensitive keyword match over everything a block shows. */

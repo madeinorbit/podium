@@ -300,3 +300,84 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     expect(captured?.blocks.some((b) => b.item.text === 'third')).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// POD-341: back-paging must only ever ADD earlier items. An anchored `before`
+// read whose anchor names a rolled-away transcript file comes back as the
+// NEWEST window (the disk reader's documented fallback), and prepending that
+// pushed newer items above older ones — the superagent's answer rendered above
+// the prompt that produced it.
+// ---------------------------------------------------------------------------
+describe('useTranscriptWindow back-paging (POD-341)', () => {
+  async function seedWindow(): Promise<void> {
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('b', 'c2', 'prompt'), item('c', 'c3', 'answer')],
+        head: 'c2',
+        tail: 'c3',
+        hasMore: true,
+      })
+    })
+    await flush()
+  }
+
+  it('prepends a genuinely older page (its seam overlap is not duplicated)', async () => {
+    await seedWindow()
+    act(() => captured?.loadOlder())
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [item('a', 'c1', 'earlier'), item('b', 'c2', 'prompt')],
+        head: 'c1',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+    expect(captured?.blocks.map((b) => b.item.text)).toEqual(['earlier', 'prompt', 'answer'])
+    expect(captured?.hasMoreOlder).toBe(false)
+  })
+
+  it('discards a page that is entirely already held (rolled-away anchor → newest window)', async () => {
+    // A window that straddles a file roll: two items read off the pre-roll file,
+    // then the fresh turn live-tailed from the new one.
+    act(() => root.render(<Probe active={true} />))
+    await act(async () => {
+      reads[0]?.resolve({
+        items: [item('o1', 'o1', 'older one'), item('o2', 'o2', 'older two')],
+        head: 'o1',
+        tail: 'o2',
+        hasMore: true,
+      })
+    })
+    await flush()
+    await act(async () => {
+      fakeHub.subscribes[0]?.cb([item('p', 'n1', 'prompt'), item('a', 'n2', 'answer')], {
+        reset: false,
+      })
+    })
+    await flush()
+
+    // Paging up asks with the pre-roll head cursor; the reader has lost that file
+    // and answers with the NEWEST window — every item of which is already held.
+    act(() => captured?.loadOlder())
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [item('p', 'n1', 'prompt'), item('a', 'n2', 'answer')],
+        head: 'n1',
+        tail: 'n2',
+        hasMore: true,
+      })
+    })
+    await flush()
+    // Prepending it would hoist the fresh turn above the older items; the page is
+    // dropped instead, and paging stops rather than re-fetching it forever.
+    expect(captured?.blocks.map((b) => b.item.text)).toEqual([
+      'older one',
+      'older two',
+      'prompt',
+      'answer',
+    ])
+    expect(captured?.hasMoreOlder).toBe(false)
+  })
+})
