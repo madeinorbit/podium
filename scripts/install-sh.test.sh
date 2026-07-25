@@ -203,6 +203,35 @@ PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$DAEMON_MARKER" \
 test -e "$DAEMON_MARKER" || { echo FAIL: no-systemd join did not start daemon; exit 1; }
 rm -f "$DAEMON_MARKER"
 
+echo "== a host with no user bus asks for detached persistence, quietly =="
+# The VPS case: systemd IS installed, but `systemctl --user` has no session bus, so it answers
+# "Failed to connect to bus: No medium found". install.sh must detect that BEFORE asking for
+# systemd persistence, ask for detached instead, and explain it in its own words rather than
+# letting the raw D-Bus error surface mid-install.
+NOBUS="$WORK/nobus"; mkdir -p "$NOBUS"
+cat > "$NOBUS/systemctl" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+  --version) echo "systemd 255 (255.4)"; exit 0 ;;
+esac
+echo "Failed to connect to bus: No medium found" >&2
+exit 1
+SH
+# linger can't be enabled here (and `sudo` must not reach the real host from a test).
+printf '#!/bin/sh\nexit 1\n' > "$NOBUS/loginctl"
+printf '#!/bin/sh\nexit 1\n' > "$NOBUS/sudo"
+chmod +x "$NOBUS/systemctl" "$NOBUS/loginctl" "$NOBUS/sudo"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
+nobus_output="$(env PATH="$NOBUS:$PATH" PODIUM_STUB_LOG="$WORK/stub.log" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update 2>&1)"
+grep -F 'stub-setup setup --join TESTTOKEN --persist detached' "$WORK/stub.log" >/dev/null \
+  || { echo "FAIL: no-user-bus host still asked for systemd persistence"; exit 1; }
+if printf '%s\n' "$nobus_output" | grep -F 'No medium found' >/dev/null; then
+  echo "FAIL: installer leaked the raw D-Bus error"; exit 1
+fi
+printf '%s\n' "$nobus_output" | grep -F 'No systemd service' >/dev/null \
+  || { echo "FAIL: installer did not explain why there is no service"; exit 1; }
+
 echo "== authenticated fetch sends GitHub token =="
 AUTHBIN="$WORK/authbin"; mkdir -p "$AUTHBIN"
 cat > "$AUTHBIN/curl" <<'SH'

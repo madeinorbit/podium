@@ -30,6 +30,40 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# --- presentation ----------------------------------------------------------------
+# Colour only when stdout is a real terminal (under `curl … | sh` stdin is the pipe, stdout is
+# not) and the terminal admits to being one. 214 ≈ Superade Yellow, the brand accent.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+  BRAND="$(printf '\033[38;5;214m')"; BOLD="$(printf '\033[1m')"
+  DIM="$(printf '\033[2m')"; RESET="$(printf '\033[0m')"
+else
+  BRAND=""; BOLD=""; DIM=""; RESET=""
+fi
+# The PODIUM wordmark, same coverage grid the web login screen and ASCII loader draw.
+# GENERATED — regenerate with `bun scripts/render-install-banner.ts`; do not hand-edit.
+banner() {
+  printf '\n%s' "$BRAND"
+  cat <<'ART'
+      ▄▄▄▄▄▄▄    ▄▄▄▄▄▄   ▄▄▄▄▄▄    ▄▄▄ ▄▄▄   ▄▄▄ ▄▄▄▄    ▄▄▄▄
+      ███▀▀███  ███▀▀██▄  ███▀▀██▄  ███ ▀██▄  ███  ████   ████
+     ███   ███ ███   ███ ▄██▀  ███  ███  ███  ███  ████▄  █████
+    ▄███  ███  ███  ▄██▀ ███   ███  ███  ███  ▀███ ▀████▄  ████▄
+    ███  ▄███ ████  ███  ███   ███  ███  ███   ███  █████  ██▀██
+   ████▄▄███▀ ███   ███  ███   ███  ███  ███   ███  ███▀██ ██ ███
+   █████▀▀▀  ▄███   ███  ███   ███  ███  ████  ███  ███ ▀████ ███
+  ████       ███▀  ████  ███   ███  ███  ████  ▀███  ██▄ ████▄ ███
+ ▄███        ███   ████ ▄███  ▄███  ████  ███   ███  ███ ▀████ ▀██▄
+ ███▀        █████████  █████████▀  ████  ████▄████  ███▄ ▀███  ███
+ ▀▀▀          ▀▀▀▀▀▀    ▀▀▀▀▀▀▀▀    ▀▀▀▀   ▀▀▀▀▀▀▀    ▀▀▀  ▀▀▀  ▀▀▀
+ART
+  printf '%s%s      headless installer%s\n\n' "$RESET" "$DIM" "$RESET"
+}
+step()  { printf '%s→%s %s\n' "$BRAND" "$RESET" "$1"; }
+done_() { printf '%s✓%s %s\n' "$BRAND" "$RESET" "$1"; }
+note()  { printf '%s  %s%s\n' "$DIM" "$1" "$RESET"; }
+
+banner
+
 # --- platform detection -----------------------------------------------------------
 OS="$(uname -s)"; ARCH="$(uname -m)"
 if [ "$OS" != "Linux" ]; then
@@ -68,8 +102,18 @@ as_root() {
   fi
 }
 
+as_root_quiet() { # as_root for best-effort repairs: never fatal, never noisy
+  if [ "$(id -u)" = "0" ]; then
+    "$@" >/dev/null 2>&1
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo -n "$@" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
 install_prerequisites() {
-  echo "Installing Podium prerequisites…"
+  step "Installing prerequisites (curl, git, openssl, tar…)"
   if command -v apt-get >/dev/null 2>&1; then
     as_root apt-get update
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -205,7 +249,7 @@ install_claude_standalone() {
   chmod 755 "$staged"
   mv -f "$staged" "$BIN/claude"
 }
-echo "Downloading $ASSET ($CHANNEL)…"
+step "Downloading $ASSET ($CHANNEL)"
 fetch "$BASE/$ASSET" "$TMP/$ASSET"
 fetch "$BASE/$ASSET.sig" "$TMP/$ASSET.sig"
 
@@ -217,6 +261,7 @@ if ! openssl pkeyutl -verify -pubin -inkey "$TMP/pub.der" -keyform DER -rawin \
   echo "podium: signature verification FAILED — refusing to install. Nothing was written." >&2
   exit 1
 fi
+done_ "Signature verified"
 
 # --- install: extract to a temp dir on the target filesystem, then atomic rename ---
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -249,18 +294,67 @@ fi
 if ! "$BIN/$COMMAND" channel "$CHANNEL" >/dev/null; then
   echo "podium: installed, but could not persist update channel '$CHANNEL'; run: $COMMAND channel $CHANNEL" >&2
 fi
-echo "Installed instance '$INSTANCE' to $DEST"
+done_ "Installed instance '$INSTANCE' to $DEST"
 
 # --- PATH hint ---
-case ":$PATH:" in *":$BIN:"*) : ;; *) echo "Note: add $BIN to your PATH." ;; esac
+PATH_HINT=""
+case ":$PATH:" in *":$BIN:"*) : ;; *) PATH_HINT="$BIN" ;; esac
 PATH="$BIN:$PATH"; export PATH
+
+# --- can we supervise with user systemd? -------------------------------------------
+# Decided ONCE, quietly, here — every branch below reads the answer. `systemctl --version`
+# only proves the binary exists; the *user* manager also needs a session bus at
+# /run/user/<uid>/bus, and without one every `systemctl --user` call prints
+# "Failed to connect to bus: No medium found". We used to discover that by running one and
+# letting it complain mid-install; instead, probe, try the two repairs that actually work on a
+# fresh VPS, and only then decide.
+user_systemd_ok() { systemctl --user show-environment >/dev/null 2>&1; }
+
+HAVE_USER_SYSTEMD=""
+SYSTEMD_WHY=""
+SYSTEMD_FIX=""
+if [ -n "${PODIUM_DISABLE_SYSTEMD:-}" ]; then
+  SYSTEMD_WHY="PODIUM_DISABLE_SYSTEMD is set"
+elif ! command -v systemctl >/dev/null 2>&1; then
+  SYSTEMD_WHY="this host does not run systemd"
+  SYSTEMD_FIX="To start Podium at boot anyway, add \"@reboot $BIN/$COMMAND daemon\" with \`crontab -e\`."
+else
+  # Repair 1: `sudo -i` / `su -` drop XDG_RUNTIME_DIR, so systemctl can't find the bus that is
+  # sitting right there. Point it at the socket ourselves (exported — the daemon needs it too).
+  if ! user_systemd_ok && [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -S "/run/user/$(id -u)/bus" ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u)"; export XDG_RUNTIME_DIR
+  fi
+  # Repair 2: no bus at all usually just means this account has no lingering user manager —
+  # exactly the state a headless VPS is in. Enabling linger starts one (and its bus).
+  if ! user_systemd_ok && command -v loginctl >/dev/null 2>&1 &&
+     as_root_quiet loginctl enable-linger "$(id -un)"; then
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; export XDG_RUNTIME_DIR
+    for _ in 1 2 3; do
+      user_systemd_ok && break
+      sleep 1
+    done
+  fi
+  if user_systemd_ok; then
+    HAVE_USER_SYSTEMD=1
+  else
+    SYSTEMD_WHY="systemd is installed, but this session has no user bus to reach it (usual on container VPSes and under sudo)"
+    SYSTEMD_FIX="If the host does run a user manager, reconnect over SSH as $(id -un) and re-run this installer to get a real service."
+  fi
+fi
+if [ -z "$HAVE_USER_SYSTEMD" ]; then
+  note "No systemd service — $SYSTEMD_WHY."
+  note "Podium will run detached instead: working now, but not restarted after a reboot."
+  [ -z "$SYSTEMD_FIX" ] || note "$SYSTEMD_FIX"
+fi
 
 # Pair as soon as Podium itself is installed. Bare-machine prerequisite and agent
 # downloads can be slow enough to exhaust a short-lived code; the daemon can copy
 # credentials and publish inventory while the three agent CLIs install below.
 JOIN_FALLBACK=""
 if [ -n "$JOIN" ]; then
-  if ! "$BIN/$COMMAND" setup --join "$JOIN" --persist systemd; then
+  if [ -n "$HAVE_USER_SYSTEMD" ]; then PERSIST="systemd"; else PERSIST="detached"; fi
+  step "Joining your Podium"
+  if ! "$BIN/$COMMAND" setup --join "$JOIN" --persist "$PERSIST"; then
     echo "podium: automated join failed; falling back to manual unit install" >&2
     JOIN_FALLBACK=1
     "$BIN/$COMMAND" join-config "$JOIN"
@@ -276,7 +370,7 @@ if [ -n "$INSTALL_AGENTS" ]; then
       codex)
         url="${PODIUM_CODEX_INSTALL_URL:-https://chatgpt.com/codex/install.sh}"
         script="$TMP/codex-install.sh"
-        echo "Installing Codex…"
+        step "Installing Codex"
         fetch_public "$url" "$script"
         CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR="$BIN" sh "$script"
         "$BIN/codex" --version >/dev/null
@@ -285,7 +379,7 @@ if [ -n "$INSTALL_AGENTS" ]; then
         command -v bash >/dev/null 2>&1 || { echo "podium: bash is required to install Claude Code" >&2; exit 1; }
         url="${PODIUM_CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
         script="$TMP/claude-install.sh"
-        echo "Installing Claude Code…"
+        step "Installing Claude Code"
         fetch_public "$url" "$script"
         if ! bash "$script" stable; then
           echo "Claude's self-installer could not stage the binary; using the checksum-verified standalone fallback…" >&2
@@ -297,7 +391,7 @@ if [ -n "$INSTALL_AGENTS" ]; then
         command -v bash >/dev/null 2>&1 || { echo "podium: bash is required to install Grok" >&2; exit 1; }
         url="${PODIUM_GROK_INSTALL_URL:-https://x.ai/cli/install.sh}"
         script="$TMP/grok-install.sh"
-        echo "Installing Grok…"
+        step "Installing Grok"
         fetch_public "$url" "$script"
         GROK_BIN_DIR="$BIN" bash "$script"
         "$BIN/grok" --version >/dev/null
@@ -308,8 +402,21 @@ if [ -n "$INSTALL_AGENTS" ]; then
   IFS="$old_ifs"
 fi
 
+# --- closing report ---------------------------------------------------------------
+# Two exits, one shape: a headline that says the install is finished, then the shortest
+# path to actually using it. Anything the operator still has to do goes last.
+ready() { # ready <headline>
+  printf '\n%s%s✓ %s%s\n\n' "$BOLD" "$BRAND" "$1" "$RESET"
+}
+outro() {
+  [ -z "$PATH_HINT" ] || printf '\n  %sFirst add %s to your PATH.%s\n' "$DIM" "$PATH_HINT" "$RESET"
+  printf '\n'
+}
+
 if [ -z "$JOIN" ]; then
-  echo "Done. Run: $COMMAND"
+  ready "Podium is installed."
+  printf '  Run %s%s%s to configure this machine and open the web UI.\n' "$BOLD" "$COMMAND" "$RESET"
+  outro
   exit 0
 fi
 
@@ -387,10 +494,11 @@ WantedBy=default.target
 EOF
 fi
 
-if [ -z "${PODIUM_DISABLE_SYSTEMD:-}" ] && command -v systemctl >/dev/null 2>&1 && \
-   systemctl --user show-environment >/dev/null 2>&1; then
-  systemctl --user daemon-reload || true
-  loginctl enable-linger "$(id -un)" 2>/dev/null || true
+SUPERVISION="The daemon is running detached."
+if [ -n "$HAVE_USER_SYSTEMD" ]; then
+  SUPERVISION="The daemon runs as a systemd user service, so it survives reboots."
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
   # The delegated `podium setup --join` already enabled+started the daemon unit; only the
   # fallback path needs to do it here.
   if [ -n "$JOIN_FALLBACK" ]; then
@@ -419,9 +527,13 @@ else
     DAEMON_LOG="$DAEMON_STATE/logs/daemon.log"
     PODIUM_RUN_MODE=detached "$BIN/$COMMAND" daemon --takeover \
       </dev/null >>"$DAEMON_LOG" 2>&1 &
-    echo "Started Podium daemon (detached; log $DAEMON_LOG)."
-  else
-    echo "No usable user systemd; Podium setup started the daemon detached."
+    done_ "Started the Podium daemon (detached; log $DAEMON_LOG)"
   fi
 fi
-echo "Joined."
+
+ready "This machine has joined your Podium."
+printf '  It is already listed there, ready to be given work.\n'
+printf '  %s\n\n' "$SUPERVISION"
+printf '  %s%s status%s   what is running here\n' "$BOLD" "$COMMAND" "$RESET"
+printf '  %s%s stop%s     stop the daemon\n' "$BOLD" "$COMMAND" "$RESET"
+outro

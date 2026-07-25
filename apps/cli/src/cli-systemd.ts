@@ -139,8 +139,18 @@ WantedBy=default.target
 `
 }
 
+/**
+ * Run a lifecycle command quietly, folding its stderr into the thrown error instead of letting
+ * it reach the operator's terminal. Callers report failure in their own words (an installer that
+ * recovers should not also print the raw `systemctl` complaint it recovered from).
+ */
 function run(cmd: string, args: string[]): void {
-  execFileSync(cmd, args, { stdio: 'inherit' })
+  try {
+    execFileSync(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  } catch (e) {
+    const detail = (e as { stderr?: Buffer }).stderr?.toString().trim().split('\n')[0]
+    throw new Error(detail ? `${cmd}: ${detail}` : (e as Error).message)
+  }
 }
 
 export function hasSystemctl(): boolean {
@@ -152,9 +162,28 @@ export function hasSystemctl(): boolean {
   }
 }
 
+/**
+ * Whether `systemctl --user` can actually reach a user manager. `hasSystemctl()` only proves the
+ * binary is installed; the *user* instance additionally needs a session bus at
+ * /run/user/<uid>/bus, which is missing on container-based VPS images, on hosts with pam_systemd
+ * disabled, and under `sudo`/`su` without a login session. Without this probe the first real
+ * `systemctl --user` call is what discovers the problem — by printing "Failed to connect to bus:
+ * No medium found" mid-install, even though we go on to fall back successfully.
+ */
+export function hasUserSystemd(): boolean {
+  try {
+    execFileSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export interface InstallResult {
   ok: boolean
   reason?: string
+  /** One actionable sentence for THIS reason, so the fallback message can stay specific. */
+  remedy?: string
 }
 
 /**
@@ -168,7 +197,20 @@ export function installSystemd(
   port: number,
   instanceId: string = resolveInstanceId(),
 ): InstallResult {
-  if (!hasSystemctl()) return { ok: false, reason: 'systemctl not found' }
+  if (!hasSystemctl())
+    return {
+      ok: false,
+      reason: 'systemd is not installed on this host',
+      remedy: 'To start it at boot, add an "@reboot" entry with `crontab -e`.',
+    }
+  if (!hasUserSystemd())
+    return {
+      ok: false,
+      reason: 'this host has no systemd user session (nothing is listening on the user D-Bus)',
+      remedy:
+        `If the host does run systemd, \`sudo loginctl enable-linger ${userInfo().username}\`, ` +
+        'reconnect over SSH, then re-run `podium setup` to convert this into a service.',
+    }
   const dir = userUnitDir()
   const serverUnit = instanceServiceName('server', instanceId)
   const janitorUnit = instanceServiceName('janitor', instanceId)
