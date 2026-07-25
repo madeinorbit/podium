@@ -101,6 +101,10 @@ interface MobileTrpcExtras {
         priority?: number
         type?: IssueType
         notes?: string
+        /** Desktop sidebar parity — pin floats into the Pinned band. */
+        pinned?: boolean
+        /** Manual order key (POD-168); lexicographic ASC within a band. */
+        sortKey?: string
       }
       mutationId?: string
     }>

@@ -24,7 +24,8 @@ Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/s
 # deploy here, BEFORE any service is taken down, instead of crash-looping it (#251).
 # Skipped entirely on deploys that touch no such file. Type=oneshot has no start
 # timeout by default, so the monorepo-wide tsc pass can take its time.
-ExecStartPre=/usr/bin/env bash /home/user/src/other/podium/scripts/redeploy-wait.sh /home/user/src/other/podium
+# Host-portable: checkout at %h/podium on this machine (adjust if elsewhere).
+ExecStartPre=/usr/bin/env bash %h/podium/scripts/redeploy-wait.sh %h/podium
 # server first (the daemon reconnects to it with backoff); durable abduco/tmux masters
 # survive the daemon restart in their own scopes, so live agents are not dropped.
 ExecStart=/usr/bin/systemctl --user restart podium-server.service podium-daemon.service podium-web.service

@@ -13,9 +13,11 @@ Type=oneshot
 # `systemctl restart podium-web` to re-build the content-hashed bundle (drives the in-app
 # PWA update prompt).
 RemainAfterExit=yes
-WorkingDirectory=/home/user/src/other/podium
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# Host-portable paths: this machine keeps the checkout at %h/podium. Adjust
+# WorkingDirectory if the repo lives elsewhere (see scripts/systemd/README.md).
+WorkingDirectory=%h/podium
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env bash -lc 'bun run --filter @podium/web build && bun run --filter @podium/mobile build:web'
 
 [Install]
