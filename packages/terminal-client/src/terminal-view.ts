@@ -5,6 +5,7 @@ import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
 import { makeRefLinkProvider, type RefLinkConfig } from './ref-link-provider'
 import { RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-overlay'
 import type { TerminalDiagnosticData } from './terminal-diagnostics'
+import { wireTouchScroll } from './touch-scroll'
 import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
@@ -327,6 +328,10 @@ export class TerminalView {
     this.tryLoadWebgl()
     this.wireRefOverlay(el)
     this.wireClipboard(el)
+    // Finger scrolling (#339). xterm's own touch fallback goes dead as soon as
+    // the application enables mouse tracking — which Claude Code does — so the
+    // pane must translate drags into wheel events itself.
+    this.cleanup.push(wireTouchScroll(el, this.term))
   }
 
   /** Mount the persistent ref-underline layer (#517) into `.xterm-screen` and
