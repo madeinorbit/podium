@@ -132,6 +132,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       row.closedAt = null
       row.supersededBy = null
       row.duplicateOf = null
+      // …including the tuck-away dismissal (POD-333), same as update()'s reopen:
+      // work picked back up must not carry a stale fold into its next close.
+      row.tuckedAt = null
     }
     row.branch = branch
     row.worktreePath = path

@@ -311,6 +311,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       deferUntil: null,
       closedReason: null,
       closedAt: null,
+      tuckedAt: null,
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
@@ -401,7 +402,15 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // flips, so post-close touches (notes, deps, steward writes) never restart
     // the sidebar's completion-decay window the way updatedAt would.
     if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
-    else if (wasClosed && !this.isClosed(row)) row.closedAt = null
+    else if (wasClosed && !this.isClosed(row)) {
+      row.closedAt = null
+      // Reopening retires the dismissal (POD-333): reopened work must not inherit
+      // a tuck from a PRIOR close, or the next time it finishes it would fold
+      // itself away without the operator ever seeing it. A later close offers
+      // Tuck away again. Cleared here — on the closed-predicate flip itself — so
+      // every client converges on it through the same broadcast.
+      row.tuckedAt = null
+    }
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
@@ -495,6 +504,26 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
+  }
+
+  /** Tuck a finished issue away into the sidebar's Closed fold, or bring it back
+   *  (POD-333). Persist + broadcast, so every connected client folds the row at
+   *  the same moment and a fresh client hydrates the fold from server truth —
+   *  this used to be a per-browser ui-state key, invisible to the server.
+   *
+   *  Curation, NOT activity: `touch: false`, exactly like markIssueRead — the
+   *  dismissal must not advance updatedAt (which would restart the sidebar's
+   *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
+   *  rejected rather than stored: the fold is for finished work, and a stamp
+   *  parked on an open row would fire the moment it later closed. */
+  setIssueTucked(id: string, tucked: boolean): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    if (tucked && !this.isClosed(row)) throw new Error(`issue ${id} is not finished`)
+    // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
+    // client pressing the same control) must not move the dismissal moment.
+    row.tuckedAt = tucked ? (row.tuckedAt ?? this.now()) : null
+    return this.persist(row, { touch: false })
   }
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating

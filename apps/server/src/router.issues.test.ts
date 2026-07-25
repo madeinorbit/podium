@@ -284,6 +284,10 @@ describe('scope-gate coverage (P1b)', () => {
     // mailInbox mutates (listing consumes unread status) but is authz-wise a read:
     // mailbox bookkeeping on behalf of the reader — viewers may check mail.
     'mailInbox',
+    // setTucked (POD-333) is sidebar curation performed while READING the board —
+    // it folds a finished row away and changes nothing about the work itself.
+    // Node-local like markRead, never hub-forwarded, 'read' authority only.
+    'setTucked',
   ])
 
   it('every issues.* mutation exposed by the router carries write/manage authority', () => {

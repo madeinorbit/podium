@@ -202,6 +202,16 @@ export const IssueWire = z.object({
   /** When the closed-predicate last flipped true — the stable completion-decay
    *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
   closedAt: z.string().optional(),
+  /** Tuck-away (POD-293/POD-333): ISO time the operator dismissed this finished
+   *  issue into the sidebar's Closed fold, or null while it has not been tucked.
+   *  SERVER-side and GLOBAL (single-operator, like `readAt`) — the state used to
+   *  live in each client's local ui-state, so it did not survive a different
+   *  browser and two clients disagreed. Cleared server-side when the issue
+   *  reopens, so a later close offers Tuck away again. Optional + tolerant so a
+   *  pre-field cached payload (or a malformed value from a newer peer) parses as
+   *  "not tucked" rather than failing the whole issue; a current server always
+   *  sends it, explicitly null when untucked. */
+  tuckedAt: z.string().nullable().optional().catch(undefined),
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),

@@ -1909,7 +1909,16 @@ export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is Unifi
  * were for auto-fold-on-read / auto-bury; manual tuck is the dismiss path.
  * A selected open finished row stays open until tuck, grace, or focus moves.
  * Pinned rows are removed before grouping, so pinning also wins. */
-const EMPTY_TUCKED: ReadonlySet<string> = new Set()
+
+/** Has the operator dismissed this finished row into the fold? Read straight off
+ *  the issue (POD-333): `tuckedAt` is SERVER state delivered to every client,
+ *  so a second browser hydrates the same fold and a tuck here folds the row
+ *  there. It used to be a per-browser ui-state key the server never saw. The
+ *  pressing client sees it instantly through the outbox overlay, which paints
+ *  `tuckedAt` over server truth until the mutation lands. */
+function issueTucked(issue: IssueWire): boolean {
+  return issue.tuckedAt != null
+}
 
 /** Finished-issue facts shared by fold membership and the tuck-away control.
  *  Selection is intentionally NOT here: selecting a done row must keep
@@ -1945,14 +1954,13 @@ export function rowInClosedFold(
   row: UnifiedWorkRow,
   selectedIssueId: string | null,
   selectedIssueWasFolded = false,
-  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
   // Explicit tuck always folds — even while the row is selected. Lane stickiness
   // ("selected open stays open until focus moves") only applies to passive
   // placement (grace auto-fold), not operator dismissal.
-  if (tuckedIds.has(row.issue.id)) return true
+  if (issueTucked(row.issue)) return true
   if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
   // POD-293: a freshly finished issue no longer drops into the fold the instant
   // it finishes — it stays a live "done" row carrying the tuck-away control, and
@@ -1968,13 +1976,10 @@ export function rowAwaitsTuck(
   row: UnifiedWorkRow,
   _selectedIssueId: string | null = null,
   _selectedIssueWasFolded = false,
-  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
   now: number = Date.now(),
 ): row is UnifiedIssueRow {
   if (!finishedIssueSettled(row)) return false
-  return (
-    !tuckedIds.has(row.issue.id) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
-  )
+  return !issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
 }
 
 /**
@@ -1989,7 +1994,6 @@ export function groupUnifiedWorkRows(
   selectedIssueId: string | null = null,
   selectedIssueWasFolded = false,
   now: number = Date.now(),
-  tuckedIds: ReadonlySet<string> = EMPTY_TUCKED,
 ): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
@@ -2008,7 +2012,7 @@ export function groupUnifiedWorkRows(
       byKey.set(key, group)
       groups.push(group)
     }
-    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded, tuckedIds, now)) {
+    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded, now)) {
       group.closedRows.push(row)
     } else if (rowInSnoozedFold(row, now)) {
       group.snoozedRows.push(row)

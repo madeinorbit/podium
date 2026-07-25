@@ -26,6 +26,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260721145214_offer-artifacts", sql: "ALTER TABLE `offers` ADD `artifacts` text;" },
   { name: "20260722150425_issue-sort-key", sql: "ALTER TABLE `issues` ADD `sort_key` text;" },
   { name: "20260724134702_session-spawn-failure", sql: "ALTER TABLE `sessions` ADD `spawn_failure` text;" },
+  { name: "20260725002157_issue-tucked-at", sql: "ALTER TABLE `issues` ADD `tucked_at` text;" },
 ]
 
 /**

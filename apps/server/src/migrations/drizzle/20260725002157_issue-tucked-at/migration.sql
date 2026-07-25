@@ -1,0 +1,1 @@
+ALTER TABLE `issues` ADD `tucked_at` text;

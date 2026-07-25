@@ -29,6 +29,7 @@ export type OutboxKinds = {
   sessionMarkUnread: { sessionId: string }
   issueMarkRead: { id: string }
   issueMarkUnread: { id: string }
+  issueSetTucked: { id: string; tucked: boolean }
 }
 
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
@@ -115,6 +116,7 @@ export function createEngineOutbox(args: {
       sessionMarkUnread: (i) => api.sessions.markUnread.mutate(i),
       issueMarkRead: (i) => api.issues.markRead.mutate(i),
       issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
+      issueSetTucked: (i) => api.issues.setTucked.mutate(i),
     },
     onApplied: args.onApplied,
     // A poison entry (server-side validation reject) can never sync — it's

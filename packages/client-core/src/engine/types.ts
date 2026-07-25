@@ -278,6 +278,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markIssueUnread: (id: string) => Promise<void>
+  /** Tuck a finished issue into the sidebar's Closed fold, or bring it back
+   *  (POD-333): stamp tuckedAt = now / null. Optimistic + outboxed, so the row
+   *  folds on the press and the dismissal is SERVER state — it survives a
+   *  different browser and every other client folds the same row. */
+  setIssueTucked: (id: string, tucked: boolean) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the

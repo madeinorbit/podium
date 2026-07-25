@@ -135,6 +135,7 @@ export const ISSUE_COMMAND_NAMES = [
   'setLabels',
   'setNeedsHuman',
   'setState',
+  'setTucked',
   'stale',
   'start',
   'stats',

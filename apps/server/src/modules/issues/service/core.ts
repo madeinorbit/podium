@@ -230,6 +230,9 @@ export abstract class IssueServiceCore {
       ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
       ...(row.closedReason ? { closedReason: row.closedReason } : {}),
       ...(row.closedAt ? { closedAt: row.closedAt } : {}),
+      // Always on the wire (like readAt, not spread-when-truthy): the client
+      // reads absence as "not tucked", and an untuck must be able to say so.
+      tuckedAt: row.tuckedAt ?? null,
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
       ...(row.panel ? { panel: this.parsePanel(row) } : {}),
       labels,

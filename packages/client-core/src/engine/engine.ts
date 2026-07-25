@@ -1699,6 +1699,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       markIssueUnread: async (id: string) => {
         this.enqueueOverlayed('issueMarkUnread', { id })
       },
+      setIssueTucked: async (id: string, tucked: boolean) => {
+        this.enqueueOverlayed('issueSetTucked', { id, tucked })
+      },
       setSessionDraft: (sessionId: string, text: string) => {
         this.adoptSessionDraft(sessionId, text)
         this.hub.sendSessionDraft(sessionId, text)

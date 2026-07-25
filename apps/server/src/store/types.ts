@@ -184,6 +184,11 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
+  /** Tuck-away (POD-333): ISO time the operator dismissed this finished issue into
+   *  the sidebar's Closed fold; null/absent = not tucked. Global like readAt, and
+   *  cleared whenever the closed predicate flips back open. Optional so
+   *  pre-existing row literals stay valid. */
+  tuckedAt?: string | null
   supersededBy: string | null
   duplicateOf: string | null
   pinned: boolean

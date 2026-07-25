@@ -99,7 +99,7 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         createdAt: '2026-07-23T10:00:00.000Z',
       },
     })
-    expect(rowInClosedFold(row(closed, [offered]), null, false, new Set(), NOW)).toBe(true)
+    expect(rowInClosedFold(row(closed, [offered]), null, false, NOW)).toBe(true)
   })
 
   it('holds a freshly finished issue open until tucked, then folds it (POD-293)', () => {
@@ -111,11 +111,11 @@ describe('issue/session lifecycle in the unified sidebar', () => {
       closedAt: '2026-07-23T11:30:00.000Z',
     })
     const r = row(done)
-    expect(rowInClosedFold(r, null, false, new Set(), NOW)).toBe(false)
-    expect(rowAwaitsTuck(r, null, false, new Set(), NOW)).toBe(true)
+    expect(rowInClosedFold(r, null, false, NOW)).toBe(false)
+    expect(rowAwaitsTuck(r, null, false, NOW)).toBe(true)
     // Selecting the open done row must not hide Tuck away — only tuck/grace does.
-    expect(rowAwaitsTuck(r, done.id, false, new Set(), NOW)).toBe(true)
-    expect(rowInClosedFold(r, done.id, false, new Set(), NOW)).toBe(false)
+    expect(rowAwaitsTuck(r, done.id, false, NOW)).toBe(true)
+    expect(rowInClosedFold(r, done.id, false, NOW)).toBe(false)
     // Unread / never-read finished work still offers tuck (manual dismiss path;
     // the old auto-fold-on-read gate no longer applies).
     const unread = row(
@@ -128,8 +128,8 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         readAt: undefined,
       }),
     )
-    expect(rowAwaitsTuck(unread, null, false, new Set(), NOW)).toBe(true)
-    expect(rowInClosedFold(unread, null, false, new Set(), NOW)).toBe(false)
+    expect(rowAwaitsTuck(unread, null, false, NOW)).toBe(true)
+    expect(rowInClosedFold(unread, null, false, NOW)).toBe(false)
     // A still-working session must not hide Tuck away once the issue is closed —
     // the operator dismissed the work; agents winding down are not a live ask.
     const stillWorking = row(
@@ -143,18 +143,30 @@ describe('issue/session lifecycle in the unified sidebar', () => {
         session({
           sessionId: 'worker',
           issueId: 'working-done',
-          agentState: { phase: 'working', since: '2026-07-23T11:30:00.000Z' },
+          agentState: {
+            phase: 'working',
+            since: '2026-07-23T11:30:00.000Z',
+            nativeSubagentCount: 0,
+          },
         }),
       ],
     )
-    expect(rowAwaitsTuck(stillWorking, null, false, new Set(), NOW)).toBe(true)
-    expect(rowInClosedFold(stillWorking, null, false, new Set(), NOW)).toBe(false)
+    expect(rowAwaitsTuck(stillWorking, null, false, NOW)).toBe(true)
+    expect(rowInClosedFold(stillWorking, null, false, NOW)).toBe(false)
     // Tucking folds into Closed at once — even while still selected — and stops
     // awaiting dismissal. Selection lane-stickiness must not delay explicit tuck.
-    expect(rowInClosedFold(r, done.id, false, new Set([done.id]), NOW)).toBe(true)
-    expect(rowInClosedFold(r, null, false, new Set([done.id]), NOW)).toBe(true)
-    expect(rowAwaitsTuck(r, done.id, false, new Set([done.id]), NOW)).toBe(false)
-    expect(rowAwaitsTuck(r, null, false, new Set([done.id]), NOW)).toBe(false)
+    // The dismissal rides on the ISSUE now (POD-333: server truth, so a reload or
+    // a second client folds the same row), not a local set of ids.
+    const tucked = row(
+      issue({
+        ...done,
+        tuckedAt: '2026-07-23T11:45:00.000Z',
+      }),
+    )
+    expect(rowInClosedFold(tucked, done.id, false, NOW)).toBe(true)
+    expect(rowInClosedFold(tucked, null, false, NOW)).toBe(true)
+    expect(rowAwaitsTuck(tucked, done.id, false, NOW)).toBe(false)
+    expect(rowAwaitsTuck(tucked, null, false, NOW)).toBe(false)
   })
 
   it('keeps open review work with a live offer out of the closed fold', () => {

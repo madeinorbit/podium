@@ -405,6 +405,10 @@ export const issues = sqliteTable("issues", {
 	// When the closed-predicate last flipped true; null while open. The stable
 	// completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
 	closedAt: text("closed_at"),
+	// Tuck-away dismissal (POD-333): ISO time the operator folded this finished
+	// issue into the sidebar's Closed section; null = not tucked. Global
+	// (single-operator, like read_at) so every client agrees; cleared on reopen.
+	tuckedAt: text("tucked_at"),
 	supersededBy: text("superseded_by").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	duplicateOf: text("duplicate_of").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	pinned: integer().default(0).notNull(),

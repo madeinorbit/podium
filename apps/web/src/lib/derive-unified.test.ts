@@ -753,8 +753,11 @@ describe('groupUnifiedWorkRows', () => {
       activityAt: NOW,
       rank: 4,
     })
+    // A tuck is now a stamp on the ISSUE (POD-333) — server truth every client
+    // reads — rather than an id in a per-browser set handed to the grouper.
+    const TUCKED = new Date(NOW - HOUR / 2).toISOString()
     const rows: UnifiedWorkRow[] = [
-      closedRow('settled'),
+      closedRow('settled', { tuckedAt: TUCKED }),
       // Unread no longer blocks tuck/fold eligibility; without tuck it stays open
       // inside the grace window like any other finished row.
       closedRow('unread', { unread: true, readAt: undefined }),
@@ -773,19 +776,18 @@ describe('groupUnifiedWorkRows', () => {
     // stay in the live list (not tucked, selected, awaiting, needs-human…).
     // Working sessions no longer block tuck/fold eligibility. Untucked selection
     // stays open (lane stickiness); tucked selection folds.
-    const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW, new Set(['settled']))
+    const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW)
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
     expect(
       group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
     ).toEqual(['unread', 'selected', 'child', 'awaiting', 'needs-human', 'working', 'done-only'])
 
-    const [groupTuckedSelected] = groupUnifiedWorkRows(
-      rows,
-      'selected',
-      false,
-      NOW,
-      new Set(['settled', 'selected', 'working']),
+    const alsoTucked: UnifiedWorkRow[] = rows.map((row) =>
+      row.kind === 'issue' && (row.issue.id === 'selected' || row.issue.id === 'working')
+        ? { ...row, issue: { ...row.issue, tuckedAt: TUCKED } }
+        : row,
     )
+    const [groupTuckedSelected] = groupUnifiedWorkRows(alsoTucked, 'selected', false, NOW)
     expect(groupTuckedSelected?.closedRows.map((row) => row.issue.id)).toEqual([
       'settled',
       'selected',
@@ -808,6 +810,7 @@ describe('groupUnifiedWorkRows', () => {
         unread: false,
         readAt: new Date(NOW - HOUR).toISOString(),
         closedAt: new Date(NOW - daysAgo * 24 * HOUR).toISOString(),
+        tuckedAt: new Date(NOW - HOUR).toISOString(),
       }),
       sessions: [],
       activityAt: NOW,
@@ -819,7 +822,6 @@ describe('groupUnifiedWorkRows', () => {
       'selected',
       true,
       NOW,
-      new Set(['oldest', 'selected', 'newest']),
     )
 
     expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['newest', 'selected', 'oldest'])

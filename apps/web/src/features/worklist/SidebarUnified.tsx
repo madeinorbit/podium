@@ -910,6 +910,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setView,
     markIssueRead,
     markSessionRead,
+    setIssueTucked,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -928,6 +929,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       setView: s.setView,
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
+      setIssueTucked: s.setIssueTucked,
     }),
     shallowEqual,
   )
@@ -1057,6 +1059,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setIssueColor,
     archiveIssue,
     applySortPatches,
+    setIssueTucked,
   }
 }
 
@@ -1079,8 +1082,8 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     setIssueColor,
     archiveIssue,
     applySortPatches,
+    setIssueTucked,
   } = useUnifiedWork(derivation)
-  const uiState = useStoreSelector((s) => s.uiState)
   const shouldReduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
@@ -1096,41 +1099,25 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   // Tuck-away (POD-293): a finished row folds into Closed only when the operator
   // dismisses it (or after the finished-grace backstop) — not the instant it
   // finishes — so completed work stops vanishing out from under them. Read and
-  // idle sessions are not required for the control. Dismissals persist in
-  // ui-state only while the issue stays closed; reopening clears the flag so a
-  // later close offers Tuck away again. `tuck` adds one optimistically so the
-  // row folds the moment the control is pressed.
-  const [tuckedIds, setTuckedIds] = useState<ReadonlySet<string>>(() => new Set())
-  useEffect(() => {
-    setTuckedIds((prev) => {
-      const next = new Set<string>()
-      for (const row of work) {
-        if (row.kind !== 'issue') continue
-        const id = row.issue.id
-        const key = `podium:sidebar:tucked:${id}`
-        // Reopened / still-open work must not inherit a stale tuck from a prior
-        // close — that was auto-folding the next time the issue finished.
-        if (row.issue.closedReason == null) {
-          if (uiState.get(key) === 'true') uiState.set(key, null)
-          continue
-        }
-        if (uiState.get(key) === 'true') next.add(id)
-      }
-      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
-      return next
-    })
-  }, [work, uiState])
+  // idle sessions are not required for the control.
+  //
+  // The dismissal is SERVER state (POD-333): `issue.tuckedAt`, read by the
+  // derivation straight off the row. It used to be a `podium:sidebar:tucked:<id>`
+  // key in this browser's local ui-state, which meant the fold reset on a new
+  // browser or machine and two open clients disagreed about what was tucked.
+  // The server also owns the clear-on-reopen rule now, so a reopened issue
+  // cannot inherit a tuck from a prior close. `setIssueTucked` is optimistic
+  // (outbox overlay) — the row folds on the press, before the round-trip.
   const tuck = (id: string) => {
-    uiState.set(`podium:sidebar:tucked:${id}`, 'true')
-    setTuckedIds((prev) => new Set(prev).add(id))
+    void setIssueTucked(id, true)
   }
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
 
   const { pinned, rest } = useMemo(() => splitPinnedWork(work), [work])
   const targetGroups = useMemo(
-    () => groupUnifiedWorkRows(rest, selectedIssueId, selectedWasFolded, now, tuckedIds),
-    [now, rest, selectedIssueId, selectedWasFolded, tuckedIds],
+    () => groupUnifiedWorkRows(rest, selectedIssueId, selectedWasFolded, now),
+    [now, rest, selectedIssueId, selectedWasFolded],
   )
   const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
     () => [
@@ -1258,7 +1245,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           onColorChangeIssue={setIssueColor}
           onGripDown={draggable ? onGripDown : undefined}
           onTuck={
-            rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, tuckedIds, now)
+            rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, now)
               ? () => tuck(row.issue.id)
               : undefined
           }

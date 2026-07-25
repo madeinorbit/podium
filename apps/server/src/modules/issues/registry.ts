@@ -1166,6 +1166,21 @@ const defs = {
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () => ctx.issues.markIssueUnread(input.id)),
   }),
+  // Tuck a finished issue into the sidebar's Closed fold, or bring it back
+  // (POD-333). Sidebar curation the operator performs while reading the board —
+  // node-local like markRead (deliberately NOT issueWrite / never hub-forwarded)
+  // and 'read' authority, despite being a mutation on the wire.
+  setTucked: def({
+    kind: 'mutation',
+    input: z.object({
+      id: z.string(),
+      tucked: z.boolean(),
+      mutationId: z.string().max(128).optional(),
+    }),
+    action: 'read',
+    handler: (ctx, input) =>
+      ctx.withMutation(input.mutationId, () => ctx.issues.setIssueTucked(input.id, input.tucked)),
+  }),
   setNeedsHuman: def({
     kind: 'mutation',
     input: z.object({

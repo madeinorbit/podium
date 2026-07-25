@@ -159,6 +159,39 @@ describe('SessionRegistry metadata deltas', () => {
     expect(catchUp.cursor).toBe(fresh.cursor)
   })
 
+  // POD-333: tuck-away used to be a per-browser ui-state key, so a second open
+  // client never learned about a dismissal and a reconnecting one came back
+  // showing the row live again. Now it is an issue field and rides this seam.
+  it('a tuck reaches other live clients and heals a reconnecting one', () => {
+    const registry = makeRegistry()
+    const w = registry.issues.create({ repoPath: '/r', title: 'finished', startNow: false })
+    registry.issues.close(w.id)
+    flush(registry)
+
+    // The cursor a client held while it was away — nothing tucked yet.
+    const away = registry.modules.sessions.syncChangesSince(null)
+    if (away.kind !== 'snapshot') throw new Error('expected snapshot')
+    expect(away.issues.find((i) => i.id === w.id)?.tuckedAt ?? null).toBeNull()
+
+    // A SECOND client is watching while the first one tucks.
+    const other = client(registry, ['metadataDelta'])
+    const before = other.inbox.length
+    registry.issues.setIssueTucked(w.id, true)
+    flush(registry)
+
+    const seen = deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issue')
+    expect(seen).toHaveLength(1)
+    expect((seen[0] as { value: IssueWire }).value.tuckedAt).toBeTruthy()
+
+    // And the client that was disconnected converges through catch-up rather
+    // than painting the stale un-tucked row from its own storage.
+    const healed = registry.modules.sessions.syncChangesSince(away.cursor)
+    expect(healed.kind).toBe('delta')
+    if (healed.kind !== 'delta') return
+    const change = healed.changes.find((c) => c.entity === 'issue' && c.id === w.id)
+    expect((change as { value: IssueWire } | undefined)?.value.tuckedAt).toBeTruthy()
+  })
+
   it('a pre-hello client is legacy: bootstrap snapshots, no deltas', () => {
     const registry = makeRegistry()
     const inbox: ServerMessage[] = []

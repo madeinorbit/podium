@@ -79,6 +79,8 @@ export interface PodiumClientApi {
   issues: {
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
+    /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */
+    setTucked: ApiMutation<WithMutationId<{ id: string; tucked: boolean }>>
   }
   pins: {
     list: ApiQuery<void, PinState>

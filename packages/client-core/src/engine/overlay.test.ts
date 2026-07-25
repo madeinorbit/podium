@@ -91,6 +91,32 @@ describe('overlayForOutboxEntry projection', () => {
     expect(unread.coveredBy({ unread: true } as unknown as IssueWire)).toBe(true)
   })
 
+  // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is
+  // what lets the fold be server state without the press feeling slow: the entry
+  // paints tuckedAt until the server's own stamp lands — including across a
+  // reconnect heal snapshot taken before the mutation got there.
+  it('setTucked stamps tuckedAt from queuedAt; covering truth is judged on presence', () => {
+    const tuck = overlayForOutboxEntry(
+      entry('issueSetTucked', { id: 'i1', tucked: true }, 1751500800000),
+    )
+    if (tuck?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(tuck.entity).toBe('issues')
+    expect(tuck.id).toBe('i1')
+    expect(tuck.patch).toEqual({ tuckedAt: new Date(1751500800000).toISOString() })
+    // The server stamps its own clock, so ANY stamp covers…
+    expect(tuck.coveredBy({ tuckedAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
+    // …but pre-mutation truth (a heal snapshot mid-flight) does NOT: the row
+    // stays folded instead of flickering back into the live list.
+    expect(tuck.coveredBy({ tuckedAt: null } as IssueWire)).toBe(false)
+    expect(tuck.coveredBy({} as IssueWire)).toBe(false)
+
+    const untuck = overlayForOutboxEntry(entry('issueSetTucked', { id: 'i1', tucked: false }))
+    if (untuck?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(untuck.patch).toEqual({ tuckedAt: null })
+    expect(untuck.coveredBy({ tuckedAt: null } as IssueWire)).toBe(true)
+    expect(untuck.coveredBy({ tuckedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
+  })
+
   it('kinds without row-visible optimism (resumeAndSend, unknown) project to null', () => {
     expect(overlayForOutboxEntry(entry('resumeAndSend', { sessionId: 's1', text: 'x' }))).toBeNull()
     expect(overlayForOutboxEntry(entry('someFutureKind', {}))).toBeNull()
