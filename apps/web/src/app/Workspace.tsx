@@ -31,7 +31,6 @@ import {
   sessionsForIssueNav,
   sessionsForWorktree,
 } from '@/lib/derive'
-import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
@@ -42,6 +41,7 @@ import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
 import { useStoreSelector } from './store'
 import type { WorktreeView } from './types'
+import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
@@ -94,9 +94,6 @@ export function Workspace(): JSX.Element {
   )
   const tabSplittingEnabled = useFeature('tab-splitting')
   const visibleSplit = tabSplittingEnabled && split
-  // Closing a session tab routes through the active-session guard (#115) so a
-  // working agent prompts for confirmation; file tabs close immediately.
-  const { guardedKill } = useSessionGuard()
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to the tab list. Without
   // this, the keep-pane-valid effect sees an unknown paneA and bounces it to tab 0.
@@ -251,19 +248,16 @@ export function Workspace(): JSX.Element {
 
   // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
   // webview never sees the keypress), so the shell's "Close Tab" item evals this
-  // hook instead. Closing the active tab mirrors the tab's own ✕ — sessions go
-  // through the working-agent guard, files close immediately. Returning false
-  // (no tab to close, or Workspace unmounted) lets the shell fall back to its
-  // window-level close (hide). Re-registered every render so it always sees the
-  // current pane; no deps array on purpose.
+  // hook instead. File tabs close immediately. Session tabs are locked task
+  // members [POD-293], so consume the command without killing the session or
+  // falling through to the shell's window-level close (hide). Returning false
+  // is reserved for no tab / an unmounted Workspace. Re-registered every render
+  // so it always sees the current pane; no deps array on purpose.
   useEffect(() => {
     const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
     g.__PODIUM_CLOSE_TAB__ = () => {
       const active = paneA ? byId.get(paneA) : undefined
-      if (!active) return false
-      if (active.kind === 'session') void guardedKill(active.id)
-      else closeFileTab(active.id)
-      return true
+      return closeWorkspaceTab(active, closeFileTab)
     }
     return () => {
       delete g.__PODIUM_CLOSE_TAB__
@@ -344,9 +338,9 @@ export function Workspace(): JSX.Element {
                     if (t.kind === 'session') void markSessionRead(t.id)
                     setPane('A', t.id)
                   }}
-                  onClose={() =>
-                    t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id)
-                  }
+                  onClose={() => {
+                    if (t.kind === 'file') closeFileTab(t.id)
+                  }}
                 />
               ))}
               {/* Reveal/hide archived member sessions as tabs — only shown when the

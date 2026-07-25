@@ -535,7 +535,8 @@ fn main() {
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
             // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__
-            // while a tab strip is on screen; it returns true when it closed a tab.
+            // while a tab strip is on screen; it returns true when it handled the
+            // command (including consuming it for a locked session tab).
             // With no handler (or nothing to close) fall back to the window-level
             // close — hidden via the CloseRequested handler, same as before.
             "close-tab" => {
