@@ -1,6 +1,7 @@
+import { mergeTranscriptItems, prependTranscriptItems } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/protocol'
 import { Eraser } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobileClient } from '../client/MobileClientProvider'
@@ -11,6 +12,11 @@ import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import {
+  dropEchoedTurns,
+  renderedTranscript,
+  settledTranscript,
+} from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 
 /**
@@ -22,79 +28,107 @@ import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
  *    label already says the chat is overarching.
  *  - The SAME Flat Field transcript the session chat renders (the desktop
  *    embeds `ChatView` here for exactly this reason) instead of a second,
- *    bespoke chat vocabulary.
+ *    bespoke chat vocabulary — and, since POD-344, over the same SOURCE: the
+ *    thread's headless session transcript. `superagent.history` is the FROZEN
+ *    legacy buffer (the server writes only turn-failure notices there now), so
+ *    a screen built on it alone renders neither the turn it just sent nor the
+ *    reply — the phone hung on "sending" forever. It survives as a prefix so
+ *    pre-harness threads stay readable.
  *  - Laid out like every other tab: safe-area header, one scroller, composer
  *    docked directly above the tab bar — no hand-tuned lift leaving dead space.
  */
 const THREAD_ID = 'global'
 
-/** Superagent history rows → the transcript items the Flat Field renderer
- *  speaks. Tool/system rows collapse to quiet lines, exactly as in a session. */
-function toTranscript(rows: SuperagentMessage[]): TranscriptItem[] {
-  const items: TranscriptItem[] = []
-  for (const row of rows) {
-    const text = row.content.trim()
-    if (row.role === 'tool') {
-      if (!row.toolName && !text) continue
-      items.push({
-        id: `super:${row.id}`,
-        role: 'tool',
-        ts: row.createdAt,
-        text: '',
-        ...(row.toolName ? { toolName: row.toolName } : {}),
-        ...(text ? { toolInput: text.split('\n')[0] } : {}),
-      })
-      continue
-    }
-    if (!text) continue
-    items.push({
-      id: `super:${row.id}`,
-      role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'assistant',
-      ts: row.createdAt,
-      text,
-    })
-  }
-  return items
-}
-
 export function SuperagentScreen() {
   const client = useMobileClient()
-  const { trpc, subscribeHeadless } = client
+  const { trpc, subscribeHeadless, readTranscript, subscribeTranscript, answerQuestion } = client
   const insets = useSafeAreaInsets()
-  const [history, setHistory] = useState<SuperagentMessage[]>([])
+  const [legacy, setLegacy] = useState<SuperagentMessage[]>([])
+  const [items, setItems] = useState<TranscriptItem[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [podiumSid, setPodiumSid] = useState<string | undefined>(undefined)
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  // Scroll-back paging state. Refs, not state: paging must not retrigger the
+  // load/subscribe effect, and onLoadOlder can fire in bursts.
+  const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
+    hasMore: false,
+    loading: false,
+  })
 
-  const refreshHistory = useCallback(async () => {
-    try {
-      setHistory(await trpc.superagent.history.query({ threadId: THREAD_ID }))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }, [trpc])
-
-  // The global thread's headless session id — the only thread lookup left now
-  // that the chat never switches scope.
+  // The global thread's headless session id — the transcript source — plus the
+  // query-backed running flag, so opening the tab mid-turn shows the spinner.
   useEffect(() => {
     let alive = true
     void trpc.superagent.listThreads
       .query()
       .then((list) => {
-        if (alive) setPodiumSid(list.find((t) => t.id === THREAD_ID)?.podiumSessionId)
+        if (!alive) return
+        const thread = list.find((t) => t.id === THREAD_ID)
+        setPodiumSid(thread?.podiumSessionId)
+        if (thread?.turnRunning) setRunning(true)
       })
       .catch(() => {})
-    void refreshHistory()
+    // Legacy prefix; a thread that never used the buffered path returns [].
+    // A failure here must not paint the screen's error banner.
+    void trpc.superagent.history
+      .query({ threadId: THREAD_ID })
+      .then((rows) => {
+        if (alive) setLegacy(rows)
+      })
+      .catch(() => {})
     return () => {
       alive = false
     }
-  }, [trpc, refreshHistory])
+  }, [trpc])
 
-  // Live turn activity: stream the assistant's in-progress text and refresh the
-  // durable history at turn boundaries.
+  // The conversation itself, read and streamed from the thread's headless
+  // session exactly as SessionScreen does for a normal chat.
+  useEffect(() => {
+    if (!podiumSid) return
+    let alive = true
+    let unsubscribe: (() => void) | null = null
+    setItems([])
+    paging.current = { hasMore: false, loading: false }
+    const attach = (since: string | undefined) => {
+      if (!alive) return
+      unsubscribe = subscribeTranscript(podiumSid, since, (delta, meta) => {
+        setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
+      })
+    }
+    readTranscript(podiumSid)
+      .then((page) => {
+        if (!alive) return
+        setItems(page.items)
+        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
+        attach(page.tail)
+      })
+      .catch(() => attach(undefined))
+    return () => {
+      alive = false
+      unsubscribe?.()
+    }
+  }, [readTranscript, subscribeTranscript, podiumSid])
+
+  const loadOlder = useCallback(() => {
+    const p = paging.current
+    if (!podiumSid || !p.hasMore || p.loading || !p.head) return
+    p.loading = true
+    readTranscript(podiumSid, p.head)
+      .then((page) => {
+        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
+        setItems((prev) => prependTranscriptItems(prev, page.items))
+      })
+      .catch(() => {
+        paging.current.loading = false
+      })
+  }, [readTranscript, podiumSid])
+
+  // Live turn activity: the in-progress assistant text and the turn boundaries.
+  // The settled reply arrives on the transcript stream, so turn-end only has to
+  // put the chrome back.
   useEffect(() => {
     if (!podiumSid) return
     return subscribeHeadless(podiumSid, (event) => {
@@ -107,7 +141,6 @@ export function SuperagentScreen() {
         setLiveText('')
         setStatusLabel(null)
         if (event.error) setError(event.error)
-        void refreshHistory()
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
       } else if ('text' in event && typeof event.text === 'string') {
@@ -115,24 +148,39 @@ export function SuperagentScreen() {
         setStatusLabel(null)
       }
     })
-  }, [subscribeHeadless, refreshHistory, podiumSid])
+  }, [subscribeHeadless, podiumSid])
 
-  // Fallback while a turn runs without streaming events (older daemons): poll.
+  // headlessActivity frames are ephemeral, and the FIRST turn only learns its
+  // session from the ack — so the subscription can attach after that turn's
+  // turn-end and the spinner would never stop. The server's query-backed flag
+  // is the late-joiner truth; it only ever CLEARS a stuck spinner here, so it
+  // cannot race a turn that was just dispatched.
   useEffect(() => {
     if (!running) return
-    const id = setInterval(() => void refreshHistory(), 3000)
+    const id = setInterval(() => {
+      void trpc.superagent.listThreads
+        .query()
+        .then((list) => {
+          const thread = list.find((t) => t.id === THREAD_ID)
+          if (thread && !thread.turnRunning) {
+            setRunning(false)
+            setLiveText('')
+            setStatusLabel(null)
+          }
+        })
+        .catch(() => {})
+    }, 5000)
     return () => clearInterval(id)
-  }, [running, refreshHistory])
+  }, [running, trpc])
 
-  // Drop an optimistic turn once the durable history carries it.
+  // The settled conversation: frozen legacy rows, then the live transcript.
+  const settled = useMemo(() => settledTranscript(legacy, items), [legacy, items])
+
+  // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (pendingTurns.length === 0) return
-    const echoed = new Set(history.filter((m) => m.role === 'user').map((m) => m.content.trim()))
-    setPendingTurns((prev) => {
-      const next = prev.filter((turn) => !echoed.has(turn.text))
-      return next.length === prev.length ? prev : next
-    })
-  }, [history, pendingTurns.length])
+    setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
+  }, [settled, pendingTurns.length])
 
   const send = useCallback(
     (text: string) => {
@@ -166,7 +214,12 @@ export function SuperagentScreen() {
   const clear = useCallback(async () => {
     try {
       await trpc.superagent.clear.mutate({ threadId: THREAD_ID })
-      setHistory([])
+      // The server drops the thread's harness+headless binding, so the old
+      // session's transcript is no longer this thread's: forget it and let the
+      // next turn's ack hand back a fresh session.
+      setLegacy([])
+      setItems([])
+      setPodiumSid(undefined)
       setPendingTurns([])
       setLiveText('')
     } catch (e) {
@@ -176,15 +229,12 @@ export function SuperagentScreen() {
 
   // The streaming answer rides the transcript as a live assistant item, so the
   // in-progress turn wears the same prose voice as the settled one.
-  const items = useMemo(() => {
-    const base = toTranscript(history)
-    if (running && liveText.trim()) {
-      base.push({ id: 'super:live', role: 'assistant', text: liveText.trim() })
-    }
-    return base
-  }, [history, liveText, running])
+  const rendered = useMemo(
+    () => renderedTranscript(settled, liveText, running),
+    [settled, liveText, running],
+  )
 
-  const empty = items.length === 0 && pendingTurns.length === 0 && !running
+  const empty = rendered.length === 0 && pendingTurns.length === 0 && !running
 
   return (
     <Screen noHeader>
@@ -228,10 +278,13 @@ export function SuperagentScreen() {
             />
           ) : (
             <TranscriptList
-              items={items}
+              items={rendered}
               live={running}
               pendingTurns={pendingTurns}
-              onAnswer={async () => {}}
+              onLoadOlder={loadOlder}
+              onAnswer={async (choices) => {
+                if (podiumSid) await answerQuestion(podiumSid, choices)
+              }}
             />
           )}
           {running && !liveText.trim() ? (

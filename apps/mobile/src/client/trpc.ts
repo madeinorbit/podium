@@ -39,6 +39,11 @@ export interface SuperagentThread {
   repoPath?: string
   title?: string
   podiumSessionId?: string
+  /** The harness's own session id — present once the thread has a real session. */
+  harnessSessionId?: string
+  /** Query-backed running state, so a reload or late join mid-turn still knows a
+   *  turn is in flight (headlessActivity frames are ephemeral). */
+  turnRunning?: boolean
   createdAt: string
   updatedAt: string
   archived: boolean
