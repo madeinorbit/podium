@@ -30,6 +30,7 @@ import {
   snoozeUntilTomorrow5am,
 } from './derive'
 import { useNow } from './useNow'
+import { sessionDisplayName } from './WorkerLabel'
 
 export interface ContextMenuAnchor {
   x: number
@@ -211,11 +212,18 @@ export function SessionContextMenu({
     onClose()
   }
 
+  // The session's own pane narrates the move (HandoverPane), so this toast is for
+  // the operator who is looking somewhere else: it names WHICH session landed
+  // WHERE, and a failure names the target it never reached (the server rolls the
+  // session back to where it was).
   const handoff = (machineId: string, machineName: string): void => {
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
-      () => toast.success(`Handed off to ${machineName}`),
-      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+      () => toast.success(`${sessionDisplayName(session)} resumed on ${machineName}`),
+      (error: unknown) =>
+        toast.error(
+          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
+        ),
     )
   }
 

@@ -63,6 +63,7 @@ import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 import { paneTintedBackground, withBackground } from './appearance'
 import { EchoHud, echoHudEnabled } from './EchoHud'
+import { HandoverPane, useHandoverView } from './HandoverPane'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -303,6 +304,13 @@ export function AgentPanel({
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
+  // sequence of read-only states the move happens to pass through: the session is
+  // stopped here, shipped, and resumed there. `handover` covers the pane for the
+  // whole window (and one beat past it, over the reattaching terminal), so
+  // `inTransit` suppresses the parked-transcript fallback underneath it.
+  const handover = useHandoverView(session)
+  const inTransit = handover?.phase === 'transit'
   // The session's worktree was removed out from under it (an orphaned session):
   // its cwd no longer matches any scanned worktree. Gate on repos being loaded so
   // the boot window (no repos yet) doesn't transiently flag every session. Feeds
@@ -413,7 +421,8 @@ export function AgentPanel({
   // The terminal stays mounted across a chat<->native toggle (Task 6): it's kept
   // alive (hidden under the chat overlay) with eligibility flipped via `active`
   // instead of a remount — see useTerminalSession's own setActive effect.
-  const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
+  const terminalActive =
+    active && effectiveMode === 'native' && !hibernated && !exited && !inTransit
   const knownPathsRef = useRef<Set<string>>(new Set())
   // Latest shared chat draft for this session, mirrored into a ref so the
   // draft-flush machinery (onMounted, below) can read it at flush time
@@ -486,8 +495,10 @@ export function AgentPanel({
     // Hibernated/exited (no live PTY) skip mounting. An optimistically-spawned
     // session doesn't exist server-side yet (#119) either — its one-shot attach
     // would be dropped and never retried, so hold the mount until spawnConfirmed
-    // flips true (the reconcile).
-    enabled: !hibernated && !exited && spawnConfirmed,
+    // flips true (the reconcile). A session in transit is about to lose its PTY
+    // and come back on another machine: stay unmounted until it lands, so the
+    // attach that runs is the one against the new daemon.
+    enabled: !hibernated && !exited && !inTransit && spawnConfirmed,
     active: terminalActive,
     // Don't grab focus on mount — that pops the soft keyboard over the
     // "Starting…" overlay. focusWhenReady takes over once the session is ready
@@ -700,7 +711,9 @@ export function AgentPanel({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    // `relative` anchors the handover veil below the header (the terminal surface
+    // positions its own overlays against itself, so nothing else moves).
+    <div className="relative flex min-w-0 flex-1 flex-col">
       {/* Session header, revised Variant A [POD-121]: 40px, issue-tinted surface
           + hairline. Identity is de-boxed (kind glyph + name as the anchor), the
           mode lives in ONE segmented control on the right (no eyebrow), and the
@@ -782,7 +795,7 @@ export function AgentPanel({
               control — both views always visible and labeled, the filled segment
               is the current one. Only offered with a live PTY behind it — a
               hibernated/exited session has no terminal to switch to. */}
-          {chatCapable && !hibernated && !exited && (
+          {chatCapable && !hibernated && !exited && !inTransit && (
             <span
               role="tablist"
               aria-label="Panel view"
@@ -859,7 +872,7 @@ export function AgentPanel({
                   align="end"
                   className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
                 >
-                  {effectiveMode === 'native' && !hibernated && !exited && (
+                  {effectiveMode === 'native' && !hibernated && !exited && !inTransit && (
                     <DropdownMenuItem
                       data-testid="take-control"
                       aria-label="Take control of the terminal"
@@ -925,7 +938,13 @@ export function AgentPanel({
           </span>
         </span>
       </div>
-      {hibernated ? (
+      {handover && <HandoverPane view={handover} background={termBg} />}
+      {inTransit ? (
+        // The veil owns this window; underneath it only the pane's own surface
+        // shows, so a mid-move status change (live → parked) never repaints a
+        // view the operator didn't ask for.
+        <div className="flex-1" style={{ backgroundColor: termBg }} />
+      ) : hibernated ? (
         chatCapable ? (
           // The transcript outlives the process — a hibernated agent's history is
           // still worth reading. Show it (read-only; the composer disables itself

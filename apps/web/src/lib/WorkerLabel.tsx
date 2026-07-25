@@ -141,8 +141,10 @@ export function WorkerLabel({
   /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
   chip?: boolean
 }): JSX.Element {
+  // Mid-move the row says where the session is going — same words as the pane's
+  // handover state (POD-337), so the sidebar and the panel read as one event.
   const name = session.handoffTarget
-    ? 'Handing off → ' + session.handoffTarget
+    ? 'Handing over → ' + session.handoffTarget
     : sessionDisplayName(session)
   return (
     <span className="worker-label inline-flex min-w-0 items-center gap-2">

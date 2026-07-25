@@ -35,6 +35,7 @@ import {
   issueHandoffBlockerText,
 } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
+import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
@@ -162,9 +163,14 @@ export function IssueContextMenu({
   const handoffTo = (machineId: string, machineName: string): void => {
     if (!handoffSession) return
     onClose()
+    // Same two lines as the session menu: the moving session's pane narrates the
+    // move itself, so this only has to reach an operator looking elsewhere.
     void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success(`Handed off to ${machineName}`),
-      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+      () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
+      (error: unknown) =>
+        toast.error(
+          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
+        ),
     )
   }
 

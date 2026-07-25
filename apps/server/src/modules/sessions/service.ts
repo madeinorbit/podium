@@ -2715,39 +2715,54 @@ export class SessionsService {
     if (!harness?.installed || harness.login.state === 'out') {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
-    const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
-
+    // Announce the move BEFORE the pre-flight (POD-337): everything from here on
+    // can take real time — `ensureTargetRepo` may clone the repo on the target —
+    // and `handoffTarget` is what every client renders the move with (the pane's
+    // handover state, the sidebar row). Set after the synchronous eligibility
+    // checks, so a refused move never flashes an overlay; cleared on every exit
+    // that doesn't reach the target.
     this.mutateSessionView(session.sessionId, (current) => {
       current.handoffTarget = targetMachine.name
     })
     this.broadcastSessions()
-
-    const branch = issue?.branch ?? basename(session.cwd)
-    const candidates = [
-      ...new Set(
-        [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
-          Boolean(ref),
-        ),
-      ),
-    ]
-    const sourceVerified = await Promise.all(
-      candidates.map((ref) =>
-        this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
-      ),
-    )
-    const sourceBaseShas = verifiedBundleBases(sourceVerified)
-    const targetVerified = await Promise.all(
-      sourceBaseShas.map((ref) =>
-        this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
-      ),
-    )
-    const baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
-    if (baseShas.length === 0) {
+    const clearHandoffOverlay = (): void => {
       this.mutateSessionView(session.sessionId, (current) => {
         current.handoffTarget = undefined
       })
       this.broadcastSessions()
-      throw new Error('target repository has no verified common bundle base')
+    }
+
+    let targetRepo: { path: string }
+    let baseShas: string[]
+    let branch: string
+    try {
+      targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
+      branch = issue?.branch ?? basename(session.cwd)
+      const candidates = [
+        ...new Set(
+          [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
+            Boolean(ref),
+          ),
+        ),
+      ]
+      const sourceVerified = await Promise.all(
+        candidates.map((ref) =>
+          this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+        ),
+      )
+      const sourceBaseShas = verifiedBundleBases(sourceVerified)
+      const targetVerified = await Promise.all(
+        sourceBaseShas.map((ref) =>
+          this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+        ),
+      )
+      baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
+      if (baseShas.length === 0)
+        throw new Error('target repository has no verified common bundle base')
+    } catch (error) {
+      // Nothing has been stopped or moved yet — drop the overlay and report.
+      clearHandoffOverlay()
+      throw error
     }
 
     const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }

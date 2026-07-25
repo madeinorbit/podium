@@ -52,6 +52,9 @@ const machine = (id: string) => ({
 const session = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
   ({
     agentKind: 'claude-code',
+    // A real session always carries a title (the harness's, until renamed); the
+    // handoff toast names the session it moved, so this can't be left off.
+    title: 'POD-779-A',
     cwd: '/Users/mw/Source/other/podium/.worktrees/issue-779',
     machineId: MAC,
     status: 'live',

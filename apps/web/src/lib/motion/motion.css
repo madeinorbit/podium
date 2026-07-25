@@ -138,6 +138,76 @@
   animation: podium-spb 0.8s steps(1, end) infinite;
 }
 
+/* Handover transit wire (POD-337): a session moving to another machine covers
+   its pane, and the only motion there is this stream of character cells crossing
+   from the source station to the target one in the reserved working blue — the
+   spinner's "the machine is busy" voice, laid out as a route. Two mono layers on
+   one cell grid (a dim rail, and carets travelling along it) translated in whole
+   `ch` steps, so they advance cell by cell like terminal output rather than
+   sliding continuously. The caret period is 12 cells, so a 12ch travel loops
+   seamlessly; both ends are masked so carets fade in leaving the source and out
+   as they reach the target. */
+@keyframes podium-wire {
+  to {
+    transform: translateX(12ch);
+  }
+}
+.handover-wire {
+  position: relative;
+  /* Never collapses to nothing: a dragged-narrow pane keeps a stub of route
+     rather than butting the two station names together. */
+  flex: 1;
+  min-width: 24px;
+  overflow: hidden;
+  height: 1em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0;
+  mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 90%, transparent 100%);
+}
+.handover-wire-base,
+.handover-wire-flow {
+  position: absolute;
+  top: 0;
+  left: -12ch;
+  right: 0;
+  white-space: nowrap;
+}
+.handover-wire-base {
+  color: color-mix(in srgb, var(--motion-working) 26%, transparent);
+}
+.handover-wire-flow {
+  color: var(--motion-working);
+  animation: podium-wire 1.2s steps(12, end) infinite;
+}
+/* Arrival: the stream stops and the route settles into a brighter, quiet line. */
+.handover-wire-done .handover-wire-base {
+  color: color-mix(in srgb, var(--motion-working) 38%, transparent);
+}
+.handover-wire-done .handover-wire-flow {
+  animation: none;
+  opacity: 0;
+}
+/* The veil dissolves into the terminal reattaching behind it. */
+.handover-veil {
+  transition:
+    opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  /* The veil covers the TERMINAL surface, which is dark in every theme (xterm's
+     own background, issue-tinted) — so it pins its own ink ramp instead of
+     inheriting the theme's, whose ink goes dark on a light theme and would
+     vanish here. Same mixes as .issue-scope, with the dark-surface ramp
+     constants inlined, so the issue-colour channel still tints the copy. */
+  --handover-ink: color-mix(in srgb, var(--issue) 10%, #f3f3f8);
+  --handover-bright: color-mix(in srgb, var(--issue) 25%, #d7d7e0);
+  --handover-muted: color-mix(in srgb, var(--issue) 26%, #9aa3b2);
+  --handover-dim: color-mix(in srgb, var(--issue) 28%, #6c7690);
+  --handover-label: #7a84a0;
+}
+.handover-veil-out {
+  opacity: 0;
+  filter: blur(3px);
+}
+
 .morph-ignite {
   animation: podium-ignite 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -237,6 +307,14 @@
      reads "computing" (colour + the ticking timer carry the state). */
   .spb::before {
     animation: none;
+  }
+  /* The transit wire stops travelling — the blue carets pointing at the target
+     still read as "on its way" — and the veil snaps instead of dissolving. */
+  .handover-wire-flow {
+    animation: none;
+  }
+  .handover-veil {
+    transition: none;
   }
   /* One-shot morphs are dropped entirely; the end state is the resting style,
      so nothing is lost but the flourish. */
