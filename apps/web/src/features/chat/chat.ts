@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatRow } from '@podium/client-core/viewmodels'
+import { type ChatBlock, type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
 
 /**
@@ -28,61 +28,6 @@ export function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
-/** Where one item sits in its transcript FILE, decoded from its cursor. Within a
- *  file, (offset, sub) is a total order — the same order the disk reader emits. */
-interface CursorPos {
-  fileId: string
-  offset: number
-  sub: number
-}
-
-/**
- * Decode a cursor's position, or null when it isn't a Podium cursor (a
- * synthesized id, a test stub, a future encoding). Cursors are base64url
- * `[fileId, offset, uuid, sub]` — see packages/transcript/src/cursor-codec.ts,
- * which encodes them with node's Buffer; the web bundle has no Buffer, so this
- * decodes with atob instead of importing @podium/transcript (a daemon/server-only
- * package).
- */
-function decodeCursorPos(cursor: string | undefined): CursorPos | null {
-  if (!cursor) return null
-  try {
-    const b64 = cursor.replace(/-/g, '+').replace(/_/g, '/')
-    const parts = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) as unknown
-    if (!Array.isArray(parts) || parts.length !== 4) return null
-    const [fileId, offset, , sub] = parts as [unknown, unknown, unknown, unknown]
-    if (typeof fileId !== 'string' || typeof offset !== 'number' || typeof sub !== 'number')
-      return null
-    return { fileId, offset, sub }
-  } catch {
-    return null
-  }
-}
-
-/** Negative when `a` precedes `b` in their (shared) file. */
-function comparePos(a: CursorPos, b: CursorPos): number {
-  return a.offset - b.offset || a.sub - b.sub
-}
-
-/**
- * Index a NEW item belongs at in `list`, or -1 for "append" (the normal live-tail
- * case, and the fallback whenever the cursors don't decode). Scans from the tail
- * and stops at the first same-file item that precedes the addition, so an ordinary
- * append costs one comparison.
- */
-function insertionIndex(list: TranscriptItem[], item: TranscriptItem): number {
-  const pos = decodeCursorPos(item.cursor)
-  if (!pos) return -1
-  let insertAt = -1
-  for (let i = list.length - 1; i >= 0; i--) {
-    const other = decodeCursorPos(list[i]?.cursor)
-    if (!other || other.fileId !== pos.fileId) continue
-    if (comparePos(other, pos) < 0) return insertAt // everything earlier is older too
-    insertAt = i // this held item is NEWER — the addition goes above it
-  }
-  return insertAt
-}
-
 /**
  * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
  * whose key is already present REPLACES the held one in place (preserving its
@@ -102,8 +47,8 @@ function insertionIndex(list: TranscriptItem[], item: TranscriptItem): number {
  * when a (re)subscribing client's `since` cursor isn't in it — after a transcript
  * file roll or a socket drop that is the common case — so a frame can carry items
  * OLDER than the tail we already hold. Appending those put the superagent's answer
- * ABOVE the prompt that produced it. Cursors carry (file, byte offset), so the
- * held window stays in transcript order regardless of the order frames arrive in.
+ * ABOVE the prompt that produced it. `insertInCursorOrder` (shared with the mobile
+ * merge) keeps the held window in transcript order however the frames arrive.
  */
 export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
   if (delta.length === 0) return prev
@@ -131,11 +76,7 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
   if (!next && additions.length === 0) return prev
   if (additions.length === 0) return next ?? prev
   const out = [...(next ?? prev)]
-  for (const item of additions) {
-    const at = insertionIndex(out, item)
-    if (at < 0) out.push(item)
-    else out.splice(at, 0, item)
-  }
+  for (const item of additions) insertInCursorOrder(out, item)
   return out
 }
 
