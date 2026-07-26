@@ -37,6 +37,16 @@ export interface DrizzleMigration {
 /** drizzle's default migrations ledger. */
 const LEDGER = '__drizzle_migrations'
 
+/**
+ * Migration identities that were deployed locally before the same change was
+ * rebased upstream under a different generated timestamp. An alias is accepted
+ * only while its canonical migration is present in the supplied build, so the
+ * downgrade guard remains strict for every other unknown ledger entry.
+ */
+const MIGRATION_NAME_ALIASES = new Map<string, string>([
+  ['20260722210552_session-spawn-failure', '20260724134702_session-spawn-failure'],
+])
+
 function hasTable(db: SqlDatabase, name: string): boolean {
   return (
     db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
@@ -107,6 +117,9 @@ export function runDrizzleMigrations(
   const applied = appliedDrizzleNames(db)
 
   const known = new Set(migrations.map((m) => m.name))
+  for (const [alias, canonical] of MIGRATION_NAME_ALIASES) {
+    if (known.has(canonical)) known.add(alias)
+  }
   for (const name of applied) {
     if (!known.has(name)) {
       throw new Error(
@@ -122,7 +135,10 @@ export function runDrizzleMigrations(
   // input keeps the reported/applied order in lockstep even if a caller passes
   // an unsorted list.
   const ordered = [...migrations].sort((a, b) => a.name.localeCompare(b.name))
-  const pending = ordered.filter((m) => !applied.has(m.name))
+  const semanticallyApplied = new Set(
+    [...applied].map((name) => MIGRATION_NAME_ALIASES.get(name) ?? name),
+  )
+  const pending = ordered.filter((m) => !semanticallyApplied.has(m.name))
   if (pending.length === 0) return []
 
   // #43: snapshot before applying anything, but only when the DB already holds
@@ -138,12 +154,13 @@ export function runDrizzleMigrations(
         '(the production binary and the vitest suite via `bun --bun`).',
     )
   }
-  // drizzle applies the by-name-unapplied set in one transaction and writes the
-  // ledger; it skips already-applied names, so passing the full ordered list is
-  // correct.
+  // drizzle applies this already-filtered pending set in one transaction and
+  // writes the ledger. Passing only pending migrations is essential for aliases:
+  // drizzle cannot know that an old ledger name already performed the canonical
+  // migration SQL, and replaying it could add the same column twice.
   migrate(
     drizzle({ client }),
-    ordered.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
+    pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
   )
   return pending.map((m) => m.name)
 }
