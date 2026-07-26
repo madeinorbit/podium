@@ -10,15 +10,17 @@ const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex
 /** Minimal `ws` socket double: records sent frames, lets tests drive `message`/`close`. */
 function fakeWs() {
   const sent: string[] = []
-  const handlers: Record<string, (...a: unknown[]) => void> = {}
+  const handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
   return {
     sent,
     readyState: 1,
     send: (s: string) => sent.push(s),
     on: (ev: string, cb: (...a: unknown[]) => void) => {
-      handlers[ev] = cb
+      ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => handlers[ev]?.(...a),
+    emit: (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) handler(...a)
+    },
   }
 }
 

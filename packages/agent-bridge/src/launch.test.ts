@@ -3,6 +3,7 @@ import { resolveCursorBin } from './cursor/cli.js'
 import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
+const CODEX_NETWORK_ARGS = ['-c', 'sandbox_workspace_write.network_access=true']
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/proj' })).toEqual({
@@ -28,7 +29,7 @@ describe('agentLaunchCommand', () => {
   it('spawns codex fresh', () => {
     expect(agentLaunchCommand('codex', { cwd: '/w' })).toEqual({
       cmd: 'codex',
-      args: [],
+      args: CODEX_NETWORK_ARGS,
       cwd: '/w',
     })
   })
@@ -36,7 +37,11 @@ describe('agentLaunchCommand', () => {
   it('resumes codex by thread id', () => {
     expect(
       agentLaunchCommand('codex', { cwd: '/w', resume: { kind: 'codex-thread', value: 't9' } }),
-    ).toEqual({ cmd: 'codex', args: ['resume', '-C', '/w', 't9'], cwd: '/w' })
+    ).toEqual({
+      cmd: 'codex',
+      args: ['resume', '-C', '/w', 't9', ...CODEX_NETWORK_ARGS],
+      cwd: '/w',
+    })
   })
 
   it('spawns grok fresh', () => {
@@ -154,7 +159,7 @@ describe('agentLaunchCommand', () => {
     it('appends the prompt as a positional arg for codex and grok', () => {
       expect(agentLaunchCommand('codex', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
         cmd: 'codex',
-        args: ['do X'],
+        args: [...CODEX_NETWORK_ARGS, 'do X'],
         cwd: '/w',
       })
       expect(agentLaunchCommand('grok', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
@@ -211,13 +216,14 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('codex', { cwd: '/w', instructions }).args).toEqual([
         '-c',
         'developer_instructions="Follow the pinned workflow."',
+        ...CODEX_NETWORK_ARGS,
       ])
     })
 
     it('never places the stable Podium row id into Codex developer context', () => {
       const sessionId = 'f439e012-7cd1-4d39-a07e-5843caf35f0c'
       expect(agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: sessionId }).args).toEqual(
-        [],
+        CODEX_NETWORK_ARGS,
       )
     })
 
@@ -280,6 +286,7 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('codex', { cwd: '/w', effort: 'high' }).args).toEqual([
         '-c',
         'model_reasoning_effort=high',
+        ...CODEX_NETWORK_ARGS,
       ])
     })
 
@@ -300,7 +307,7 @@ describe('agentLaunchCommand', () => {
       ).toEqual([])
       expect(
         agentLaunchCommand('codex', { cwd: '/w', model: 'auto', effort: 'auto' }).args,
-      ).toEqual([])
+      ).toEqual(CODEX_NETWORK_ARGS)
     })
   })
 
