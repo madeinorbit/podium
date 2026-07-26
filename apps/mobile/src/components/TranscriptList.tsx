@@ -16,6 +16,7 @@ import {
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -44,6 +45,8 @@ interface Row {
   quietText?: string
   /** Optimistic turn text for 'pending' rows (not yet echoed by the server). */
   pendingText?: string
+  /** The optimistic turn itself, so a failed row can offer a retry. */
+  pendingTurn?: PendingTurn
 }
 
 /** A turn the operator just sent, painted before the server echoes it back —
@@ -52,6 +55,11 @@ interface Row {
 export interface PendingTurn {
   id: string
   text: string
+  /** Set when the send itself was REJECTED (POD-346). A rejected turn that
+   *  keeps saying "sending…" is the worst possible outcome — the phone reads as
+   *  broken and the words are lost. The row goes red, names the reason, and
+   *  offers the send again. */
+  failed?: string
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -232,6 +240,7 @@ export function TranscriptList({
   onLoadOlder,
   onRefPress,
   pendingTurns,
+  onRetryPending,
 }: {
   items: TranscriptItem[]
   live: boolean
@@ -242,6 +251,8 @@ export function TranscriptList({
   onRefPress?: (ref: string) => void
   /** Turns sent but not yet echoed by the server, appended at the tail. */
   pendingTurns?: readonly PendingTurn[]
+  /** Send a rejected turn again (only failed rows expose the affordance). */
+  onRetryPending?: (turn: PendingTurn) => void
 }) {
   const rows = useMemo(() => {
     const built = buildRows(items)
@@ -251,6 +262,7 @@ export function TranscriptList({
         kind: 'pending',
         item: { id: turn.id, role: 'user', text: turn.text } as TranscriptItem,
         pendingText: turn.text,
+        pendingTurn: turn,
       })
     }
     return built
@@ -303,22 +315,45 @@ export function TranscriptList({
               </View>
             )
           }
-          case 'pending':
+          case 'pending': {
+            const turn = row.pendingTurn
+            const failed = turn?.failed
             return (
               <View style={styles.userWrap}>
-                <View style={[styles.userCard, styles.userCardPending]}>
+                <View
+                  style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
+                >
                   <View style={styles.userLabelRow}>
                     <Text style={styles.userLabel}>You</Text>
-                    <Text style={styles.userTime}>sending…</Text>
+                    <Text style={[styles.userTime, failed && styles.userTimeFailed]}>
+                      {failed ? 'not sent' : 'sending…'}
+                    </Text>
                   </View>
                   <MessageText
                     text={row.pendingText ?? ''}
                     style={styles.userText}
                     onRefPress={onRefPress}
                   />
+                  {failed ? (
+                    <>
+                      <Text style={styles.pendingError}>{failed}</Text>
+                      {onRetryPending && turn ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Send this message again"
+                          onPress={() => onRetryPending(turn)}
+                          hitSlop={8}
+                          style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                        >
+                          <Text style={styles.retryText}>Try again</Text>
+                        </Pressable>
+                      ) : null}
+                    </>
+                  ) : null}
                 </View>
               </View>
             )
+          }
           case 'question': {
             const isLivePending = live && pending != null && itemKey(pending) === row.key
             return (
@@ -416,6 +451,33 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     borderStyle: 'dashed',
   },
+  userCardFailed: {
+    borderColor: color.danger,
+  },
+  pendingError: {
+    ...mono(400),
+    marginTop: space.sm,
+    color: color.danger,
+    fontSize: font.tiny,
+    lineHeight: 16,
+  },
+  retry: {
+    alignSelf: 'flex-start',
+    marginTop: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.danger,
+  },
+  retryPressed: {
+    opacity: 0.6,
+  },
+  retryText: {
+    ...sans(700),
+    color: color.danger,
+    fontSize: font.tiny,
+  },
   userLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -430,6 +492,10 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     color: color.textMicro,
     fontSize: font.micro,
+  },
+  userTimeFailed: {
+    ...mono(700),
+    color: color.danger,
   },
   userText: {
     ...sans(500),

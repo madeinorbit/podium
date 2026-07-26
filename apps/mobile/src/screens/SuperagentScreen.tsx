@@ -182,24 +182,49 @@ export function SuperagentScreen() {
     setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
   }, [settled, pendingTurns.length])
 
+  // One dispatch, keyed by the optimistic row it owns. A rejection marks THAT
+  // row "not sent" with the reason and leaves the words on screen to retry
+  // (POD-346) — the old path only set a banner, which reads as "nothing
+  // happened" when the reason is a stuck turn or an offline server.
+  const dispatch = useCallback(
+    (id: string, text: string) => {
+      setRunning(true)
+      void trpc.superagent.sendTurn
+        .mutate({ threadId: THREAD_ID, text })
+        .then((ack) => {
+          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
+        })
+        .catch((e: unknown) => {
+          const message = e instanceof Error ? e.message : String(e)
+          setRunning(false)
+          setPendingTurns((prev) =>
+            prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
+          )
+        })
+    },
+    [trpc],
+  )
+
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
       setError(null)
-      setRunning(true)
-      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
-      void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text: trimmed })
-        .then((ack) => {
-          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
-        })
-        .catch((e: unknown) => {
-          setRunning(false)
-          setError(e instanceof Error ? e.message : String(e))
-        })
+      const id = `${Date.now()}:${trimmed.length}`
+      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
+      dispatch(id, trimmed)
     },
-    [trpc],
+    [dispatch],
+  )
+
+  const retry = useCallback(
+    (turn: PendingTurn) => {
+      setPendingTurns((prev) =>
+        prev.map((t) => (t.id === turn.id ? { id: t.id, text: t.text } : t)),
+      )
+      dispatch(turn.id, turn.text)
+    },
+    [dispatch],
   )
 
   const interrupt = useCallback(async () => {
@@ -281,6 +306,7 @@ export function SuperagentScreen() {
               items={rendered}
               live={running}
               pendingTurns={pendingTurns}
+              onRetryPending={retry}
               onLoadOlder={loadOlder}
               onAnswer={async (choices) => {
                 if (podiumSid) await answerQuestion(podiumSid, choices)

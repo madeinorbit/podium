@@ -115,6 +115,7 @@ export function WorkScreen() {
   const now = useNow(30_000)
   const [peek, setPeek] = useState<IssueWire | null>(null)
   const [menuIssue, setMenuIssue] = useState<IssueWire | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
 
   const { sections, allWorktreePaths, issueCount, agentCount } = useMemo(() => {
     const nav = sidebarSections(client.repos, client.sessions, client.pins, now, client.issues)
@@ -217,7 +218,7 @@ export function WorkScreen() {
       title="Work"
       subtitle={`${issueCount} task${issueCount === 1 ? '' : 's'} · ${agentCount} agent${agentCount === 1 ? '' : 's'}`}
       right={
-        <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
+        <HeaderButton label="Add work" onPress={() => setAddOpen(true)}>
           <Icon as={Plus} size={19} color={color.text} />
         </HeaderButton>
       }
@@ -271,6 +272,28 @@ export function WorkScreen() {
         }
       />
       <TaskPeekSheet issue={peek} onClose={() => setPeek(null)} />
+      {/* The + is TASK-first (POD-346). It used to go straight to New session,
+       *  which spawns an agent bound to no issue and no worktree — and the Work
+       *  list is derived from issues + worktrees, so that agent ran invisibly:
+       *  "I sent a task, it spawned a Claude, then nothing ever happened."
+       *  A bare session is still reachable, one step down, as it is on the desk. */}
+      <ActionSheet
+        visible={addOpen}
+        title="Add work"
+        actions={[
+          {
+            label: 'New task',
+            hint: 'A tracked task with its own branch and worktree — an agent can start on it right away.',
+            onPress: () => router.push('/new-issue'),
+          },
+          {
+            label: 'New session',
+            hint: 'A bare agent in a checkout, with no task attached. Find it under Tray, not Work.',
+            onPress: () => router.push('/new-session'),
+          },
+        ]}
+        onClose={() => setAddOpen(false)}
+      />
       <ActionSheet
         visible={menuIssue !== null}
         title={menuIssue ? `${issueDisplayRef(menuIssue)} ${menuIssue.title}` : ''}
