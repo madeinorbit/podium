@@ -62,9 +62,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
     })
 
     finishHandshake?.({
-      status: 'ready',
-      fencingToken: 1,
-      expiresAt: '2099-01-01T00:00:00.000Z',
+      ...readyLease({ expiresAt: '2099-01-01T00:00:00.000Z' }),
       messageWaitTtlMs: 60_000,
     })
     await first
