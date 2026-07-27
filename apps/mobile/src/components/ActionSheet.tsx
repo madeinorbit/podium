@@ -5,6 +5,9 @@ import { color, elevation, font, monoLabel, radius, sans, space } from '../theme
 
 export interface SheetAction {
   label: string
+  /** One line under the label, for a choice the label alone can't settle
+   *  (e.g. task vs bare session — where the work ends up differs). */
+  hint?: string
   destructive?: boolean
   onPress: () => void
 }
@@ -78,6 +81,7 @@ export function ActionSheet({
               key={action.label}
               accessibilityRole="button"
               accessibilityLabel={action.label}
+              {...(action.hint ? { accessibilityHint: action.hint } : {})}
               onPress={() => {
                 onClose()
                 action.onPress()
@@ -91,6 +95,7 @@ export function ActionSheet({
               <Text style={[styles.actionText, action.destructive && styles.destructive]}>
                 {action.label}
               </Text>
+              {action.hint ? <Text style={styles.actionHint}>{action.hint}</Text> : null}
             </Pressable>
           ))}
         </View>
@@ -151,7 +156,9 @@ const styles = StyleSheet.create({
   },
   action: {
     paddingVertical: 14,
+    paddingHorizontal: space.lg,
     alignItems: 'center',
+    gap: 3,
   },
   actionDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -164,6 +171,13 @@ const styles = StyleSheet.create({
     ...sans(600),
     color: color.text,
     fontSize: font.body,
+  },
+  actionHint: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.tiny,
+    lineHeight: 15,
+    textAlign: 'center',
   },
   destructive: {
     color: color.danger,

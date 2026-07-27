@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mobile parity plan — POD-346</title>
+<style>
+  :root{
+    --bg:#0a0f1c; --sunken:#070b16; --bar:#050912; --rail:#0e1626;
+    --surface:#121b30; --high:#16223c;
+    --border:#243356; --strong:#364a78; --hairline:#1e2a4c;
+    --text:#f3f3f8; --body:#d7d7e0; --dim:#9a9aa8; --faint:#6c7690; --micro:#525c78; --label:#7a84a0;
+    --accent:#f5c518; --accent-soft:rgba(245,197,24,.13); --accent-border:rgba(245,197,24,.45);
+    --blue:#2f6bff; --blue-soft:rgba(47,107,255,.13);
+    --red:#e5303f;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--body);
+    font-family:var(--sans); font-size:16px; line-height:1.62;
+    padding:0 0 env(safe-area-inset-bottom);
+    overflow-wrap:break-word;
+  }
+  .wrap{max-width:44rem;margin:0 auto;padding:0 20px 72px}
+
+  /* Section bar — the app's carved header */
+  header.bar{
+    position:sticky; top:0; z-index:10;
+    background:var(--bar); border-bottom:1px solid var(--hairline);
+    padding:calc(10px + env(safe-area-inset-top)) 20px 10px;
+    display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;
+  }
+  header.bar .glyph{color:var(--accent);font-size:13px;line-height:1}
+  header.bar h1{margin:0;font-size:15px;font-weight:650;color:var(--text);letter-spacing:-.01em}
+  header.bar .scope{
+    font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--micro);margin-left:auto
+  }
+
+  .lede{color:var(--dim);font-size:14.5px;margin:18px 0 4px}
+
+  h2{
+    font-size:20px;line-height:1.28;font-weight:680;color:var(--text);
+    letter-spacing:-.015em;margin:44px 0 12px;padding-top:20px;
+    border-top:1px solid var(--hairline);
+  }
+  h2:first-of-type{border-top:0;padding-top:0}
+  h2 .n{font-family:var(--mono);font-size:12px;color:var(--accent);display:block;
+    letter-spacing:.12em;margin-bottom:6px;font-weight:600}
+  h3{font-size:16px;font-weight:650;color:var(--text);margin:28px 0 8px;letter-spacing:-.01em}
+  p{margin:0 0 14px}
+  strong{color:var(--text);font-weight:640}
+  code{
+    font-family:var(--mono);font-size:.855em;background:var(--sunken);
+    border:1px solid var(--hairline);border-radius:4px;padding:.1em .34em;color:var(--body)
+  }
+  a{color:var(--accent);text-decoration-color:var(--accent-border);text-underline-offset:3px}
+
+  /* Callout — the one loud thing on the page */
+  .callout{
+    background:var(--accent-soft);border:1px solid var(--accent-border);
+    border-radius:12px;padding:16px 18px;margin:20px 0;
+  }
+  .callout .k{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);display:block;margin-bottom:7px;font-weight:700
+  }
+  .callout p:last-child{margin-bottom:0}
+
+  .note{
+    border-left:3px solid var(--strong);background:var(--surface);
+    border-radius:0 10px 10px 0;padding:13px 16px;margin:18px 0;font-size:14.5px;color:var(--dim)
+  }
+  .note p:last-child{margin-bottom:0}
+
+  ul,ol{margin:0 0 16px;padding-left:1.25em}
+  li{margin:0 0 9px}
+  li::marker{color:var(--faint)}
+  ol li::marker{font-family:var(--mono);font-size:.85em;color:var(--accent)}
+
+  /* Tables → cards on a phone, real tables on a wide screen */
+  .t{margin:16px 0 22px}
+  .t .row{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:11px;
+    padding:13px 15px;margin-bottom:8px
+  }
+  .t .row .h{
+    font-weight:640;color:var(--text);font-size:15px;margin-bottom:5px;
+    display:flex;align-items:baseline;gap:8px
+  }
+  .t .row .d{font-size:14px;color:var(--dim);margin-bottom:5px}
+  .t .row .w{font-family:var(--mono);font-size:11px;color:var(--micro)}
+  .t .row .w::before{content:"web · "}
+  .pill{
+    flex:none;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    border-radius:999px;padding:2px 8px;border:1px solid currentColor;font-weight:700
+  }
+  .ok{color:var(--blue);background:var(--blue-soft)}
+  .gap{color:var(--red);background:rgba(229,48,63,.1)}
+  .part{color:var(--accent);background:var(--accent-soft)}
+
+  .rank{counter-reset:r}
+  .rank .grp{margin:0 0 22px}
+  .rank .grp>.gh{
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--label);margin:0 0 9px;display:flex;align-items:center;gap:9px
+  }
+  .rank .grp>.gh::after{content:"";flex:1;height:1px;background:var(--hairline)}
+  .done{color:var(--blue);font-family:var(--mono);font-size:10px;letter-spacing:.08em}
+
+  footer{
+    margin-top:52px;padding-top:18px;border-top:1px solid var(--hairline);
+    font-family:var(--mono);font-size:11px;color:var(--micro);line-height:1.7
+  }
+
+  @media (min-width:720px){
+    body{font-size:16.5px}
+    .t{display:table;width:100%;border-collapse:collapse}
+    .t .row{display:table-row;background:none;border:0;border-radius:0}
+    .t .row>*{display:table-cell;padding:11px 14px 11px 0;border-bottom:1px solid var(--hairline);vertical-align:top}
+    .t .row .h{width:34%;margin:0}
+    .t .row .d{width:48%;margin:0}
+    .t .row .w{width:18%}
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <span class="glyph">✦</span>
+  <h1>Mobile: par, then best in class</h1>
+  <span class="scope">POD-346</span>
+</header>
+
+<div class="wrap">
+
+<p class="lede">Everything below was checked against the code and against a live isolated
+instance serving a freshly exported phone bundle — not inferred.</p>
+
+<h2><span class="n">00 · the one that matters most</span>Nothing you fix reaches the phone</h2>
+
+<div class="callout">
+  <span class="k">Root cause</span>
+  <p><strong>Your phone had never run the code we merged.</strong> <code>apps/mobile/dist</code> — the
+  bundle the backend serves at <code>/mobile</code> — was last built at <strong>00:30</strong>. The
+  superagent chat fix (POD-344) landed on <code>main</code> at <strong>00:35</strong>. Five minutes
+  late, so the phone kept running the broken screen.</p>
+</div>
+
+<p>The repo ships the units that exist to prevent exactly this —
+<code>podium-web.service</code> (<em>“rebuilds apps/web/dist and apps/mobile/dist … runs at boot and
+on every redeploy”</em>) plus <code>podium-redeploy.path</code>. <strong>Neither is installed on this
+machine.</strong> Only <code>podium-server</code>, <code>podium-daemon</code> and
+<code>podium-janitor</code> are. So both bundles change only when a human remembers to run the build.</p>
+
+<p>That single gap is the whole premise of this issue: <em>“a lot of recent changes did not yet make
+it to mobile.”</em> They were written. They were merged. They were never built.</p>
+
+<div class="note"><p><strong>Now:</strong> merged and both bundles rebuilt by hand, verified against
+the running server. <strong>Still open:</strong> POD-347 installs the units so the next merge doesn’t
+go stale the same way.</p></div>
+
+<h2><span class="n">01</span>The two bugs</h2>
+
+<h3>Superagent send — “just nothing happens”</h3>
+<p>Not a send bug. The turn dispatched fine; the <em>screen</em> could not show it. The phone built its
+transcript from <code>superagent.history</code> — the frozen legacy buffer, which on your live database
+has <strong>zero rows</strong>. So the bubble sat on “sending…” forever and the reply never appeared.
+POD-344 had already rewritten it to read the thread’s headless session transcript. The code was fixed;
+only the deploy was missing.</p>
+<p>Added on top, so “nothing happens” is structurally impossible: a rejected send now marks its own
+bubble <strong>not sent</strong>, prints the server’s reason, and offers <strong>Try again</strong>
+with the words intact.</p>
+
+<h3>“I added a task in the Work tab and nothing ever happened”</h3>
+<p>The Work tab’s <code>+</code> opened <strong>New session</strong>, not New task. A session made that
+way is bound to no issue and no worktree — and the Work list is derived from issues and worktrees, so
+the agent it spawned was <strong>invisible by construction</strong>. It was not lost: one was still
+running in the shared root checkout, on <code>main</code>.</p>
+<p>Now <code>+</code> opens a sheet whose first, primary action is <strong>New task</strong>, with New
+session one step down and each option saying where its work lands. A task with nobody on it also gained
+a <strong>Start an agent</strong> button.</p>
+
+<h2><span class="n">02</span>Parity ledger</h2>
+
+<h3>Already good — don’t touch</h3>
+<div class="t">
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Tray triage</div><div class="d">Needs-you ordering, shared viewmodels with the desktop.</div><div class="w">parity</div></div>
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Offer cards</div><div class="d">Actions, <code>--action-input</code> feedback, artifact thumbnails. Full parity.</div><div class="w">OfferBar</div></div>
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Work list</div><div class="d">Pinned band, project groups, agent rosters, tuck-away, Snoozed/Closed folds — same derivation as the sidebar.</div><div class="w">SidebarUnified</div></div>
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Session chat</div><div class="d">Flat Field rows, tool verdicts, question answering, scroll-back paging.</div><div class="w">ChatView</div></div>
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Session actions</div><div class="d">Archive, snooze, rename, kill.</div><div class="w">parity</div></div>
+  <div class="row"><div class="h"><span class="pill ok">ok</span>Offline</div><div class="d">Replica cold-start, outboxed sends — better than most native apps.</div><div class="w">store</div></div>
+</div>
+
+<h3>Gaps that change what you can <em>do</em> from a phone</h3>
+<div class="t">
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Diff / git review</div><div class="d">You can’t judge a “ready to merge” offer without a laptop. The single biggest reason a phone session ends in “I’ll look later”.</div><div class="w">features/git</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Rebase / PR / merge</div><div class="d">You can read that work is done and do nothing about it.</div><div class="w">issues.action</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Issue artifacts</div><div class="d">Every agent is told to attach reviewable artifacts. On the phone they’re reachable only if an offer happens to name them — <em>this page is the proof</em>.</div><div class="w">IssuePanelView</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Todo + Deferred</div><div class="d">The human-facing progress list agents maintain is invisible.</div><div class="w">DockSection</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Subtasks + relations</div><div class="d">An epic reads as one flat row; blocked/blocking is a single red line.</div><div class="w">IssuePanelView</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Close a task</div><div class="d">Stage can be set to <code>done</code>, but closure reason and the tuck path are desktop-only.</div><div class="w">issues.close</div></div>
+  <div class="row"><div class="h"><span class="pill part">part</span>Task properties</div><div class="d">Priority, type, assignee, colour are create-time only — not editable after.</div><div class="w">issue-page-properties</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Conversation search</div><div class="d">The data is already synced to the phone and sits unused.</div><div class="w">conversations.search</div></div>
+  <div class="row"><div class="h"><span class="pill gap">gap</span>Usage + quota</div><div class="d">No way to see you’re about to run out mid-flight.</div><div class="w">features/usage</div></div>
+  <div class="row"><div class="h"><span class="pill part">part</span>Settings</div><div class="d">Connection stats and logout only. No notifications, harness, model/effort, repos, accounts.</div><div class="w">20 sections</div></div>
+</div>
+
+<h3>Chat gaps</h3>
+<ul>
+  <li><strong>Image attach / camera</strong> — sending a screenshot from your phone is the most natural mobile-only capability, and it’s missing.</li>
+  <li><strong><code>@</code> references</strong> in the composer — the phone can’t point at a repo or session.</li>
+  <li><strong>Model / effort switch</strong> per turn — desktop only.</li>
+  <li><strong>Interrupt a session turn</strong> — superagent has Stop; a normal chat doesn’t.</li>
+  <li><strong>Queued sends</strong> — <code>outboxSize</code> shows in Settings, not where you sent the message.</li>
+</ul>
+
+<h2><span class="n">03</span>What “best in class” actually needs</h2>
+<p>Parity alone won’t make this feel like a great phone app. These aren’t on the desktop at all, and
+they matter more than most of the table above.</p>
+
+<ol>
+  <li><strong>Push notifications.</strong> The whole value of Podium on a phone is “an agent needs you
+  and you’re not at your desk.” Today there is <em>no</em> notification path — the server’s notify
+  module only speaks Telegram. Nothing tells you an agent asked a question. This is number one.</li>
+  <li><strong>Make the phone app installable.</strong> The desktop web app is a real PWA. The Expo web
+  export ships <strong>no manifest and no service worker</strong> — so the surface that lives on a home
+  screen is the <em>less</em> installable of the two. Push depends on this.</li>
+  <li><strong>Deep links from a notification</strong> into the exact card that needs a decision.</li>
+  <li><strong>Voice input.</strong> Dictating a task while walking is the phone’s comparative advantage.</li>
+  <li><strong>Swipe actions.</strong> Snooze / tuck / archive each cost a long-press plus a sheet today.</li>
+  <li><strong>Pull-to-refresh</strong> — the only manual resync when the socket is wedged, which is
+  exactly when you want one.</li>
+  <li><strong>Android keyboard avoidance</strong> — currently iOS-only.</li>
+  <li><strong>A visible connection state.</strong> When the socket is down the phone silently shows
+  stale data.</li>
+</ol>
+
+<h2><span class="n">04</span>Suggested order</h2>
+
+<div class="rank">
+  <div class="grp">
+    <div class="gh">P0 · ship before anything else</div>
+    <ol>
+      <li>Install the redeploy units so merged fixes reach the phone <em>(POD-347 — minutes of ops)</em></li>
+      <li>Rebuild and deploy the bundle <span class="done">✓ done</span></li>
+      <li>Task creation from Work + Start-an-agent recovery <span class="done">✓ done</span></li>
+      <li>Rejected sends become visible and retryable <span class="done">✓ done</span></li>
+    </ol>
+  </div>
+  <div class="grp">
+    <div class="gh">P1 · the phone becomes decision-capable</div>
+    <ol start="5">
+      <li>PWA shell (POD-348) → push notifications (POD-349) → deep links</li>
+      <li>Diff review + merge / PR / rebase (POD-350)</li>
+      <li>Task screen parity: artifacts, todo, deferred, subtasks, close (POD-351)</li>
+    </ol>
+  </div>
+  <div class="grp">
+    <div class="gh">P2 · the phone becomes pleasant</div>
+    <ol start="8">
+      <li>Image attach / camera (POD-352)</li>
+      <li>Swipe actions, pull-to-refresh, connection state, Android keyboard (POD-353)</li>
+      <li>Voice input</li>
+    </ol>
+  </div>
+  <div class="grp">
+    <div class="gh">P3 · completeness</div>
+    <ol start="11">
+      <li>Settings that matter on a phone; conversation search; usage + quota; mail</li>
+    </ol>
+  </div>
+</div>
+
+<h2><span class="n">05</span>Shipped in POD-346</h2>
+<ul>
+  <li>Work tab <code>+</code> is task-first, with an explicit choice and a note on where each option’s
+  work lands.</li>
+  <li>Task page: <strong>Start an agent</strong> when nobody is on it; the human-facing ref
+  (<code>DEM-2</code>) instead of the internal <code>#seq</code>.</li>
+  <li>A rejected superagent send marks its bubble <strong>not sent</strong>, names the reason, and
+  offers <strong>Try again</strong>.</li>
+</ul>
+
+<footer>
+  POD-346 · merged as dfb0ec16 · verified against a real bundle on a live isolated instance<br>
+  follow-ups: POD-347 deploy gate · POD-348 PWA shell · POD-349 push · POD-350 diff+merge ·
+  POD-351 task screen · POD-352 images · POD-353 gestures · POD-354 bare-session default
+</footer>
+
+</div>
+</body>
+</html>

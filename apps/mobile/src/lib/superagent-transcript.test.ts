@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { dropEchoedTurns, dropFailedTurns, renderedTranscript } from './superagent-transcript'
+import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from './superagent-transcript'
 
 const item = (
   partial: Partial<TranscriptItem> & Pick<TranscriptItem, 'id' | 'role' | 'text'>,
@@ -63,43 +63,44 @@ describe('dropEchoedTurns', () => {
   })
 })
 
-describe('dropFailedTurns', () => {
-  // The second route to the POD-344 symptom, past the render-source fix: an
-  // echo is the ONLY thing that settles a pending turn, and a turn that never
-  // ran writes no transcript — so without this the row reads "sending…" for
-  // ever while the error banner sits right above it.
-  it('retracts the rejected turn by id, leaving anything queued behind it', () => {
-    const pending = [
-      { id: 'p1', text: 'rejected' },
-      { id: 'p2', text: 'still queued' },
-    ]
-    expect(dropFailedTurns(pending, 'p1')).toEqual([{ id: 'p2', text: 'still queued' }])
+describe('markTurnsFailed', () => {
+  // The route POD-346's rejection handling cannot reach: a turn that is
+  // ACCEPTED and then dies resolves the mutation, so no catch marks its row,
+  // and a dead turn writes no transcript for dropEchoedTurns to match. Without
+  // this the row reads "sending…" for ever.
+  it('marks a pending turn failed with the reason, keeping its words', () => {
+    const pending = [{ id: 'p1', text: 'do the thing' }]
+    expect(markTurnsFailed(pending, 'harness died')).toEqual([
+      { id: 'p1', text: 'do the thing', failed: 'harness died' },
+    ])
   })
 
-  it('clears every pending turn when a dispatched turn dies (no id given)', () => {
-    const pending = [
+  it('marks every unmarked turn — a dead turn owns everything still pending', () => {
+    const pending: { id: string; text: string; failed?: string }[] = [
       { id: 'p1', text: 'first' },
       { id: 'p2', text: 'second' },
     ]
-    expect(dropFailedTurns(pending)).toEqual([])
+    expect(markTurnsFailed(pending, 'boom').map((t) => t.failed)).toEqual(['boom', 'boom'])
   })
 
-  it('matches on id, NOT on text — a resend of the same words is not the failed one', () => {
+  it('leaves an already-failed row on its ORIGINAL reason', () => {
     const pending = [
-      { id: 'p1', text: 'same words' },
-      { id: 'p2', text: 'same words' },
+      { id: 'p1', text: 'rejected earlier', failed: 'a turn is already running' },
+      { id: 'p2', text: 'died now' },
     ]
-    expect(dropFailedTurns(pending, 'p2')).toEqual([{ id: 'p1', text: 'same words' }])
+    expect(markTurnsFailed(pending, 'harness died').map((t) => t.failed)).toEqual([
+      'a turn is already running',
+      'harness died',
+    ])
   })
 
-  it('returns the SAME array when the id matches nothing, so setState stays a no-op', () => {
-    const pending = [{ id: 'p1', text: 'ship it' }]
-    expect(dropFailedTurns(pending, 'nope')).toBe(pending)
+  it('returns the SAME array when every row is already failed, so setState stays a no-op', () => {
+    const pending = [{ id: 'p1', text: 'x', failed: 'earlier' }]
+    expect(markTurnsFailed(pending, 'later')).toBe(pending)
   })
 
-  it('is a no-op on an empty list, with or without an id', () => {
-    const empty: { id: string; text: string }[] = []
-    expect(dropFailedTurns(empty, 'p1')).toBe(empty)
-    expect(dropFailedTurns(empty)).toBe(empty)
+  it('is a no-op on an empty list', () => {
+    const empty: { id: string; text: string; failed?: string }[] = []
+    expect(markTurnsFailed(empty, 'boom')).toBe(empty)
   })
 })

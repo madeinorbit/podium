@@ -11,7 +11,7 @@ import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { dropEchoedTurns, dropFailedTurns, renderedTranscript } from '../lib/superagent-transcript'
+import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 
 /**
@@ -130,13 +130,16 @@ export function SuperagentScreen() {
         setLiveText('')
         setStatusLabel(null)
         if (event.error) {
-          setError(event.error)
-          // A turn that DIED after dispatch (harness crash, spawn failure) may
-          // have written no transcript at all, so its optimistic row would sit
-          // on "sending…" forever too — the same POD-344 symptom one step
-          // later. The thread's writer lock is released here, so anything still
-          // pending belongs to the turn that just failed.
-          setPendingTurns((prev) => dropFailedTurns(prev) as PendingTurn[])
+          const reason = event.error
+          setError(reason)
+          // The OTHER way a turn fails (POD-344). POD-346 marks a row "not sent"
+          // when the mutation is rejected — but a turn that is ACCEPTED and then
+          // dies (harness crash, spawn failure) resolves that mutation, so its
+          // catch never runs, and a dead turn writes no transcript for
+          // dropEchoedTurns to match. Without this the row says "sending…" for
+          // ever. The writer lock is released at turn-end and the server refuses
+          // a second concurrent turn, so anything still pending is this turn's.
+          setPendingTurns((prev) => markTurnsFailed(prev, reason) as PendingTurn[])
         }
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
@@ -180,30 +183,51 @@ export function SuperagentScreen() {
     setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
   }, [settled, pendingTurns.length])
 
+  // One dispatch, keyed by the optimistic row it owns. A rejection marks THAT
+  // row "not sent" with the reason and leaves the words on screen to retry
+  // (POD-346) — the old path only set a banner, which reads as "nothing
+  // happened" when the reason is a stuck turn or an offline server.
+  const dispatch = useCallback(
+    (id: string, text: string) => {
+      setRunning(true)
+      void trpc.superagent.sendTurn
+        .mutate({ threadId: THREAD_ID, text })
+        .then((ack) => {
+          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
+        })
+        .catch((e: unknown) => {
+          const message = e instanceof Error ? e.message : String(e)
+          setRunning(false)
+          setPendingTurns((prev) =>
+            prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
+          )
+        })
+    },
+    [trpc],
+  )
+
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
       setError(null)
-      setRunning(true)
-      // Minted up front, not inside the updater: the rejection path below needs
-      // to name exactly this row to retract it.
-      const turnId = `${Date.now()}:${turnSeq.current++}`
-      setPendingTurns((prev) => [...prev, { id: turnId, text: trimmed }])
-      void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text: trimmed })
-        .then((ack) => {
-          if (ack?.podiumSessionId) setPodiumSid(ack.podiumSessionId)
-        })
-        .catch((e: unknown) => {
-          setRunning(false)
-          setError(e instanceof Error ? e.message : String(e))
-          // The turn never ran, so no transcript will ever echo it: retract the
-          // optimistic row here or it reads "sending…" until remount (POD-344).
-          setPendingTurns((prev) => dropFailedTurns(prev, turnId) as PendingTurn[])
-        })
+      // Counter, not text length: two identical messages inside one millisecond
+      // would share an id, and `failed`/retry address a row BY id.
+      const id = `${Date.now()}:${turnSeq.current++}`
+      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
+      dispatch(id, trimmed)
     },
-    [trpc],
+    [dispatch],
+  )
+
+  const retry = useCallback(
+    (turn: PendingTurn) => {
+      setPendingTurns((prev) =>
+        prev.map((t) => (t.id === turn.id ? { id: t.id, text: t.text } : t)),
+      )
+      dispatch(turn.id, turn.text)
+    },
+    [dispatch],
   )
 
   const interrupt = useCallback(async () => {
@@ -284,6 +308,7 @@ export function SuperagentScreen() {
               items={rendered}
               live={running}
               pendingTurns={pendingTurns}
+              onRetryPending={retry}
               onLoadOlder={loadOlder}
               onAnswer={async (choices) => {
                 if (podiumSid) await answerQuestion(podiumSid, choices)

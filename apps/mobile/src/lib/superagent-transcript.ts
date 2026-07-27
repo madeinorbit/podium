@@ -27,8 +27,10 @@ interface EchoableTurn {
   text: string
 }
 
-interface IdentifiedTurn extends EchoableTurn {
-  id: string
+/** Structural twin of `PendingTurn`'s failure marking (POD-346): a rejected or
+ *  dead turn keeps its words on screen, reads "not sent", and offers a retry. */
+interface FailableTurn extends EchoableTurn {
+  failed?: string
 }
 
 /**
@@ -64,28 +66,26 @@ export function dropEchoedTurns<T extends EchoableTurn>(
 }
 
 /**
- * Drop optimistic turns that can NEVER be echoed (POD-344).
+ * Mark still-pending turns as failed when a DISPATCHED turn dies (POD-344).
  *
- * A transcript echo is the only thing that settles a pending turn, and a turn
- * that never ran writes no transcript — so a send the server REJECTED, or a
- * turn that ended in ERROR, leaves a row claiming "sending…" until the screen
- * is remounted. That is the reported symptom reached by a second path, past
- * the render-source fix: the error banner appears while the row still insists
- * it is sending.
+ * POD-346 already covers the send the server REJECTS: that mutation's catch
+ * marks its own row. It cannot cover this one. A turn that is accepted and then
+ * dies — harness crash, spawn failure — RESOLVES the mutation, so no catch
+ * runs, and it writes no transcript for `dropEchoedTurns` to match against. The
+ * row would claim "sending…" until the screen was remounted.
  *
- * Pass `failedId` for a rejected send — only that turn is dropped, so a turn
- * queued behind it is left alone. Omit it when a dispatched turn ends in error:
- * the thread's writer lock is released and the server refuses a second
- * concurrent turn, so every row still pending belongs to the turn that just
- * died. Returns the ORIGINAL array when nothing changed, matching
- * `dropEchoedTurns` so the caller's `setState` stays a no-op.
+ * Everything still pending belongs to the turn that just died: the writer lock
+ * is released at turn-end and the server refuses a second concurrent turn on a
+ * thread. Marking rather than dropping keeps POD-346's grammar — the words stay
+ * on screen, the row reads "not sent" with the reason, and retry is one tap.
+ * Already-failed rows keep their original reason, and the ORIGINAL array comes
+ * back when nothing changed, so the caller's `setState` stays a no-op.
  */
-export function dropFailedTurns<T extends IdentifiedTurn>(
+export function markTurnsFailed<T extends FailableTurn>(
   pending: readonly T[],
-  failedId?: string,
+  reason: string,
 ): readonly T[] {
   if (pending.length === 0) return pending
-  if (failedId === undefined) return []
-  const next = pending.filter((turn) => turn.id !== failedId)
-  return next.length === pending.length ? pending : next
+  if (pending.every((turn) => turn.failed !== undefined)) return pending
+  return pending.map((turn) => (turn.failed === undefined ? { ...turn, failed: reason } : turn))
 }

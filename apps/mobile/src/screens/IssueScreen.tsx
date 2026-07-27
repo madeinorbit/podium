@@ -1,6 +1,6 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES } from '@podium/protocol'
+import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
@@ -23,6 +23,7 @@ export function IssueScreen() {
   const now = Date.now()
   const [stageMenuOpen, setStageMenuOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
 
   const sessions = useMemo(
     () => withoutShells(client.sessions).filter((s) => s.issueId === issueId && !s.archived),
@@ -46,6 +47,21 @@ export function IssueScreen() {
     }
   }
 
+  // The recovery path for a task with nobody on it (POD-346): filed without
+  // "start now", or started once and since finished. Without it the phone can
+  // create work it cannot then get an agent onto.
+  const startAgent = async () => {
+    setError(null)
+    setStarting(true)
+    try {
+      await client.trpc.issues.start.mutate({ id: issue.id })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setStarting(false)
+    }
+  }
+
   const addComment = async (body: string) => {
     setError(null)
     try {
@@ -56,7 +72,7 @@ export function IssueScreen() {
   }
 
   return (
-    <Screen title={`#${issue.seq} ${issue.title}`} onBack={() => router.back()}>
+    <Screen title={`${issueDisplayRef(issue)} ${issue.title}`} onBack={() => router.back()}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.metaRow}>
           <Pressable
@@ -97,7 +113,21 @@ export function IssueScreen() {
 
         <SectionHeader label={`Sessions (${sessions.length})`} />
         {sessions.length === 0 ? (
-          <Text style={styles.noSessions}>No active sessions on this task.</Text>
+          <>
+            <Text style={styles.noSessions}>No agent is on this task.</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Start an agent on this task"
+              disabled={starting}
+              onPress={() => void startAgent()}
+              style={({ pressed }) => [
+                styles.startBtn,
+                (starting || pressed) && styles.startBtnMuted,
+              ]}
+            >
+              <Text style={styles.startText}>{starting ? 'Starting…' : 'Start an agent'}</Text>
+            </Pressable>
+          </>
         ) : (
           sessions.map((session) => (
             <SessionCard
@@ -169,6 +199,23 @@ const styles = StyleSheet.create({
     color: color.textFaint,
     fontSize: font.small,
     paddingHorizontal: space.lg,
+  },
+  startBtn: {
+    alignSelf: 'flex-start',
+    marginHorizontal: space.lg,
+    marginTop: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.sm,
+    backgroundColor: color.accent,
+  },
+  startBtnMuted: {
+    opacity: 0.55,
+  },
+  startText: {
+    color: color.accentText,
+    fontSize: font.small,
+    ...sans(700),
   },
   error: {
     color: color.danger,

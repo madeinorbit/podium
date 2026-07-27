@@ -268,8 +268,8 @@ export function SessionScreen() {
               >
                 <Text
                   style={[
-                    mono(600),
                     styles.segmentText,
+                    styles.segmentTextTerminal,
                     view === 'native' && styles.segmentTextNative,
                   ]}
                 >
@@ -399,6 +399,21 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: color.text,
+  },
+  /**
+   * The `>_` terminal mark (POD-355). Two things kept it from lining up with
+   * the "Chat" label beside it:
+   *  - it asked for `mono(600)` FIRST in the style array, so `segmentText`'s
+   *    `sans(600)` silently won (later styles override earlier ones) and the
+   *    terminal mark rendered in the proportional face;
+   *  - the cell centres each label's LINE BOX, but `>_` has no ascender and its
+   *    underscore sits below the baseline, so its ink lands ~1.5px lower than a
+   *    cap-height word in the same box. Lift it back onto Chat's optical centre
+   *    with a transform, which nudges the glyph without reflowing the 28px strip.
+   */
+  segmentTextTerminal: {
+    ...mono(600),
+    transform: [{ translateY: -1.5 }],
   },
   segmentTextNative: {
     color: color.accent,
