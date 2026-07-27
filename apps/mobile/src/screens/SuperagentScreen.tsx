@@ -5,19 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useMobileClient } from '../client/MobileClientProvider'
-import type { SuperagentMessage } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { BrailleSpinner } from '../components/StatusGlyphs'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import {
-  dropEchoedTurns,
-  dropFailedTurns,
-  renderedTranscript,
-  settledTranscript,
-} from '../lib/superagent-transcript'
+import { dropEchoedTurns, dropFailedTurns, renderedTranscript } from '../lib/superagent-transcript'
 import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
 
 /**
@@ -30,11 +24,11 @@ import { color, font, mono, monoLabel, sans, space } from '../theme/theme'
  *  - The SAME Flat Field transcript the session chat renders (the desktop
  *    embeds `ChatView` here for exactly this reason) instead of a second,
  *    bespoke chat vocabulary — and, since POD-344, over the same SOURCE: the
- *    thread's headless session transcript. `superagent.history` is the FROZEN
- *    legacy buffer (the server writes only turn-failure notices there now), so
- *    a screen built on it alone renders neither the turn it just sent nor the
- *    reply — the phone hung on "sending" forever. It survives as a prefix so
- *    pre-harness threads stay readable.
+ *    thread's headless session transcript, and only that. `superagent.history`
+ *    is the frozen legacy buffer, so a screen built on it rendered neither the
+ *    turn it just sent nor the reply — the phone hung on "sending" forever.
+ *    The desktop reads none of it and neither does this; see
+ *    ../lib/superagent-transcript for why folding it back in is a trap.
  *  - Laid out like every other tab: safe-area header, one scroller, composer
  *    docked directly above the tab bar — no hand-tuned lift leaving dead space.
  */
@@ -44,7 +38,6 @@ export function SuperagentScreen() {
   const client = useMobileClient()
   const { trpc, subscribeHeadless, readTranscript, subscribeTranscript, answerQuestion } = client
   const insets = useSafeAreaInsets()
-  const [legacy, setLegacy] = useState<SuperagentMessage[]>([])
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [liveText, setLiveText] = useState('')
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
@@ -73,14 +66,6 @@ export function SuperagentScreen() {
         const thread = list.find((t) => t.id === THREAD_ID)
         setPodiumSid(thread?.podiumSessionId)
         if (thread?.turnRunning) setRunning(true)
-      })
-      .catch(() => {})
-    // Legacy prefix; a thread that never used the buffered path returns [].
-    // A failure here must not paint the screen's error banner.
-    void trpc.superagent.history
-      .query({ threadId: THREAD_ID })
-      .then((rows) => {
-        if (alive) setLegacy(rows)
       })
       .catch(() => {})
     return () => {
@@ -185,8 +170,9 @@ export function SuperagentScreen() {
     return () => clearInterval(id)
   }, [running, trpc])
 
-  // The settled conversation: frozen legacy rows, then the live transcript.
-  const settled = useMemo(() => settledTranscript(legacy, items), [legacy, items])
+  // The settled conversation IS the session transcript — see superagent-transcript.ts
+  // for why the legacy buffer is not folded in.
+  const settled = items
 
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
@@ -235,7 +221,6 @@ export function SuperagentScreen() {
       // The server drops the thread's harness+headless binding, so the old
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
-      setLegacy([])
       setItems([])
       setPodiumSid(undefined)
       setPendingTurns([])

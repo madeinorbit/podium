@@ -3,16 +3,23 @@
  *
  * The thread's conversation lives in its HEADLESS SESSION TRANSCRIPT — the same
  * pipeline a normal chat renders, which is why the desktop embeds `ChatView`
- * for this surface. `superagent.history` (the `superagent_messages` table) is
- * the FROZEN legacy buffer: the server appends only turn-FAILURE notices to it
- * now, so a screen composed from it alone shows neither the turn the user just
- * sent nor the reply — the phone sat on "sending" forever.
+ * for this surface. That transcript is the ONLY source: `superagent.history`
+ * (the `superagent_messages` table) is the frozen legacy buffer, and a screen
+ * composed from it showed neither the turn the user just sent nor the reply —
+ * the phone sat on "sending" forever.
+ *
+ * The legacy buffer is not read here at all, matching the desktop. It is not
+ * inert — `finishPendingTurn` still appends "turn failed" notices to it
+ * (server service.ts:625) — and rendering those was worse than skipping them:
+ * they are durable, they carry no cursor, and they landed as a PREFIX above the
+ * whole conversation, so one failed turn pinned a stale error line to the top
+ * of the chat forever. A failed turn already reports itself live, in the right
+ * place, through the turn-end event's error (the screen's banner).
  *
  * Kept pure and RN-free so the composition rules are testable in the node lane.
  */
 
 import type { TranscriptItem } from '@podium/protocol'
-import type { SuperagentMessage } from '../client/trpc'
 
 /** Structural twin of the screen's `PendingTurn` — declared here so this module
  *  stays free of the component graph. */
@@ -22,47 +29,6 @@ interface EchoableTurn {
 
 interface IdentifiedTurn extends EchoableTurn {
   id: string
-}
-
-/** Legacy buffered rows → transcript items. Tool/system rows collapse to quiet
- *  lines, exactly as in a session. */
-export function legacyToTranscript(rows: readonly SuperagentMessage[]): TranscriptItem[] {
-  const items: TranscriptItem[] = []
-  for (const row of rows) {
-    const text = row.content.trim()
-    if (row.role === 'tool') {
-      if (!row.toolName && !text) continue
-      items.push({
-        id: `super:${row.id}`,
-        role: 'tool',
-        ts: row.createdAt,
-        text: '',
-        ...(row.toolName ? { toolName: row.toolName } : {}),
-        ...(text ? { toolInput: text.split('\n')[0] } : {}),
-      })
-      continue
-    }
-    if (!text) continue
-    items.push({
-      id: `super:${row.id}`,
-      role: row.role === 'user' ? 'user' : row.role === 'system' ? 'system' : 'assistant',
-      ts: row.createdAt,
-      text,
-    })
-  }
-  return items
-}
-
-/**
- * The settled conversation: frozen legacy rows first, then the live session
- * transcript. The two sources are disjoint — nothing new is ever written to the
- * legacy buffer — so this is a concatenation, not a merge.
- */
-export function settledTranscript(
-  legacy: readonly SuperagentMessage[],
-  items: readonly TranscriptItem[],
-): TranscriptItem[] {
-  return [...legacyToTranscript(legacy), ...items]
 }
 
 /**

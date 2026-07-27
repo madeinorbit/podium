@@ -43,7 +43,7 @@ import { BootSplash } from '../components/BootSplash'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
-  DEMO_SUPERAGENT,
+  DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
@@ -109,8 +109,21 @@ function demoValue(config: ServerConfig): MobileClientValue {
     serverConfig: config,
     trpc: {
       superagent: {
-        listThreads: { query: async () => [] },
-        history: { query: async () => DEMO_SUPERAGENT },
+        // The screen reads this thread's session transcript, so the demo thread
+        // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
+        listThreads: {
+          query: async () => [
+            {
+              id: 'global',
+              kind: 'global' as const,
+              podiumSessionId: DEMO_SUPER_SESSION,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              archived: false,
+            },
+          ],
+        },
+        history: { query: async () => [] },
         sendTurn: { mutate: async () => ({ threadId: 'global' }) },
         interruptTurn: { mutate: noop },
         clear: { mutate: noop },

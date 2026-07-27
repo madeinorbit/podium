@@ -410,18 +410,22 @@ export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
   ],
 }
 
-export const DEMO_SUPERAGENT = [
+/** The global thread's headless session in demo mode. The Super agent screen
+ *  renders that session's TRANSCRIPT (POD-344) — it no longer reads the legacy
+ *  `superagent.history` buffer — so the fixture has to ride this seam to show up. */
+export const DEMO_SUPER_SESSION = 'demo-superagent'
+
+DEMO_TRANSCRIPTS[DEMO_SUPER_SESSION] = [
   {
-    id: 1,
-    role: 'user' as const,
-    content: 'What needs my attention across my repos this morning?',
-    createdAt: min(65),
+    id: 'super-t1',
+    role: 'user',
+    text: 'What needs my attention across my repos this morning?',
+    ts: min(65),
   },
   {
-    id: 2,
-    role: 'assistant' as const,
-    content:
-      'Three things: the OAuth bug (#87) has a question waiting for you, the payments e2e suite is being deflaked (ETA ~20m), and CI runner migration is idle-ready to merge once tests go green. I can queue the merge for you.',
-    createdAt: min(64),
+    id: 'super-t2',
+    role: 'assistant',
+    text: 'Three things: the OAuth bug (#87) has a question waiting for you, the payments e2e suite is being deflaked (ETA ~20m), and CI runner migration is idle-ready to merge once tests go green. I can queue the merge for you.',
+    ts: min(64),
   },
 ]
