@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { NAVIGATION_FALLBACK_DENYLIST } from '../mobile-routing'
 
 const readWeb = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8')
@@ -13,12 +14,36 @@ describe('installable PWA wiring', () => {
   it('the service worker falls back to the shell but never shadows the live API/WS routes', () => {
     const cfg = readWeb('vite.config.ts')
     expect(cfg).toContain("navigateFallback: '/index.html'")
-    expect(cfg).toContain('navigateFallbackDenylist')
-    expect(cfg).toContain('/^\\/mobile/')
-    expect(cfg).toContain('/^\\/trpc/')
-    expect(cfg).toContain('/^\\/daemon/')
+    expect(cfg).toContain('navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST')
     expect(cfg).toContain("'/mobile': { target: BACKEND")
     expect(cfg).toContain('mobileEntryRedirectPlugin()')
+  })
+
+  // Workbox tests the denylist against `pathname + search`, so these are the
+  // exact strings the generated worker sees.
+  const denied = (url: string) => NAVIGATION_FALLBACK_DENYLIST.some((re) => re.test(url))
+
+  it('lets the root reach the server so the phone redirect can run [POD-359]', () => {
+    // The regression: with `/` served from the precache, a phone that had ever
+    // opened the desktop app never got the 302 to /mobile again.
+    expect(denied('/')).toBe(true)
+    expect(denied('/?server=wss://x')).toBe(true)
+    expect(denied('/?desktop=1')).toBe(true)
+    // /desktop is a server redirect too — the Expo app's escape hatch.
+    expect(denied('/desktop')).toBe(true)
+    expect(denied('/desktop?e2e=1')).toBe(true)
+  })
+
+  it('never shadows the backend routes or the Expo SPA', () => {
+    for (const url of ['/trpc/x', '/health', '/mobile', '/mobile/session/s1', '/daemon', '/auth']) {
+      expect(denied(url)).toBe(true)
+    }
+  })
+
+  it('still falls back to the cached shell for SPA deep links', () => {
+    for (const url of ['/workspace', '/session/s1', '/settings/machines', '/desktops']) {
+      expect(denied(url)).toBe(false)
+    }
   })
 })
 

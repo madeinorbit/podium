@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { mobileRedirectLocation } from './mobile-routing'
+import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
@@ -99,19 +99,11 @@ export default defineConfig({
         // higher ceiling SW generation throws and fails the whole build. Give
         // headroom so the shell still precaches (POD-292).
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // SPA fallback for navigations — but never shadow the live API/WS routes
-        // or the dedicated Expo mobile SPA served by the backend under /mobile.
+        // SPA fallback for navigations — but never shadow the live API/WS routes,
+        // the Expo mobile SPA under /mobile, or the `/` and `/desktop` entry
+        // redirects. See NAVIGATION_FALLBACK_DENYLIST for why each is on the list.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [
-          /^\/trpc/,
-          /^\/health/,
-          /^\/mobile/,
-          /^\/files/,
-          /^\/setup/,
-          /^\/auth/,
-          /^\/client/,
-          /^\/daemon/,
-        ],
+        navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST,
       },
       // Keep the service worker out of `npm run dev` (it fights HMR); it only
       // ships in the built bundle served by `vite preview`.

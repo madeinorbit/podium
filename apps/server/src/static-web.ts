@@ -1,13 +1,20 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
+import { desktopShellLocation, mobileEntryRedirect } from '@podium/domain'
 import type { Context, Hono } from 'hono'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
- * Intentionally a SUPERSET of apps/web/vite.config.ts navigateFallbackDenylist:
+ * A superset of the backend prefixes in apps/web NAVIGATION_FALLBACK_DENYLIST:
  * it also covers /version, /mcp, and /hooks (which the vite dev proxy doesn't list).
- * Do NOT trim it down to match vite — that would let the SPA shell shadow a backend
- * route. When adding a backend route, add its prefix here.
+ * Do NOT trim it down to match that list — that would let the SPA shell shadow a
+ * backend route. When adding a backend route, add its prefix here.
+ *
+ * The reverse is NOT true: that denylist also carries `/` and `/desktop`, the
+ * entry redirects registered by registerMobileRouting. Those must reach the
+ * server rather than a service worker's precache, but they are not backend
+ * routes — `/` is served from here once the redirect declines. Adding either
+ * one below would 404 the web root.
  */
 const BACKEND_PREFIXES = [
   '/trpc',
@@ -72,18 +79,16 @@ function isBackendRoute(pathname: string): boolean {
   return BACKEND_PREFIXES.some((pre) => pathname === pre || pathname.startsWith(pre + '/'))
 }
 
-/** Phone (not tablet) user agents — the devices the Expo mobile app targets. */
-const PHONE_UA = /Android.+Mobile|iPhone|iPod/i
-
 /**
  * Mobile entry routing [POD-102, reverses SP-902c]: the Expo app at /mobile is
  * the ONLY mobile UX — phone browsers hitting exactly `/` are redirected there.
  * The responsive web shell is gone; /desktop remains as the Expo app's escape
  * hatch to the desktop web shell (`/?desktop=1` suppresses the phone redirect
  * for that navigation). Deep links (e.g. /session/xyz) are never redirected.
- * When the Expo build is absent, /mobile falls back to / instead of loading the
- * main SPA under a wrong base path. Every redirect preserves the query string
- * (?server, ?e2e).
+ * When the Expo build is absent, /mobile falls back to the desktop shell instead
+ * of loading the main SPA under a wrong base path. Every redirect preserves the
+ * query string (?server, ?e2e). The decision itself lives in @podium/domain, so
+ * this door and the two in apps/web cannot drift apart (POD-359).
  *
  * Presence is a live probe, not a boot-time flag: the mobile dist is gitignored
  * and built separately from the web dist, so a deploy can restart the server
@@ -92,23 +97,23 @@ const PHONE_UA = /Android.+Mobile|iPhone|iPod/i
  */
 export function registerMobileRouting(app: Hono, opts: { expoMobilePresent: () => boolean }): void {
   const present = opts.expoMobilePresent
-  const toRoot = (c: Context) => c.redirect('/' + new URL(c.req.url).search)
+  // Carries the ?desktop marker, which tells apps/web's browser-side redirect
+  // that the Expo build is genuinely absent rather than bouncing back to it.
+  const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
-    const ua = c.req.header('user-agent') ?? ''
-    if (present() && PHONE_UA.test(ua) && !url.searchParams.has('desktop')) {
-      return c.redirect('/mobile' + url.search)
-    }
+    const target = mobileEntryRedirect({
+      pathname: url.pathname,
+      search: url.search,
+      userAgent: c.req.header('user-agent'),
+      mobilePresent: present(),
+    })
+    if (target) return c.redirect(target)
     await next()
   })
-  app.get('/desktop', (c) => {
-    if (!present()) return toRoot(c)
-    // Raw-string append keeps the original encoding of ?server=wss://… intact.
-    const search = new URL(c.req.url).search
-    return c.redirect('/' + (search ? search + '&desktop=1' : '?desktop=1'))
-  })
+  app.get('/desktop', toDesktopShell)
   const mobileFallback = async (c: Context, next: () => Promise<void>) => {
-    if (!present()) return toRoot(c)
+    if (!present()) return toDesktopShell(c)
     await next()
   }
   app.get('/mobile', mobileFallback)

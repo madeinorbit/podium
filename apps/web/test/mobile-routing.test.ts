@@ -20,6 +20,9 @@ describe('Vite mobile entry routing', () => {
   it('leaves desktop, tablet, and deep-link requests alone', () => {
     expect(mobileRedirectLocation('/', 'Mozilla/5.0 (Macintosh) Safari/605.1.15', true)).toBeNull()
     expect(mobileRedirectLocation('/', 'Mozilla/5.0 (iPad) Mobile/15E148', true)).toBeNull()
+    expect(
+      mobileRedirectLocation('/', 'Mozilla/5.0 (Linux; Android 13; SM-X700) Safari/537.36', true),
+    ).toBeNull()
     expect(mobileRedirectLocation('/session/s1', iphone, true)).toBeNull()
   })
 })
