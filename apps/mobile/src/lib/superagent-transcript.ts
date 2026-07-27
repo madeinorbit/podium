@@ -20,6 +20,10 @@ interface EchoableTurn {
   text: string
 }
 
+interface IdentifiedTurn extends EchoableTurn {
+  id: string
+}
+
 /** Legacy buffered rows → transcript items. Tool/system rows collapse to quiet
  *  lines, exactly as in a session. */
 export function legacyToTranscript(rows: readonly SuperagentMessage[]): TranscriptItem[] {
@@ -90,5 +94,32 @@ export function dropEchoedTurns<T extends EchoableTurn>(
   if (pending.length === 0) return pending
   const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
   const next = pending.filter((turn) => !echoed.has(turn.text.trim()))
+  return next.length === pending.length ? pending : next
+}
+
+/**
+ * Drop optimistic turns that can NEVER be echoed (POD-344).
+ *
+ * A transcript echo is the only thing that settles a pending turn, and a turn
+ * that never ran writes no transcript — so a send the server REJECTED, or a
+ * turn that ended in ERROR, leaves a row claiming "sending…" until the screen
+ * is remounted. That is the reported symptom reached by a second path, past
+ * the render-source fix: the error banner appears while the row still insists
+ * it is sending.
+ *
+ * Pass `failedId` for a rejected send — only that turn is dropped, so a turn
+ * queued behind it is left alone. Omit it when a dispatched turn ends in error:
+ * the thread's writer lock is released and the server refuses a second
+ * concurrent turn, so every row still pending belongs to the turn that just
+ * died. Returns the ORIGINAL array when nothing changed, matching
+ * `dropEchoedTurns` so the caller's `setState` stays a no-op.
+ */
+export function dropFailedTurns<T extends IdentifiedTurn>(
+  pending: readonly T[],
+  failedId?: string,
+): readonly T[] {
+  if (pending.length === 0) return pending
+  if (failedId === undefined) return []
+  const next = pending.filter((turn) => turn.id !== failedId)
   return next.length === pending.length ? pending : next
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SuperagentMessage } from '../client/trpc'
 import {
   dropEchoedTurns,
+  dropFailedTurns,
   legacyToTranscript,
   renderedTranscript,
   settledTranscript,
@@ -95,7 +96,9 @@ describe('dropEchoedTurns', () => {
   // optimistic row stayed on screen as "sending" forever.
   it('drops a pending turn once the transcript echoes it', () => {
     const pending = [{ id: 'p1', text: 'ship it' }]
-    expect(dropEchoedTurns(pending, [item({ id: 't1', role: 'user', text: 'ship it' })])).toEqual([])
+    expect(dropEchoedTurns(pending, [item({ id: 't1', role: 'user', text: 'ship it' })])).toEqual(
+      [],
+    )
   })
 
   it('matches on trimmed text', () => {
@@ -126,5 +129,46 @@ describe('dropEchoedTurns', () => {
     expect(dropEchoedTurns(pending, [item({ id: 't1', role: 'user', text: 'first' })])).toEqual([
       { id: 'p2', text: 'second' },
     ])
+  })
+})
+
+describe('dropFailedTurns', () => {
+  // The second route to the POD-344 symptom, past the render-source fix: an
+  // echo is the ONLY thing that settles a pending turn, and a turn that never
+  // ran writes no transcript — so without this the row reads "sending…" for
+  // ever while the error banner sits right above it.
+  it('retracts the rejected turn by id, leaving anything queued behind it', () => {
+    const pending = [
+      { id: 'p1', text: 'rejected' },
+      { id: 'p2', text: 'still queued' },
+    ]
+    expect(dropFailedTurns(pending, 'p1')).toEqual([{ id: 'p2', text: 'still queued' }])
+  })
+
+  it('clears every pending turn when a dispatched turn dies (no id given)', () => {
+    const pending = [
+      { id: 'p1', text: 'first' },
+      { id: 'p2', text: 'second' },
+    ]
+    expect(dropFailedTurns(pending)).toEqual([])
+  })
+
+  it('matches on id, NOT on text — a resend of the same words is not the failed one', () => {
+    const pending = [
+      { id: 'p1', text: 'same words' },
+      { id: 'p2', text: 'same words' },
+    ]
+    expect(dropFailedTurns(pending, 'p2')).toEqual([{ id: 'p1', text: 'same words' }])
+  })
+
+  it('returns the SAME array when the id matches nothing, so setState stays a no-op', () => {
+    const pending = [{ id: 'p1', text: 'ship it' }]
+    expect(dropFailedTurns(pending, 'nope')).toBe(pending)
+  })
+
+  it('is a no-op on an empty list, with or without an id', () => {
+    const empty: { id: string; text: string }[] = []
+    expect(dropFailedTurns(empty, 'p1')).toBe(empty)
+    expect(dropFailedTurns(empty)).toBe(empty)
   })
 })

@@ -14,6 +14,7 @@ import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import {
   dropEchoedTurns,
+  dropFailedTurns,
   renderedTranscript,
   settledTranscript,
 } from '../lib/superagent-transcript'
@@ -51,6 +52,9 @@ export function SuperagentScreen() {
   const [error, setError] = useState<string | null>(null)
   const [podiumSid, setPodiumSid] = useState<string | undefined>(undefined)
   const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  // Monotonic per-mount counter behind each optimistic row's id. Date.now()
+  // alone collides when two sends land in the same millisecond.
+  const turnSeq = useRef(0)
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onLoadOlder can fire in bursts.
   const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
@@ -140,7 +144,15 @@ export function SuperagentScreen() {
         setRunning(false)
         setLiveText('')
         setStatusLabel(null)
-        if (event.error) setError(event.error)
+        if (event.error) {
+          setError(event.error)
+          // A turn that DIED after dispatch (harness crash, spawn failure) may
+          // have written no transcript at all, so its optimistic row would sit
+          // on "sending…" forever too — the same POD-344 symptom one step
+          // later. The thread's writer lock is released here, so anything still
+          // pending belongs to the turn that just failed.
+          setPendingTurns((prev) => dropFailedTurns(prev) as PendingTurn[])
+        }
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
       } else if ('text' in event && typeof event.text === 'string') {
@@ -188,7 +200,10 @@ export function SuperagentScreen() {
       if (!trimmed) return
       setError(null)
       setRunning(true)
-      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
+      // Minted up front, not inside the updater: the rejection path below needs
+      // to name exactly this row to retract it.
+      const turnId = `${Date.now()}:${turnSeq.current++}`
+      setPendingTurns((prev) => [...prev, { id: turnId, text: trimmed }])
       void trpc.superagent.sendTurn
         .mutate({ threadId: THREAD_ID, text: trimmed })
         .then((ack) => {
@@ -197,6 +212,9 @@ export function SuperagentScreen() {
         .catch((e: unknown) => {
           setRunning(false)
           setError(e instanceof Error ? e.message : String(e))
+          // The turn never ran, so no transcript will ever echo it: retract the
+          // optimistic row here or it reads "sending…" until remount (POD-344).
+          setPendingTurns((prev) => dropFailedTurns(prev, turnId) as PendingTurn[])
         })
     },
     [trpc],
