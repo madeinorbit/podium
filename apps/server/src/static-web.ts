@@ -94,21 +94,30 @@ function isBackendRoute(pathname: string): boolean {
  * and built separately from the web dist, so a deploy can restart the server
  * before (or without) exporting it. With a boot-time flag that ordering silently
  * disabled the phone redirect until the next restart.
+ *
+ * `redirectPhoneRoot: false` withholds only the `/` redirect while /mobile keeps
+ * serving Expo — the browser harness drives both shells from one server and would
+ * otherwise never reach the web shell from a phone-sized Pixel profile.
  */
-export function registerMobileRouting(app: Hono, opts: { expoMobilePresent: () => boolean }): void {
+export function registerMobileRouting(
+  app: Hono,
+  opts: { expoMobilePresent: () => boolean; redirectPhoneRoot?: boolean },
+): void {
   const present = opts.expoMobilePresent
   // Carries the ?desktop marker, which tells apps/web's browser-side redirect
   // that the Expo build is genuinely absent rather than bouncing back to it.
   const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
-    const target = mobileEntryRedirect({
-      pathname: url.pathname,
-      search: url.search,
-      userAgent: c.req.header('user-agent'),
-      mobilePresent: present(),
-    })
-    if (target) return c.redirect(target)
+    if (opts.redirectPhoneRoot !== false) {
+      const target = mobileEntryRedirect({
+        pathname: url.pathname,
+        search: url.search,
+        userAgent: c.req.header('user-agent'),
+        mobilePresent: present(),
+      })
+      if (target) return c.redirect(target)
+    }
     await next()
   })
   app.get('/desktop', toDesktopShell)

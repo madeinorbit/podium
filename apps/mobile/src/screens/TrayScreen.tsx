@@ -2,13 +2,14 @@ import { groupSessions, relativeTime, withoutShells } from '@podium/client-core/
 import { artifactKind, deriveTrayItems } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Plus, Settings } from 'lucide-react-native'
+import { Settings } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { NewWorkButton } from '../components/NewWorkButton'
 import { HeaderButton, Screen } from '../components/Screen'
 import { BrailleSpinner, CountPill } from '../components/StatusGlyphs'
 import { TrayCard, type TrayCardActions } from '../components/TrayCard'
@@ -155,9 +156,7 @@ export function TrayScreen() {
               <Text style={styles.workingText}>{workingCount} working</Text>
             </View>
           ) : null}
-          <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
-            <Icon as={Plus} size={19} color={color.text} />
-          </HeaderButton>
+          <NewWorkButton />
           <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
             <Icon as={Settings} size={17} color={color.textDim} />
           </HeaderButton>

@@ -1,7 +1,8 @@
-import { useSocketHub, useTerminalSession } from '@podium/terminal-client-react'
-import { useMemo } from 'react'
+import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
+import { Mic } from 'lucide-react-native'
 import { Text, View } from 'react-native'
-import { readServerConfig } from '../client/trpc'
+import { useMobileClient } from '../client/MobileClientProvider'
+import { Icon } from '../components/Icon'
 import { color, font, mono } from '../theme/theme'
 
 /**
@@ -17,26 +18,20 @@ const MOBILE_APPEARANCE = {
 } as const
 
 export function TerminalPane({ sessionId }: { sessionId: string }) {
-  const config = useMemo(readServerConfig, [])
-  const { hub, connected } = useSocketHub({
-    url: config.wsClientUrl,
-    viewport: { cols: 80, rows: 24, dpr: window.devicePixelRatio || 1 },
-  })
-  // Only attach once the hub has actually connected — mountSession attaches
-  // synchronously on mount, so gating on `connected` avoids attaching against a
-  // socket that isn't open yet.
-  const { containerRef, ready } = useTerminalSession({
-    hub,
+  const client = useMobileClient()
+  const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
+    hub: client.hub,
     sessionId,
-    enabled: connected,
+    enabled: client.connected,
     focusOnMount: true,
     appearance: MOBILE_APPEARANCE,
+    test: new URLSearchParams(window.location.search).get('e2e') === '1',
   })
 
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-      {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
-      {connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
+      {!client.connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
+      {client.connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
           phone screen could not contain the pane and the agent frame ran off the
@@ -45,6 +40,22 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
       <div
         ref={containerRef}
         style={{ flex: 1, minHeight: 0, width: '100%', overflow: 'hidden' }}
+      />
+      <MobileTerminalKeyboard
+        mountedRef={mountedRef}
+        toolbarRef={toolbarRef}
+        ready={ready}
+        voiceIcon={<Icon as={Mic} size={16} color={color.textDim} />}
+        theme={{
+          bar: color.bar,
+          card: color.card,
+          border: color.hairlineBar,
+          muted: color.textDim,
+          accent: color.accent,
+          onAccent: color.onAccent,
+          danger: color.danger,
+          fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
+        }}
       />
     </View>
   )

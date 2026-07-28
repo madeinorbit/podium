@@ -81,6 +81,20 @@ describe('registerWebStatic', () => {
     expect(root.status).toBe(302)
     expect(root.headers.get('location')).toBe('/mobile?server=wss://x&e2e=1')
   })
+  it('can serve Expo without redirecting the phone root (dual-client browser harness)', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => true, redirectPhoneRoot: false })
+    app.get('/', (c) => c.text('web shell'))
+    app.get('/mobile', (c) => c.text('mobile shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+    expect(await (await app.request('/', { headers: { 'user-agent': iphone } })).text()).toBe(
+      'web shell',
+    )
+    expect(await (await app.request('/mobile', { headers: { 'user-agent': iphone } })).text()).toBe(
+      'mobile shell',
+    )
+  })
   it('keeps the web shell at / for desktop UAs, ?desktop, and deep links', async () => {
     const app = new Hono()
     registerMobileRouting(app, { expoMobilePresent: () => true })

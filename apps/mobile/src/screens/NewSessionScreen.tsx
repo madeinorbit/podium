@@ -48,6 +48,8 @@ export function NewSessionScreen() {
 
   const issue = issueId ? client.issueById(issueId) : undefined
   const canCreate = useMemo(() => cwd.trim().length > 0 && !busy, [cwd, busy])
+  const screenTitle = issueId ? 'Add agent' : 'New session'
+  const submitLabel = issueId ? 'Add agent' : 'Start session'
 
   const create = async () => {
     if (!canCreate) return
@@ -70,7 +72,7 @@ export function NewSessionScreen() {
   }
 
   return (
-    <Screen title="New session" onBack={() => router.back()}>
+    <Screen title={screenTitle} onBack={() => router.back()}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {issue ? (
           <Text style={styles.issueNote}>
@@ -152,12 +154,12 @@ export function NewSessionScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Start session"
+          accessibilityLabel={submitLabel}
           disabled={!canCreate}
           onPress={() => void create()}
           style={[styles.createBtn, !canCreate && styles.createBtnDisabled]}
         >
-          <Text style={styles.createText}>{busy ? 'Starting…' : 'Start session'}</Text>
+          <Text style={styles.createText}>{busy ? 'Starting…' : submitLabel}</Text>
         </Pressable>
       </ScrollView>
     </Screen>

@@ -189,7 +189,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   }
 }
 
-let server = await startServer({ port: PORT })
+let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
 
 // The ordinary harness must never read authenticated provider quota just to paint
 // a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
@@ -449,7 +449,7 @@ const restartServer = async (): Promise<void> => {
     await server.close()
     await new Promise((resolve) => setTimeout(resolve, 750))
     if (shuttingDown) return
-    server = await startServer({ port: PORT })
+    server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
     restartSerial += 1
     writeFileSync(restartSerialFile, String(restartSerial))
   } finally {

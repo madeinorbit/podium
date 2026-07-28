@@ -2,12 +2,14 @@ import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
-import { Screen } from '../components/Screen'
+import { Icon } from '../components/Icon'
+import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -71,8 +73,23 @@ export function IssueScreen() {
     }
   }
 
+  const addAgent = () => {
+    const cwd = issue.worktreePath ?? issue.repoPath
+    router.push(
+      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}`,
+    )
+  }
+
   return (
-    <Screen title={`${issueDisplayRef(issue)} ${issue.title}`} onBack={() => router.back()}>
+    <Screen
+      title={`${issueDisplayRef(issue)} ${issue.title}`}
+      onBack={() => router.back()}
+      right={
+        <HeaderButton label="Add agent" onPress={addAgent}>
+          <Icon as={Plus} size={17} color={color.text} />
+        </HeaderButton>
+      }
+    >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.metaRow}>
           <Pressable

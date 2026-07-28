@@ -29,6 +29,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/protocol'
+import type { SocketHub } from '@podium/terminal-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   createContext,
@@ -61,6 +62,8 @@ export interface MobileClientValue {
   cursor: number | null
   error: string | null
   serverConfig: ServerConfig
+  /** The app-wide transport hub; terminal views share it instead of opening another socket. */
+  hub: SocketHub | null
   trpc: MobileTrpc
   sessionById(sessionId: string): SessionMeta | undefined
   issueById(issueId: string): IssueWire | undefined
@@ -107,6 +110,7 @@ function demoValue(config: ServerConfig): MobileClientValue {
     cursor: null,
     error: null,
     serverConfig: config,
+    hub: null,
     trpc: {
       superagent: {
         // The screen reads this thread's session transcript, so the demo thread
@@ -286,6 +290,7 @@ function LiveBridge({
       cursor: replica.getCursor(),
       error,
       serverConfig: config,
+      hub,
       trpc,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
@@ -318,6 +323,7 @@ function LiveBridge({
       replica,
       error,
       config,
+      hub,
       trpc,
       focusSessionIds,
       outboxSize,

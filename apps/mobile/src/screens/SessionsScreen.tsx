@@ -2,12 +2,11 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
-import { Icon } from '../components/Icon'
-import { HeaderButton, Screen } from '../components/Screen'
+import { NewWorkButton } from '../components/NewWorkButton'
+import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskPeekSheet } from '../components/TaskPeekSheet'
@@ -48,11 +47,7 @@ export function SessionsScreen() {
           ? `${groups.working.length} working · ${groups.idle.length} idle`
           : 'reconnecting…'
       }
-      right={
-        <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
-          <Icon as={Plus} size={19} color={color.text} />
-        </HeaderButton>
-      }
+      right={<NewWorkButton />}
     >
       <SectionList
         sections={sections}

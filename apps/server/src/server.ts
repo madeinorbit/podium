@@ -136,6 +136,8 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
+    redirectPhoneRootToMobile?: boolean
     /** Request-scoped publication worlds. Both transports must resolve through
      *  the same authority source so catch-up and live publication cannot drift. */
     resolvePublicationAuthority?: {
@@ -430,6 +432,7 @@ export async function startServer(
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
   registerMobileRouting(app, {
     expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
+    redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
   })
   if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile', lazy: true })
 

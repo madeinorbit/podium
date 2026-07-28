@@ -2,12 +2,13 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react-native'
+import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
+import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
@@ -104,9 +105,7 @@ export function InboxScreen() {
           {client.outboxSize > 0 ? (
             <Text style={styles.queued}>{client.outboxSize} queued</Text>
           ) : null}
-          <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
-            <Icon as={Plus} size={19} color={color.text} />
-          </HeaderButton>
+          <NewWorkButton />
           <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
             <Icon as={Settings} size={17} color={color.textDim} />
           </HeaderButton>
