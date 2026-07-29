@@ -1,7 +1,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { defaultPtyBackend } from './pty/index.js'
-import type { PtyBackend } from './pty/types.js'
+import { defaultPtyBackend } from './backends/index.js'
+import type { PtyBackend } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 
 const SESSION = 'main'

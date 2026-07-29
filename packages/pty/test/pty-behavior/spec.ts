@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
-import type { PtyBackend } from '../../src/pty/index'
-import { resolveNodeExecutable } from '../../src/pty/resolve-node-executable.js'
+import type { PtyBackend } from '../../src/backends/index'
+import { resolveNodeExecutable } from '../../src/backends/resolve-node-executable.js'
 import { type AgentSession, spawnAgent } from '../../src/session'
 
 const FIX = (name: string): string => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))

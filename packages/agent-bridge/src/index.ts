@@ -1,10 +1,14 @@
 /**
- * @podium/agent-bridge — agent sessions (spawn, input, resize, redraw, frames) over a
- * swappable PTY backend (node-pty or Bun.Terminal). Speaks @podium/protocol geometry types.
+ * @podium/agent-bridge — the HARNESS half of the old bridge: per-CLI adapters
+ * (launch/exec/headless flags), agent-state classification, conversation
+ * discovery and inventory. Speaks @podium/protocol vocabulary types.
+ *
+ * The PTY half — backends, durable hosts (abduco/tmux/scopes), byte framing, OSC
+ * title scan and redraw — moved to **@podium/pty** (POD-396). Import it directly;
+ * this barrel deliberately does NOT re-export it, so there is one home per
+ * concern and no transitional shim for the deletion audit to chase.
  */
 
-export * from './abduco.js'
-export * from './abduco-bin.js'
 export * from './agent-state/index.js'
 export * from './cursor/cli.js'
 export * from './cursor/paths.js'
@@ -19,7 +23,3 @@ export * from './jsonl-stream.js'
 export * from './launch.js'
 export * from './opencode/cli.js'
 export * from './opencode/db.js'
-export * from './osc-title.js'
-export * from './pty/index.js'
-export * from './session'
-export * from './tmux.js'

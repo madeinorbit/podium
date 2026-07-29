@@ -19,8 +19,8 @@ import {
   userRuntimeDir,
 } from './abduco.js'
 import { resolveAbducoBin } from './abduco-bin.js'
-import { nodePtyBackend, resolveNodeExecutable } from './pty/index.js'
-import { spawnAgent } from './session'
+import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
+import { spawnAgent } from './session.js'
 
 // Prefer node-pty + real Node for fidelity fixtures under bun --bun (bare "node" is a Bun
 // shim; Bun.Terminal attach is fine for abduco but these tests claim node-pty parity).
@@ -215,7 +215,10 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 
 describe.skipIf(!hasAbduco)('abduco integration', () => {
   // Resource-sensitive under concurrent suite load (abduco + many PTYs); one retry.
-  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', { retry: 1, timeout: 20000 }, async () => {
+  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', {
+    retry: 1,
+    timeout: 20000,
+  }, async () => {
     const label = `podium-abduco-itest-${process.pid}`
     killAbducoSession(label)
     // Integration uses the runtime default backend (bun-terminal under Bun, node-pty under

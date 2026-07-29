@@ -1,12 +1,17 @@
 # @podium/agent-bridge
 
-The coding-agent process wrapper. Runs on Node and drives native agent CLIs
-(Claude Code, Codex) as PTY-backed sessions — spawning/attaching tmux-style with no
-`-p` abstraction, handling resize/`SIGWINCH`, streaming output, injecting input,
-managing controller/spectator multi-client control, extracting transcripts, and
-discovering installed CLIs.
+The harness half of the coding-agent bridge. Runs on Node and knows how each
+native agent CLI (Claude Code, Codex, Grok, Cursor, opencode) is launched,
+resumed, run headless and probed — plus agent-state classification, transcript
+location and installed-CLI discovery.
 
-Published to npm. Depends on `@podium/protocol` and `node-pty`. Pairs with
+The PTY half lives in [`@podium/pty`](../pty): swappable PTY backends, the
+durable session hosts (abduco/tmux/systemd scopes), byte framing, OSC title scan
+and redraw. That package is harness-agnostic on purpose — behavioral branching on
+harness identity belongs here, in the adapters, and nowhere else. This barrel
+does not re-export it; import `@podium/pty` directly.
+
+Published to npm. Depends on `@podium/protocol`. Pairs with
 `@podium/terminal-client` on the browser side, but never imports it.
 
 ## Conversation discovery

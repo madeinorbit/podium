@@ -6,8 +6,9 @@
 //
 // Narrow imports (../../src/abduco) keep node:sqlite and the node-pty native addon
 // out of the graph.
-import { fileURLToPath } from 'node:url'
+
 import { afterAll, describe, expect, it } from 'bun:test'
+import { fileURLToPath } from 'node:url'
 import {
   abducoHasSession,
   attachAbducoAgent,
@@ -16,7 +17,7 @@ import {
   reapAbducoTestSessions,
   spawnAbducoAgent,
 } from '../../src/abduco'
-import { bunTerminalBackend } from '../../src/pty/bun-terminal-backend'
+import { bunTerminalBackend } from '../../src/backends/bun-terminal-backend'
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/echo-title.mjs', import.meta.url))
 const TUI_FIXTURE = fileURLToPath(new URL('../fixtures/fixture-tui.mjs', import.meta.url))
@@ -37,7 +38,14 @@ d('abduco durable path [bun-terminal]', () => {
   it('streams frames, surfaces the OSC title, strips chrome, round-trips input, reattaches, kills', async () => {
     const label = `podium-abduco-bun-${process.pid}`
     killAbducoSession(label)
-    const session = spawnAbducoAgent({ label, cmd: 'node', args: [FIXTURE], cols: 80, rows: 24, backend })
+    const session = spawnAbducoAgent({
+      label,
+      cmd: 'node',
+      args: [FIXTURE],
+      cols: 80,
+      rows: 24,
+      backend,
+    })
     let out = ''
     let title = ''
     session.onFrame((f) => {
@@ -81,7 +89,14 @@ d('abduco durable path [bun-terminal]', () => {
   it('reattach at UNCHANGED geometry still repaints (the shrink/restore nudge fires)', async () => {
     const label = `podium-abduco-bun-repaint-${process.pid}`
     killAbducoSession(label)
-    const session = spawnAbducoAgent({ label, cmd: 'node', args: [TUI_FIXTURE], cols: 80, rows: 24, backend })
+    const session = spawnAbducoAgent({
+      label,
+      cmd: 'node',
+      args: [TUI_FIXTURE],
+      cols: 80,
+      rows: 24,
+      backend,
+    })
     await wait(900)
     session.dispose()
     await wait(400)
