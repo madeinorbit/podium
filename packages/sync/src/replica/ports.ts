@@ -20,28 +20,28 @@
  */
 
 import type {
-	BootstrapChunk,
-	ChangeProvenance,
-	ChangesSinceReply,
-	Cursor,
-	EntityRecord,
+  BootstrapChunk,
+  ChangeProvenance,
+  ChangesSinceReply,
+  Cursor,
+  EntityRecord,
 } from './types'
 
 /** One atomic batch. Everything in it commits together or not at all (ADR 2 D10, ADR 6 D4.1). */
 export interface CacheMutation {
-	readonly upserts?: readonly {
-		readonly entity: string
-		readonly entityId: string
-		readonly value: unknown
-		readonly revision?: number
-		readonly provenance: ChangeProvenance & { readonly seq: number }
-	}[]
-	/** Tombstones (`op: 'remove'`). */
-	readonly removals?: readonly { readonly entity: string; readonly entityId: string }[]
-	/** Visibility exits (`op: 'evict'`). Separate from `removals` all the way down. */
-	readonly evictions?: readonly { readonly entity: string; readonly entityId: string }[]
-	/** The cursor must never be ahead of the data it claims (ADR 2 D10). */
-	readonly cursor?: Cursor
+  readonly upserts?: readonly {
+    readonly entity: string
+    readonly entityId: string
+    readonly value: unknown
+    readonly revision?: number
+    readonly provenance: ChangeProvenance & { readonly seq: number }
+  }[]
+  /** Tombstones (`op: 'remove'`). */
+  readonly removals?: readonly { readonly entity: string; readonly entityId: string }[]
+  /** Visibility exits (`op: 'evict'`). Separate from `removals` all the way down. */
+  readonly evictions?: readonly { readonly entity: string; readonly entityId: string }[]
+  /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
+  readonly cursor?: Cursor
 }
 
 /**
@@ -49,22 +49,26 @@ export interface CacheMutation {
  * Everything on this port has a home at the authority and is re-derivable at will.
  */
 export interface ReplicaCacheStore {
-	readCursor(): Cursor | null
-	readEntities(): readonly EntityRecord[]
-	read(entity: string, entityId: string): EntityRecord | undefined
-	/** Apply a batch in ONE transaction. Throws `ReplicaStoreCorruptError` if unreadable. */
-	applyAtomic(mutation: CacheMutation): void
-	/**
-	 * Atomic install of a bootstrap (ADR 2 D6.4 / Amendment 1 D15.3): swap staging
-	 * into place, apply buffered deltas in order, commit the cursor — one
-	 * transaction, no half-installed replica, no window holding a mixture of two
-	 * principals' slices.
-	 */
-	installSnapshot(rows: readonly EntityRecord[], cursor: Cursor, buffered: readonly CacheMutation[]): void
-	/** Discard the cache. Reaches entities and cursor. Cannot reach the outbox. */
-	discardCache(): void
-	/** ADR 6 D4 — surfaced, never silent. */
-	durability(): 'durable' | 'degraded-memory' | 'unavailable'
+  readCursor(): Cursor | null
+  readEntities(): readonly EntityRecord[]
+  read(entity: string, entityId: string): EntityRecord | undefined
+  /** Apply a batch in ONE transaction. Throws `ReplicaStoreCorruptError` if unreadable. */
+  applyAtomic(mutation: CacheMutation): void
+  /**
+   * Atomic install of a bootstrap (ADR 2 D6.4 / Amendment 1 D15.3): swap staging
+   * into place, apply buffered deltas in order, commit the cursor — one
+   * transaction, no half-installed replica, no window holding a mixture of two
+   * principals' slices.
+   */
+  installSnapshot(
+    rows: readonly EntityRecord[],
+    cursor: Cursor,
+    buffered: readonly CacheMutation[],
+  ): void
+  /** Discard the cache. Reaches entities and cursor. Cannot reach the outbox. */
+  discardCache(): void
+  /** ADR 6 D4 — surfaced, never silent. */
+  durability(): 'durable' | 'degraded-memory' | 'unavailable'
 }
 
 /**
@@ -74,10 +78,10 @@ export interface ReplicaCacheStore {
  * the one case where user work is lost.
  */
 export class ReplicaStoreCorruptError extends Error {
-	constructor(message = 'replica store unreadable') {
-		super(message)
-		this.name = 'ReplicaStoreCorruptError'
-	}
+  constructor(message = 'replica store unreadable') {
+    super(message)
+    this.name = 'ReplicaStoreCorruptError'
+  }
 }
 
 /**
@@ -89,12 +93,12 @@ export class ReplicaStoreCorruptError extends Error {
  * its own slice — the exact drift Amendment 1 D12.7 forbids.
  */
 export interface AuthorityReadPort {
-	/** ADR 2 D7 rung 1's heal. Returns a certified reply, or "you must re-bootstrap". */
-	changesSince(cursor: Cursor): Promise<ChangesSinceReply>
-	/**
-	 * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
-	 * Pacing lives on the authority side of this port (D6: "the bootstrap must
-	 * never own the loop"); the Replica just consumes chunks as they arrive.
-	 */
-	bootstrap(): AsyncIterable<BootstrapChunk>
+  /** ADR 2 D7 rung 1's heal. Returns a certified reply, or "you must re-bootstrap". */
+  changesSince(cursor: Cursor): Promise<ChangesSinceReply>
+  /**
+   * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
+   * Pacing lives on the authority side of this port (D6: "the bootstrap must
+   * never own the loop"); the Replica just consumes chunks as they arrive.
+   */
+  bootstrap(): AsyncIterable<BootstrapChunk>
 }

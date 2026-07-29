@@ -8,8 +8,8 @@
  * (./change-log.ts) are private to the package.
  */
 export * from './ledger'
-export * from './replica/index'
 export * from './mirror'
+export * from './replica/index'
 export * from './sync-repository'
 export * from './upstream'
 export * from './upstream-forwarder'

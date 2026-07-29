@@ -505,8 +505,8 @@ describe('rule 9 — the Replica role is direction-locked (POD-369)', () => {
   })
 
   it('leaves every other workspace alone', () => {
-    expect(checkFile('packages/sync/src/ledger.ts', `import { z } from '@podium/protocol'`)).toEqual(
-      [],
-    )
+    expect(
+      checkFile('packages/sync/src/ledger.ts', `import { z } from '@podium/protocol'`),
+    ).toEqual([])
   })
 })

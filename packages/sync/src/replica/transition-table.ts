@@ -24,347 +24,347 @@
 import type { HealRung, Posture } from './types'
 
 export interface TransitionRow {
-	/** Stable id. Returned by the state machine; asserted for coverage by the suite. */
-	readonly id: string
-	/** Posture(s) this row can fire from. */
-	readonly from: readonly Posture[]
-	/** The input that fires it. */
-	readonly input: string
-	/** The guard that selects this row over its siblings. */
-	readonly condition: string
-	/** What the replica does. */
-	readonly effect: string
-	/** Posture after the transition. */
-	readonly to: Posture
-	/** D7 ladder rung, or null where the row is not a ladder step. */
-	readonly rung: HealRung | null
-	/** The clause that decides it. */
-	readonly adr: string
+  /** Stable id. Returned by the state machine; asserted for coverage by the suite. */
+  readonly id: string
+  /** Posture(s) this row can fire from. */
+  readonly from: readonly Posture[]
+  /** The input that fires it. */
+  readonly input: string
+  /** The guard that selects this row over its siblings. */
+  readonly condition: string
+  /** What the replica does. */
+  readonly effect: string
+  /** Posture after the transition. */
+  readonly to: Posture
+  /** D7 ladder rung, or null where the row is not a ladder step. */
+  readonly rung: HealRung | null
+  /** The clause that decides it. */
+  readonly adr: string
 }
 
 export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
-	// ─── Rung 0: the normal path ───────────────────────────────────────────────
-	{
-		id: 'D7-0-APPLY',
-		from: ['live'],
-		input: 'delta frame',
-		condition: 'feedId/epoch match AND fromSeq === cursor.seq AND changes non-empty',
-		effect: 'Apply changes in seq order and set cursor = seq, in ONE transaction.',
-		to: 'live',
-		rung: 0,
-		adr: 'ADR 2 D7 rung 0; Amendment 1 D13 (accept iff fromSeq === cursor)',
-	},
-	{
-		id: 'D13-WATERMARK',
-		from: ['live'],
-		input: 'delta frame',
-		condition: 'feedId/epoch match AND fromSeq === cursor.seq AND changes IS EMPTY',
-		effect:
-			'Advance cursor = seq with no entity change. NOT a gap, NOT a heal. Bounded: nothing is retained.',
-		to: 'live',
-		rung: 0,
-		adr: 'Amendment 1 D13 — an empty certified frame is a watermark and is the normal path',
-	},
-	{
-		id: 'D14-EVICT',
-		from: ['live'],
-		input: 'delta frame containing op=evict',
-		condition: 'certified frame, contiguous',
-		effect:
-			'Drop the entity from cache and derived views. Record exit kind `evicted`. MUST NOT surface as a deletion, emit a domain delete, or write a tombstone.',
-		to: 'live',
-		rung: 0,
-		adr: 'Amendment 1 D14.1 / D14.5 — the third member of the removal family',
-	},
-	{
-		id: 'D5-REMOVE',
-		from: ['live'],
-		input: 'delta frame containing op=remove',
-		condition: 'certified frame, contiguous',
-		effect: 'Tombstone. Drop the entity and record exit kind `removed` — this one IS a deletion.',
-		to: 'live',
-		rung: 0,
-		adr: 'ADR 2 D5 — tombstones are feed rows',
-	},
-	{
-		id: 'D14-READMIT',
-		from: ['live'],
-		input: 'delta frame containing op=upsert for a previously evicted entity',
-		condition: "entity's revision has NOT moved",
-		effect:
-			'Install it. An upsert whose revision has not moved is still a valid upsert; clear the exit kind and flag the emission as a re-admission (not a creation).',
-		to: 'live',
-		rung: 0,
-		adr: 'Amendment 1 D14.2 — re-admission needs no new op',
-	},
+  // ─── Rung 0: the normal path ───────────────────────────────────────────────
+  {
+    id: 'D7-0-APPLY',
+    from: ['live'],
+    input: 'delta frame',
+    condition: 'feedId/epoch match AND fromSeq === cursor.seq AND changes non-empty',
+    effect: 'Apply changes in seq order and set cursor = seq, in ONE transaction.',
+    to: 'live',
+    rung: 0,
+    adr: 'ADR 2 D7 rung 0; Amendment 1 D13 (accept iff fromSeq === cursor)',
+  },
+  {
+    id: 'D13-WATERMARK',
+    from: ['live'],
+    input: 'delta frame',
+    condition: 'feedId/epoch match AND fromSeq === cursor.seq AND changes IS EMPTY',
+    effect:
+      'Advance cursor = seq with no entity change. NOT a gap, NOT a heal. Bounded: nothing is retained.',
+    to: 'live',
+    rung: 0,
+    adr: 'Amendment 1 D13 — an empty certified frame is a watermark and is the normal path',
+  },
+  {
+    id: 'D14-EVICT',
+    from: ['live'],
+    input: 'delta frame containing op=evict',
+    condition: 'certified frame, contiguous',
+    effect:
+      'Drop the entity from cache and derived views. Record exit kind `evicted`. MUST NOT surface as a deletion, emit a domain delete, or write a tombstone.',
+    to: 'live',
+    rung: 0,
+    adr: 'Amendment 1 D14.1 / D14.5 — the third member of the removal family',
+  },
+  {
+    id: 'D5-REMOVE',
+    from: ['live'],
+    input: 'delta frame containing op=remove',
+    condition: 'certified frame, contiguous',
+    effect: 'Tombstone. Drop the entity and record exit kind `removed` — this one IS a deletion.',
+    to: 'live',
+    rung: 0,
+    adr: 'ADR 2 D5 — tombstones are feed rows',
+  },
+  {
+    id: 'D14-READMIT',
+    from: ['live'],
+    input: 'delta frame containing op=upsert for a previously evicted entity',
+    condition: "entity's revision has NOT moved",
+    effect:
+      'Install it. An upsert whose revision has not moved is still a valid upsert; clear the exit kind and flag the emission as a re-admission (not a creation).',
+    to: 'live',
+    rung: 0,
+    adr: 'Amendment 1 D14.2 — re-admission needs no new op',
+  },
 
-	{
-		id: 'D13-DUPLICATE',
-		from: ['live'],
-		input: 'delta frame',
-		condition: 'feedId/epoch match AND frame.seq <= cursor.seq (wholly re-delivered)',
-		effect:
-			'Ignore. Not a gap and not a heal: our cursor already certifies every seq this frame covers.',
-		to: 'live',
-		rung: 0,
-		adr: 'DERIVED from Amendment 1 D13 (the covered range is what makes this decidable) — see the module note on re-delivery',
-	},
-	{
-		id: 'D13-OVERLAP',
-		from: ['live'],
-		input: 'delta frame',
-		condition: 'feedId/epoch match AND fromSeq < cursor.seq < frame.seq',
-		effect:
-			'Truncate to the uncovered tail (cursor.seq, seq] and apply that. Same rule D6 already uses for a frame straddling the snapshot point.',
-		to: 'live',
-		rung: 0,
-		adr: 'DERIVED from Amendment 1 D13 + ADR 2 D6.3 straddle handling',
-	},
+  {
+    id: 'D13-DUPLICATE',
+    from: ['live'],
+    input: 'delta frame',
+    condition: 'feedId/epoch match AND frame.seq <= cursor.seq (wholly re-delivered)',
+    effect:
+      'Ignore. Not a gap and not a heal: our cursor already certifies every seq this frame covers.',
+    to: 'live',
+    rung: 0,
+    adr: 'DERIVED from Amendment 1 D13 (the covered range is what makes this decidable) — see the module note on re-delivery',
+  },
+  {
+    id: 'D13-OVERLAP',
+    from: ['live'],
+    input: 'delta frame',
+    condition: 'feedId/epoch match AND fromSeq < cursor.seq < frame.seq',
+    effect:
+      'Truncate to the uncovered tail (cursor.seq, seq] and apply that. Same rule D6 already uses for a frame straddling the snapshot point.',
+    to: 'live',
+    rung: 0,
+    adr: 'DERIVED from Amendment 1 D13 + ADR 2 D6.3 straddle handling',
+  },
 
-	// ─── Rung 1: gap ───────────────────────────────────────────────────────────
-	{
-		id: 'D7-1-GAP',
-		from: ['live'],
-		input: 'delta frame',
-		condition: 'feedId/epoch match AND fromSeq !== cursor.seq',
-		effect: 'Do NOT apply. Buffer the frame and call changesSince(cursor).',
-		to: 'healing',
-		rung: 1,
-		adr: 'ADR 2 D7 rung 1, as amended by D13 (explicit lower bound also catches a lost frame)',
-	},
-	{
-		id: 'D7-1-HEALED',
-		from: ['healing'],
-		input: 'changesSince reply',
-		condition: 'certified, feedId/epoch match, fromSeq === cursor.seq, well-formed',
-		effect: 'Apply the reply, then drain buffered frames while they stay contiguous.',
-		to: 'live',
-		rung: 1,
-		adr: 'ADR 2 D7 rung 1',
-	},
-	{
-		id: 'D7-1-RESUME',
-		from: ['stale'],
-		input: 'connect()',
-		condition: 'a cursor is held',
-		effect: 'Resume from the cursor: changesSince(cursor). Reconnect is a heal, not a bootstrap.',
-		to: 'healing',
-		rung: 1,
-		adr: 'ADR 2 D7 stale-visible; D6 (bootstrap is the RECOVERY case, not the normal one)',
-	},
-	{
-		id: 'D7-1-FRAME-WHILE-STALE',
-		from: ['stale'],
-		input: 'delta frame',
-		condition: 'arrives before connect() — the link came back underneath us',
-		effect:
-			'Do not apply blind: frames were missed while offline, so buffer it and heal from the cursor first.',
-		to: 'healing',
-		rung: 1,
-		adr: 'ADR 2 D7 rung 1 (conservative: any uncertainty resolves downward)',
-	},
+  // ─── Rung 1: gap ───────────────────────────────────────────────────────────
+  {
+    id: 'D7-1-GAP',
+    from: ['live'],
+    input: 'delta frame',
+    condition: 'feedId/epoch match AND fromSeq !== cursor.seq',
+    effect: 'Do NOT apply. Buffer the frame and call changesSince(cursor).',
+    to: 'healing',
+    rung: 1,
+    adr: 'ADR 2 D7 rung 1, as amended by D13 (explicit lower bound also catches a lost frame)',
+  },
+  {
+    id: 'D7-1-HEALED',
+    from: ['healing'],
+    input: 'changesSince reply',
+    condition: 'certified, feedId/epoch match, fromSeq === cursor.seq, well-formed',
+    effect: 'Apply the reply, then drain buffered frames while they stay contiguous.',
+    to: 'live',
+    rung: 1,
+    adr: 'ADR 2 D7 rung 1',
+  },
+  {
+    id: 'D7-1-RESUME',
+    from: ['stale'],
+    input: 'connect()',
+    condition: 'a cursor is held',
+    effect: 'Resume from the cursor: changesSince(cursor). Reconnect is a heal, not a bootstrap.',
+    to: 'healing',
+    rung: 1,
+    adr: 'ADR 2 D7 stale-visible; D6 (bootstrap is the RECOVERY case, not the normal one)',
+  },
+  {
+    id: 'D7-1-FRAME-WHILE-STALE',
+    from: ['stale'],
+    input: 'delta frame',
+    condition: 'arrives before connect() — the link came back underneath us',
+    effect:
+      'Do not apply blind: frames were missed while offline, so buffer it and heal from the cursor first.',
+    to: 'healing',
+    rung: 1,
+    adr: 'ADR 2 D7 rung 1 (conservative: any uncertainty resolves downward)',
+  },
 
-	// ─── Rung 2: re-bootstrap ──────────────────────────────────────────────────
-	{
-		id: 'D7-2-COMPACTED',
-		from: ['healing'],
-		input: 'changesSince reply',
-		condition: 'reply is bootstrap-required (cursor below minAvailableSeq / unknown)',
-		effect: 'Re-bootstrap (scoped). Discard the cache at the atomic swap. KEEP THE OUTBOX.',
-		to: 'bootstrapping',
-		rung: 2,
-		adr: 'ADR 2 D7 rung 2',
-	},
-	{
-		id: 'D7-2-RESYNC',
-		from: ['live', 'healing', 'stale'],
-		input: 'resync-required control frame',
-		condition: 'always — the authority shed load',
-		effect: 'Re-bootstrap. Telemetry records a BACKPRESSURE cause, not an authz one.',
-		to: 'bootstrapping',
-		rung: 2,
-		adr: 'ADR 2 D9 → D7 rung 2',
-	},
-	{
-		id: 'D14-RESCOPE',
-		from: ['live', 'healing', 'stale', 'bootstrapping', 'cold'],
-		input: 'rescope control frame',
-		condition: "always legal — the principal's rights changed",
-		effect:
-			'Re-bootstrap, scoped, on the SAME path as every other rung: discard the cache, KEEP THE OUTBOX. Telemetry records an AUTHZ cause, distinguishable from resync-required.',
-		to: 'bootstrapping',
-		rung: 2,
-		adr: 'Amendment 1 D14.4; ADR 2 D7 outbox rule; ADR 3 D9 invariant 5',
-	},
-	{
-		id: 'D7-2-COLD',
-		from: ['cold'],
-		input: 'connect()',
-		condition: 'no cursor held',
-		effect: 'Bootstrap the principal\'s slice. The most-exercised path in the system.',
-		to: 'bootstrapping',
-		rung: 2,
-		adr: 'ADR 2 D6; Amendment 1 D15',
-	},
+  // ─── Rung 2: re-bootstrap ──────────────────────────────────────────────────
+  {
+    id: 'D7-2-COMPACTED',
+    from: ['healing'],
+    input: 'changesSince reply',
+    condition: 'reply is bootstrap-required (cursor below minAvailableSeq / unknown)',
+    effect: 'Re-bootstrap (scoped). Discard the cache at the atomic swap. KEEP THE OUTBOX.',
+    to: 'bootstrapping',
+    rung: 2,
+    adr: 'ADR 2 D7 rung 2',
+  },
+  {
+    id: 'D7-2-RESYNC',
+    from: ['live', 'healing', 'stale'],
+    input: 'resync-required control frame',
+    condition: 'always — the authority shed load',
+    effect: 'Re-bootstrap. Telemetry records a BACKPRESSURE cause, not an authz one.',
+    to: 'bootstrapping',
+    rung: 2,
+    adr: 'ADR 2 D9 → D7 rung 2',
+  },
+  {
+    id: 'D14-RESCOPE',
+    from: ['live', 'healing', 'stale', 'bootstrapping', 'cold'],
+    input: 'rescope control frame',
+    condition: "always legal — the principal's rights changed",
+    effect:
+      'Re-bootstrap, scoped, on the SAME path as every other rung: discard the cache, KEEP THE OUTBOX. Telemetry records an AUTHZ cause, distinguishable from resync-required.',
+    to: 'bootstrapping',
+    rung: 2,
+    adr: 'Amendment 1 D14.4; ADR 2 D7 outbox rule; ADR 3 D9 invariant 5',
+  },
+  {
+    id: 'D7-2-COLD',
+    from: ['cold'],
+    input: 'connect()',
+    condition: 'no cursor held',
+    effect: "Bootstrap the principal's slice. The most-exercised path in the system.",
+    to: 'bootstrapping',
+    rung: 2,
+    adr: 'ADR 2 D6; Amendment 1 D15',
+  },
 
-	// ─── Rungs 3-6 ─────────────────────────────────────────────────────────────
-	{
-		id: 'D7-3-MALFORMED',
-		from: ['live', 'healing', 'stale'],
-		input: 'delta frame',
-		condition:
-			'known-kind row fails validation: change outside the covered range, decreasing seq, upsert without payload, remove/evict with payload, empty id, fromSeq > seq',
-		effect: 'Do not apply, do not advance. Re-bootstrap.',
-		to: 'bootstrapping',
-		rung: 3,
-		adr: 'ADR 2 D7 rung 3 — escalates rather than retrying, or the heal loops forever',
-	},
-	{
-		id: 'D7-3-REPLY-MALFORMED',
-		from: ['healing'],
-		input: 'changesSince reply',
-		condition: 'non-contiguous with the cursor, or fails validation',
-		effect: 'Re-bootstrap. A sideways retry of the request that just failed is an infinite loop.',
-		to: 'bootstrapping',
-		rung: 3,
-		adr: 'ADR 2 D7 rung 3 + "why the ladder must be strictly downward"',
-	},
-	{
-		id: 'D7-4-EPOCH',
-		from: ['live', 'healing', 'stale'],
-		input: 'delta frame or changesSince reply',
-		condition: 'feedId or epoch differs from the held cursor',
-		effect:
-			'Discard the replica entirely and re-bootstrap. Epoch is compared by EQUALITY only, never ordered.',
-		to: 'bootstrapping',
-		rung: 4,
-		adr: 'ADR 2 D1 + D7 rung 4',
-	},
-	{
-		id: 'D7-5-CORRUPT',
-		from: ['live', 'healing', 'bootstrapping'],
-		input: 'store throws ReplicaStoreCorruptError',
-		condition: 'the local store is unreadable',
-		effect:
-			'Clear the cache explicitly and re-bootstrap as a cold client. The outbox is on a port this path cannot reach; if it is ALSO lost, its own store surfaces that loudly.',
-		to: 'bootstrapping',
-		rung: 5,
-		adr: 'ADR 2 D7 rung 5; ADR 6 D4.5',
-	},
-	{
-		id: 'D7-6-SCHEMA',
-		from: ['live', 'stale', 'cold'],
-		input: 'replicaSchemaChanged()',
-		condition: 'the local store layout version moved',
-		effect: 'Discard and re-bootstrap. A client is never obliged to migrate.',
-		to: 'bootstrapping',
-		rung: 6,
-		adr: 'ADR 2 D4 (replica schema version) + D7 rung 6; ADR 6 D5.1',
-	},
+  // ─── Rungs 3-6 ─────────────────────────────────────────────────────────────
+  {
+    id: 'D7-3-MALFORMED',
+    from: ['live', 'healing', 'stale'],
+    input: 'delta frame',
+    condition:
+      'known-kind row fails validation: change outside the covered range, decreasing seq, upsert without payload, remove/evict with payload, empty id, fromSeq > seq',
+    effect: 'Do not apply, do not advance. Re-bootstrap.',
+    to: 'bootstrapping',
+    rung: 3,
+    adr: 'ADR 2 D7 rung 3 — escalates rather than retrying, or the heal loops forever',
+  },
+  {
+    id: 'D7-3-REPLY-MALFORMED',
+    from: ['healing'],
+    input: 'changesSince reply',
+    condition: 'non-contiguous with the cursor, or fails validation',
+    effect: 'Re-bootstrap. A sideways retry of the request that just failed is an infinite loop.',
+    to: 'bootstrapping',
+    rung: 3,
+    adr: 'ADR 2 D7 rung 3 + "why the ladder must be strictly downward"',
+  },
+  {
+    id: 'D7-4-EPOCH',
+    from: ['live', 'healing', 'stale'],
+    input: 'delta frame or changesSince reply',
+    condition: 'feedId or epoch differs from the held cursor',
+    effect:
+      'Discard the replica entirely and re-bootstrap. Epoch is compared by EQUALITY only, never ordered.',
+    to: 'bootstrapping',
+    rung: 4,
+    adr: 'ADR 2 D1 + D7 rung 4',
+  },
+  {
+    id: 'D7-5-CORRUPT',
+    from: ['live', 'healing', 'bootstrapping'],
+    input: 'store throws ReplicaStoreCorruptError',
+    condition: 'the local store is unreadable',
+    effect:
+      'Clear the cache explicitly and re-bootstrap as a cold client. The outbox is on a port this path cannot reach; if it is ALSO lost, its own store surfaces that loudly.',
+    to: 'bootstrapping',
+    rung: 5,
+    adr: 'ADR 2 D7 rung 5; ADR 6 D4.5',
+  },
+  {
+    id: 'D7-6-SCHEMA',
+    from: ['live', 'stale', 'cold'],
+    input: 'replicaSchemaChanged()',
+    condition: 'the local store layout version moved',
+    effect: 'Discard and re-bootstrap. A client is never obliged to migrate.',
+    to: 'bootstrapping',
+    rung: 6,
+    adr: 'ADR 2 D4 (replica schema version) + D7 rung 6; ADR 6 D5.1',
+  },
 
-	// ─── Bootstrap walk (D6 shape, D15 slice) ──────────────────────────────────
-	{
-		id: 'D6-BUFFER',
-		from: ['bootstrapping', 'healing'],
-		input: 'delta frame',
-		condition: 'a bootstrap walk or a heal is in flight',
-		effect:
-			'Buffer the frame. The rule is stated over FRAMES, not over ops, so watermarks and evicts buffer exactly like ordinary changes and no op kind can be forgotten.',
-		to: 'bootstrapping',
-		rung: null,
-		adr: 'ADR 2 D6.3; Amendment 1 D15.2',
-	},
-	{
-		id: 'D6-BUFFER-COVERED',
-		from: ['bootstrapping'],
-		input: 'buffered frame, at install',
-		condition: 'frame.seq <= snapshotSeq',
-		effect: 'Discard it — the snapshot already contains its effect.',
-		to: 'live',
-		rung: null,
-		adr: 'ADR 2 D6.3',
-	},
-	{
-		id: 'D6-BUFFER-STRADDLE',
-		from: ['bootstrapping'],
-		input: 'buffered frame, at install',
-		condition: 'frame.fromSeq < snapshotSeq < frame.seq',
-		effect:
-			'Truncate to the certified sub-range (snapshotSeq, seq] and keep only changes above the snapshot point.',
-		to: 'live',
-		rung: null,
-		adr: 'ADR 2 D6.3 + Amendment 1 D13 (the covered range is what makes truncation well-defined)',
-	},
-	{
-		id: 'D6-INSTALL',
-		from: ['bootstrapping'],
-		input: 'last chunk',
-		condition: 'the walk completed',
-		effect:
-			'ONE transaction: swap staging into place (this is the cache discard), apply buffered deltas in order, commit the cursor. No half-installed replica.',
-		to: 'live',
-		rung: null,
-		adr: 'ADR 2 D6.4 / D10; Amendment 1 D15.3',
-	},
-	{
-		id: 'D6-INSTALL-GAP',
-		from: ['bootstrapping'],
-		input: 'buffered frames, at install',
-		condition: 'a buffered frame is not contiguous with the running cursor',
-		effect: 'Apply while contiguous, drop the rest, and heal from the cursor reached.',
-		to: 'healing',
-		rung: 1,
-		adr: 'ADR 2 D7 rung 1 — resolve downward rather than guess across the hole',
-	},
-	{
-		id: 'D6-RESTART',
-		from: ['bootstrapping'],
-		input: 'chunk stream fails, or a chunk is malformed',
-		condition: 'attempts remain',
-		effect:
-			'Discard staging and restart from scratch. Bootstrap is restartable, not resumable, in Phase 2.',
-		to: 'bootstrapping',
-		rung: null,
-		adr: 'ADR 2 D6.5 + Deferred ("resumable bootstrap")',
-	},
-	{
-		id: 'D6-EXHAUSTED',
-		from: ['bootstrapping'],
-		input: 'chunk stream fails',
-		condition: 'no attempts remain',
-		effect:
-			'Surface the failure and keep serving the last-known slice, marked stale. Never blank the UI.',
-		to: 'stale',
-		rung: null,
-		adr: 'ADR 2 D7 "stale-visible, never blank"',
-	},
+  // ─── Bootstrap walk (D6 shape, D15 slice) ──────────────────────────────────
+  {
+    id: 'D6-BUFFER',
+    from: ['bootstrapping', 'healing'],
+    input: 'delta frame',
+    condition: 'a bootstrap walk or a heal is in flight',
+    effect:
+      'Buffer the frame. The rule is stated over FRAMES, not over ops, so watermarks and evicts buffer exactly like ordinary changes and no op kind can be forgotten.',
+    to: 'bootstrapping',
+    rung: null,
+    adr: 'ADR 2 D6.3; Amendment 1 D15.2',
+  },
+  {
+    id: 'D6-BUFFER-COVERED',
+    from: ['bootstrapping'],
+    input: 'buffered frame, at install',
+    condition: 'frame.seq <= snapshotSeq',
+    effect: 'Discard it — the snapshot already contains its effect.',
+    to: 'live',
+    rung: null,
+    adr: 'ADR 2 D6.3',
+  },
+  {
+    id: 'D6-BUFFER-STRADDLE',
+    from: ['bootstrapping'],
+    input: 'buffered frame, at install',
+    condition: 'frame.fromSeq < snapshotSeq < frame.seq',
+    effect:
+      'Truncate to the certified sub-range (snapshotSeq, seq] and keep only changes above the snapshot point.',
+    to: 'live',
+    rung: null,
+    adr: 'ADR 2 D6.3 + Amendment 1 D13 (the covered range is what makes truncation well-defined)',
+  },
+  {
+    id: 'D6-INSTALL',
+    from: ['bootstrapping'],
+    input: 'last chunk',
+    condition: 'the walk completed',
+    effect:
+      'ONE transaction: swap staging into place (this is the cache discard), apply buffered deltas in order, commit the cursor. No half-installed replica.',
+    to: 'live',
+    rung: null,
+    adr: 'ADR 2 D6.4 / D10; Amendment 1 D15.3',
+  },
+  {
+    id: 'D6-INSTALL-GAP',
+    from: ['bootstrapping'],
+    input: 'buffered frames, at install',
+    condition: 'a buffered frame is not contiguous with the running cursor',
+    effect: 'Apply while contiguous, drop the rest, and heal from the cursor reached.',
+    to: 'healing',
+    rung: 1,
+    adr: 'ADR 2 D7 rung 1 — resolve downward rather than guess across the hole',
+  },
+  {
+    id: 'D6-RESTART',
+    from: ['bootstrapping'],
+    input: 'chunk stream fails, or a chunk is malformed',
+    condition: 'attempts remain',
+    effect:
+      'Discard staging and restart from scratch. Bootstrap is restartable, not resumable, in Phase 2.',
+    to: 'bootstrapping',
+    rung: null,
+    adr: 'ADR 2 D6.5 + Deferred ("resumable bootstrap")',
+  },
+  {
+    id: 'D6-EXHAUSTED',
+    from: ['bootstrapping'],
+    input: 'chunk stream fails',
+    condition: 'no attempts remain',
+    effect:
+      'Surface the failure and keep serving the last-known slice, marked stale. Never blank the UI.',
+    to: 'stale',
+    rung: null,
+    adr: 'ADR 2 D7 "stale-visible, never blank"',
+  },
 
-	// ─── Connectivity ──────────────────────────────────────────────────────────
-	{
-		id: 'D7-STALE-VISIBLE',
-		from: ['live', 'healing', 'bootstrapping'],
-		input: 'disconnect()',
-		condition: 'a slice is installed',
-		effect:
-			'Keep serving the last-known slice, marked stale. Under scoping it may include rows a revocation has since removed; that is a stale read and it is NOT expired locally.',
-		to: 'stale',
-		rung: null,
-		adr: 'ADR 2 D7 stale-visible; Amendment 1 D13 (do not expire visibility on a timer)',
-	},
-	{
-		id: 'D7-DISCONNECT-COLD',
-		from: ['cold', 'bootstrapping'],
-		input: 'disconnect()',
-		condition: 'no slice installed',
-		effect: 'Stay cold. There is nothing to show stale.',
-		to: 'cold',
-		rung: null,
-		adr: 'ADR 2 D7',
-	},
+  // ─── Connectivity ──────────────────────────────────────────────────────────
+  {
+    id: 'D7-STALE-VISIBLE',
+    from: ['live', 'healing', 'bootstrapping'],
+    input: 'disconnect()',
+    condition: 'a slice is installed',
+    effect:
+      'Keep serving the last-known slice, marked stale. Under scoping it may include rows a revocation has since removed; that is a stale read and it is NOT expired locally.',
+    to: 'stale',
+    rung: null,
+    adr: 'ADR 2 D7 stale-visible; Amendment 1 D13 (do not expire visibility on a timer)',
+  },
+  {
+    id: 'D7-DISCONNECT-COLD',
+    from: ['cold', 'bootstrapping'],
+    input: 'disconnect()',
+    condition: 'no slice installed',
+    effect: 'Stay cold. There is nothing to show stale.',
+    to: 'cold',
+    rung: null,
+    adr: 'ADR 2 D7',
+  },
 ] as const
 
 export function transitionRow(id: string): TransitionRow {
-	const row = REPLICA_TRANSITIONS.find((r) => r.id === id)
-	if (row === undefined) throw new Error(`unknown transition row: ${id}`)
-	return row
+  const row = REPLICA_TRANSITIONS.find((r) => r.id === id)
+  if (row === undefined) throw new Error(`unknown transition row: ${id}`)
+  return row
 }

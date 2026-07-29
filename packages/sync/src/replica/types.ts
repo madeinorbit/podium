@@ -23,9 +23,9 @@
  * (D1: a counter re-collides across repeated restores of the same backup).
  */
 export interface Cursor {
-	readonly feedId: string
-	readonly epoch: string
-	readonly seq: number
+  readonly feedId: string
+  readonly epoch: string
+  readonly seq: number
 }
 
 /**
@@ -48,25 +48,25 @@ export type ChangeOp = 'upsert' | 'remove' | 'evict'
  * (ADR 4 forbids it).
  */
 export interface ChangeProvenance {
-	/** Which peer authored this change (echo suppression, loop prevention). */
-	readonly originId?: string
-	/** Which command caused it — resolves to an outbox entry's `mutationId`. */
-	readonly causationId?: string
-	/** The client-minted idempotency key of that command. */
-	readonly mutationId?: string
+  /** Which peer authored this change (echo suppression, loop prevention). */
+  readonly originId?: string
+  /** Which command caused it — resolves to an outbox entry's `mutationId`. */
+  readonly causationId?: string
+  /** The client-minted idempotency key of that command. */
+  readonly mutationId?: string
 }
 
 /** One row of the feed, as the Replica sees it. */
 export interface ChangeEnvelope extends ChangeProvenance {
-	/** Position in the ONE global sequence (Amendment 1 D12: never renumbered). */
-	readonly seq: number
-	readonly entity: string
-	readonly entityId: string
-	readonly op: ChangeOp
-	/** Present iff `op === 'upsert'`. `remove` and `evict` carry no payload. */
-	readonly payload?: unknown
-	/** ADR 2 D3 — authority-assigned, opaque to the Replica. */
-	readonly revision?: number
+  /** Position in the ONE global sequence (Amendment 1 D12: never renumbered). */
+  readonly seq: number
+  readonly entity: string
+  readonly entityId: string
+  readonly op: ChangeOp
+  /** Present iff `op === 'upsert'`. `remove` and `evict` carry no payload. */
+  readonly payload?: unknown
+  /** ADR 2 D3 — authority-assigned, opaque to the Replica. */
+  readonly revision?: number
 }
 
 /**
@@ -83,15 +83,15 @@ export interface ChangeEnvelope extends ChangeProvenance {
  * property).
  */
 export interface DeltaFrame {
-	readonly kind: 'delta'
-	readonly feedId: string
-	readonly epoch: string
-	/** Exclusive lower bound of the certified range. */
-	readonly fromSeq: number
-	/** Inclusive upper bound. */
-	readonly seq: number
-	/** Every change in `(fromSeq, seq]` this principal may see, in seq order. MAY be empty. */
-	readonly changes: readonly ChangeEnvelope[]
+  readonly kind: 'delta'
+  readonly feedId: string
+  readonly epoch: string
+  /** Exclusive lower bound of the certified range. */
+  readonly fromSeq: number
+  /** Inclusive upper bound. */
+  readonly seq: number
+  /** Every change in `(fromSeq, seq]` this principal may see, in seq order. MAY be empty. */
+  readonly changes: readonly ChangeEnvelope[]
 }
 
 /**
@@ -101,26 +101,26 @@ export interface DeltaFrame {
  * authz event look like a performance event.
  */
 export interface RescopeFrame {
-	readonly kind: 'rescope'
-	readonly feedId: string
-	readonly epoch: string
-	readonly reason?: string
+  readonly kind: 'rescope'
+  readonly feedId: string
+  readonly epoch: string
+  readonly reason?: string
 }
 
 /** ADR 2 D9 — the authority shed load; also rung 2. */
 export interface ResyncRequiredFrame {
-	readonly kind: 'resync-required'
-	readonly feedId: string
-	readonly epoch: string
-	readonly reason?: string
+  readonly kind: 'resync-required'
+  readonly feedId: string
+  readonly epoch: string
+  readonly reason?: string
 }
 
 export type ServerFrame = DeltaFrame | RescopeFrame | ResyncRequiredFrame
 
 /** The authority cannot serve a delta from this cursor (compacted / unknown). */
 export interface BootstrapRequired {
-	readonly kind: 'bootstrap-required'
-	readonly reason?: string
+  readonly kind: 'bootstrap-required'
+  readonly reason?: string
 }
 
 export type ChangesSinceReply = DeltaFrame | BootstrapRequired
@@ -137,12 +137,12 @@ export type ChangesSinceReply = DeltaFrame | BootstrapRequired
  * tombstone heals (Amendment 1 D16.1).
  */
 export interface BootstrapChunk {
-	readonly feedId: string
-	readonly epoch: string
-	readonly snapshotSeq: number
-	/** Positive state only — `upsert` rows. A `remove`/`evict` here is malformed. */
-	readonly changes: readonly ChangeEnvelope[]
-	readonly last: boolean
+  readonly feedId: string
+  readonly epoch: string
+  readonly snapshotSeq: number
+  /** Positive state only — `upsert` rows. A `remove`/`evict` here is malformed. */
+  readonly changes: readonly ChangeEnvelope[]
+  readonly last: boolean
 }
 
 /**
@@ -154,16 +154,16 @@ export interface BootstrapChunk {
  * Replica arbitrating.
  */
 export type Posture =
-	/** No slice installed, not connected. */
-	| 'cold'
-	/** Walking a chunked bootstrap; concurrent frames are buffered. */
-	| 'bootstrapping'
-	/** Cursor valid, connected, applying frames. */
-	| 'live'
-	/** Gap detected (rung 1); a `changesSince` is in flight. */
-	| 'healing'
-	/** Disconnected, holding the last-known slice. Visible, marked stale. */
-	| 'stale'
+  /** No slice installed, not connected. */
+  | 'cold'
+  /** Walking a chunked bootstrap; concurrent frames are buffered. */
+  | 'bootstrapping'
+  /** Cursor valid, connected, applying frames. */
+  | 'live'
+  /** Gap detected (rung 1); a `changesSince` is in flight. */
+  | 'healing'
+  /** Disconnected, holding the last-known slice. Visible, marked stale. */
+  | 'stale'
 
 /** ADR 2 D7's ladder. Rung 0 is the normal path; rungs 2-6 all terminate at re-bootstrap. */
 export type HealRung = 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -174,30 +174,30 @@ export type HealRung = 0 | 1 | 2 | 3 | 4 | 5 | 6
  * keep the outbox" a property of one function rather than of six call sites.
  */
 export type RebootstrapCause =
-	/** rung 2 — cursor below `minAvailableSeq`, or the authority said so. */
-	| 'compacted'
-	/** rung 2 — ADR 2 D9 backpressure demotion. */
-	| 'resync-required'
-	/** rung 2 — Amendment 1 D14.4: the principal's rights changed. */
-	| 'rescope'
-	/** rung 3 — malformed frame or non-contiguous reply. */
-	| 'malformed'
-	/** rung 4 — feedId/epoch mismatch (D1). */
-	| 'epoch-mismatch'
-	/** rung 5 — local store unreadable. */
-	| 'local-corruption'
-	/** rung 6 — replica schema version bump (D4). */
-	| 'schema-version'
-	/** rung 2 — a cold client has no cursor to heal from. */
-	| 'cold-start'
+  /** rung 2 — cursor below `minAvailableSeq`, or the authority said so. */
+  | 'compacted'
+  /** rung 2 — ADR 2 D9 backpressure demotion. */
+  | 'resync-required'
+  /** rung 2 — Amendment 1 D14.4: the principal's rights changed. */
+  | 'rescope'
+  /** rung 3 — malformed frame or non-contiguous reply. */
+  | 'malformed'
+  /** rung 4 — feedId/epoch mismatch (D1). */
+  | 'epoch-mismatch'
+  /** rung 5 — local store unreadable. */
+  | 'local-corruption'
+  /** rung 6 — replica schema version bump (D4). */
+  | 'schema-version'
+  /** rung 2 — a cold client has no cursor to heal from. */
+  | 'cold-start'
 
 /** An entity as the Replica holds it: value, opaque revision, and envelope provenance beside it — never inside it. */
 export interface EntityRecord {
-	readonly entity: string
-	readonly entityId: string
-	readonly value: unknown
-	readonly revision?: number
-	readonly provenance: ChangeProvenance & { readonly seq: number }
+  readonly entity: string
+  readonly entityId: string
+  readonly value: unknown
+  readonly revision?: number
+  readonly provenance: ChangeProvenance & { readonly seq: number }
 }
 
 /**
@@ -208,47 +208,47 @@ export interface EntityRecord {
 export type ExitKind = 'removed' | 'evicted'
 
 export type ReplicaEvent =
-	| { readonly type: 'upserted'; readonly record: EntityRecord; readonly readmitted: boolean }
-	/** A TOMBSTONE. The entity is gone, globally. Render as deleted. */
-	| { readonly type: 'removed'; readonly entity: string; readonly entityId: string }
-	/**
-	 * A VISIBILITY change. The entity still exists for others; it left this
-	 * principal's view. MUST NOT render as a deletion, MUST NOT emit a domain
-	 * "deleted" event, MUST NOT write a tombstone (D14.1).
-	 */
-	| { readonly type: 'evicted'; readonly entity: string; readonly entityId: string }
-	| { readonly type: 'cursor'; readonly cursor: Cursor; readonly watermarkOnly: boolean }
-	| { readonly type: 'posture'; readonly posture: Posture; readonly previous: Posture }
-	| { readonly type: 'heal'; readonly rung: HealRung; readonly cause: RebootstrapCause | 'gap' }
-	| {
-			readonly type: 'bootstrap-installed'
-			readonly cause: RebootstrapCause
-			readonly snapshotSeq: number
-			readonly entityCount: number
-			readonly bufferedFramesApplied: number
-	  }
-	/** Surfaced, never swallowed. The prior slice stays visible (D7 stale-visible). */
-	| {
-			readonly type: 'bootstrap-failed'
-			readonly cause: RebootstrapCause
-			readonly attempts: number
-			readonly error: string
-	  }
+  | { readonly type: 'upserted'; readonly record: EntityRecord; readonly readmitted: boolean }
+  /** A TOMBSTONE. The entity is gone, globally. Render as deleted. */
+  | { readonly type: 'removed'; readonly entity: string; readonly entityId: string }
+  /**
+   * A VISIBILITY change. The entity still exists for others; it left this
+   * principal's view. MUST NOT render as a deletion, MUST NOT emit a domain
+   * "deleted" event, MUST NOT write a tombstone (D14.1).
+   */
+  | { readonly type: 'evicted'; readonly entity: string; readonly entityId: string }
+  | { readonly type: 'cursor'; readonly cursor: Cursor; readonly watermarkOnly: boolean }
+  | { readonly type: 'posture'; readonly posture: Posture; readonly previous: Posture }
+  | { readonly type: 'heal'; readonly rung: HealRung; readonly cause: RebootstrapCause | 'gap' }
+  | {
+      readonly type: 'bootstrap-installed'
+      readonly cause: RebootstrapCause
+      readonly snapshotSeq: number
+      readonly entityCount: number
+      readonly bufferedFramesApplied: number
+    }
+  /** Surfaced, never swallowed. The prior slice stays visible (D7 stale-visible). */
+  | {
+      readonly type: 'bootstrap-failed'
+      readonly cause: RebootstrapCause
+      readonly attempts: number
+      readonly error: string
+    }
 
 /** Observable counters. Used by conformance to prove state stays BOUNDED (D13.4). */
 export interface ReplicaStats {
-	/** Frames held during a bootstrap walk. MUST be 0 outside `bootstrapping`. */
-	readonly bufferedFrames: number
-	readonly bufferedChanges: number
-	/**
-	 * Deliberately capped at 1 by construction: there is no pending-gap SET.
-	 * A gap resolves downward immediately (rung 1 → heal → rung 2 if that fails),
-	 * so a watermark-only stretch cannot accumulate anything here.
-	 */
-	readonly pendingGaps: number
-	readonly heals: number
-	readonly bootstraps: number
-	readonly framesApplied: number
-	readonly watermarksApplied: number
-	readonly entityCount: number
+  /** Frames held during a bootstrap walk. MUST be 0 outside `bootstrapping`. */
+  readonly bufferedFrames: number
+  readonly bufferedChanges: number
+  /**
+   * Deliberately capped at 1 by construction: there is no pending-gap SET.
+   * A gap resolves downward immediately (rung 1 → heal → rung 2 if that fails),
+   * so a watermark-only stretch cannot accumulate anything here.
+   */
+  readonly pendingGaps: number
+  readonly heals: number
+  readonly bootstraps: number
+  readonly framesApplied: number
+  readonly watermarksApplied: number
+  readonly entityCount: number
 }

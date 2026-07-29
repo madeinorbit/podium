@@ -26,29 +26,29 @@
  * Replica must not be able to interpret it — interpreting it would be arbitration.
  */
 export interface PendingMutation {
-	readonly mutationId: string
-	readonly entity: string
-	readonly entityId: string
-	readonly command: unknown
+  readonly mutationId: string
+  readonly entity: string
+  readonly entityId: string
+  readonly command: unknown
 }
 
 export interface OptimisticOverlayPort {
-	/** Pending commands for this entity, in author order. Supplied by the outbox (POD-370). */
-	pending(entity: string, entityId: string): readonly PendingMutation[]
-	/**
-	 * The reducer seam (POD-372/POD-351). `base` is `undefined` for an optimistic
-	 * create. Returning `undefined` means "optimistically absent".
-	 */
-	reduce(base: unknown | undefined, command: unknown): unknown
-	/**
-	 * Called once per applied change that carries provenance, so the outbox can
-	 * retire the matching entry. The Replica reports the fact; it does not decide
-	 * what the outbox should do with it.
-	 */
-	retire(match: {
-		readonly entity: string
-		readonly entityId: string
-		readonly causationId?: string
-		readonly mutationId?: string
-	}): void
+  /** Pending commands for this entity, in author order. Supplied by the outbox (POD-370). */
+  pending(entity: string, entityId: string): readonly PendingMutation[]
+  /**
+   * The reducer seam (POD-372/POD-351). `base` is `undefined` for an optimistic
+   * create. Returning `undefined` means "optimistically absent".
+   */
+  reduce(base: unknown | undefined, command: unknown): unknown
+  /**
+   * Called once per applied change that carries provenance, so the outbox can
+   * retire the matching entry. The Replica reports the fact; it does not decide
+   * what the outbox should do with it.
+   */
+  retire(match: {
+    readonly entity: string
+    readonly entityId: string
+    readonly causationId?: string
+    readonly mutationId?: string
+  }): void
 }
