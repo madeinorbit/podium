@@ -8,7 +8,7 @@
  * point: backfill fresh ascending keys for the WHOLE scope in its new order,
  * after which every later drag takes the fast path.
  */
-import { isSortKey, sortKeyBetween } from '@podium/domain'
+import { isSortKey, sortKeyBetween } from '@podium/model'
 
 export interface ReorderPatch {
   id: string

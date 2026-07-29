@@ -611,7 +611,7 @@ same commit.**
 
 | Workspace | Layer | Platform | Owns (features) | Transition |
 |---|---|---|---|---|
-| `packages/domain` | L0 model | browser-safe | entity-predicates, issue-stage, issue-authz, session-dedup, git-identity | → **`packages/model`** (Phase 1 POD-299) |
+| `packages/model` | L0 model | browser-safe | entity-predicates, issue-stage, issue-authz, session-dedup, git-identity, clock | **DONE** (Phase 1 POD-299): absorbed and deleted `packages/domain`, plus the `@podium/runtime/git.ts` shim. Zod-only, zero workspace deps. Reserved homes: `ids/` (POD-360…363), `annotations/` (POD-304), `user-state/` (POD-1076) |
 | `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | Phase 1 POD-300 moves schemas out; Phase 2 POD-308 wire cutover |
 | `packages/issue-client` | L1 wire | node-only | issue-command-table | → folded into the command registry (Phase 3 POD-311) |
 | `packages/transcript` | L2 kernel | node-only | transcript-parsing | package placement settled by ADR 8; POD-398 implements |

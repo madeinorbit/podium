@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
-import { desktopShellLocation, mobileEntryRedirect } from '@podium/domain'
+import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
 
 /**
@@ -87,7 +87,7 @@ function isBackendRoute(pathname: string): boolean {
  * for that navigation). Deep links (e.g. /session/xyz) are never redirected.
  * When the Expo build is absent, /mobile falls back to the desktop shell instead
  * of loading the main SPA under a wrong base path. Every redirect preserves the
- * query string (?server, ?e2e). The decision itself lives in @podium/domain, so
+ * query string (?server, ?e2e). The decision itself lives in @podium/model, so
  * this door and the two in apps/web cannot drift apart (POD-359).
  *
  * Presence is a live probe, not a boot-time flag: the mobile dist is gitignored

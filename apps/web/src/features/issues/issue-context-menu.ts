@@ -4,7 +4,7 @@ import {
   type HandoffMachine,
   type HandoffRepo,
   handoffAvailability,
-} from '@podium/domain'
+} from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 

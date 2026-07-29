@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { isSortKey, normalizeClosedPatch, sortKeyBetween } from '@podium/domain'
+import { isSortKey, normalizeClosedPatch, sortKeyBetween } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -357,7 +357,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  /** Stage-machine normalization (issue #24) — the rules live in @podium/domain's
+  /** Stage-machine normalization (issue #24) — the rules live in @podium/model's
    *  `normalizeClosedPatch` (see its doc for the three broken states it prevents). */
   private normalizeClosedPatch(row: IssueRow, patch: IssuePatch): IssuePatch {
     return normalizeClosedPatch(row, patch)
@@ -688,7 +688,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** Manually end a snooze (issue #133). Rather than clearing deferUntil to null —
    *  which drops the issue quietly back into the middle of WORK with no signal — this
    *  backdates deferUntil to just-past, landing the issue in the exact "returned from
-   *  defer" state a naturally-lapsed snooze reaches: derived `deferred`/`isIssueSnoozed`
+   *  defer" state a naturally-lapsed snooze reaches: derived `deferred`/`isIssueDeferred`
    *  go false while `issueReturnedFromDefer` goes true, floating it to the TOP of WORK
    *  with the "Unsnoozed" tag until the operator next opens it (the sidebar clears the
    *  stale defer on open). Emits issue.unsnoozed directly — routing a past deferUntil

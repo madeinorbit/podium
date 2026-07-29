@@ -9,7 +9,7 @@ import type { z } from 'zod'
 
 /**
  * What a command requires of the caller's role. This is EXACTLY the
- * `IssueAction` vocabulary of packages/domain/src/issue-authz.ts (viewer=read
+ * `IssueAction` vocabulary of packages/model/src/issue-authz.ts (viewer=read
  * · worker=+write · admin=+manage) — the same literals PROC_ACTION classifies
  * every issues.* proc with. Defined here rather than imported because
  * @podium/protocol is a leaf package (zod-only, no workspace deps); keep in
@@ -19,7 +19,7 @@ export type CommandAction = 'read' | 'write' | 'manage'
 
 /**
  * What kind of EXISTING target a write/manage command mutates — the registry
- * generalization of the SCOPED_TARGET table (packages/domain/src/
+ * generalization of the SCOPED_TARGET table (packages/model/src/
  * issue-authz.ts, re-exported by apps/server/src/issue-authz.ts):
  *
  * - `issue` — the command targets an existing issue and is subtree-scope

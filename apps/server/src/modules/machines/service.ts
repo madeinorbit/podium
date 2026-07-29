@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { agentCapabilityRejection } from '@podium/domain'
+import { agentCapabilityRejection } from '@podium/model'
 import type {
   AgentKind,
   ControlMessage,

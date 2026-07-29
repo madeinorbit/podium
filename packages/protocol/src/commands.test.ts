@@ -77,7 +77,7 @@ describe('command contract (type-level)', () => {
   })
 
   it('action reuses the IssueAction vocabulary; scope the SCOPED_TARGET classes', () => {
-    // Mirrors packages/domain/src/issue-authz.ts IssueAction exactly.
+    // Mirrors packages/model/src/issue-authz.ts IssueAction exactly.
     expectTypeOf<CommandAction>().toEqualTypeOf<'read' | 'write' | 'manage'>()
     expectTypeOf<CommandScope>().toEqualTypeOf<'issue' | 'repo' | 'global'>()
     defineCommands('bad', {

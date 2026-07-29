@@ -107,7 +107,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   },
   {
     rule: 'harness-branching',
-    file: 'packages/domain/src/machine-selection.ts',
+    file: 'packages/model/src/predicates/machine-selection.ts',
     count: 2,
     phase: P5,
     note: 'Machine selection restricted to claude-code/codex — a manifest capability predicate under POD-325, not a hardcoded pair.',

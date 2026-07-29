@@ -1,6 +1,6 @@
 import type { Replica } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueColorSlot } from '@podium/domain'
+import type { IssueColorSlot } from '@podium/model'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'

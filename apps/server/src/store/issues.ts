@@ -7,7 +7,7 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import { isIssueColorSlot } from '@podium/domain'
+import { isIssueColorSlot } from '@podium/model'
 import { IssueStage, letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'

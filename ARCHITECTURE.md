@@ -22,20 +22,20 @@ package and lets each release independently.
 ```
 @podium/web              ->  @podium/terminal-client, @podium/client-core, @podium/runtime
 @podium/web              ~>  @podium/server   (type-only AppRouter; planned, no runtime dep)
-@podium/server           ->  @podium/runtime, @podium/domain, @podium/protocol
+@podium/server           ->  @podium/runtime, @podium/model, @podium/protocol
 @podium/daemon           ->  @podium/agent-bridge, @podium/protocol, @podium/runtime
-@podium/client-core      ->  @podium/protocol, @podium/domain, @podium/runtime, @podium/terminal-client
+@podium/client-core      ->  @podium/protocol, @podium/model, @podium/runtime, @podium/terminal-client
 @podium/agent-bridge     ->  @podium/protocol
 @podium/terminal-client  ->  @podium/protocol
 @podium/protocol         ->  (leaf — no internal deps)
-@podium/domain           ->  (leaf — no internal deps, no @podium/protocol dep either)
-@podium/runtime          ->  @podium/protocol, @podium/domain (near-leaf; nothing else)
+@podium/model           ->  (leaf — no internal deps, no @podium/protocol dep either)
+@podium/runtime          ->  @podium/protocol, @podium/model (near-leaf; nothing else)
 ```
 
 - Apps depend on packages, never the reverse.
 - No app→app runtime dependency; `apps/web` imports only the `AppRouter` *type* from
   `apps/server`.
-- `@podium/protocol` and `@podium/domain` are leaf packages. `@podium/runtime` is a
+- `@podium/protocol` and `@podium/model` are leaf packages. `@podium/runtime` is a
   near-leaf: it may depend only on those two leaves.
 
 ### Server role tiers: core → hub → cloud
@@ -69,7 +69,7 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Agent state detection (provider interface, reducer, per-agent providers) | `@podium/agent-bridge` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
-| Pure domain logic (issue stage machine, authz, snooze/defer, worktree/machine identity, session dedup + priority) | `@podium/domain` |
+| Pure domain logic (issue stage machine, authz, snooze/defer, worktree/machine identity, session dedup + priority) | `@podium/model` |
 | Node-runtime plumbing (config, sqlite shims, git identity, connectivity, auth-store, …) | `@podium/runtime` |
 | tRPC routers, auth, persistence, conversation index, daemon fan-out | `apps/server` |
 | Typed in-process event bus (module→module signals) | `apps/server` `src/modules/bus.ts` |

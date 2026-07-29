@@ -10,7 +10,7 @@ const viteConfig = readFileSync(
 
 describe('workspace source resolution', () => {
   it('resolves domain source without requiring a generated workspace link', () => {
-    expect(viteConfig).toContain("'@podium/domain': fileURLToPath(")
-    expect(viteConfig).toContain("new URL('../../packages/domain/src/index.ts', import.meta.url)")
+    expect(viteConfig).toContain("'@podium/model': fileURLToPath(")
+    expect(viteConfig).toContain("new URL('../../packages/model/src/index.ts', import.meta.url)")
   })
 })

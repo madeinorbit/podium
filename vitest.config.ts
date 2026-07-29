@@ -34,9 +34,12 @@ export const sharedVitestConfig = {
         find: '@podium/composer',
         replacement: fileURLToPath(new URL('./packages/composer/src/index.ts', import.meta.url)),
       },
+      // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,
+      // and the prefix-match hazard described above is not worth re-learning if it
+      // ever grows a subpath export.
       {
-        find: '@podium/domain',
-        replacement: fileURLToPath(new URL('./packages/domain/src/index.ts', import.meta.url)),
+        find: /^@podium\/model$/,
+        replacement: fileURLToPath(new URL('./packages/model/src/index.ts', import.meta.url)),
       },
       {
         find: '@podium/protocol',

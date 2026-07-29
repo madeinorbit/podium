@@ -1,7 +1,7 @@
 // Imported by vite.config.ts, which Vite loads outside the app's module graph:
-// bare '@podium/domain' would resolve to the package's unbuilt dist there, so
+// bare '@podium/model' would resolve to the package's unbuilt dist there, so
 // reach the source directly (same as the resolve.alias entries in vite.config).
-import { mobileEntryRedirect } from '../../packages/domain/src/mobile-entry'
+import { mobileEntryRedirect } from '../../packages/model/src/predicates/mobile-entry'
 
 /** Return the phone entry redirect for Vite's front door, if one applies. */
 export function mobileRedirectLocation(

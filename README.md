@@ -119,7 +119,7 @@ Found a vulnerability? Please report it privately — see [SECURITY.md](./SECURI
 | `packages/protocol` | Shared agent/terminal wire protocol. |
 | `packages/agent-bridge` | Coding-agent CLI process wrapper (server-side PTY). |
 | `packages/terminal-client` | Browser terminal presentation client. |
-| `packages/domain` | Pure domain logic (issue stages, authz, identity predicates). |
+| `packages/model` | Pure domain logic (issue stages, authz, identity predicates). |
 | `packages/runtime` | Runtime plumbing: config, sqlite, git identity, auth. |
 
 The `@podium/*` packages are consumed in-repo and are **not published to npm** (yet). See `ARCHITECTURE.md` for what-goes-where.

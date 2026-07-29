@@ -85,7 +85,7 @@
         "@expo-google-fonts/geist-mono": "^0.4.3",
         "@expo/metro-runtime": "~57.0.3",
         "@podium/client-core": "workspace:*",
-        "@podium/domain": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@podium/terminal-client-react": "workspace:*",
@@ -120,8 +120,8 @@
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
         "@podium/agent-bridge": "workspace:*",
-        "@podium/domain": "workspace:*",
         "@podium/issue-client": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
@@ -163,7 +163,7 @@
         "@fontsource-variable/geist": "^5.2.9",
         "@fontsource-variable/geist-mono": "^5.2.8",
         "@podium/client-core": "workspace:*",
-        "@podium/domain": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
@@ -221,7 +221,7 @@
       "name": "@podium/client-core",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/domain": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/terminal-client": "workspace:*",
@@ -251,14 +251,6 @@
         "typescript": "^6.0.3",
       },
     },
-    "packages/domain": {
-      "name": "@podium/domain",
-      "version": "0.0.0",
-      "devDependencies": {
-        "tsup": "^8.5.1",
-        "typescript": "^6.0.3",
-      },
-    },
     "packages/issue-client": {
       "name": "@podium/issue-client",
       "version": "0.0.0",
@@ -268,6 +260,17 @@
         "zod": "^3.24.0",
       },
       "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/model": {
+      "name": "@podium/model",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
         "typescript": "^6.0.3",
       },
     },
@@ -286,7 +289,7 @@
       "name": "@podium/runtime",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/domain": "workspace:*",
+        "@podium/model": "workspace:*",
         "zod": "^3.24.0",
       },
       "devDependencies": {
@@ -1045,8 +1048,6 @@
 
     "@podium/desktop": ["@podium/desktop@workspace:apps/desktop"],
 
-    "@podium/domain": ["@podium/domain@workspace:packages/domain"],
-
     "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
 
     "@podium/issue-client": ["@podium/issue-client@workspace:packages/issue-client"],
@@ -1056,6 +1057,8 @@
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
+
+    "@podium/model": ["@podium/model@workspace:packages/model"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
 
