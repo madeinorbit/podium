@@ -6,15 +6,15 @@ import {
   codexStateProvider,
   findCodexRolloutPath,
   observeCodexState,
-} from '../../agent-state/codex.js'
-import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
+} from '../agent-state/codex.js'
+import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import {
   accountIdentity,
   type HarnessAdapter,
   type HarnessObservationLease,
   isSet,
   type TranscriptSourceInput,
-} from '../adapter.js'
+} from '../manifest.js'
 import { composeAgentInstructions } from '../instructions.js'
 
 interface CodexAuthFile {

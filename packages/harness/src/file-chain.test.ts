@@ -57,7 +57,7 @@ describe('resolveFileChain', () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const cwd = '/work/repo'
     const chatId = 'chat-123'
-    const { cursorSessionPaths } = await import('../cursor/paths.js')
+    const { cursorSessionPaths } = await import('./cursor/paths.js')
     const transcriptPath = cursorSessionPaths({ cwd, chatId, homeDir: home }).transcriptPath
     await mkdir(dirname(transcriptPath), { recursive: true })
     await writeFile(transcriptPath, '{}\n')
@@ -74,7 +74,7 @@ describe('resolveFileChain', () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const cwd = '/work/repo'
     const sessionId = 'sess-456'
-    const { grokSessionPaths } = await import('../agent-state/grok.js')
+    const { grokSessionPaths } = await import('./agent-state/grok.js')
     const chatHistoryPath = grokSessionPaths({ cwd, sessionId, homeDir: home }).chatHistoryPath
     await mkdir(dirname(chatHistoryPath), { recursive: true })
     await writeFile(chatHistoryPath, '{}\n')

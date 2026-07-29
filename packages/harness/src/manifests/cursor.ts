@@ -1,16 +1,16 @@
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
-import { cursorBinCandidates, resolveCursorBin } from '../../cursor/cli.js'
-import { cursorSessionPaths } from '../../cursor/paths.js'
-import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'
+import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
+import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
+import { cursorSessionPaths } from '../cursor/paths.js'
+import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
 import {
   type HarnessAdapter,
   isSet,
   type TranscriptSourceInput,
   transcriptFileExists,
-} from '../adapter.js'
+} from '../manifest.js'
 import { composeAgentInstructions } from '../instructions.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {

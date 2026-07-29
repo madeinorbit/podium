@@ -6,7 +6,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { decodeCursor } from '@podium/transcript'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type ChainEntry, fileChainSource, fileIdFor, stampOpencodeItems } from '@podium/transcript'
-import { opencodeDbSource } from './adapters/opencode.js'
+import { opencodeDbSource } from './manifests/opencode.js'
 import { transcriptSourceFor } from './transcript-source.js'
 
 // ---------------------------------------------------------------------------

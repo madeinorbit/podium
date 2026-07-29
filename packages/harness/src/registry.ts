@@ -1,11 +1,11 @@
 import type { AgentKind, HarnessAgent } from '@podium/protocol'
-import type { AgentStateProvider } from '../agent-state/types.js'
-import type { HarnessAdapter } from './adapter.js'
-import { claudeCodeAdapter } from './adapters/claude-code.js'
-import { codexAdapter } from './adapters/codex.js'
-import { cursorAdapter } from './adapters/cursor.js'
-import { grokAdapter } from './adapters/grok.js'
-import { opencodeAdapter } from './adapters/opencode.js'
+import type { AgentStateProvider } from './agent-state/types.js'
+import type { HarnessAdapter } from './manifest.js'
+import { claudeCodeAdapter } from './manifests/claude-code.js'
+import { codexAdapter } from './manifests/codex.js'
+import { cursorAdapter } from './manifests/cursor.js'
+import { grokAdapter } from './manifests/grok.js'
+import { opencodeAdapter } from './manifests/opencode.js'
 
 /**
  * THE harness registry (#158): one adapter per driveable agent kind. The

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentStateProviderFor } from '../harness/registry.js'
+import { agentStateProviderFor } from '../registry.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the

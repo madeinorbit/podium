@@ -1,8 +1,8 @@
 {
-  "name": "@podium/agent-bridge",
+  "name": "@podium/harness",
   "version": "0.0.0",
   "private": true,
-  "description": "Wrap and drive coding-agent CLIs (Claude Code, Codex, Grok) over a PTY: spawn/attach, resize, stream output, inject input, multi-client control, transcript, discovery.",
+  "description": "Per-CLI agent manifests: one object per coding-agent CLI carrying launch/exec/headless/state/discovery/transcript. The single home for behavioral variance between Claude Code, Codex, Grok, OpenCode and Cursor.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,16 +16,15 @@
     }
   },
   "files": [
-    "dist",
-    "vendor"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@podium/runtime": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "node-pty": "^1.0.0"
+    "@podium/runtime": "workspace:*",
+    "@podium/transcript": "workspace:*"
   },
   "scripts": {
     "build": "tsup",

@@ -2,15 +2,15 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
-import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
+import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
+import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import {
   accountIdentity,
   type HarnessAdapter,
   isSet,
   type TranscriptSourceInput,
   transcriptFileExists,
-} from '../adapter.js'
+} from '../manifest.js'
 import { composeAgentInstructions } from '../instructions.js'
 
 interface GrokAuthRecord {

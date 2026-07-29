@@ -1,6 +1,6 @@
 import { realpath as realpathFs, stat } from 'node:fs/promises'
 import { sep } from 'node:path'
-import { HARNESS_ADAPTERS } from '../harness/registry.js'
+import { HARNESS_ADAPTERS } from '../registry.js'
 import type { ConversationDiscoveryCache } from './cache.js'
 import { canonicalPath, expandHome, isDirectory } from './paths.js'
 import {

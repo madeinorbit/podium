@@ -7,8 +7,8 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import type { HarnessObserverHost } from '../harness/adapter'
-import { grokAdapter } from '../harness/adapters/grok'
+import type { HarnessObserverHost } from '../manifest'
+import { grokAdapter } from '../manifests/grok'
 import { acceptAgentObservation, type ObservationLease } from './causal'
 import {
   classifyGrokIdleTranscript,

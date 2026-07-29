@@ -13,8 +13,8 @@ import type {
   TranscriptItem,
 } from '@podium/protocol'
 import type { StatTick, TranscriptSource } from '@podium/transcript'
-import type { AgentStateEvent, AgentStateProvider } from '../agent-state/types.js'
-import type { ConversationProvider } from '../discovery/types.js'
+import type { AgentStateEvent, AgentStateProvider } from './agent-state/types.js'
+import type { ConversationProvider } from './discovery/types.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
  *  daemon directly; it has no CLI conventions, transcript, or observers). */

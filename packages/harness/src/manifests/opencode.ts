@@ -6,11 +6,11 @@ import {
   stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
-import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
-import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
-import { opencodeBinCandidates, resolveOpencodeBin } from '../../opencode/cli.js'
-import { loadOpencodeTranscriptTail, openOpencodeDb } from '../../opencode/db.js'
-import { type HarnessAdapter, isSet } from '../adapter.js'
+import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
+import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
+import { opencodeBinCandidates, resolveOpencodeBin } from '../opencode/cli.js'
+import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
+import { type HarnessAdapter, isSet } from '../manifest.js'
 import { composeAgentInstructions } from '../instructions.js'
 
 /**
