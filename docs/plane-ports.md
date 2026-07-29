@@ -65,6 +65,12 @@ and the host-edge frame list. `routableOverAgentRelay` is the predicate; the tes
 are disjoint, that every host frame is refused on the relay, and that every host frame is itself
 classified in the inventory.
 
+The module-boundary half (ADR 7's POD-387 item 4: "agent-relay handler must not import host-hook
+handlers or vice versa") is **rule 9** of `scripts/check-boundaries.ts` — the daemon's
+`agent-relay.ts` and its host-edge handlers (`hook-ingest.ts`, `codex-hooks.ts`, `grok-hooks.ts`,
+`browser-open.ts`) may not import each other. Composition roots that wire both are fine. Green
+against the repo today; both crossing directions are covered by tests.
+
 ## Totality — counts re-derived at this baseline
 
 ADR 7 D6 counted **122** post-auth WS types at baseline `ca361327`; Amendment 1 D16 requires the
