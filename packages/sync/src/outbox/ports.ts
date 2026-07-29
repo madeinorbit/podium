@@ -154,17 +154,31 @@ export interface OutboxConfig {
   readonly onEvent?: (event: OutboxEvent) => void
 }
 
-/** Why the replica threw its cache away (ADR 2 D7 rungs 2–6, and the amendment's
- *  D14.4 `rescope`). Passed to `noteReplicaRebootstrapped` purely so the
- *  no-op-on-the-outbox rule is callable and testable. */
-export type RebootstrapCause =
-  | 'gap'
-  | 'compacted'
-  | 'malformed'
-  | 'epoch-mismatch'
-  | 'local-corruption'
-  | 'schema-bump'
-  | 'rescope'
+/**
+ * NOTE ON ADR 2 D7 ("discard the cache, re-bootstrap, KEEP THE OUTBOX"): there is
+ * deliberately **no** port, method or callback here through which a replica could
+ * tell the Outbox that it re-bootstrapped, and therefore none through which it
+ * could drop the queue.
+ *
+ * An earlier draft of this module offered `noteReplicaRebootstrapped(cause)` as a
+ * contractual no-op, so the rule would be callable rather than only documented.
+ * POD-369 (the Replica role) argued that out, and correctly: a no-op that takes
+ * the queue as its subject is one edit away from not being a no-op, and under
+ * private-by-default a rescope fires whenever anyone's shares change — so that
+ * edit would be data loss on the NORMAL path. The Replica's cache-store port has
+ * no outbox region at all, so `discardCache()` *cannot* reach the queue rather
+ * than merely being forbidden to.
+ *
+ * The remaining question — should the Outbox re-evaluate stale `expectedRevision`
+ * preconditions once new truth installs? — is answered NO by D7 itself: "the
+ * replica does not get to decide the command is moot; that is arbitration".
+ * A stale precondition is an Authority rejection surfaced through D9. So the
+ * Outbox needs no reaction, and the dependency edge stays absent in both
+ * directions. If telemetry ever wants the signal, the Replica's
+ * `bootstrap-installed` event carries the cause (including the rescope-vs-resync
+ * distinction D14.4 requires) and the Outbox can subscribe — Outbox → Replica,
+ * never the reverse.
+ */
 
 /** Everything a caller may ask for by user — the dead-letter surface is
  *  principal-scoped by construction (see `Outbox.deadLetters`). */

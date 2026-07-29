@@ -46,7 +46,6 @@ import type {
   OutboxEvent,
   OutboxStorePort,
   OutboxSubmitOutcome,
-  RebootstrapCause,
 } from './ports'
 import {
   MAX_AGE_REASON,
@@ -462,22 +461,10 @@ export class Outbox {
     await this.persist()
   }
 
-  /**
-   * The replica threw its cache away and re-bootstrapped (ADR 2 D7 rungs 2–6, or
-   * the amendment's `rescope` → rung 2). **This is a no-op on the outbox, by
-   * contract:** "discard the cache, re-bootstrap, KEEP THE OUTBOX". An epoch
-   * bump does not invalidate a queued command — a command targets an entity, not
-   * a feed position — and a stale `expectedRevision` is an Authority rejection
-   * surfaced through this state machine, never a replica-side drop.
-   *
-   * It exists as a callable method precisely so that rule is testable rather
-   * than merely documented: ADR 6 co-locates entities, cursor, overlay AND the
-   * outbox in one store, so "clear the store" reads as one innocent operation
-   * and is in fact two.
-   */
-  noteReplicaRebootstrapped(_cause: RebootstrapCause): { readonly preserved: number } {
-    return { preserved: this.records.length }
-  }
+  // ADR 2 D7 — "discard the cache, re-bootstrap, KEEP THE OUTBOX" — is upheld
+  // here by ABSENCE: no method on this class takes a re-bootstrap, a rung, an
+  // epoch or a rescope as its subject, and none clears the queue. See the note
+  // in ports.ts for why that is stronger than a contractual no-op would be.
 
   // ---- internals ----------------------------------------------------------
 

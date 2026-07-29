@@ -66,7 +66,7 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | Invariant 2 — `rejected`/`expired` always park, with a renderable reason | `outbox.test.ts` (plus a crash straggler parked on open) |
 | Invariant 3 — retry / edit / discard, each with its precondition enforced | `outbox.test.ts` recovery legs, including refusals of mismatched preconditions |
 | Invariant 4 — network failure stays `queued`, never `rejected` | `outbox.test.ts`, incl. a thrown transport error and an interrupted send recovered on open |
-| ADR 2 D7 — re-bootstrap never drops the outbox | all seven rung causes + a cold reopen that still drains; stale `expectedRevision` surfaces as a rejection |
+| ADR 2 D7 — re-bootstrap never drops the outbox | upheld by **absence**: no method takes a rung, epoch, rescope or cache as its subject (asserted over the whole prototype), plus a cold reopen that still drains and a stale `expectedRevision` that surfaces as a rejection |
 | The one loud loss | unreadable store: required callback **and** a pre-open event; boot does not wedge |
 | Local ack ≠ acceptance ≠ application | three distinct events, with the atomic collapse covered separately |
 | Attribution is a pair, from the transport | agent actor + on-behalf-of; a forged payload identity is inert |
@@ -97,3 +97,11 @@ would be a *fresh* command (D11.8), which is why expiry — not the Authority �
   behavior is implemented; nothing here decides the open question.
 - **The confirmation field name** on the contract envelope is POD-311's; that a confirmation
   rides the envelope and must be durable with the entry is already decided (D8 outcome 3).
+- **Any replica→outbox notification.** POD-369 (Replica) owns the `RebootstrapCause` union and
+  the `bootstrap-installed` event. This module deliberately has no port for it: an earlier draft
+  offered a contractual no-op `noteReplicaRebootstrapped(cause)`, and POD-369's objection was
+  correct — a no-op whose subject is the queue is one edit away from data loss on the *normal*
+  path, since a rescope fires whenever anyone's shares change. Nor does the outbox need to react:
+  re-evaluating a stale `expectedRevision` against newly installed truth would be the replica
+  arbitrating, which D7 forbids. If telemetry ever wants the signal, the outbox subscribes to the
+  replica's event — the dependency edge points outbox → replica, never the reverse.

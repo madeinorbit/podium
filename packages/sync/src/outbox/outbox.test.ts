@@ -526,12 +526,17 @@ describe('the evicted-target case resolves inside D9s existing state set', () =>
     // D14). That is not a user cancellation and not a deletion, and the replica
     // does not get to decide the command is moot — only the Authority does, at
     // drain time, via D8.
-    const { outbox, authority, events } = await harness(() => unreachable)
-    const record = await outbox.enqueue(close('POD-shared'))
-    await outbox.drain()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const first = await harness(() => unreachable, { store, clock })
+    const record = await first.outbox.enqueue(close('POD-shared'))
+    await first.outbox.drain()
 
-    // Rung 2: discard the cache, re-bootstrap, KEEP THE OUTBOX.
-    expect(outbox.noteReplicaRebootstrapped('rescope')).toEqual({ preserved: 1 })
+    // Rung 2: the replica discards its cache and re-bootstraps scoped. Nothing
+    // in the outbox's port surface can express that, so the strongest thing this
+    // side can observe is what every rung ends in — a cold start over the same
+    // store — and the entry must still be there, still queued, to be refused.
+    const { outbox, authority, events } = await harness(() => denied, { store, clock })
     expect(state(outbox, record.mutationId)).toBe('queued')
 
     authority.reprogram(() => denied)
@@ -553,17 +558,12 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     const b = await outbox.enqueue(close('POD-2'))
     await outbox.drain()
 
-    for (const cause of [
-      'gap',
-      'compacted',
-      'malformed',
-      'epoch-mismatch',
-      'local-corruption',
-      'schema-bump',
-      'rescope',
-    ] as const) {
-      expect(outbox.noteReplicaRebootstrapped(cause)).toEqual({ preserved: 2 })
-    }
+    // Every rung of the ladder — gap, compacted, malformed, epoch mismatch, local
+    // corruption, replica schema bump and the amendment's rescope — terminates in
+    // the same place: re-bootstrap through the same feed identity. The outbox has
+    // no hook any of them could pull (see ports.ts), so what this side must prove
+    // is that the entries are untouched and still drain afterwards.
+    expect(outbox.all().map((r) => r.state)).toEqual(['queued', 'queued'])
 
     // Not just in memory: a cold start after the re-bootstrap still finds them.
     expect(store.durable().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
@@ -574,13 +574,36 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
   })
 
   it('surfaces a stale expectedRevision as an authority rejection, never as a replica-side drop', async () => {
-    const { outbox } = await harness(() => conflicted)
-    const record = await outbox.enqueue(close('POD-1', { expectedRevision: 3 }))
-    outbox.noteReplicaRebootstrapped('epoch-mismatch')
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const before = await harness(() => unreachable, { store, clock })
+    const record = await before.outbox.enqueue(close('POD-1', { expectedRevision: 3 }))
+
+    // An epoch bump and a fresh bootstrap later, the precondition is stale — and
+    // the entry is still queued, because deciding it was moot would be the
+    // replica arbitrating (ADR 2 D7).
+    const { outbox } = await harness(() => conflicted, { store, clock })
+    expect(outbox.find(record.mutationId)?.expectedRevision).toBe(3)
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('dead-letter')
     expect(outbox.deadLetters({ forUser: 'u-ada' })[0]?.reason).toEqual({ code: 'conflict' })
+  })
+
+  it('offers no method through which a re-bootstrap could reach the queue', async () => {
+    // The invariant upheld by ABSENCE (see ports.ts): POD-369 argued the
+    // contractual no-op out of this module, because a no-op whose subject is the
+    // queue is one edit away from data loss on the normal path — a rescope fires
+    // whenever anybody's shares change.
+    const surface = Object.getOwnPropertyNames(Outbox.prototype).filter((n) => n !== 'constructor')
+    expect(
+      surface.filter((n) => /rebootstrap|rescope|epoch|cache|clear|reset|wipe|drop/i.test(n)),
+    ).toEqual([])
+    // And the only two removals that exist are D9 invariant 1's two licences.
+    expect(surface.filter((n) => /retire|purge/i.test(n)).sort()).toEqual([
+      'purgeCancelled',
+      'retireApplied',
+    ])
   })
 
   it('is LOUD about the one case where user work is lost: an unreadable store', async () => {
