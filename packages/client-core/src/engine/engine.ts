@@ -1180,7 +1180,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   // list is how a closed-over file stays reachable across the checkout.
   private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
     const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
-      `${e.worktreePath} ${e.path} ${e.artifact?.artifactId ?? ''}`
+      `${e.worktreePath}\u0000${e.path}\u0000${e.artifact?.artifactId ?? ''}`
     const k = key(entry)
     const rest = this.state.recentFiles.filter((e) => key(e) !== k)
     this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })
