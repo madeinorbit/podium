@@ -130,6 +130,38 @@ So detectors must not key on things that move for unrelated reasons:
 in the live tree, which catches total drift. It cannot catch partial
 under-counting — that is what the rules above are for.
 
+## Baseline reconciliations
+
+A baseline bump is the one edit that can retire this guardrail, so every bump is
+recorded here with the sites that caused it. **Rebaselining without a row in this
+table is the defect.** The rule the rows apply:
+
+- **Relocated debt** (a rename, a reflow, an added argument on an existing call)
+  is not new debt. It is the same site spelled differently; rebaseline, no issue.
+- **Genuinely new debt** — a call site, placeholder or table that did not exist —
+  is recorded *and* filed, so the phase that owns the deletion inherits it
+  instead of it riding along invisibly inside a larger number.
+
+### 2026-07-30 — main's 57 commits, reconciled onto `issue/279-integration` (POD-861)
+
+The baseline was last exact at the pre-rebase POD-297 tree (246 sites). The
+rewrite branch was then rebased onto main and the audit commits landed on top
+without a re-count, so five counters had been standing red. Method: the audit was
+re-run against that reference tree and diffed **site by site** against the current
+one, which is what separates the two categories below — a net count alone cannot.
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `router-triple-access` | 123 → 134 | **11 new, 6 relocated.** The 6 are existing procedures whose text changed around an unchanged `mods(ctx)` reach-through (`withMutation` gained `async`, `messages.send` destructures `disposition`, `syncChangesSince` takes `publicationAuthority`, `mintPairingCode`/`scanRepos` reflowed). The 11 are new procedures: `prepareSessionTarget`, `stopSession`, three `perf.*`, `rpc.browseDirs`, two `messageGate.dispatch`, three machine-scoped `rpc.repoOp` (`statusProbe`/`logPanel`/`diffFile`). **Recorded, not fixed in place** — the replacement seam is POD-314's, and hand-converting 11 sites ahead of it would invent that seam twice. |
+| `reexport-shims` | 19 → 24 | **5 new, 1 relocated.** Relocated: `apps/web/src/lib/motion/index.ts` grew 5 → 7 re-exports; same tombstone, different text. New: `apps/janitor/src/index.ts`, `apps/web/src/features/superagent/derive-tray.ts`, `.../terminal/ArrowSwipeKey.tsx`, `apps/web/src/lib/voice.ts`, `packages/terminal-client/src/prompt-extract.ts`. |
+| `publish-computed-fanout` | 12 → 13 | **1 new**: a third `funnel.publishComputed(spec.snapshot)` in `apps/server/src/modules/issues/service/core.ts`. Nothing was removed, so this is fan-out growth, not a move. |
+| `local-placeholders` | 12 → 13 | **1 new**: `machine: spawned.machine ?? row.machineId ?? '__local__'` in `apps/server/src/modules/issues/service/workflow.ts` — the machine picker's fallback. Resolving it to a real machine id is POD-318's job, not a drive-by here. |
+| `capability-tables` | 4 → 5 | **1 new**: `PROVIDER_LABEL: Record<HarnessAgent, string>` in `apps/server/src/modules/superagent/harness-error.ts` — a sixth hand-maintained per-harness table. |
+| `web-storage-keys` | 13 → 12 | **A win, but not a pure one.** Two keys went (`podium.rightPanel.last`, `podium.homeMode`), one arrived (`podium.chat.stickyPrompts`). Net −1 is recorded; the new key is inside the recorded number and POD-329 still owns it. |
+
+The 19 new sites are filed as POD-1102, `discovered-from` POD-861, mapped to the
+phase issues that delete them (POD-314, POD-333, POD-308, POD-318, POD-325).
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
