@@ -205,6 +205,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['harness-adapters', 'pty-port'],
   },
   'packages/terminal-client': { layer: 2, platform: 'browser-safe', features: ['terminal-port'] },
+  // The harness composer port: pure prompt-draft extraction + keystroke
+  // injection, imported only from @podium/protocol. BROWSER-SAFE by
+  // construction and by consumer — apps/web aliases it in vite.config.ts, and
+  // packages/terminal-client re-exports the extractors into the browser
+  // bundle; tagging it node-only would falsely accuse both. Same L2 family as
+  // agent-bridge/terminal-client (ADR 8 D4 end-state `packages/harness` /
+  // `packages/terminal-ui`), not L3: it is a port with no engine of its own.
+  'packages/composer': {
+    layer: 2,
+    platform: 'browser-safe',
+    features: ['composer-driver', 'prompt-draft'],
+  },
 
   // L3 — features / adapters / engine.
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['viewmodels'] },
@@ -218,6 +230,12 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'apps/cli': { layer: 4, platform: 'node-only', features: ['cli-surface'] },
   'apps/daemon': { layer: 4, platform: 'node-only', features: ['daemon-surface'] },
   'apps/desktop': { layer: 4, platform: 'browser-safe', features: ['desktop-shell'] },
+  // Maintenance/steward jobs (change-log + event prune, auto-archive, message
+  // expiry, connect scan) lifted out of apps/server into their own composition
+  // root. node-only: node:crypto/node:path plus @podium/runtime's sqlite and
+  // config subpaths. NOT roleTiered — role tiers are file-level and delegated
+  // to apps/server/src/roles.ts, which janitor has no counterpart to.
+  'apps/janitor': { layer: 4, platform: 'node-only', features: ['maintenance-jobs'] },
   'apps/mobile': { layer: 4, platform: 'browser-safe', features: ['mobile-surface'] },
   'apps/server': {
     layer: 4,
@@ -247,6 +265,9 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
   'packages/agent-bridge -> packages/transcript',
+  // L2: terminal-client's prompt-extract is now a re-export of the shared,
+  // pure composer rather than a second copy of the extractors.
+  'packages/terminal-client -> packages/composer',
 ])
 
 export function tagsFor(workspace: string): WorkspaceTags | null {

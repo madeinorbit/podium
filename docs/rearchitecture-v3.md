@@ -620,18 +620,21 @@ same commit.**
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
 | `packages/agent-bridge` | L2 kernel | node-only | harness-adapters, pty-port | → **split** into `packages/harness` + `packages/pty` (Phase 5 POD-325) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
+| `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` with agent-bridge (Phase 5 POD-325) |
 | `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
 | `apps/daemon` | L4 app | node-only | daemon-surface | Phase 5 machine-host tightening (POD-292) |
 | `apps/desktop` | L4 app | browser-safe | desktop-shell | — |
+| `apps/janitor` | L4 app | node-only | maintenance-jobs | appeared on main after POD-296; maintenance/steward jobs lifted out of `apps/server` — feeds Phase 4 server decomposition (POD-292) |
 | `apps/mobile` | L4 app | browser-safe | mobile-surface | — |
 | `apps/server` | L4 app | node-only | server-surface | role-tiered (core<hub<cloud, `apps/server/src/roles.ts`); Phase 4 decomposition |
 | `apps/web` | L4 app | browser-safe | web-surface | Phase 6 engine split |
 | `scripts` | L5 compose | node-only | build, lint, compose | composes apps; nothing may import it |
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
-`sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`.
+`sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`;
+`terminal-client → composer`.
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
 barrel with node-only concerns behind explicit subpaths, so neither is honestly
