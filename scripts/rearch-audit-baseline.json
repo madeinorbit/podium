@@ -4,24 +4,24 @@
   "counts": {
     "adoption-backfill-heals": 9,
     "agent-kind-enums": 2,
-    "capability-tables": 4,
+    "capability-tables": 5,
     "change-row-typings": 7,
     "cli-launch-plan-debt": 1,
     "composition-root-forward-refs": 1,
     "durable-host-sync-async-twins": 4,
     "issue-shapes": 8,
-    "local-placeholders": 12,
+    "local-placeholders": 13,
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
-    "publish-computed-fanout": 12,
-    "reexport-shims": 19,
-    "router-triple-access": 123,
+    "publish-computed-fanout": 13,
+    "reexport-shims": 24,
+    "router-triple-access": 134,
     "send-turn-duplicate": 1,
     "session-shapes": 9,
     "state-dir-defs": 0,
     "static-systemd-units": 11,
     "superagent-shadow-types": 2,
     "upstream-sync-forwarder": 4,
-    "web-storage-keys": 13
+    "web-storage-keys": 12
   }
 }
