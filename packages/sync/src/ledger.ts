@@ -54,6 +54,18 @@ export interface EntityChangeSpec {
   value?: unknown
 }
 
+/**
+ * Composite overlay/map key for (entity, id). The separator is a real NUL at
+ * runtime (it cannot occur in an entity name or id, so keys never collide) but
+ * is written as an ESCAPE on purpose. A literal NUL BYTE in the source makes
+ * `file`, grep and friends classify the whole module as binary, and plain grep
+ * then reports NOTHING and exits 1 rather than erroring — the fail-open shape
+ * fixed here and in scripts/architecture-manifest.ts (POD-296). [POD-758]
+ */
+export function entityOverlayKey(entity: string, id: string): string {
+  return `${entity}\u0000${id}`
+}
+
 export interface LedgerDeps {
   repo: ChangeLogStore
   now: () => number
@@ -225,7 +237,7 @@ export class Ledger {
     type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
     const overlay = new Map<string, Overlay>()
     for (const spec of specs) {
-      const key = `${spec.entity}\u0000${spec.id}`
+      const key = entityOverlayKey(spec.entity, spec.id)
       const prior = overlay.get(key)
       if (spec.op === 'upsert') {
         const json = JSON.stringify(spec.value)
