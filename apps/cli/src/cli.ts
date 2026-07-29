@@ -140,6 +140,7 @@ export type LaunchPlan =
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
+  | { kind: 'quota'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
@@ -339,6 +340,7 @@ export function resolvePlan(
     // Renders its own usage, and `podium telemetry --help` should answer the
     // privacy question in front of the user, not bury it in the top-level help.
     'telemetry',
+    'quota',
   ])
   if (
     argv[0] === 'help' ||
@@ -404,6 +406,8 @@ export function resolvePlan(
   // Deliberately NOT an approval-brokered op: it only touches config.json, and a
   // user (or their agent) must always be able to turn it off without asking anyone.
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
+  // `podium quota`: the same live harness plan limits shown in the web panel.
+  if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -644,6 +648,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  telemetry on|off [--usage] [--crash]',
     '                        Turn anonymous reporting on or off',
     '  telemetry show        Print the exact pending + last-sent payloads',
+    '  quota [--json]         Show live harness plan usage limits',
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
@@ -1032,6 +1037,11 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       const { telemetryCliMain } = await import('./telemetry-cli')
       const code = telemetryCliMain(plan.args)
       if (code !== 0) process.exit(code)
+      return
+    }
+    case 'quota': {
+      const { quotaCliMain } = await import('./quota-cli')
+      await quotaCliMain(plan.args)
       return
     }
     case 'join-config': {

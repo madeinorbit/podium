@@ -13,6 +13,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   repos: new Set(['inferFromPath']),
   // Read-only resolved experimental state lets agent-side CLI help match the UI.
   features: new Set(['state']),
+  // Read-only agent plan limits. This is the same global multi-machine summary
+  // the operator sees in the top-bar panel; no provider credentials cross it.
+  quota: new Set(['summary']),
   // The living spec (pspec, #135): agents read/write pspec/ files they could
   // touch with their own tools anyway — the specs router adds no privilege
   // beyond its repo-root allowlist.

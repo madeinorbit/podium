@@ -612,6 +612,9 @@ export class SessionRegistry {
         if (router === 'features' && proc === 'state') {
           return Promise.resolve(getFeatureStates(currentSettings))
         }
+        if (router === 'quota' && proc === 'summary') {
+          return this.modules.rpc.agentQuotaAll()
+        }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
         }
