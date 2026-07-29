@@ -5,6 +5,7 @@
 - **Deciders:** architecture rewrite ADR pack (POD-359); human sign-off before Phase 1
 - **Issue:** POD-749 (leaf of POD-359 item 3; supersedes the six-ADR scope of POD-354 for this topic)
 - **Consumers:** Phase 1 walking skeleton POD-351; Phase 2 Outbox POD-306 / POD-369–373 / POD-372; Phase 3 command framework POD-311, security POD-315, offline/outbox UX POD-316, secrets split POD-352 (and children POD-418–421)
+- **Amended by:** [Amendment 1 — user, agent, machine and system principals](0003-command-security-amendment-1.md) (POD-1073, 2026-07-29): D14–D22 extend D2, D4, D7 and D8 for multi-user; base decisions D1–D13 keep their numbers and their numeric ownership (D10/D11)
 - **Related ADRs:** ADR 1 (authority/ownership matrix — conflict rules & secret classification), ADR 2 (sync protocol — mutation identity, feed/receipt horizons, heal-keeps-outbox, `expectedRevision` token), ADR 4 (representation — optimistic overlay is not a representation role), ADR 5 (peer topology — role-specific auth strategies), ADR 6 (replica storage — outbox durability bounds; shared transactional store with cursor/overlay), ADR 7 (plane inventory — command as control-plane request/reply class), ADR 8 (package topology — `packages/commands` placement)
 
 ---

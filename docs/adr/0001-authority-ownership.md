@@ -13,6 +13,19 @@
 - **Specs:** [spec:SP-15aa] multi-instance isolation; [spec:SP-0371] hub/node federation
   deferred; [spec:SP-3fe2] strangler rebuild; [spec:SP-4428] drizzle-kit (server DB only —
   named here so ownership of *schema tool* is not confused with *wire authority*)
+- **Amended by:** [Amendment 1 — ownership, visibility and the per-user state
+  family](0001-authority-ownership-amendment-1.md) (2026-07-29, POD-1071, from the human
+  decisions in `docs/multi-user-readiness.md`): **D8** adds owner / visibility class /
+  grants as normative matrix columns and fills them in for every row; **D9** makes this
+  matrix the enforcement site for ADR 9 D4's default-closed rule, with a totality test and
+  a one-way widening ratchet; **D10** creates the per-user state
+  family keyed `(userId, entityId)` and shrinks D3's field-LWW inventory to one member
+  (`archived` / `workState` decided as shared facts; the composer draft carries a dated
+  interim); **D11** voids D2's single-operator rationale while re-ratifying the decision
+  (POD-316 becomes a normal path); **D12** reserves `op-stream` and carves out D1's CRDT
+  rejection; **D13** makes machines owned compute (`see` / `use` / `manage`); **D14**
+  restates D5 as **unaffected** — multi-user is not multi-tenancy, no `instance_id`
+  columns; **D15** keeps D6 unchanged and makes secrets management admin-grade.
 
 ---
 
@@ -275,7 +288,10 @@ browser/mobile replica storage and the outbox.
 
 Defining predicate for server durable tables: `sqliteTable(` in
 `apps/server/src/migrations/schema.ts` → **48** tables (re-derived; not a frozen
-2026-07-13 count). Product aggregates below are **grouped field-wise**; not every
+2026-07-13 count). **Re-verified 2026-07-29 at tip `2ddfec21` (POD-359 reconciliation): the same
+predicate now returns 49** — one table added since. The count is a dated measurement, not a
+decision; the field-wise grouping below is unaffected, and re-derivation at the implementing
+baseline is the standing rule. Product aggregates below are **grouped field-wise**; not every
 table is its own matrix row (e.g. `issue_labels` / `issue_deps` fold into issue graph).
 Sync infrastructure tables (`changes`, `applied_mutations`, `queued_messages`,
 `upstream_outbox`, `client_sessions`) are covered in §10.
@@ -287,6 +303,12 @@ Sync infrastructure tables (`changes`, `applied_mutations`, `queued_messages`,
 Notation: `exp-rev` = expected-revision (D2); `field-LWW` = D3; `single-writer` = only
 home source; `cmd` = command-specific; `append` = append-only create; `n/a` = not durable
 conflict.
+
+> **Amended — read with [Amendment 1](0001-authority-ownership-amendment-1.md) §3.** Under
+> multi-user this matrix carries **three further normative columns** (owner, visibility class,
+> grants — Amendment 1 D8), filled in for every row below plus the classes the amendments
+> themselves introduce. Several rows also change conflict class (Amendment 1 D10). A row read
+> from this section alone is now an incomplete answer.
 
 ### 1. Identity & deployment scope
 
@@ -402,6 +424,15 @@ Verified: `packages/protocol/src/messages/handoff.ts` `HandoffManifest` includes
 ---
 
 ## Justified field-LWW inventory (closed set)
+
+> **Superseded in membership — see [Amendment 1](0001-authority-ownership-amendment-1.md) D10.**
+> D3's opt-in / defined-clock / closed-set *discipline* is unchanged, but under multi-user most
+> of the groups below stop being contended and move to the **per-user state** family
+> (`single-writer`, keyed `(userId, entityId)`): `readAt`, `snoozedUntil`, pins, tab order and
+> *personal* preference keys. `archived` and `workState` are decided as **shared** session facts
+> and move to `exp-rev`. **Instance-scope preference keys are the only surviving member**, and
+> the composer draft carries a dated interim rule. The table below is the pre-amendment
+> inventory; do not implement from it without D10.
 
 | Group | Clock | Invariant note |
 |---|---|---|

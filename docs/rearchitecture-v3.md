@@ -63,6 +63,31 @@ The rewrite lands five moves, end to end, with no intermediate state left behind
   totality), open branded string + serialized capability descriptor on the wire, with
   incremental-completeness manifests, so unknown kinds degrade gracefully without
   lockstep redeploys (POD-303, POD-325).
+- **MULTI-USER WITHIN ONE TENANT** (user decisions 2026-07-28/29; full record and rationale in
+  `docs/multi-user-readiness.md`; encoded as ADR 9 + amendments to ADRs 1/2/3/4/7 under POD-359).
+  Podium gains users, ownership and sharing, with realtime collaboration kept open as a path.
+  The binding parts, because each overturns a decision the pack justified by single-operator use:
+  1. **Private by default, and the visibility machinery is built in Phase 2** — ADR 2 D2's unscoped
+     feed is overturned. Per-principal filtering REQUIRES watermarks (a suppressed row is otherwise
+     an invisible permanent gap that heal-loops forever) plus a rescope/evict event, because a
+     grant or revoke changes visibility WITHOUT the entity's revision moving. Load-bearing from day
+     one, so its conformance cases are a Phase-2 gate condition, not a follow-up. **All of it lands
+     before POD-308's wire cutover** — POD-1077 blocks POD-308, and that edge is not advisory.
+  2. **Agents are principals delegated from a human** — rights are the agent's scope intersected
+     with its human's CURRENT rights, resolved live at every apply, never a snapshot; the human is a
+     ceiling while the default grant stays narrower (its issue subtree); attribution is the pair
+     actor + on-behalf-of; agent output is owned by the delegating human; the delegation lifecycle
+     IS SessionBinding (POD-323). Sub-agents chain, never widening.
+  3. **Machines are owned compute** — `see` / `use` / `manage` are separate grants, `use` is a
+     code-execution boundary rather than a privacy one, a newly paired machine is private to its
+     pairer, and the all-in-one host is not ambient team compute.
+  4. **The superagent is per-user; system jobs are not delegated** — system principals may read
+     across owners but write only as `system`, never as a person.
+  5. **Not multi-tenancy.** ADR 1 D5 (InstanceId is a deployment partition) is UNAFFECTED —
+     multi-user lives INSIDE one instance. Do not add `instance_id` columns.
+  Deliberately open, per feature: which existence facts leak; whether a cross-boundary graph edge is
+  hidden or shown opaquely; that `reparent` is now permission-affecting; per-class owner/grant
+  inheritance on create.
 - **HUB DEFERRED** per spec [spec:SP-0371] (user decision, confirmed 2026-07-13).
   In scope: local topology (clients + one server + N paired machine daemons) plus the
   preserved federation SEAM (feed identity, origin/causation, reserved peer-capability
@@ -353,8 +378,8 @@ pre-split into bounded children following the protocol
 | POD-317 gateway | POD-387…391 |
 | POD-319 SessionService split | POD-392…395 |
 | POD-325 harness/pty split | POD-396…399 |
-| POD-328 sync/async twins | POD-400…404 |
-| POD-331 client engine split | POD-405…409 |
+| POD-328 client engine split | POD-400…404 |
+| POD-331 god components onto slices | POD-405…409 |
 
 **Any FUTURE oversized issue follows the same protocol**: it is split before
 implementation, and the split is **reviewed against the governing ADR** (an oversized
@@ -419,7 +444,8 @@ runbooks live in this document (section per gate below or in the phase section).
 
 | Gate | What the human does | Runbook location | Evidence location |
 |---|---|---|---|
-| POD-359 ADR pack sign-off | Reads and signs off the 8 ADRs before Phase 1 entry | `docs/adr/` (the pack itself; sign-off procedure in POD-359) | POD-359 issue artifacts + signed ADR frontmatter |
+| POD-359 ADR pack sign-off | Reads and signs off the pack before Phase 1 entry: the 8 original ADRs **plus ADR 9 (identity, ownership, sharing) and the amendments to ADRs 1/2/3/4/7** carrying the 2026-07-29 multi-user decisions | `docs/adr/` (the pack itself; decision record in `docs/multi-user-readiness.md`; sign-off procedure in POD-359) | POD-359 issue artifacts + signed ADR frontmatter |
+| POD-377 / POD-332 device smokes | *(multi-user)* both now include a **second-user pass** — see their descriptions | POD-377 / POD-332 descriptions | those issues' artifacts |
 | POD-351 walking-skeleton sign-off | Verifies session.rename on the target path (online/offline, two clients, crash/reconnect); USER sign-off | POD-351 description + §Phase 1 ledger section | POD-351 issue artifacts (shadow-comparison record, runtime evidence) |
 | POD-310 live upgrade rehearsal | Runs the local-topology upgrade on the real fleet (VPS + remote daemon + phone PWA); rollback drill | This document, Phase 2 section (runbook committed by POD-310) | POD-310 issue artifacts + quantitative checks recorded here |
 | POD-377 mobile cutover device smoke | Real-device smoke of the SQLite replica migration | POD-377 description | POD-377 issue artifacts |
@@ -665,7 +691,8 @@ zero divergence required.
 schemas out of protocol (POD-300), branded IDs everywhere (POD-301 → 360–363),
 canonical aggregates + composed projections (POD-302 → 364–368, incl. handoff
 vocabulary POD-643), agent identity dual form (POD-303), provenance envelope +
-ownership annotations (POD-304).
+ownership annotations (POD-304), **user accounts + identity model (POD-1075) and the
+per-user state family (POD-1076)** — both multi-user, 2026-07-29.
 
 **Cut lines:** no behavior change — representations re-derived, wire fixtures byte-stable
 (golden fixtures from POD-360). Narrow ports remain as named derivations.
@@ -683,7 +710,12 @@ unchanged (incl. the handoff family); ledger + as-built updated. `podium issue t
 **Scope:** Authority (POD-305), Replica + Outbox + conformance (POD-306 → 369–373),
 clients on the kernel with transactional storage (POD-307 → 374–378, human device gate
 POD-377), wire cutover + version negotiation (POD-308), upstream retirement + federation
-seam (POD-309), switch-latency harness survival (POD-736).
+seam (POD-309), switch-latency harness survival (POD-736), **the watermarked scoped feed
+(POD-1077 — multi-user, 2026-07-29)**.
+
+**Ordering constraint (binding):** POD-1077 lands BEFORE POD-308. Per-principal filtering
+added after the wire is frozen is a protocol break, not an optimization (ADR 2 D2 and its
+2026-07-29 amendment) — the tracker edge POD-1077 → POD-308 is load-bearing.
 
 **Cut lines:** kernel = infrastructure-neutral state machines + ports (L2); persistence
 adapters own generic sync tables; app orchestrator owns global migration order (hot
@@ -706,11 +738,15 @@ drill tested once; `podium issue needs-human` set at the gate. `podium issue tre
 handoff POD-642), superagent/fleet/specs (POD-313 → 383–386), derived router (POD-314),
 command security (POD-315), offline classes + outbox UX (POD-316), secrets/preferences
 split (POD-352 → 418–421), agent-mail (POD-640) and workflows (POD-641) routers
-(post-freeze additions, gate via the POD-314→POD-315 chain).
+(post-freeze additions, gate via the POD-314→POD-315 chain), **Telegram identity binding
+(POD-1080 — multi-user, 2026-07-29)**.
 
 **Cut lines:** contracts at L1, handlers at L3, joined at composition roots.
-messaging (Telegram bridge) has no tRPC mutations — no migration child; its reactions
-are POD-321's business.
+The Telegram bridge still has no tRPC mutations — no migration child, and its reactions
+remain POD-321's business. What multi-user adds there is narrower and different: per-user
+superagent makes the *inbound* Telegram edge an AUTHENTICATION surface (an arriving message
+must resolve to a user via a claim-code binding; unknown chats fail closed), which is
+POD-1080, not a mutation migration.
 
 **Verification steps (gate POD-424):** no hand-written mutation procedures (audit);
 authz matrix green across four transports; offline classes + dead-letter UX
@@ -723,7 +759,13 @@ runtime-verified; secrets split complete; ledger + as-built updated.
 + one machine identity (POD-318), SessionService split (POD-319 → 392–395), IssueService
 recomposition (POD-320), declarative acyclic composition + reactions registry (POD-321),
 memory service (POD-322), orchestrator/attention/telemetry boundary review (POD-355),
-instance-vs-machine identity (POD-645, [spec:SP-15aa], post-freeze addition).
+instance-vs-machine identity (POD-645, [spec:SP-15aa], post-freeze addition),
+**presence rooms + subscriptions (POD-1078) and machine ownership + grants (POD-1079)** —
+both multi-user, 2026-07-29.
+
+**One primitive, two consumers:** POD-1078's room/subscription registry is the SAME
+mechanism POD-1077's scoped feed needs for per-principal routing. It is built once, at
+POD-387/POD-317, and consumed by both — building it twice is a gate-blocking defect.
 
 **Verification steps (gate POD-425):** composition root acyclic (topological test);
 god-object audit items zero; module graph doc committed; session/issue/memory e2e green;
@@ -735,9 +777,15 @@ decomposition. `podium issue tree 291`.
 **Scope:** SessionBinding designed lifecycle (POD-323, design doc gates code), async-only
 durable hosts (POD-324), harness/pty split with one manifest per CLI (POD-325 → 396–399),
 best-available state channel (POD-326), daemon connection state machine + host control
-decomposition + codex version guard (POD-327, HUMAN soak gate), sync/async twins
-(POD-328 → 400–404), binding adoption across handoff (POD-644), receipts crash
-durability (POD-737).
+decomposition + codex version guard (POD-327, HUMAN soak gate), binding adoption across
+handoff (POD-644), receipts crash durability (POD-737), shared session control identity
+(POD-1081 — multi-user, 2026-07-29).
+
+*Correction (2026-07-29):* this paragraph previously also listed "sync/async twins
+(POD-328 → 400–404)". That was a stale duplicate: the sync/async-twins work is POD-324,
+already named above as "async-only durable hosts", and it has no pre-split children.
+POD-328 is a **Phase 6** issue (6.1 client engine split) and POD-400–404 are its children.
+The §4 decomposition table carried the same error and is corrected there.
 
 **Cut lines:** behavioral branching on harness identity confined to harness adapters;
 identifiers + capability descriptors flow freely (declared data-driven exceptions:

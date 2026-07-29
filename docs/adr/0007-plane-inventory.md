@@ -6,6 +6,7 @@
 - **Consumers:** POD-387 (plane-port interfaces), POD-317 (gateway routing + framing)
 - **Inventory baseline:** integrated tip `ca361327` (issue/279-integration lineage); **not** the 2026-07-13 plan freeze
 - **Defining classification source today:** `packages/protocol/src/messages/message-class.ts` (`SERVER_|CLIENT_|CONTROL_|DAEMON_MESSAGE_CLASS` tables, each `satisfies Record<Union['type'], …>` total over its union)
+- **Amended by:** [Amendment 1 — identity-carrying presence and rooms on the stream plane](0007-plane-inventory-amendment-1.md) (2026-07-29, POD-1074): **D9** gives presence identity/room/payload (today's `visible` bit is the degenerate case); **D10** makes rooms a subscription concept *inside* the stream port with entity-reference ids; **D11** sets cursor-rate, funnel-free fan-out and its anti-starvation backpressure; **D12** forbids durable presence; **D13** makes the room primitive and ADR 2's scoped-feed routing **one** mechanism (POD-387/POD-317); **D14** gates joins on visibility; **D15** restates D1's fan-out cells as per-principal routing; **D16** extends this inventory. D1's three planes, D2–D5, D6's totality obligation, D7's eight handoff types and D8 are unchanged.
 - **Related ADRs (forward refs only; no shared index in this leaf):**
 
 | ADR | Relationship |

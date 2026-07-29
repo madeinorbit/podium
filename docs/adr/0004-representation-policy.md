@@ -9,6 +9,7 @@
 | **Consumers** | Phase 1 model work: POD-302, POD-364, POD-365, POD-366, POD-367, POD-368, POD-643; scaffolds POD-299, POD-300, POD-301, POD-304 |
 | **Forward refs** | ADR 1 (ownership), ADR 2 (sync protocol), ADR 3 (command security/lifecycle), ADR 6 (replica storage), ADR 7 (plane inventory), ADR 8 (package topology) |
 | **File discipline** | This leaf owns **only** `docs/adr/0004-representation-policy.md`. No index. No ledger edits (LEDGER-ENTRY comments on the issue if needed). |
+| **Amended by** | [Amendment 1 — representation policy under multi-user](0004-representation-policy-amendment-1.md) (2026-07-29, integrator-authored under POD-359): **D8** narrows D7.3's rejected-alternatives rationale (the replica holds its slice, not the world — the decision is unchanged); **D9** adds owner/visibility/grant as shared field schemas and attribution as a branded pair; **D10** names per-user state keyed `(userId, entityId)`. |
 
 ---
 

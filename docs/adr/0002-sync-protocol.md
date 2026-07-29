@@ -4,6 +4,7 @@ Status: **proposed** · 2026-07-17 · Issue POD-748, epic POD-359
 Governs: POD-289 (Phase 2 sync kernel), POD-305 (Authority), POD-306 (Replica + Outbox), POD-307 (clients on the kernel Replica), POD-309 (retire upstream sync)
 Related ADRs: ADR 1 (authority/ownership matrix), ADR 3 (command security & lifecycle), ADR 4 (representation policy), ADR 5 (peer topology seam), ADR 6 (replica storage), ADR 7 (plane/message inventory)
 Spec components: [spec:SP-3fe2] (strangler rebuild), [spec:SP-0371] (hub deferred), [spec:SP-4428] (drizzle-kit)
+**Amended by:** [Amendment 1 — the feed becomes per-principal](0002-sync-protocol-amendment-1.md) (POD-1072, 2026-07-29): D2's "the feed stays **unscoped**" clause is **overturned** (D2's one-feed/one-global-seq/one-cursor half survives verbatim); D5's safety proof is re-proved over the per-principal slice and gains an op-stream constraint; D6's bootstrap reads the principal's scoped slice (shape unchanged); and the Deferred bullet **"Per-client feed scoping"** is **struck — its own stated trigger fired**. New decisions D12–D17 (per-principal feed, covered-range watermarks, `evict` op + `rescope` frame, scoped bootstrap, retention/op-stream constraints, load-bearing-from-day-one and the must-land-before-POD-308 ordering). D1, D3, D4, D7–D11 are unchanged.
 
 ---
 
@@ -863,8 +864,14 @@ it is the shipped pattern and it kept the oplog rollout at zero breakage.
   measured, not guessed.
 - **Log compaction beyond head-pruning.** Would break D5's safety argument; needs its
   own ADR.
-- **Per-client feed scoping.** Not needed while single-tenant-shaped. Requires
-  watermarks (D2); the trigger is multi-tenancy or a must-not-see entity kind.
+- ~~**Per-client feed scoping.** Not needed while single-tenant-shaped. Requires
+  watermarks (D2); the trigger is multi-tenancy or a must-not-see entity kind.~~
+  **STRUCK 2026-07-29 (POD-359 reconciliation) — its own stated trigger fired.** Private-by-
+  default (the human decision in `docs/multi-user-readiness.md`) is a must-not-see entity set,
+  so this is no longer deferred: it lands in
+  [Amendment 1](0002-sync-protocol-amendment-1.md) D12 (per-principal feed), D13 (watermarks —
+  supplied exactly as this bullet demanded), D14 (`evict` / `rescope`), D15 (scoped bootstrap)
+  and D17 (Phase 2, **before** the POD-308 cutover). Policy is ADR 9 and ADR 1's amendment.
 - **`machinesChanged` / `approvalsChanged` / `worktreesChanged` as durable entity
   kinds.** The code flags these as candidates; ADR 7 owns the classification.
 - **Node↔hub replication.** Parked in POD-353 per [spec:SP-0371]. D1's `feedId` and
