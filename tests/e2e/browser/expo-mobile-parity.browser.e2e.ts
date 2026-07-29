@@ -11,11 +11,13 @@ test.setTimeout(180_000)
 
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-1066')
 
+const IME_ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-1069')
+
 async function eventCount(page: import('@playwright/test').Page): Promise<number> {
-  const match = (await screenText(page)).match(/events=(\d+)/)
-  // The harness runs keyecho in both mode, logging each input once from raw
-  // parsing and once from Ink. Normalize the diagnostic count to terminal keys.
-  return Number(match?.[1] ?? 0) / 2
+  const matches = Array.from((await screenText(page)).matchAll(/events=(\d+)/g))
+  // The buffer can retain older Ink frames in scrollback; the final header is
+  // current. Both mode logs each input once from raw and once from Ink.
+  return Number(matches.at(-1)?.[1] ?? 0) / 2
 }
 
 async function screenText(page: import('@playwright/test').Page): Promise<string> {
@@ -28,11 +30,26 @@ async function screenText(page: import('@playwright/test').Page): Promise<string
       ).__podium?.screenText() ?? '',
   )
 }
+async function setVisualViewportHeight(
+  page: import('@playwright/test').Page,
+  height: number,
+): Promise<void> {
+  await page.evaluate((nextHeight) => {
+    const viewport = window.visualViewport
+    if (!viewport) throw new Error('visualViewport is unavailable')
+    Object.defineProperty(viewport, 'height', {
+      configurable: true,
+      value: nextHeight,
+    })
+    viewport.dispatchEvent(new Event('resize'))
+  }, height)
+}
 
 test('Expo New Work, task agent creation, and full terminal keyboard work end to end', async ({
   page,
 }) => {
   mkdirSync(ARTIFACTS, { recursive: true })
+  mkdirSync(IME_ARTIFACTS, { recursive: true })
 
   // Chromium's headless build does not expose Web Speech. Supply the browser
   // contract so the real voice hook and its start/stop UI can be exercised.
@@ -186,8 +203,13 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await page.mouse.move(originX + 18, originY, { steps: 4 })
   await page.waitForTimeout(1_250)
   await page.mouse.up()
-  const nearRepeats = (await eventCount(page)) - nearStart
-  expect(nearRepeats).toBeGreaterThanOrEqual(3)
+  let nearRepeats = 0
+  await expect
+    .poll(async () => {
+      nearRepeats = (await eventCount(page)) - nearStart
+      return nearRepeats
+    })
+    .toBeGreaterThanOrEqual(3)
   expect(nearRepeats).toBeLessThanOrEqual(6)
 
   // The same gesture at the constrained screen edge accelerates toward the
@@ -208,8 +230,13 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
     fullPage: true,
   })
   await page.mouse.up()
-  const edgeRepeats = (await eventCount(page)) - edgeStart
-  expect(edgeRepeats).toBeGreaterThan(nearRepeats + 4)
+  let edgeRepeats = 0
+  await expect
+    .poll(async () => {
+      edgeRepeats = (await eventCount(page)) - edgeStart
+      return edgeRepeats
+    })
+    .toBeGreaterThan(nearRepeats + 4)
 
   // Direction changes happen under one continuous finger drag after the
   // original 50 ms switch gate, rather than requiring separate taps.
@@ -258,6 +285,43 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
       return /Ctrl\+A|\b01\b/i.test(seen)
     })
     .toBe(true)
+
+  // iOS keeps innerHeight at the layout viewport while the OS keyboard shrinks
+  // visualViewport. The whole Expo root must follow that visible height so the
+  // terminal refits and the accessory sits directly on top of the IME.
+  const layoutHeight = await page.evaluate(() => window.innerHeight)
+  const visibleHeight = layoutHeight - 340
+  await setVisualViewportHeight(page, visibleHeight)
+
+  const viewportRoot = page.locator('[data-mobile-visual-viewport-root]')
+  await expect
+    .poll(() =>
+      viewportRoot.evaluate((element) => Math.round(element.getBoundingClientRect().height)),
+    )
+    .toBe(visibleHeight)
+  await expect
+    .poll(() => toolbar.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
+    .toBe(visibleHeight)
+  const actionTop = await actions.evaluate((element) => element.getBoundingClientRect().top)
+  await expect
+    .poll(() =>
+      page
+        .locator('.xterm-screen:visible')
+        .evaluate((element) => Math.round(element.getBoundingClientRect().bottom)),
+    )
+    .toBeLessThanOrEqual(Math.round(actionTop + 1))
+
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('Pixel project has no viewport')
+  await page.screenshot({
+    path: resolve(IME_ARTIFACTS, 'expo-keyboard-above-ime.png'),
+    clip: { x: 0, y: 0, width: viewport.width, height: visibleHeight },
+  })
+
+  await setVisualViewportHeight(page, layoutHeight)
+  await expect
+    .poll(() => toolbar.evaluate((element) => Math.round(element.getBoundingClientRect().bottom)))
+    .toBe(layoutHeight)
 
   await page.screenshot({ path: resolve(ARTIFACTS, 'expo-terminal-keyboard.png'), fullPage: true })
 })
