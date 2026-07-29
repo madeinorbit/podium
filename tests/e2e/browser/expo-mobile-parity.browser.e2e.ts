@@ -76,7 +76,7 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
 
   // The root plus opens the compact launcher; Session options keeps the full form reachable.
   await page.getByRole('button', { name: 'New work' }).click()
-  await expect(page.getByText('Choose harness', { exact: true })).toBeVisible()
+  await expect(page.getByText('New work', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Session options…' }).click()
   await expect(page).toHaveURL(/\/mobile\/new-session(?:\?|$)/)
   await expect(page.getByText('New session', { exact: true })).toBeVisible()
