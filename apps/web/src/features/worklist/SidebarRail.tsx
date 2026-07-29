@@ -15,6 +15,7 @@ import { type CSSProperties, Fragment, type JSX } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
+import { AGENT_BRAND_TEXT } from '@/lib/agent-tone'
 import {
   groupUnifiedWorkRows,
   type MotionPhase,
@@ -144,11 +145,7 @@ export function SidebarRail(): JSX.Element {
         onClick={() => defaultRepo && spawn(defaultAgent, defaultRepo)}
       >
         {AgentIcon ? (
-          <AgentIcon
-            size={13}
-            aria-hidden="true"
-            className={cn(defaultAgent === 'claude-code' && 'text-claude')}
-          />
+          <AgentIcon size={13} aria-hidden="true" className={cn(AGENT_BRAND_TEXT[defaultAgent])} />
         ) : null}
       </button>
       {/* The squares column leaves 3px of head-room past the aside edge so a

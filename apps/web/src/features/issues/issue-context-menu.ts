@@ -5,7 +5,7 @@ import {
   type HandoffRepo,
   handoffAvailability,
 } from '@podium/domain'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import { agentSupportsHandoff, type IssueWire, type SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
 /**
@@ -42,10 +42,9 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const agents = issue.sessions
     .map((ref) => byId.get(ref.sessionId))
-    .filter(
-      (s): s is SessionMeta =>
-        s !== undefined && (s.agentKind === 'claude-code' || s.agentKind === 'codex'),
-    )
+    // Handoff eligibility is a harness CAPABILITY, read from the one declarative
+    // table, not a pair of literals re-listed here (POD-1105).
+    .filter((s): s is SessionMeta => s !== undefined && agentSupportsHandoff(s.agentKind))
   if (agents.length === 0) return { blocker: 'no-agent-session' }
   if (agents.length > 1) return { blocker: 'multiple-sessions' }
   const session = agents[0] as SessionMeta

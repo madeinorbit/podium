@@ -49,6 +49,14 @@ export interface AgentCapabilities {
   oscTitle: boolean
   /** Reads CLAUDE_CODE_SUBAGENT_MODEL-style env for subagent model selection. */
   subagentModelEnv: boolean
+  /** The native TUI honours shift+tab mode cycling and `?` shortcut help, so the
+   *  prompt-chrome hint row is worth showing. Only hints a CLI really honours may
+   *  be advertised — a hint the harness ignores is worse than none. */
+  promptModeHints: boolean
+  /** A session of this kind can be packaged and moved to another machine
+   *  (handoff). False ⇒ the UI states 'harness' as the blocker rather than
+   *  offering a move that cannot complete. */
+  handoff: boolean
   /** How Podium's state hooks reach the harness: per-spawn settings/args
    *  ('settings-args'), a global hook install activated per-session via env
    *  ('global-env'), or none (observer-only harnesses). */
@@ -65,6 +73,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: true,
     oscTitle: true,
     subagentModelEnv: true,
+    promptModeHints: true,
+    handoff: true,
     hookInstall: 'settings-args',
   },
   codex: {
@@ -76,6 +86,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: true,
     oscTitle: false,
     subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: true,
     hookInstall: 'global-env',
   },
   grok: {
@@ -87,6 +99,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
     hookInstall: 'global-env',
   },
   opencode: {
@@ -98,6 +112,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
     hookInstall: 'none',
   },
   cursor: {
@@ -109,6 +125,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
     hookInstall: 'none',
   },
   shell: {
@@ -120,6 +138,8 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
+    promptModeHints: false,
+    handoff: false,
     hookInstall: 'none',
   },
 }
@@ -139,6 +159,19 @@ export function agentSupportsEffort(kind: AgentKind): boolean {
 /** Kinds whose sessions can be moved to a cloud runtime (claude-code, codex). */
 export function agentSupportsCloud(kind: AgentKind): boolean {
   return AGENT_CAPABILITIES[kind].cloud
+}
+
+/** Worth drawing the native prompt-chrome hint row for this harness (POD-1105 —
+ *  the view asks the capability table instead of naming a harness). */
+export function agentShowsPromptModeHints(kind: AgentKind): boolean {
+  return AGENT_CAPABILITIES[kind].promptModeHints
+}
+
+/** Sessions of this kind can be handed off to another machine (claude-code,
+ *  codex today). The eligibility question every handoff surface asks, answered
+ *  once here rather than re-listing the pair per call site (POD-1105). */
+export function agentSupportsHandoff(kind: AgentKind): boolean {
+  return AGENT_CAPABILITIES[kind].handoff
 }
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })

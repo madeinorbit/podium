@@ -1,6 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
+import { agentShowsPromptModeHints } from '@podium/protocol'
 import {
   extractClaudePromptDraft,
   extractCodexPromptDraft,
@@ -42,6 +43,7 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
+import { AGENT_BRAND_DOT } from '@/lib/agent-tone'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -785,8 +787,16 @@ export function AgentPanel({
                   : 'Model as requested at spawn'
               }
             >
-              {session.agentKind === 'claude-code' && (
-                <span className="size-[6px] flex-none rounded-full bg-claude" aria-hidden="true" />
+              {/* Brand mark for harnesses that have one — a table lookup, so a new
+                  harness adds a row rather than another branch here. */}
+              {AGENT_BRAND_DOT[session.agentKind] && (
+                <span
+                  className={cn(
+                    'size-[6px] flex-none rounded-full',
+                    AGENT_BRAND_DOT[session.agentKind],
+                  )}
+                  aria-hidden="true"
+                />
               )}
               {modelToken(session)}
             </span>
@@ -1045,7 +1055,7 @@ export function AgentPanel({
               style={{ backgroundColor: termBg }}
             >
               <div className="border-t issue-hairline-35" aria-hidden="true" />
-              {session?.agentKind === 'claude-code' && (
+              {session && agentShowsPromptModeHints(session.agentKind) && (
                 <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] text-[9.5px] text-text-dim">
                   <span>(shift+tab to cycle modes)</span>
                   <span className="ml-auto">? for shortcuts</span>
