@@ -1,0 +1,231 @@
+/**
+ * Session-write ORACLE support (POD-379, the migration oracle for POD-312).
+ *
+ * The oracle suite pins TODAY's observable behaviour of every session write, so
+ * the 3.2 migration onto command contracts (POD-380 presence class, POD-381
+ * command plane, POD-642 handoff, POD-382 the cutover that deletes the
+ * hand-written router mutations) can be proven behaviour-preserving instead of
+ * merely compiling.
+ *
+ * ## The two tags, and why the split exists
+ *
+ * A green oracle must never be used as evidence that a DELIBERATE replacement is
+ * a regression (docs/multi-user-readiness.md §3.1/§3.3). So every
+ * characterization declares which kind of statement it is:
+ *
+ *  - {@link MUST_NOT_CHANGE} — behaviour the migration must preserve verbatim.
+ *    A red test here is a regression.
+ *  - {@link willChange} — behaviour a NAMED later issue deliberately replaces. A
+ *    red test here means "read the superseding issue, then update this
+ *    characterization" — never "restore the old behaviour".
+ *
+ * The tag is part of the test NAME so it shows up in the failure line, and
+ * oracle-tags.test.ts enforces that every oracle test carries one.
+ *
+ * ## What the assertions are allowed to look at
+ *
+ * Only wire messages, persisted rows, control messages and returned values —
+ * never UI copy, and never a bare substring of a longer string (POD-743: a
+ * substring assertion that happens to match unrelated prose passes
+ * unconditionally). Error messages are pinned with EXACT equality, because
+ * docs/multi-user-readiness.md §3.1.4 M5 and §3.1.5 both need the literal shape
+ * as a later comparison baseline.
+ */
+
+import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import { OPERATOR } from '../../issue-authz'
+import { SessionRegistry } from '../../relay'
+import { RepoRegistry } from '../../repo-registry'
+import { appRouter } from '../../router'
+import { SessionStore } from '../../store'
+import { SuperagentService } from '../superagent'
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+/** This behaviour must survive the POD-312 migration byte-for-byte. */
+export const MUST_NOT_CHANGE = 'must-not-change'
+
+/** Issues that deliberately supersede a characterized behaviour. */
+export const SUPERSEDING_ISSUES = [
+  // Real user identity + per-user principal (one shared password today).
+  'POD-1075',
+  // Per-user state keyed (userId, entityId) — readAt / snooze / pins / tab order.
+  'POD-1076',
+  // Authorization over human-vs-human (agent-capability only today).
+  'POD-1073',
+  // Machines as owned compute: see / use / manage (ambient placement today).
+  'POD-1079',
+] as const
+
+export type SupersedingIssue = (typeof SUPERSEDING_ISSUES)[number]
+
+/**
+ * Tag a characterization of behaviour a later issue REPLACES. `issue` must be
+ * one of {@link SUPERSEDING_ISSUES}; `why` names the replacement in one clause.
+ */
+export function willChange(issue: SupersedingIssue, why: string): string {
+  return `will-change ${issue} (${why})`
+}
+
+// ---------------------------------------------------------------------------
+// One-machine oracle fixture
+// ---------------------------------------------------------------------------
+
+export interface Oracle {
+  reg: SessionRegistry
+  store: SessionStore
+  /** Every ServerMessage broadcast to the (single) attached client. */
+  client: ServerMessage[]
+  /** Every ControlMessage the server sent to the attached daemon. */
+  daemon: ControlMessage[]
+  /** tRPC caller with the OPERATOR capability — the human seam. */
+  call: ReturnType<typeof appRouter.createCaller>
+  /** Session metadata as the wire sees it. */
+  meta(
+    sessionId: string,
+  ): ReturnType<SessionRegistry['modules']['sessions']['listSessions']>[number]
+  /**
+   * Invoke a write the way a RELAYED AGENT does — through the capability seam,
+   * with the capability minted from the calling session's cwd. This is the ONLY
+   * authorization boundary the product has today: the tRPC surface above is
+   * unconditionally OPERATOR (one shared password ⇒ admin/all).
+   */
+  relay(req: RelayRequest): Promise<RelayReply>
+  dispose(): void
+}
+
+export type RelayReply = Extract<ControlMessage, { type: 'agentRelayResult' }>
+
+export interface RelayRequest {
+  requestId: string
+  /** The CALLING session — the relay context the capability is minted from. */
+  sessionId: string
+  router: string
+  proc: string
+  input?: unknown
+  outsideScope?: boolean
+}
+
+const registries: SessionRegistry[] = []
+
+/** A machine row that exists but has NO daemon attached — i.e. offline. */
+export interface OfflineMachine {
+  id: string
+  name: string
+  /** Harnesses the machine reported before it went away. */
+  agents?: { kind: string; installed: boolean; login: { state: 'in' | 'out' } }[]
+}
+
+/**
+ * Build a fixture with one paired machine, one attached client, one daemon.
+ *
+ * `offlineMachines` rows are written BEFORE the registry is constructed: the
+ * machines service caches its records, so a row inserted afterwards reads as an
+ * unknown machine rather than an offline one.
+ */
+export function makeOracle(
+  opts: { machineId?: string; offlineMachines?: OfflineMachine[] } = {},
+): Oracle {
+  const machineId = opts.machineId ?? 'local'
+  const store = new SessionStore(':memory:')
+  for (const machine of opts.offlineMachines ?? []) {
+    store.machines.upsertMachine({
+      id: machine.id,
+      name: machine.name,
+      hostname: machine.id,
+      tokenHash: `hash-${machine.id}`,
+    })
+    store.machines.setMachineInventory(
+      machine.id,
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        agents: machine.agents ?? [
+          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+        ],
+        tools: [],
+      }),
+    )
+  }
+  const reg = new SessionRegistry(store)
+  registries.push(reg)
+  const daemon: ControlMessage[] = []
+  const client: ServerMessage[] = []
+  /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
+  const relayWaiters: ((msg: ControlMessage) => void)[] = []
+  reg.modules.sessions.attachDaemon(machineId, (msg) => {
+    daemon.push(msg)
+    for (const waiter of relayWaiters) waiter(msg)
+  })
+  reg.modules.sessions.attachClient((msg) => client.push(msg))
+  const repos = new RepoRegistry(reg, reg.sessionStore)
+  const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
+  const call = appRouter.createCaller({
+    registry: reg,
+    repos,
+    superagent,
+    capability: OPERATOR,
+  })
+  return {
+    reg,
+    store,
+    client,
+    daemon,
+    call,
+    meta: (sessionId) => {
+      const found = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+      if (!found) throw new Error(`no session meta for ${sessionId}`)
+      return found
+    },
+    relay: (req) =>
+      new Promise<RelayReply>((resolve) => {
+        relayWaiters.push((msg) => {
+          if (msg.type === 'agentRelayResult' && msg.requestId === req.requestId) resolve(msg)
+        })
+        reg.modules.sessions.onDaemonMessageFrom(machineId, {
+          type: 'agentRelayRequest',
+          requestId: req.requestId,
+          sessionId: req.sessionId,
+          router: req.router,
+          proc: req.proc,
+          input: req.input,
+          ...(req.outsideScope ? { outsideScope: true } : {}),
+        })
+      }),
+    dispose: () => reg.dispose(),
+  }
+}
+
+/** Dispose every registry built by {@link makeOracle} (call from afterEach). */
+export function disposeOracles(): void {
+  for (const reg of registries.splice(0)) reg.dispose()
+}
+
+// ---------------------------------------------------------------------------
+// Predicate waiting (never a fixed sleep — POD-757)
+// ---------------------------------------------------------------------------
+
+/** Resolve once `predicate()` holds, polling the macrotask queue. Throws on timeout. */
+export async function waitFor(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
+/** The message a thrown/rejected write carries, with no substring matching. */
+export async function messageOf(run: () => unknown): Promise<string> {
+  try {
+    await run()
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  throw new Error('expected the write to fail, but it resolved')
+}
