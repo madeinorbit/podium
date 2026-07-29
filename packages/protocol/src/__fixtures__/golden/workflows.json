@@ -1,0 +1,765 @@
+{
+  "family": "workflows",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ExecutionProfileWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "accountId": "accountId",
+        "machineId": null,
+        "harness": "harness",
+        "model": "model",
+        "effort": "effort",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"accountId\":\"accountId\",\"machineId\":null,\"harness\":\"harness\",\"model\":\"model\",\"effort\":\"effort\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "ExecutionProfileWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "accountId": "accountId",
+        "machineId": "machineId",
+        "harness": "harness",
+        "model": "model",
+        "effort": "effort",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"accountId\":\"accountId\",\"machineId\":\"machineId\",\"harness\":\"harness\",\"model\":\"model\",\"effort\":\"effort\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "WorkflowBindingTarget",
+      "variant": "minimal",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "WorkflowBindingTarget",
+      "variant": "full",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "WorkflowBindingWire",
+      "variant": "minimal",
+      "wire": {
+        "targetKind": "global",
+        "targetId": "targetId",
+        "revisionId": "revisionId",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"targetKind\":\"global\",\"targetId\":\"targetId\",\"revisionId\":\"revisionId\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "WorkflowBindingWire",
+      "variant": "full",
+      "wire": {
+        "targetKind": "global",
+        "targetId": "targetId",
+        "revisionId": "revisionId",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"targetKind\":\"global\",\"targetId\":\"targetId\",\"revisionId\":\"revisionId\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "WorkflowDetailWire",
+      "variant": "minimal",
+      "wire": {
+        "workflow": {
+          "id": "workflow.id",
+          "name": "workflow.name",
+          "description": "workflow.description",
+          "scope": "global",
+          "scopeRef": null,
+          "latestRevisionId": null,
+          "latestVersion": 1,
+          "archivedAt": null,
+          "createdAt": "workflow.createdAt",
+          "updatedAt": "workflow.updatedAt"
+        },
+        "revisions": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"workflow\":{\"id\":\"workflow.id\",\"name\":\"workflow.name\",\"description\":\"workflow.description\",\"scope\":\"global\",\"scopeRef\":null,\"latestRevisionId\":null,\"latestVersion\":1,\"archivedAt\":null,\"createdAt\":\"workflow.createdAt\",\"updatedAt\":\"workflow.updatedAt\"},\"revisions\":[]}"
+    },
+    {
+      "schema": "WorkflowDetailWire",
+      "variant": "full",
+      "wire": {
+        "workflow": {
+          "id": "workflow.id",
+          "name": "workflow.name",
+          "description": "workflow.description",
+          "scope": "global",
+          "scopeRef": "workflow.scopeRef",
+          "latestRevisionId": "workflow.latestRevisionId",
+          "latestVersion": 1,
+          "archivedAt": "workflow.archivedAt",
+          "createdAt": "workflow.createdAt",
+          "updatedAt": "workflow.updatedAt"
+        },
+        "revisions": [
+          {
+            "id": "revisions[0].id",
+            "workflowId": "revisions[0].workflowId",
+            "version": 1,
+            "instructions": "revisions[0].instructions",
+            "steps": [
+              {
+                "id": "revisions[0].steps[0].id",
+                "title": "revisions[0].steps[0].title",
+                "instructions": "revisions[0].steps[0].instructions",
+                "completionGuidance": "revisions[0].steps[0].completionGuidance",
+                "executionProfileId": "revisions[0].steps[0].executionProfileId"
+              }
+            ],
+            "createdAt": "revisions[0].createdAt",
+            "publishedAt": "revisions[0].publishedAt"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"workflow\":{\"id\":\"workflow.id\",\"name\":\"workflow.name\",\"description\":\"workflow.description\",\"scope\":\"global\",\"scopeRef\":\"workflow.scopeRef\",\"latestRevisionId\":\"workflow.latestRevisionId\",\"latestVersion\":1,\"archivedAt\":\"workflow.archivedAt\",\"createdAt\":\"workflow.createdAt\",\"updatedAt\":\"workflow.updatedAt\"},\"revisions\":[{\"id\":\"revisions[0].id\",\"workflowId\":\"revisions[0].workflowId\",\"version\":1,\"instructions\":\"revisions[0].instructions\",\"steps\":[{\"id\":\"revisions[0].steps[0].id\",\"title\":\"revisions[0].steps[0].title\",\"instructions\":\"revisions[0].steps[0].instructions\",\"completionGuidance\":\"revisions[0].steps[0].completionGuidance\",\"executionProfileId\":\"revisions[0].steps[0].executionProfileId\"}],\"createdAt\":\"revisions[0].createdAt\",\"publishedAt\":\"revisions[0].publishedAt\"}]}"
+    },
+    {
+      "schema": "WorkflowGitObservation",
+      "variant": "minimal",
+      "wire": {
+        "cwd": "cwd",
+        "worktree": null,
+        "branch": null,
+        "head": null,
+        "dirty": null,
+        "ahead": null,
+        "behind": null,
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cwd\":\"cwd\",\"worktree\":null,\"branch\":null,\"head\":null,\"dirty\":null,\"ahead\":null,\"behind\":null,\"observedAt\":\"observedAt\"}"
+    },
+    {
+      "schema": "WorkflowGitObservation",
+      "variant": "full",
+      "wire": {
+        "cwd": "cwd",
+        "worktree": "worktree",
+        "branch": "branch",
+        "head": "head",
+        "dirty": true,
+        "ahead": 1,
+        "behind": 1,
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cwd\":\"cwd\",\"worktree\":\"worktree\",\"branch\":\"branch\",\"head\":\"head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"observedAt\"}"
+    },
+    {
+      "schema": "WorkflowNextActionWire",
+      "variant": "minimal",
+      "wire": {
+        "run": {
+          "id": "run.id",
+          "subjectKind": "issue",
+          "subjectId": "run.subjectId",
+          "coordinatorSessionId": "run.coordinatorSessionId",
+          "revision": {
+            "id": "run.revision.id",
+            "workflowId": "run.revision.workflowId",
+            "version": 1,
+            "instructions": "run.revision.instructions",
+            "steps": [],
+            "createdAt": "run.revision.createdAt",
+            "publishedAt": null
+          },
+          "status": "active",
+          "supersedesRunId": null,
+          "steps": [],
+          "startedAt": "run.startedAt",
+          "completedAt": null
+        },
+        "currentStep": null,
+        "nextStep": null,
+        "message": "message",
+        "warnings": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"startedAt\":\"run.startedAt\",\"completedAt\":null},\"currentStep\":null,\"nextStep\":null,\"message\":\"message\",\"warnings\":[]}"
+    },
+    {
+      "schema": "WorkflowNextActionWire",
+      "variant": "full",
+      "wire": {
+        "run": {
+          "id": "run.id",
+          "subjectKind": "issue",
+          "subjectId": "run.subjectId",
+          "coordinatorSessionId": "run.coordinatorSessionId",
+          "revision": {
+            "id": "run.revision.id",
+            "workflowId": "run.revision.workflowId",
+            "version": 1,
+            "instructions": "run.revision.instructions",
+            "steps": [
+              {
+                "id": "run.revision.steps[0].id",
+                "title": "run.revision.steps[0].title",
+                "instructions": "run.revision.steps[0].instructions",
+                "completionGuidance": "run.revision.steps[0].completionGuidance",
+                "executionProfileId": "run.revision.steps[0].executionProfileId"
+              }
+            ],
+            "createdAt": "run.revision.createdAt",
+            "publishedAt": "run.revision.publishedAt"
+          },
+          "status": "active",
+          "supersedesRunId": "run.supersedesRunId",
+          "steps": [
+            {
+              "stepId": "run.steps[0].stepId",
+              "position": 1,
+              "title": "run.steps[0].title",
+              "instructions": "run.steps[0].instructions",
+              "completionGuidance": "run.steps[0].completionGuidance",
+              "executionProfileId": "run.steps[0].executionProfileId",
+              "executionProfileSnapshot": {
+                "id": "run.steps[0].executionProfileSnapshot.id",
+                "name": "run.steps[0].executionProfileSnapshot.name",
+                "accountId": "run.steps[0].executionProfileSnapshot.accountId",
+                "machineId": "run.steps[0].executionProfileSnapshot.machineId",
+                "harness": "run.steps[0].executionProfileSnapshot.harness",
+                "model": "run.steps[0].executionProfileSnapshot.model",
+                "effort": "run.steps[0].executionProfileSnapshot.effort",
+                "createdAt": "run.steps[0].executionProfileSnapshot.createdAt",
+                "updatedAt": "run.steps[0].executionProfileSnapshot.updatedAt"
+              },
+              "status": "pending",
+              "assignedSessionId": "run.steps[0].assignedSessionId",
+              "attempt": 1,
+              "summary": "run.steps[0].summary",
+              "evidence": {
+                "summary": "run.steps[0].evidence.summary",
+                "tests": ["run.steps[0].evidence.tests[0]"],
+                "artifacts": ["run.steps[0].evidence.artifacts[0]"]
+              },
+              "observation": {
+                "cwd": "run.steps[0].observation.cwd",
+                "worktree": "run.steps[0].observation.worktree",
+                "branch": "run.steps[0].observation.branch",
+                "head": "run.steps[0].observation.head",
+                "dirty": true,
+                "ahead": 1,
+                "behind": 1,
+                "observedAt": "run.steps[0].observation.observedAt"
+              },
+              "warnings": ["run.steps[0].warnings[0]"],
+              "startedAt": "run.steps[0].startedAt",
+              "completedAt": "run.steps[0].completedAt"
+            }
+          ],
+          "startedAt": "run.startedAt",
+          "completedAt": "run.completedAt"
+        },
+        "currentStep": {
+          "stepId": "currentStep.stepId",
+          "position": 1,
+          "title": "currentStep.title",
+          "instructions": "currentStep.instructions",
+          "completionGuidance": "currentStep.completionGuidance",
+          "executionProfileId": "currentStep.executionProfileId",
+          "executionProfileSnapshot": {
+            "id": "currentStep.executionProfileSnapshot.id",
+            "name": "currentStep.executionProfileSnapshot.name",
+            "accountId": "currentStep.executionProfileSnapshot.accountId",
+            "machineId": "currentStep.executionProfileSnapshot.machineId",
+            "harness": "currentStep.executionProfileSnapshot.harness",
+            "model": "currentStep.executionProfileSnapshot.model",
+            "effort": "currentStep.executionProfileSnapshot.effort",
+            "createdAt": "currentStep.executionProfileSnapshot.createdAt",
+            "updatedAt": "currentStep.executionProfileSnapshot.updatedAt"
+          },
+          "status": "pending",
+          "assignedSessionId": "currentStep.assignedSessionId",
+          "attempt": 1,
+          "summary": "currentStep.summary",
+          "evidence": {
+            "summary": "currentStep.evidence.summary",
+            "tests": ["currentStep.evidence.tests[0]"],
+            "artifacts": ["currentStep.evidence.artifacts[0]"]
+          },
+          "observation": {
+            "cwd": "currentStep.observation.cwd",
+            "worktree": "currentStep.observation.worktree",
+            "branch": "currentStep.observation.branch",
+            "head": "currentStep.observation.head",
+            "dirty": true,
+            "ahead": 1,
+            "behind": 1,
+            "observedAt": "currentStep.observation.observedAt"
+          },
+          "warnings": ["currentStep.warnings[0]"],
+          "startedAt": "currentStep.startedAt",
+          "completedAt": "currentStep.completedAt"
+        },
+        "nextStep": {
+          "stepId": "nextStep.stepId",
+          "position": 1,
+          "title": "nextStep.title",
+          "instructions": "nextStep.instructions",
+          "completionGuidance": "nextStep.completionGuidance",
+          "executionProfileId": "nextStep.executionProfileId",
+          "executionProfileSnapshot": {
+            "id": "nextStep.executionProfileSnapshot.id",
+            "name": "nextStep.executionProfileSnapshot.name",
+            "accountId": "nextStep.executionProfileSnapshot.accountId",
+            "machineId": "nextStep.executionProfileSnapshot.machineId",
+            "harness": "nextStep.executionProfileSnapshot.harness",
+            "model": "nextStep.executionProfileSnapshot.model",
+            "effort": "nextStep.executionProfileSnapshot.effort",
+            "createdAt": "nextStep.executionProfileSnapshot.createdAt",
+            "updatedAt": "nextStep.executionProfileSnapshot.updatedAt"
+          },
+          "status": "pending",
+          "assignedSessionId": "nextStep.assignedSessionId",
+          "attempt": 1,
+          "summary": "nextStep.summary",
+          "evidence": {
+            "summary": "nextStep.evidence.summary",
+            "tests": ["nextStep.evidence.tests[0]"],
+            "artifacts": ["nextStep.evidence.artifacts[0]"]
+          },
+          "observation": {
+            "cwd": "nextStep.observation.cwd",
+            "worktree": "nextStep.observation.worktree",
+            "branch": "nextStep.observation.branch",
+            "head": "nextStep.observation.head",
+            "dirty": true,
+            "ahead": 1,
+            "behind": 1,
+            "observedAt": "nextStep.observation.observedAt"
+          },
+          "warnings": ["nextStep.warnings[0]"],
+          "startedAt": "nextStep.startedAt",
+          "completedAt": "nextStep.completedAt"
+        },
+        "message": "message",
+        "warnings": ["warnings[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"run\":{\"id\":\"run.id\",\"subjectKind\":\"issue\",\"subjectId\":\"run.subjectId\",\"coordinatorSessionId\":\"run.coordinatorSessionId\",\"revision\":{\"id\":\"run.revision.id\",\"workflowId\":\"run.revision.workflowId\",\"version\":1,\"instructions\":\"run.revision.instructions\",\"steps\":[{\"id\":\"run.revision.steps[0].id\",\"title\":\"run.revision.steps[0].title\",\"instructions\":\"run.revision.steps[0].instructions\",\"completionGuidance\":\"run.revision.steps[0].completionGuidance\",\"executionProfileId\":\"run.revision.steps[0].executionProfileId\"}],\"createdAt\":\"run.revision.createdAt\",\"publishedAt\":\"run.revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"run.supersedesRunId\",\"steps\":[{\"stepId\":\"run.steps[0].stepId\",\"position\":1,\"title\":\"run.steps[0].title\",\"instructions\":\"run.steps[0].instructions\",\"completionGuidance\":\"run.steps[0].completionGuidance\",\"executionProfileId\":\"run.steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"run.steps[0].executionProfileSnapshot.id\",\"name\":\"run.steps[0].executionProfileSnapshot.name\",\"accountId\":\"run.steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"run.steps[0].executionProfileSnapshot.machineId\",\"harness\":\"run.steps[0].executionProfileSnapshot.harness\",\"model\":\"run.steps[0].executionProfileSnapshot.model\",\"effort\":\"run.steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"run.steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"run.steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"run.steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"run.steps[0].summary\",\"evidence\":{\"summary\":\"run.steps[0].evidence.summary\",\"tests\":[\"run.steps[0].evidence.tests[0]\"],\"artifacts\":[\"run.steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"run.steps[0].observation.cwd\",\"worktree\":\"run.steps[0].observation.worktree\",\"branch\":\"run.steps[0].observation.branch\",\"head\":\"run.steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"run.steps[0].observation.observedAt\"},\"warnings\":[\"run.steps[0].warnings[0]\"],\"startedAt\":\"run.steps[0].startedAt\",\"completedAt\":\"run.steps[0].completedAt\"}],\"startedAt\":\"run.startedAt\",\"completedAt\":\"run.completedAt\"},\"currentStep\":{\"stepId\":\"currentStep.stepId\",\"position\":1,\"title\":\"currentStep.title\",\"instructions\":\"currentStep.instructions\",\"completionGuidance\":\"currentStep.completionGuidance\",\"executionProfileId\":\"currentStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"currentStep.executionProfileSnapshot.id\",\"name\":\"currentStep.executionProfileSnapshot.name\",\"accountId\":\"currentStep.executionProfileSnapshot.accountId\",\"machineId\":\"currentStep.executionProfileSnapshot.machineId\",\"harness\":\"currentStep.executionProfileSnapshot.harness\",\"model\":\"currentStep.executionProfileSnapshot.model\",\"effort\":\"currentStep.executionProfileSnapshot.effort\",\"createdAt\":\"currentStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"currentStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"currentStep.assignedSessionId\",\"attempt\":1,\"summary\":\"currentStep.summary\",\"evidence\":{\"summary\":\"currentStep.evidence.summary\",\"tests\":[\"currentStep.evidence.tests[0]\"],\"artifacts\":[\"currentStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"currentStep.observation.cwd\",\"worktree\":\"currentStep.observation.worktree\",\"branch\":\"currentStep.observation.branch\",\"head\":\"currentStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"currentStep.observation.observedAt\"},\"warnings\":[\"currentStep.warnings[0]\"],\"startedAt\":\"currentStep.startedAt\",\"completedAt\":\"currentStep.completedAt\"},\"nextStep\":{\"stepId\":\"nextStep.stepId\",\"position\":1,\"title\":\"nextStep.title\",\"instructions\":\"nextStep.instructions\",\"completionGuidance\":\"nextStep.completionGuidance\",\"executionProfileId\":\"nextStep.executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"nextStep.executionProfileSnapshot.id\",\"name\":\"nextStep.executionProfileSnapshot.name\",\"accountId\":\"nextStep.executionProfileSnapshot.accountId\",\"machineId\":\"nextStep.executionProfileSnapshot.machineId\",\"harness\":\"nextStep.executionProfileSnapshot.harness\",\"model\":\"nextStep.executionProfileSnapshot.model\",\"effort\":\"nextStep.executionProfileSnapshot.effort\",\"createdAt\":\"nextStep.executionProfileSnapshot.createdAt\",\"updatedAt\":\"nextStep.executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"nextStep.assignedSessionId\",\"attempt\":1,\"summary\":\"nextStep.summary\",\"evidence\":{\"summary\":\"nextStep.evidence.summary\",\"tests\":[\"nextStep.evidence.tests[0]\"],\"artifacts\":[\"nextStep.evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"nextStep.observation.cwd\",\"worktree\":\"nextStep.observation.worktree\",\"branch\":\"nextStep.observation.branch\",\"head\":\"nextStep.observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"nextStep.observation.observedAt\"},\"warnings\":[\"nextStep.warnings[0]\"],\"startedAt\":\"nextStep.startedAt\",\"completedAt\":\"nextStep.completedAt\"},\"message\":\"message\",\"warnings\":[\"warnings[0]\"]}"
+    },
+    {
+      "schema": "WorkflowRevisionWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "workflowId": "workflowId",
+        "version": 1,
+        "instructions": "instructions",
+        "steps": [],
+        "createdAt": "createdAt",
+        "publishedAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"workflowId\":\"workflowId\",\"version\":1,\"instructions\":\"instructions\",\"steps\":[],\"createdAt\":\"createdAt\",\"publishedAt\":null}"
+    },
+    {
+      "schema": "WorkflowRevisionWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "workflowId": "workflowId",
+        "version": 1,
+        "instructions": "instructions",
+        "steps": [
+          {
+            "id": "steps[0].id",
+            "title": "steps[0].title",
+            "instructions": "steps[0].instructions",
+            "completionGuidance": "steps[0].completionGuidance",
+            "executionProfileId": "steps[0].executionProfileId"
+          }
+        ],
+        "createdAt": "createdAt",
+        "publishedAt": "publishedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"workflowId\":\"workflowId\",\"version\":1,\"instructions\":\"instructions\",\"steps\":[{\"id\":\"steps[0].id\",\"title\":\"steps[0].title\",\"instructions\":\"steps[0].instructions\",\"completionGuidance\":\"steps[0].completionGuidance\",\"executionProfileId\":\"steps[0].executionProfileId\"}],\"createdAt\":\"createdAt\",\"publishedAt\":\"publishedAt\"}"
+    },
+    {
+      "schema": "WorkflowRunStatus",
+      "variant": "minimal",
+      "wire": "active",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"active\""
+    },
+    {
+      "schema": "WorkflowRunStatus",
+      "variant": "full",
+      "wire": "active",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"active\""
+    },
+    {
+      "schema": "WorkflowRunStepStatus",
+      "variant": "minimal",
+      "wire": "pending",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"pending\""
+    },
+    {
+      "schema": "WorkflowRunStepStatus",
+      "variant": "full",
+      "wire": "pending",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"pending\""
+    },
+    {
+      "schema": "WorkflowRunStepWire",
+      "variant": "minimal",
+      "wire": {
+        "stepId": "stepId",
+        "position": 1,
+        "title": "title",
+        "instructions": "instructions",
+        "completionGuidance": "completionGuidance",
+        "executionProfileId": null,
+        "executionProfileSnapshot": null,
+        "status": "pending",
+        "assignedSessionId": null,
+        "attempt": 1,
+        "summary": "summary",
+        "evidence": {},
+        "observation": null,
+        "warnings": [],
+        "startedAt": null,
+        "completedAt": null
+      },
+      "parseAdded": {
+        "evidence.summary": "",
+        "evidence.tests": [],
+        "evidence.artifacts": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stepId\":\"stepId\",\"position\":1,\"title\":\"title\",\"instructions\":\"instructions\",\"completionGuidance\":\"completionGuidance\",\"executionProfileId\":null,\"executionProfileSnapshot\":null,\"status\":\"pending\",\"assignedSessionId\":null,\"attempt\":1,\"summary\":\"summary\",\"evidence\":{\"summary\":\"\",\"tests\":[],\"artifacts\":[]},\"observation\":null,\"warnings\":[],\"startedAt\":null,\"completedAt\":null}"
+    },
+    {
+      "schema": "WorkflowRunStepWire",
+      "variant": "full",
+      "wire": {
+        "stepId": "stepId",
+        "position": 1,
+        "title": "title",
+        "instructions": "instructions",
+        "completionGuidance": "completionGuidance",
+        "executionProfileId": "executionProfileId",
+        "executionProfileSnapshot": {
+          "id": "executionProfileSnapshot.id",
+          "name": "executionProfileSnapshot.name",
+          "accountId": "executionProfileSnapshot.accountId",
+          "machineId": "executionProfileSnapshot.machineId",
+          "harness": "executionProfileSnapshot.harness",
+          "model": "executionProfileSnapshot.model",
+          "effort": "executionProfileSnapshot.effort",
+          "createdAt": "executionProfileSnapshot.createdAt",
+          "updatedAt": "executionProfileSnapshot.updatedAt"
+        },
+        "status": "pending",
+        "assignedSessionId": "assignedSessionId",
+        "attempt": 1,
+        "summary": "summary",
+        "evidence": {
+          "summary": "evidence.summary",
+          "tests": ["evidence.tests[0]"],
+          "artifacts": ["evidence.artifacts[0]"]
+        },
+        "observation": {
+          "cwd": "observation.cwd",
+          "worktree": "observation.worktree",
+          "branch": "observation.branch",
+          "head": "observation.head",
+          "dirty": true,
+          "ahead": 1,
+          "behind": 1,
+          "observedAt": "observation.observedAt"
+        },
+        "warnings": ["warnings[0]"],
+        "startedAt": "startedAt",
+        "completedAt": "completedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stepId\":\"stepId\",\"position\":1,\"title\":\"title\",\"instructions\":\"instructions\",\"completionGuidance\":\"completionGuidance\",\"executionProfileId\":\"executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"executionProfileSnapshot.id\",\"name\":\"executionProfileSnapshot.name\",\"accountId\":\"executionProfileSnapshot.accountId\",\"machineId\":\"executionProfileSnapshot.machineId\",\"harness\":\"executionProfileSnapshot.harness\",\"model\":\"executionProfileSnapshot.model\",\"effort\":\"executionProfileSnapshot.effort\",\"createdAt\":\"executionProfileSnapshot.createdAt\",\"updatedAt\":\"executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"assignedSessionId\",\"attempt\":1,\"summary\":\"summary\",\"evidence\":{\"summary\":\"evidence.summary\",\"tests\":[\"evidence.tests[0]\"],\"artifacts\":[\"evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"observation.cwd\",\"worktree\":\"observation.worktree\",\"branch\":\"observation.branch\",\"head\":\"observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"observation.observedAt\"},\"warnings\":[\"warnings[0]\"],\"startedAt\":\"startedAt\",\"completedAt\":\"completedAt\"}"
+    },
+    {
+      "schema": "WorkflowRunWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "subjectKind": "issue",
+        "subjectId": "subjectId",
+        "coordinatorSessionId": "coordinatorSessionId",
+        "revision": {
+          "id": "revision.id",
+          "workflowId": "revision.workflowId",
+          "version": 1,
+          "instructions": "revision.instructions",
+          "steps": [],
+          "createdAt": "revision.createdAt",
+          "publishedAt": null
+        },
+        "status": "active",
+        "supersedesRunId": null,
+        "steps": [],
+        "startedAt": "startedAt",
+        "completedAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[],\"createdAt\":\"revision.createdAt\",\"publishedAt\":null},\"status\":\"active\",\"supersedesRunId\":null,\"steps\":[],\"startedAt\":\"startedAt\",\"completedAt\":null}"
+    },
+    {
+      "schema": "WorkflowRunWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "subjectKind": "issue",
+        "subjectId": "subjectId",
+        "coordinatorSessionId": "coordinatorSessionId",
+        "revision": {
+          "id": "revision.id",
+          "workflowId": "revision.workflowId",
+          "version": 1,
+          "instructions": "revision.instructions",
+          "steps": [
+            {
+              "id": "revision.steps[0].id",
+              "title": "revision.steps[0].title",
+              "instructions": "revision.steps[0].instructions",
+              "completionGuidance": "revision.steps[0].completionGuidance",
+              "executionProfileId": "revision.steps[0].executionProfileId"
+            }
+          ],
+          "createdAt": "revision.createdAt",
+          "publishedAt": "revision.publishedAt"
+        },
+        "status": "active",
+        "supersedesRunId": "supersedesRunId",
+        "steps": [
+          {
+            "stepId": "steps[0].stepId",
+            "position": 1,
+            "title": "steps[0].title",
+            "instructions": "steps[0].instructions",
+            "completionGuidance": "steps[0].completionGuidance",
+            "executionProfileId": "steps[0].executionProfileId",
+            "executionProfileSnapshot": {
+              "id": "steps[0].executionProfileSnapshot.id",
+              "name": "steps[0].executionProfileSnapshot.name",
+              "accountId": "steps[0].executionProfileSnapshot.accountId",
+              "machineId": "steps[0].executionProfileSnapshot.machineId",
+              "harness": "steps[0].executionProfileSnapshot.harness",
+              "model": "steps[0].executionProfileSnapshot.model",
+              "effort": "steps[0].executionProfileSnapshot.effort",
+              "createdAt": "steps[0].executionProfileSnapshot.createdAt",
+              "updatedAt": "steps[0].executionProfileSnapshot.updatedAt"
+            },
+            "status": "pending",
+            "assignedSessionId": "steps[0].assignedSessionId",
+            "attempt": 1,
+            "summary": "steps[0].summary",
+            "evidence": {
+              "summary": "steps[0].evidence.summary",
+              "tests": ["steps[0].evidence.tests[0]"],
+              "artifacts": ["steps[0].evidence.artifacts[0]"]
+            },
+            "observation": {
+              "cwd": "steps[0].observation.cwd",
+              "worktree": "steps[0].observation.worktree",
+              "branch": "steps[0].observation.branch",
+              "head": "steps[0].observation.head",
+              "dirty": true,
+              "ahead": 1,
+              "behind": 1,
+              "observedAt": "steps[0].observation.observedAt"
+            },
+            "warnings": ["steps[0].warnings[0]"],
+            "startedAt": "steps[0].startedAt",
+            "completedAt": "steps[0].completedAt"
+          }
+        ],
+        "startedAt": "startedAt",
+        "completedAt": "completedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"subjectKind\":\"issue\",\"subjectId\":\"subjectId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"revision\":{\"id\":\"revision.id\",\"workflowId\":\"revision.workflowId\",\"version\":1,\"instructions\":\"revision.instructions\",\"steps\":[{\"id\":\"revision.steps[0].id\",\"title\":\"revision.steps[0].title\",\"instructions\":\"revision.steps[0].instructions\",\"completionGuidance\":\"revision.steps[0].completionGuidance\",\"executionProfileId\":\"revision.steps[0].executionProfileId\"}],\"createdAt\":\"revision.createdAt\",\"publishedAt\":\"revision.publishedAt\"},\"status\":\"active\",\"supersedesRunId\":\"supersedesRunId\",\"steps\":[{\"stepId\":\"steps[0].stepId\",\"position\":1,\"title\":\"steps[0].title\",\"instructions\":\"steps[0].instructions\",\"completionGuidance\":\"steps[0].completionGuidance\",\"executionProfileId\":\"steps[0].executionProfileId\",\"executionProfileSnapshot\":{\"id\":\"steps[0].executionProfileSnapshot.id\",\"name\":\"steps[0].executionProfileSnapshot.name\",\"accountId\":\"steps[0].executionProfileSnapshot.accountId\",\"machineId\":\"steps[0].executionProfileSnapshot.machineId\",\"harness\":\"steps[0].executionProfileSnapshot.harness\",\"model\":\"steps[0].executionProfileSnapshot.model\",\"effort\":\"steps[0].executionProfileSnapshot.effort\",\"createdAt\":\"steps[0].executionProfileSnapshot.createdAt\",\"updatedAt\":\"steps[0].executionProfileSnapshot.updatedAt\"},\"status\":\"pending\",\"assignedSessionId\":\"steps[0].assignedSessionId\",\"attempt\":1,\"summary\":\"steps[0].summary\",\"evidence\":{\"summary\":\"steps[0].evidence.summary\",\"tests\":[\"steps[0].evidence.tests[0]\"],\"artifacts\":[\"steps[0].evidence.artifacts[0]\"]},\"observation\":{\"cwd\":\"steps[0].observation.cwd\",\"worktree\":\"steps[0].observation.worktree\",\"branch\":\"steps[0].observation.branch\",\"head\":\"steps[0].observation.head\",\"dirty\":true,\"ahead\":1,\"behind\":1,\"observedAt\":\"steps[0].observation.observedAt\"},\"warnings\":[\"steps[0].warnings[0]\"],\"startedAt\":\"steps[0].startedAt\",\"completedAt\":\"steps[0].completedAt\"}],\"startedAt\":\"startedAt\",\"completedAt\":\"completedAt\"}"
+    },
+    {
+      "schema": "WorkflowScope",
+      "variant": "minimal",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "WorkflowScope",
+      "variant": "full",
+      "wire": "global",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"global\""
+    },
+    {
+      "schema": "WorkflowStep",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "title": "title"
+      },
+      "parseAdded": {
+        "instructions": "",
+        "completionGuidance": ""
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"title\":\"title\",\"instructions\":\"\",\"completionGuidance\":\"\"}"
+    },
+    {
+      "schema": "WorkflowStep",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "title": "title",
+        "instructions": "instructions",
+        "completionGuidance": "completionGuidance",
+        "executionProfileId": "executionProfileId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"title\":\"title\",\"instructions\":\"instructions\",\"completionGuidance\":\"completionGuidance\",\"executionProfileId\":\"executionProfileId\"}"
+    },
+    {
+      "schema": "WorkflowStepEvidence",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {
+        "summary": "",
+        "tests": [],
+        "artifacts": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"summary\":\"\",\"tests\":[],\"artifacts\":[]}"
+    },
+    {
+      "schema": "WorkflowStepEvidence",
+      "variant": "full",
+      "wire": {
+        "summary": "summary",
+        "tests": ["tests[0]"],
+        "artifacts": ["artifacts[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"summary\":\"summary\",\"tests\":[\"tests[0]\"],\"artifacts\":[\"artifacts[0]\"]}"
+    },
+    {
+      "schema": "WorkflowWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "description": "description",
+        "scope": "global",
+        "scopeRef": null,
+        "latestRevisionId": null,
+        "latestVersion": 1,
+        "archivedAt": null,
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"description\":\"description\",\"scope\":\"global\",\"scopeRef\":null,\"latestRevisionId\":null,\"latestVersion\":1,\"archivedAt\":null,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "WorkflowWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "name": "name",
+        "description": "description",
+        "scope": "global",
+        "scopeRef": "scopeRef",
+        "latestRevisionId": "latestRevisionId",
+        "latestVersion": 1,
+        "archivedAt": "archivedAt",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"description\":\"description\",\"scope\":\"global\",\"scopeRef\":\"scopeRef\",\"latestRevisionId\":\"latestRevisionId\",\"latestVersion\":1,\"archivedAt\":\"archivedAt\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    }
+  ]
+}

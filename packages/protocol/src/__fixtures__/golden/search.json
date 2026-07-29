@@ -1,0 +1,60 @@
+{
+  "family": "search",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "SearchResultKind",
+      "variant": "minimal",
+      "wire": "session",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"session\""
+    },
+    {
+      "schema": "SearchResultKind",
+      "variant": "full",
+      "wire": "session",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"session\""
+    },
+    {
+      "schema": "SearchResultWire",
+      "variant": "minimal",
+      "wire": {
+        "kind": "session",
+        "id": "id",
+        "title": "title",
+        "score": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"session\",\"id\":\"id\",\"title\":\"title\",\"score\":1}"
+    },
+    {
+      "schema": "SearchResultWire",
+      "variant": "full",
+      "wire": {
+        "kind": "session",
+        "id": "id",
+        "title": "title",
+        "snippet": "snippet",
+        "score": 1,
+        "ts": "ts",
+        "sessionId": "sessionId",
+        "machineId": "machineId",
+        "nativeId": "nativeId",
+        "podiumId": "podiumId",
+        "repoPath": "repoPath",
+        "settingKey": "settingKey"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"session\",\"id\":\"id\",\"title\":\"title\",\"snippet\":\"snippet\",\"score\":1,\"ts\":\"ts\",\"sessionId\":\"sessionId\",\"machineId\":\"machineId\",\"nativeId\":\"nativeId\",\"podiumId\":\"podiumId\",\"repoPath\":\"repoPath\",\"settingKey\":\"settingKey\"}"
+    }
+  ]
+}

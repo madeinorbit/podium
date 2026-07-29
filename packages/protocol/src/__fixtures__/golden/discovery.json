@@ -1,0 +1,629 @@
+{
+  "family": "discovery",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "BrowseDirsRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "browseDirsRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"browseDirsRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "BrowseDirsRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "browseDirsRequest",
+        "requestId": "requestId",
+        "path": "path",
+        "includeHidden": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"browseDirsRequest\",\"requestId\":\"requestId\",\"path\":\"path\",\"includeHidden\":true}"
+    },
+    {
+      "schema": "BrowseDirsResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "browseDirsResult",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"browseDirsResult\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "BrowseDirsResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "browseDirsResult",
+        "requestId": "requestId",
+        "listing": {
+          "path": "listing.path",
+          "homePath": "listing.homePath",
+          "parentPath": "listing.parentPath",
+          "entries": [
+            {
+              "name": "listing.entries[0].name",
+              "path": "listing.entries[0].path",
+              "isRepo": true
+            }
+          ],
+          "isRepo": true,
+          "originUrl": "listing.originUrl"
+        },
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"browseDirsResult\",\"requestId\":\"requestId\",\"listing\":{\"path\":\"listing.path\",\"homePath\":\"listing.homePath\",\"parentPath\":\"listing.parentPath\",\"entries\":[{\"name\":\"listing.entries[0].name\",\"path\":\"listing.entries[0].path\",\"isRepo\":true}],\"isRepo\":true,\"originUrl\":\"listing.originUrl\"},\"error\":\"error\"}"
+    },
+    {
+      "schema": "ConversationDiagnosticWire",
+      "variant": "minimal",
+      "wire": {
+        "severity": "warning",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"severity\":\"warning\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "ConversationDiagnosticWire",
+      "variant": "full",
+      "wire": {
+        "severity": "warning",
+        "providerId": "providerId",
+        "root": "root",
+        "path": "path",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"severity\":\"warning\",\"providerId\":\"providerId\",\"root\":\"root\",\"path\":\"path\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "ConversationGit",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "ConversationGit",
+      "variant": "full",
+      "wire": {
+        "branch": "branch",
+        "sha": "sha",
+        "originUrl": "originUrl"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"branch\":\"branch\",\"sha\":\"sha\",\"originUrl\":\"originUrl\"}"
+    },
+    {
+      "schema": "ConversationsChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "conversationsChanged",
+        "conversations": [],
+        "diagnostics": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationsChanged\",\"conversations\":[],\"diagnostics\":[]}"
+    },
+    {
+      "schema": "ConversationsChangedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "conversationsChanged",
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "path": "conversations[0].path",
+            "podiumId": "conversations[0].podiumId",
+            "agentKind": "claude-code",
+            "title": "conversations[0].title",
+            "name": "conversations[0].name",
+            "summary": "conversations[0].summary",
+            "projectPath": "conversations[0].projectPath",
+            "parentConversationId": "conversations[0].parentConversationId",
+            "statusHint": "conversations[0].statusHint",
+            "createdAt": "conversations[0].createdAt",
+            "updatedAt": "conversations[0].updatedAt",
+            "messageCount": 1,
+            "sizeBytes": 1,
+            "git": {
+              "branch": "conversations[0].git.branch",
+              "sha": "conversations[0].git.sha",
+              "originUrl": "conversations[0].git.originUrl"
+            },
+            "resume": {
+              "kind": "conversations[0].resume.kind",
+              "value": "conversations[0].resume.value"
+            },
+            "providerId": "conversations[0].providerId"
+          }
+        ],
+        "diagnostics": [
+          {
+            "severity": "warning",
+            "providerId": "diagnostics[0].providerId",
+            "root": "diagnostics[0].root",
+            "path": "diagnostics[0].path",
+            "message": "diagnostics[0].message"
+          }
+        ],
+        "removed": ["removed[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"conversationsChanged\",\"conversations\":[{\"id\":\"conversations[0].id\",\"path\":\"conversations[0].path\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"statusHint\":\"conversations[0].statusHint\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"conversations[0].git.branch\",\"sha\":\"conversations[0].git.sha\",\"originUrl\":\"conversations[0].git.originUrl\"},\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
+    },
+    {
+      "schema": "ConversationSummaryWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "agentKind": "claude-code",
+        "providerId": "providerId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"agentKind\":\"claude-code\",\"providerId\":\"providerId\"}"
+    },
+    {
+      "schema": "ConversationSummaryWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "path": "path",
+        "podiumId": "podiumId",
+        "agentKind": "claude-code",
+        "title": "title",
+        "name": "name",
+        "summary": "summary",
+        "projectPath": "projectPath",
+        "parentConversationId": "parentConversationId",
+        "statusHint": "statusHint",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt",
+        "messageCount": 1,
+        "sizeBytes": 1,
+        "git": {
+          "branch": "git.branch",
+          "sha": "git.sha",
+          "originUrl": "git.originUrl"
+        },
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "providerId": "providerId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"podiumId\":\"podiumId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"summary\":\"summary\",\"projectPath\":\"projectPath\",\"parentConversationId\":\"parentConversationId\",\"statusHint\":\"statusHint\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"git.branch\",\"sha\":\"git.sha\",\"originUrl\":\"git.originUrl\"},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"providerId\":\"providerId\"}"
+    },
+    {
+      "schema": "DirectoryEntryWire",
+      "variant": "minimal",
+      "wire": {
+        "name": "name",
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"path\":\"path\"}"
+    },
+    {
+      "schema": "DirectoryEntryWire",
+      "variant": "full",
+      "wire": {
+        "name": "name",
+        "path": "path",
+        "isRepo": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"path\":\"path\",\"isRepo\":true}"
+    },
+    {
+      "schema": "DirectoryListingWire",
+      "variant": "minimal",
+      "wire": {
+        "path": "path",
+        "homePath": "homePath",
+        "parentPath": null
+      },
+      "parseAdded": {
+        "entries": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"homePath\":\"homePath\",\"parentPath\":null,\"entries\":[]}"
+    },
+    {
+      "schema": "DirectoryListingWire",
+      "variant": "full",
+      "wire": {
+        "path": "path",
+        "homePath": "homePath",
+        "parentPath": "parentPath",
+        "entries": [
+          {
+            "name": "entries[0].name",
+            "path": "entries[0].path",
+            "isRepo": true
+          }
+        ],
+        "isRepo": true,
+        "originUrl": "originUrl"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"homePath\":\"homePath\",\"parentPath\":\"parentPath\",\"entries\":[{\"name\":\"entries[0].name\",\"path\":\"entries[0].path\",\"isRepo\":true}],\"isRepo\":true,\"originUrl\":\"originUrl\"}"
+    },
+    {
+      "schema": "GitDiscoveryDiagnosticWire",
+      "variant": "minimal",
+      "wire": {
+        "severity": "warning",
+        "path": "path",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"severity\":\"warning\",\"path\":\"path\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "GitDiscoveryDiagnosticWire",
+      "variant": "full",
+      "wire": {
+        "severity": "warning",
+        "path": "path",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"severity\":\"warning\",\"path\":\"path\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "GitRepositoryWire",
+      "variant": "minimal",
+      "wire": {
+        "path": "path",
+        "kind": "repository"
+      },
+      "parseAdded": {
+        "worktrees": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"kind\":\"repository\",\"worktrees\":[]}"
+    },
+    {
+      "schema": "GitRepositoryWire",
+      "variant": "full",
+      "wire": {
+        "path": "path",
+        "kind": "repository",
+        "branch": "branch",
+        "headSha": "headSha",
+        "originUrl": "originUrl",
+        "worktrees": [
+          {
+            "path": "worktrees[0].path",
+            "branch": "worktrees[0].branch",
+            "headSha": "worktrees[0].headSha",
+            "locked": true,
+            "prunable": true
+          }
+        ],
+        "machineId": "machineId",
+        "repoId": "repoId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"kind\":\"repository\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"originUrl\":\"originUrl\",\"worktrees\":[{\"path\":\"worktrees[0].path\",\"branch\":\"worktrees[0].branch\",\"headSha\":\"worktrees[0].headSha\",\"locked\":true,\"prunable\":true}],\"machineId\":\"machineId\",\"repoId\":\"repoId\"}"
+    },
+    {
+      "schema": "GitWorktreeWire",
+      "variant": "minimal",
+      "wire": {
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\"}"
+    },
+    {
+      "schema": "GitWorktreeWire",
+      "variant": "full",
+      "wire": {
+        "path": "path",
+        "branch": "branch",
+        "headSha": "headSha",
+        "locked": true,
+        "prunable": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"locked\":true,\"prunable\":true}"
+    },
+    {
+      "schema": "RepoOp",
+      "variant": "minimal",
+      "wire": "clone",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"clone\""
+    },
+    {
+      "schema": "RepoOp",
+      "variant": "full",
+      "wire": "clone",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"clone\""
+    },
+    {
+      "schema": "RepoOpRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "repoOpRequest",
+        "requestId": "requestId",
+        "op": "clone",
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"repoOpRequest\",\"requestId\":\"requestId\",\"op\":\"clone\",\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "RepoOpRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "repoOpRequest",
+        "requestId": "requestId",
+        "op": "clone",
+        "cwd": "cwd",
+        "args": {
+          "args.key": "args.args.key"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"repoOpRequest\",\"requestId\":\"requestId\",\"op\":\"clone\",\"cwd\":\"cwd\",\"args\":{\"args.key\":\"args.args.key\"}}"
+    },
+    {
+      "schema": "RepoOpResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "repoOpResult",
+        "requestId": "requestId",
+        "ok": true,
+        "output": "output"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"repoOpResult\",\"requestId\":\"requestId\",\"ok\":true,\"output\":\"output\"}"
+    },
+    {
+      "schema": "RepoOpResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "repoOpResult",
+        "requestId": "requestId",
+        "ok": true,
+        "output": "output"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"repoOpResult\",\"requestId\":\"requestId\",\"ok\":true,\"output\":\"output\"}"
+    },
+    {
+      "schema": "ScanReposRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "scanReposRequest",
+        "requestId": "requestId",
+        "roots": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanReposRequest\",\"requestId\":\"requestId\",\"roots\":[]}"
+    },
+    {
+      "schema": "ScanReposRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "scanReposRequest",
+        "requestId": "requestId",
+        "roots": ["roots[0]"],
+        "includeHome": true,
+        "maxDepth": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanReposRequest\",\"requestId\":\"requestId\",\"roots\":[\"roots[0]\"],\"includeHome\":true,\"maxDepth\":1}"
+    },
+    {
+      "schema": "ScanReposResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "scanReposResult",
+        "requestId": "requestId",
+        "repositories": [],
+        "diagnostics": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanReposResult\",\"requestId\":\"requestId\",\"repositories\":[],\"diagnostics\":[]}"
+    },
+    {
+      "schema": "ScanReposResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "scanReposResult",
+        "requestId": "requestId",
+        "repositories": [
+          {
+            "path": "repositories[0].path",
+            "kind": "repository",
+            "branch": "repositories[0].branch",
+            "headSha": "repositories[0].headSha",
+            "originUrl": "repositories[0].originUrl",
+            "worktrees": [
+              {
+                "path": "repositories[0].worktrees[0].path",
+                "branch": "repositories[0].worktrees[0].branch",
+                "headSha": "repositories[0].worktrees[0].headSha",
+                "locked": true,
+                "prunable": true
+              }
+            ],
+            "machineId": "repositories[0].machineId",
+            "repoId": "repositories[0].repoId"
+          }
+        ],
+        "diagnostics": [
+          {
+            "severity": "warning",
+            "path": "diagnostics[0].path",
+            "message": "diagnostics[0].message"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanReposResult\",\"requestId\":\"requestId\",\"repositories\":[{\"path\":\"repositories[0].path\",\"kind\":\"repository\",\"branch\":\"repositories[0].branch\",\"headSha\":\"repositories[0].headSha\",\"originUrl\":\"repositories[0].originUrl\",\"worktrees\":[{\"path\":\"repositories[0].worktrees[0].path\",\"branch\":\"repositories[0].worktrees[0].branch\",\"headSha\":\"repositories[0].worktrees[0].headSha\",\"locked\":true,\"prunable\":true}],\"machineId\":\"repositories[0].machineId\",\"repoId\":\"repositories[0].repoId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}]}"
+    },
+    {
+      "schema": "ScanRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "scanRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ScanRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "scanRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "ScanResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "scanResult",
+        "requestId": "requestId",
+        "conversations": [],
+        "diagnostics": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanResult\",\"requestId\":\"requestId\",\"conversations\":[],\"diagnostics\":[]}"
+    },
+    {
+      "schema": "ScanResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "scanResult",
+        "requestId": "requestId",
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "path": "conversations[0].path",
+            "podiumId": "conversations[0].podiumId",
+            "agentKind": "claude-code",
+            "title": "conversations[0].title",
+            "name": "conversations[0].name",
+            "summary": "conversations[0].summary",
+            "projectPath": "conversations[0].projectPath",
+            "parentConversationId": "conversations[0].parentConversationId",
+            "statusHint": "conversations[0].statusHint",
+            "createdAt": "conversations[0].createdAt",
+            "updatedAt": "conversations[0].updatedAt",
+            "messageCount": 1,
+            "sizeBytes": 1,
+            "git": {
+              "branch": "conversations[0].git.branch",
+              "sha": "conversations[0].git.sha",
+              "originUrl": "conversations[0].git.originUrl"
+            },
+            "resume": {
+              "kind": "conversations[0].resume.kind",
+              "value": "conversations[0].resume.value"
+            },
+            "providerId": "conversations[0].providerId"
+          }
+        ],
+        "diagnostics": [
+          {
+            "severity": "warning",
+            "providerId": "diagnostics[0].providerId",
+            "root": "diagnostics[0].root",
+            "path": "diagnostics[0].path",
+            "message": "diagnostics[0].message"
+          }
+        ],
+        "removed": ["removed[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"scanResult\",\"requestId\":\"requestId\",\"conversations\":[{\"id\":\"conversations[0].id\",\"path\":\"conversations[0].path\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"statusHint\":\"conversations[0].statusHint\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"conversations[0].git.branch\",\"sha\":\"conversations[0].git.sha\",\"originUrl\":\"conversations[0].git.originUrl\"},\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
+    }
+  ]
+}

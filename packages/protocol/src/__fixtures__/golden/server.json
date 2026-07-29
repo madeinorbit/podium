@@ -1,0 +1,61 @@
+{
+  "family": "server",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "SessionDraftChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionDraftChanged",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionDraftChanged\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "SessionDraftChangedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionDraftChanged",
+        "sessionId": "sessionId",
+        "text": "text",
+        "rev": 1,
+        "origin": "origin",
+        "editedAt": "editedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionDraftChanged\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"rev\":1,\"origin\":\"origin\",\"editedAt\":\"editedAt\"}"
+    },
+    {
+      "schema": "SessionTitleChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionTitleChanged",
+        "sessionId": "sessionId",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionTitleChanged\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
+    },
+    {
+      "schema": "SessionTitleChangedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionTitleChanged",
+        "sessionId": "sessionId",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionTitleChanged\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
+    }
+  ]
+}
