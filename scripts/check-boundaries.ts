@@ -54,7 +54,16 @@
  *     barrel re-export widening from type-only to a value). The barrel's own
  *     doc comment still carries the discipline in prose for anyone editing it.
  *
- * Alongside these eight sits the ARCHITECTURE MANIFEST (POD-296,
+ *  9. The sync kernel's REPLICA ROLE (`packages/sync/src/replica/`) is
+ *     direction-locked (POD-369): it imports nothing outside its own directory
+ *     (storage and transport arrive as injected ports, so any other import is a
+ *     merge policy or a concrete adapter leaking in), and its comment-stripped
+ *     source contains no visibility/authorization or conflict-resolution
+ *     evaluation. A replica that can answer "may this principal see X" is a
+ *     second authorization surface; a replica that can pick a conflict winner is
+ *     arbitrating. Both are forbidden by ADR 1 D1 / ADR 2 Amendment 1 D12.7.
+ *
+ * Alongside these nine sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
  * derived from them. The two families coexist until POD-335 retires each legacy
  * rule against an equivalent manifest constraint.
@@ -218,6 +227,72 @@ function checkServerRoleTiers(file: string, ref: ImportRef): Violation | null {
   }
 }
 
+/**
+ * Rule 9 — the sync kernel's REPLICA ROLE is direction-locked (POD-369; ADR 1 D1,
+ * ADR 2 Amendment 1 D12.7).
+ *
+ * The replica applies an ordering somebody else decided. Two things it must never
+ * acquire, expressed as one lint because they are the same mistake at two scales:
+ *
+ *  (a) **No merge policy, no arbitration.** Conflict resolution is the Authority's
+ *      job. The replica's imports are therefore restricted to its own directory:
+ *      it takes storage and transport as injected PORTS, so any cross-package
+ *      import at all is either a merge/domain policy leaking in or a concrete
+ *      adapter it is not allowed to know about.
+ *  (b) **No visibility or authorization evaluation.** Under private-by-default the
+ *      authority computes the slice; the replica applies it. The moment this code
+ *      can answer "may this principal see X" it has become a second, untrusted
+ *      authorization surface — the thing ADR 3 D7's posture forbids and no
+ *      client-side code can be trusted to hold.
+ *
+ * (b) is checked over comment-stripped source (the manifest's shared
+ * `stripComments`) so that DOCUMENTING the prohibition — which that code does at
+ * length — does not trip the lint that enforces it.
+ */
+const REPLICA_ROLE_DIR = 'packages/sync/src/replica/'
+
+/** Evaluation verbs. A call or a declaration either way — both are the same bug. */
+const REPLICA_FORBIDDEN_EVAL =
+  /\b(canSee|maySee|mayView|isVisibleTo|visibleTo|evaluateVisibility|filterVisible|hasGrant|grantsFor|checkAccess|checkIssueAccess|authorize|resolveCapability|mergePolicy|resolveConflict|arbitrate|lastWriteWins|mergeFields|pickWinner)\s*\(/
+
+function checkReplicaDirection(file: string, source: string): Violation[] {
+  if (!file.startsWith(REPLICA_ROLE_DIR)) return []
+  const violations: Violation[] = []
+  const isTest = file.endsWith('.test.ts')
+  for (const ref of extractImports(source)) {
+    if (ref.specifier.startsWith('.')) {
+      const abs = resolve('/', dirname(file), ref.specifier)
+      const rel = relative('/', abs).split(sep).join('/')
+      if (rel.startsWith(REPLICA_ROLE_DIR)) continue
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'replica-direction',
+        message: `${file}: the Replica role imports '${ref.specifier}' outside ${REPLICA_ROLE_DIR}. It takes storage and transport as injected ports; reaching outside is how a merge policy or a concrete adapter gets in (ADR 1 D1).`,
+      })
+      continue
+    }
+    if (isTest && ref.specifier === 'vitest') continue
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: 'replica-direction',
+      message: `${file}: the Replica role imports '${ref.specifier}'. The replica never arbitrates and never evaluates visibility, so it depends on nothing but its own ports (ADR 1 D1, ADR 2 Amendment 1 D12.7).`,
+    })
+  }
+  const code = stripComments(source)
+  const evaluation = REPLICA_FORBIDDEN_EVAL.exec(code)
+  if (evaluation) {
+    violations.push({
+      file,
+      specifier: evaluation[1] ?? 'visibility evaluation',
+      rule: 'replica-direction',
+      message: `${file}: '${evaluation[1]}(' is an arbitration or visibility decision. The Authority computes the slice and resolves conflicts; the Replica applies what it is given (ADR 2 Amendment 1 D12.7).`,
+    })
+  }
+  return violations
+}
+
 const DOMAIN_HOME = 'packages/domain'
 
 /** Matches a top-level `export function NAME` / `export const NAME =`
@@ -374,7 +449,10 @@ export function checkFile(
   source: string,
   domainExportNames: ReadonlySet<string> = new Set(),
 ): Violation[] {
-  const violations: Violation[] = [...checkDomainRedefinition(file, source, domainExportNames)]
+  const violations: Violation[] = [
+    ...checkDomainRedefinition(file, source, domainExportNames),
+    ...checkReplicaDirection(file, source),
+  ]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
     // Rule 6 first: role tiers are same-workspace edges (apps/server internal),
