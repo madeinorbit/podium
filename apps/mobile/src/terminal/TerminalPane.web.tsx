@@ -5,6 +5,22 @@ import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
 import { color, font, mono } from '../theme/theme'
 
+// This accessory intentionally retains the pre-redesign mobile-web palette.
+// Parity includes its contrast hierarchy, not only its controls and gestures.
+const LEGACY_MOBILE_KEYBOARD_THEME = {
+  bar: '#08080c',
+  card: '#16161c',
+  border: '#2a2a34',
+  secondary: '#25252f',
+  hairlineSoft: '#25252f',
+  hairlineBar: '#2e2e38',
+  muted: '#9a9aa8',
+  accent: '#f59e0b',
+  onAccent: '#161006',
+  danger: '#f87171',
+  fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
+} as const
+
 /**
  * Mobile default appearance for the native agent view [POD-131]: a much
  * smaller mono size than the desktop default (13px) so agent TUI frames fit a
@@ -46,16 +62,7 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
         toolbarRef={toolbarRef}
         ready={ready}
         voiceIcon={<Icon as={Mic} size={16} color={color.textDim} />}
-        theme={{
-          bar: color.bar,
-          card: color.card,
-          border: color.hairlineBar,
-          muted: color.textDim,
-          accent: color.accent,
-          onAccent: color.onAccent,
-          danger: color.danger,
-          fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
-        }}
+        theme={LEGACY_MOBILE_KEYBOARD_THEME}
       />
     </View>
   )

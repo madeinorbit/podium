@@ -850,10 +850,20 @@ const ARROW_SWIPE_STYLES = `
 
 export interface ArrowSwipeKeyProps {
   onFire: (key: SpecialKey) => void
+  theme?: ArrowSwipeKeyTheme
+}
+
+export interface ArrowSwipeKeyTheme {
+  card: string
+  secondary: string
+  hairlineBar: string
+  muted: string
+  primary: string
+  border: string
 }
 
 /** Four-direction swipe arrow key for the mobile soft-keyboard action row. */
-export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
+export function ArrowSwipeKey({ onFire, theme }: ArrowSwipeKeyProps): JSX.Element {
   const keyRef = useRef<HTMLButtonElement | null>(null)
   const onFireRef = useRef(onFire)
   onFireRef.current = onFire
@@ -893,6 +903,20 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
     engineRef.current?.touchEnd(performance.now())
   }
 
+  // The drag overlay is portalled to document.body, so it cannot inherit the
+  // keyboard bar's CSS variables. Carry the historical key palette onto both
+  // the resting key and the overlay explicitly.
+  const themeStyle = theme
+    ? ({
+        '--card': theme.card,
+        '--secondary': theme.secondary,
+        '--hairline-bar': theme.hairlineBar,
+        '--muted-foreground': theme.muted,
+        '--primary': theme.primary,
+        '--border': theme.border,
+      } as CSSProperties)
+    : undefined
+
   return (
     <>
       <style>{ARROW_SWIPE_STYLES}</style>
@@ -901,6 +925,7 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
         type="button"
         ref={keyRef}
         className={visual.overlayVisible ? 'ask-key holding' : 'ask-key'}
+        style={themeStyle}
         aria-label="Arrow keys — touch and swipe toward a direction"
         onPointerDown={(e) => {
           e.preventDefault()
@@ -924,6 +949,7 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
           <div
             className={visual.overlayVisible ? 'ask-float visible' : 'ask-float'}
             style={{
+              ...themeStyle,
               left: visual.overlayX,
               bottom: `calc(100vh - ${visual.keyTop}px)`,
               ['--ask-neck-w' as string]: `${Math.max(22, Math.min(36, visual.keyWidth + 4))}px`,

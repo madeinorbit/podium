@@ -8,6 +8,9 @@ export interface MobileTerminalKeyboardTheme {
   bar: string
   card: string
   border: string
+  secondary: string
+  hairlineSoft: string
+  hairlineBar: string
   muted: string
   accent: string
   onAccent: string
@@ -48,6 +51,9 @@ export function MobileTerminalKeyboard({
         '--mtk-bar': theme.bar,
         '--mtk-card': theme.card,
         '--mtk-border': theme.border,
+        '--mtk-secondary': theme.secondary,
+        '--mtk-hairline-soft': theme.hairlineSoft,
+        '--mtk-hairline-bar': theme.hairlineBar,
         '--mtk-muted': theme.muted,
         '--mtk-accent': theme.accent,
         '--mtk-on-accent': theme.onAccent,
@@ -94,7 +100,21 @@ export function MobileTerminalKeyboard({
         >
           Paste
         </button>
-        <ArrowSwipeKey onFire={sendKey} />
+        <ArrowSwipeKey
+          onFire={sendKey}
+          theme={
+            theme
+              ? {
+                  card: theme.card,
+                  secondary: theme.secondary,
+                  hairlineBar: theme.hairlineBar,
+                  muted: theme.muted,
+                  primary: theme.accent,
+                  border: theme.border,
+                }
+              : undefined
+          }
+        />
         {voice.supported ? (
           <button
             data-pressable
@@ -137,7 +157,7 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
 .mobile-terminal-keyboard .toolbar {
   display: flex; flex-shrink: 0; align-items: center; gap: 5px;
   padding: 4px 8px calc(8px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
-  background: var(--mtk-bar, var(--bar)); border-top: 1px solid var(--mtk-border, var(--hairline-soft));
+  background: var(--mtk-bar, var(--bar)); border-top: 1px solid var(--mtk-hairline-soft, var(--hairline-soft));
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain; touch-action: pan-x; scrollbar-width: none;
 }
@@ -145,7 +165,7 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
 .mobile-terminal-keyboard .toolbar .key {
   flex: 0 0 auto; min-width: 32px; height: 30px; padding: 0 9px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--mtk-card, var(--card)); border: 1px solid var(--mtk-border, var(--hairline-bar));
+  background: var(--mtk-card, var(--card)); border: 1px solid var(--mtk-hairline-bar, var(--hairline-bar));
   border-radius: 6px; color: var(--mtk-muted, var(--muted-foreground));
   font: 11px / 1 var(--mtk-font, var(--font-mono, ui-monospace, monospace));
   font-variant-numeric: tabular-nums; cursor: pointer; user-select: none;
@@ -159,11 +179,11 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
 }
 .mobile-terminal-keyboard .toolbar .key-sep {
   flex: 0 0 auto; align-self: center; width: 1px; height: 18px; margin: 0 2px;
-  background: var(--mtk-border, var(--hairline-bar));
+  background: var(--mtk-hairline-bar, var(--hairline-bar));
 }
 .mobile-terminal-keyboard .key-actions {
   display: flex; flex-shrink: 0; align-items: center; gap: 5px; padding: 6px 8px 2px;
-  background: var(--mtk-bar, var(--bar)); border-top: 1px solid var(--mtk-border, var(--hairline-bar));
+  background: var(--mtk-bar, var(--bar)); border-top: 1px solid var(--mtk-hairline-bar, var(--hairline-bar));
 }
 .mobile-terminal-keyboard .key-actions:not(:has(.key-mic)) { padding-right: 48px; }
 .mobile-terminal-keyboard .key-actions.kb-hidden,
@@ -171,7 +191,7 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
 .mobile-terminal-keyboard .key-act {
   flex: 1 1 0; min-width: 0; height: 30px; display: inline-flex;
   align-items: center; justify-content: center; background: var(--mtk-card, var(--card));
-  border: 1px solid var(--mtk-border, var(--hairline-bar)); border-radius: 6px;
+  border: 1px solid var(--mtk-hairline-bar, var(--hairline-bar)); border-radius: 6px;
   color: var(--mtk-muted, var(--muted-foreground)); font: inherit; font-size: 12px;
   cursor: pointer; user-select: none; -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -184,7 +204,7 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
 .mobile-terminal-keyboard .key-mic {
   flex: 0 0 auto; width: 36px; height: 30px; display: inline-flex;
   align-items: center; justify-content: center; background: var(--mtk-card, var(--card));
-  border: 1px solid var(--mtk-border, var(--hairline-bar)); border-radius: 6px;
+  border: 1px solid var(--mtk-hairline-bar, var(--hairline-bar)); border-radius: 6px;
   color: var(--mtk-muted, var(--muted-foreground)); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

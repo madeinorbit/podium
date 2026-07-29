@@ -11,6 +11,13 @@ test.setTimeout(180_000)
 
 const ARTIFACTS = resolve(import.meta.dirname, '../../../.artifacts/POD-1066')
 
+async function eventCount(page: import('@playwright/test').Page): Promise<number> {
+  const match = (await screenText(page)).match(/events=(\d+)/)
+  // The harness runs keyecho in both mode, logging each input once from raw
+  // parsing and once from Ink. Normalize the diagnostic count to terminal keys.
+  return Number(match?.[1] ?? 0) / 2
+}
+
 async function screenText(page: import('@playwright/test').Page): Promise<string> {
   return page.evaluate(
     () =>
@@ -156,20 +163,69 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
     .toBe(true)
 
   const dpad = actions.getByRole('button', { name: /Arrow keys/ })
+  await expect(dpad).toHaveCSS('background-color', 'rgb(22, 22, 28)')
+  await expect(dpad).toHaveCSS('border-color', 'rgb(46, 46, 56)')
+  await expect(dpad.locator('.ask-g')).toHaveCount(4)
+  for (const glyph of await dpad.locator('.ask-g').all()) {
+    await expect(glyph).toHaveCSS('color', 'rgb(154, 154, 168)')
+  }
+
   const dpadBox = await dpad.boundingBox()
   expect(dpadBox).not.toBeNull()
-  if (dpadBox) {
-    await page.mouse.move(dpadBox.x + dpadBox.width / 2, dpadBox.y + dpadBox.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(dpadBox.x + dpadBox.width + 24, dpadBox.y + dpadBox.height / 2, {
-      steps: 4,
-    })
-    await page.mouse.up()
-  }
+  expect(dpadBox?.width).toBeCloseTo(40, 0)
+  expect(dpadBox?.height).toBeCloseTo(30, 0)
+  if (!dpadBox) throw new Error('D-pad has no browser geometry')
+
+  const originX = dpadBox.x + dpadBox.width / 2
+  const originY = dpadBox.y + dpadBox.height / 2
+
+  // A short drag remains in the precision zone: immediate emit, slow repeat.
+  const nearStart = await eventCount(page)
+  await page.mouse.move(originX, originY)
+  await page.mouse.down()
+  await page.mouse.move(originX + 18, originY, { steps: 4 })
+  await page.waitForTimeout(1_250)
+  await page.mouse.up()
+  const nearRepeats = (await eventCount(page)) - nearStart
+  expect(nearRepeats).toBeGreaterThanOrEqual(3)
+  expect(nearRepeats).toBeLessThanOrEqual(6)
+
+  // The same gesture at the constrained screen edge accelerates toward the
+  // historical ~15 cps edge-hold rate. Keep the pointer down for visual proof.
+  const edgeStart = await eventCount(page)
+  await page.mouse.move(originX, originY)
+  await page.mouse.down()
+  const viewportWidth = page.viewportSize()?.width ?? 393
+  await page.mouse.move(Math.min(viewportWidth - 11, originX + 76), originY, { steps: 6 })
+  const overlay = page.locator('.ask-float.visible')
+  await expect(overlay).toBeVisible()
+  await expect(overlay.locator('.ask-float-bubble')).toHaveCSS('border-color', 'rgb(42, 42, 52)')
+  await expect(overlay.locator('.ask-float-bubble')).toHaveCSS('width', '68px')
+  await expect(overlay.locator('.ask-float-bubble')).toHaveCSS('height', '68px')
+  await page.waitForTimeout(1_250)
+  await page.screenshot({
+    path: resolve(ARTIFACTS, 'expo-terminal-dpad-drag.png'),
+    fullPage: true,
+  })
+  await page.mouse.up()
+  const edgeRepeats = (await eventCount(page)) - edgeStart
+  expect(edgeRepeats).toBeGreaterThan(nearRepeats + 4)
+
+  // Direction changes happen under one continuous finger drag after the
+  // original 50 ms switch gate, rather than requiring separate taps.
+  const switchStart = await eventCount(page)
+  await page.mouse.move(originX, originY)
+  await page.mouse.down()
+  await page.mouse.move(originX + 42, originY, { steps: 3 })
+  await page.mouse.move(originX, originY - 42, { steps: 3 })
+  await page.waitForTimeout(70)
+  await page.mouse.move(originX, originY - 44)
+  await page.mouse.up()
+  await expect.poll(async () => (await eventCount(page)) - switchStart).toBeGreaterThanOrEqual(2)
   await expect
     .poll(async () => {
       seen += await screenText(page)
-      return /Right|1b 5b 43/i.test(seen)
+      return /Right|1b 5b 43/i.test(seen) && /Up|1b 5b 41/i.test(seen)
     })
     .toBe(true)
 
