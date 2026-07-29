@@ -123,6 +123,10 @@ export class StreamPlanePort implements StreamPort {
       members.set(memberId, { identity: this.deps.identityOf(target.principal) })
     }
 
+    // The join ANSWER goes straight to the one connection rather than through the
+    // fan-out queue: it is the frame that makes an idle room distinguishable from
+    // an empty one (D10.5), so it must not be coalesced away or dropped by the
+    // per-room budget that governs cursor traffic (D11).
     this.deps.emit(target.subscriberId, {
       type: 'presenceRoomState',
       room,
@@ -153,7 +157,14 @@ export class StreamPlanePort implements StreamPort {
     payload?: PresencePayload,
     visible?: boolean,
   ): void {
-    if (visible !== undefined) this.visibleByConnection.set(target.subscriberId, visible)
+    if (visible !== undefined) {
+      // The reserved `visible` field is CONNECTION-level, not room-scoped
+      // (D9.5): the notification router must be able to ask "is this user
+      // watching?" for a connection that has joined no room at all, which is
+      // exactly what today's `{ type: 'presence', visible }` frame reports.
+      this.visibleByConnection.set(target.subscriberId, visible)
+      this.principalOfConnection.set(target.subscriberId, target.principal)
+    }
     const key = roomRoutingKey(room)
     if (!this.registry.has(key, target.subscriberId)) return
     if (payload !== undefined && !presencePayloadWithinBudget(payload)) return

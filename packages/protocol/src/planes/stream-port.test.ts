@@ -291,6 +291,16 @@ describe('today’s `visible` boolean maps forward (D9.5)', () => {
     expect(port.isWatchedBy(user('bob'))).toBe(false)
   })
 
+  it('answers per user even for a connection that joined no room', () => {
+    // Today's `{ type: 'presence', visible }` frame is room-less; the forward
+    // mapping must keep working for a client that only reports page visibility.
+    const { port } = setup()
+    port.publishPresence(conn('a', user('alice')), room, undefined, true)
+    expect(port.occupancy(room)).toEqual([])
+    expect(port.isWatchedBy(user('alice'))).toBe(true)
+    expect(port.isWatchedBy(user('bob'))).toBe(false)
+  })
+
   it('carries the bit as a reserved field on the presence record, not a second frame', () => {
     const { port, router } = setup()
     const alice = conn('a', user('alice'))
