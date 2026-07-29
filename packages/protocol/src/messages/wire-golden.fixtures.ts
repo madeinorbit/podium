@@ -16,40 +16,31 @@
  * optional field populated, and a `.minimal` payload carrying only what is
  * required — the one that exercises defaults and catches.
  *
- * Regenerate deliberately, never casually:  UPDATE_WIRE_GOLDEN=1 vitest run
+ * Regenerate deliberately, never casually:  bun scripts/wire-golden-capture.ts
  * A golden that changes during a relocation is a STOP condition, not a fixture
  * to update (POD-300 constraints; the same baseline later proves the multi-user
  * model additions of docs/multi-user-readiness.md are purely additive).
  */
 
-import type { z } from 'zod'
-import { ClientMessage } from './client'
-import { ControlMessage } from './control'
-import { DaemonMessage } from './daemon'
 import {
+  AgentInventory,
+  AgentKind,
+  AgentMemoryWire,
+  AgentQuotaWire,
+  AgentRuntimeState,
   ConversationDiagnosticWire,
   ConversationGit,
   ConversationSummaryWire,
   DirectoryEntryWire,
   DirectoryListingWire,
+  Geometry,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   GitWorktreeWire,
-} from './discovery'
-import { HandoffManifest } from './handoff'
-import {
-  AgentMemoryWire,
-  AgentQuotaWire,
+  HandoffManifest,
   HostMemoryWire,
   HostMetricsWire,
-  MachineQuotaWire,
-  MachineWire,
-  ProjectMemoryWire,
-  QuotaWindowWire,
-  UsageBucketWire,
-} from './host'
-import { AgentInventory, Inventory, ToolInventory } from './inventory'
-import {
+  Inventory,
   IssueComment,
   IssueDepWire,
   IssueGitState,
@@ -59,11 +50,23 @@ import {
   IssueStage,
   IssueType,
   IssueWire,
-} from './issues'
-import { AgentRuntimeState, SessionMeta, SessionOffer } from './runtime-state'
+  MachineQuotaWire,
+  MachineWire,
+  ProjectMemoryWire,
+  QuotaWindowWire,
+  ResumeRef,
+  SessionMeta,
+  SessionOffer,
+  SessionStatus,
+  ToolInventory,
+  TranscriptItem,
+  UsageBucketWire,
+} from '@podium/model'
+import type { z } from 'zod'
+import { ClientMessage } from './client'
+import { ControlMessage } from './control'
+import { DaemonMessage } from './daemon'
 import { ServerMessage } from './server'
-import { AgentKind, Geometry, ResumeRef, SessionStatus } from './terminal'
-import { TranscriptItem } from './transcript'
 
 export interface WireFixture {
   /** Stable golden key. Never rename without regenerating deliberately. */
@@ -263,9 +266,7 @@ const ISSUE_WIRE_FULL = {
   labels: ['rewrite'],
   deps: [{ id: '299', type: 'blocks' }],
   dependents: [{ id: '360', type: 'blocks' }],
-  comments: [
-    { id: 'c1', author: 'agent', body: 'moved', createdAt: '2026-07-30T10:00:00.000Z' },
-  ],
+  comments: [{ id: 'c1', author: 'agent', body: 'moved', createdAt: '2026-07-30T10:00:00.000Z' }],
   commentCount: 1,
   ready: true,
   blocked: false,

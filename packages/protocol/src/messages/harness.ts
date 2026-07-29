@@ -1,8 +1,5 @@
+import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
-
-/** The non-interactive harness surfaces the daemon can drive (AgentKind minus 'shell'). */
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
-export type HarnessAgent = z.infer<typeof HarnessAgent>
 
 // One-shot non-interactive harness run (`claude -p` / `codex exec` / `grok -p`) — the
 // harness-backed superagent/work-LLM path. Where the CLI supports it (claude,

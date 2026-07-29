@@ -14,15 +14,27 @@
  * brand land, beside the identity predicates already there.
  */
 
-// The one clock representation and its edge adapters (POD-299); the totality guard.
-export * from './clock'
-export * from './exhaustive'
-
 // Authorization policy — the single enforcement function.
 export * from './authz/issue-authz'
-
-// Entity vocabularies.
+// The one clock representation and its edge adapters (POD-299); the totality guard.
+export * from './clock'
+// Entity aggregates, their vocabularies, and their read projections (POD-300 —
+// relocated out of @podium/protocol, which now imports them from here and keeps
+// only frames). Byte-identical to the pre-move wire; the golden fixtures in
+// packages/protocol/src/messages/wire-golden.json are the proof.
+export * from './entities/agent'
+export * from './entities/conversation'
+export * from './entities/handoff'
+export * from './entities/issue'
 export * from './entities/issue-color'
+// The per-machine fact group: MachineWire, inventory, host metrics + memory,
+// usage + quota, and the repo/worktree/directory wires. One named group because
+// everything that is a fact ABOUT a machine inherits that machine's scoping
+// (docs/multi-user-readiness.md §3.1.1/§3.1.4) — see the file header.
+export * from './entities/machine'
+export * from './entities/session'
+export * from './entities/transcript'
+export * from './exhaustive'
 
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
 export * from './identity/git-identity'

@@ -1,5 +1,5 @@
+import { AgentKind } from '@podium/model'
 import { z } from 'zod'
-import { AgentKind } from './terminal'
 
 /**
  * Approval broker [spec:SP-edbb] — agent-initiated management operations.

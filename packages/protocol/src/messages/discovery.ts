@@ -1,87 +1,17 @@
+import {
+  ConversationDiagnosticWire,
+  ConversationSummaryWire,
+  DirectoryListingWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+} from '@podium/model'
 import { z } from 'zod'
-import { AgentKind, ResumeRef } from './terminal'
 
-// Discovery payloads on the wire — dates are ISO strings (Date is not JSON-safe).
-export const ConversationGit = z.object({
-  branch: z.string().optional(),
-  sha: z.string().optional(),
-  originUrl: z.string().optional(),
-})
-export type ConversationGit = z.infer<typeof ConversationGit>
-export const ConversationSummaryWire = z.object({
-  id: z.string(),
-  /** Absolute transcript path on the owning machine (discovery evidence). The
-   *  registry records it on the conversation's segment so later reads locate the
-   *  file without deriving from a mutable cwd. Machine-local; optional. */
-  path: z.string().optional(),
-  /** Podium-generated stable identity (docs/spec/conversation-registry.md). `id`
-   *  above is the NATIVE agent session id — evidence, not identity: a resume that
-   *  rolls into a new file gets a new `id` but keeps this `podiumId`. Server-
-   *  enriched; absent on daemon-originated payloads and for un-indexed rows. */
-  podiumId: z.string().optional(),
-  agentKind: AgentKind,
-  title: z.string().optional(),
-  /** Curated display name (user rename via conversations.setMeta). Server-
-   *  enriched from the conversations index — never daemon-originated. Display
-   *  surfaces let it win over the harness `title`, matching search results. */
-  name: z.string().optional(),
-  /** Curated work summary (command center / work-LLM). Server-enriched. */
-  summary: z.string().optional(),
-  projectPath: z.string().optional(),
-  parentConversationId: z.string().optional(),
-  statusHint: z.string().optional(),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
-  messageCount: z.number().int().nonnegative().optional(),
-  /** Byte size of `path` at scan time — the transcript mirror's dirty signal:
-   *  the server enqueues a pull only when this differs from its mirrored cursor,
-   *  so a fully-mirrored fleet costs zero mirror round trips per scan/attach. */
-  sizeBytes: z.number().int().nonnegative().optional(),
-  git: ConversationGit.optional(),
-  resume: ResumeRef.optional(),
-  providerId: z.string(),
-})
-export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>
-
-export const ConversationDiagnosticWire = z.object({
-  severity: z.enum(['warning', 'error']),
-  providerId: z.string().optional(),
-  root: z.string().optional(),
-  path: z.string().optional(),
-  message: z.string(),
-})
-export type ConversationDiagnosticWire = z.infer<typeof ConversationDiagnosticWire>
-
-export const GitWorktreeWire = z.object({
-  path: z.string(),
-  branch: z.string().optional(),
-  headSha: z.string().optional(),
-  locked: z.boolean().optional(),
-  prunable: z.boolean().optional(),
-})
-export type GitWorktreeWire = z.infer<typeof GitWorktreeWire>
-
-export const GitRepositoryWire = z.object({
-  path: z.string(),
-  kind: z.enum(['repository', 'worktree', 'bare']),
-  branch: z.string().optional(),
-  headSha: z.string().optional(),
-  originUrl: z.string().optional(),
-  // Always present on the wire; defaults to [] so producers may omit it safely.
-  worktrees: z.array(GitWorktreeWire).default([]),
-  /** Server-stamped on scanReposAll(); the daemon never sets this. */
-  machineId: z.string().optional(),
-  /** Server-stamped stable repo identity (#74); the daemon never sets this. */
-  repoId: z.string().optional(),
-})
-export type GitRepositoryWire = z.infer<typeof GitRepositoryWire>
-
-export const GitDiscoveryDiagnosticWire = z.object({
-  severity: z.enum(['warning', 'error']),
-  path: z.string(),
-  message: z.string(),
-})
-export type GitDiscoveryDiagnosticWire = z.infer<typeof GitDiscoveryDiagnosticWire>
+// The conversation projection and the per-machine repo/worktree/directory wires
+// live in @podium/model (POD-300) — the latter as one named group, because
+// everything that is a fact ABOUT a machine inherits that machine's scoping
+// (docs/multi-user-readiness.md §3.1.1/§3.1.4). What stays here is the FRAMES:
+// discovery scans, directory browsing, and the constrained repo-op vocabulary.
 
 // Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const ConversationsChangedMessage = z.object({
@@ -128,34 +58,6 @@ export const ScanReposResultMessage = z.object({
 // The repo picker browses the SELECTED machine's disk through its daemon. The
 // server host's own filesystem is never the browse target: users pick a machine,
 // and in hub-only mode (mode=server) the hub may run no daemon at all.
-export const DirectoryEntryWire = z.object({
-  name: z.string(),
-  path: z.string(),
-  /** This subfolder is itself a git repo (has a `.git`) — the browser badges it
-   *  (POD-855) [spec:SP-5eb6]. Cheap: one stat per entry on the daemon. Optional
-   *  for back-compat; an older daemon omits it and the browser shows no badge. */
-  isRepo: z.boolean().optional(),
-})
-export type DirectoryEntryWire = z.infer<typeof DirectoryEntryWire>
-
-export const DirectoryListingWire = z.object({
-  /** The resolved directory that was listed (realpath of the requested path). */
-  path: z.string(),
-  /** The browsed machine's $HOME — the picker's "Home" button target. */
-  homePath: z.string(),
-  /** null at the filesystem root, where there is nowhere further up. */
-  parentPath: z.string().nullable(),
-  // Always present on the wire; defaults to [] so producers may omit it safely.
-  entries: z.array(DirectoryEntryWire).default([]),
-  /** The browsed folder ITSELF is a git repo — the picker only lets you add a repo
-   *  (POD-855) [spec:SP-5eb6], so this gates the "Add repo" button. Optional for
-   *  back-compat with pre-POD-855 daemons. */
-  isRepo: z.boolean().optional(),
-  /** The browsed repo's origin URL when it has one — the picker names the add
-   *  target from it (repoNameFromOrigin), falling back to the folder name. */
-  originUrl: z.string().optional(),
-})
-export type DirectoryListingWire = z.infer<typeof DirectoryListingWire>
 
 export const BrowseDirsRequestMessage = z.object({
   type: z.literal('browseDirsRequest'),

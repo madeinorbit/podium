@@ -1,6 +1,5 @@
+import { AgentKind, HarnessAgent } from '@podium/model'
 import { z } from 'zod'
-import { HarnessAgent } from './harness'
-import { AgentKind } from './terminal'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 // A headless session is a persistent harness session driven turn-by-turn by the

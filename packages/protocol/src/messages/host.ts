@@ -1,40 +1,18 @@
+import {
+  AgentMemoryWire,
+  AgentQuotaWire,
+  HostMemoryWire,
+  HostMetricsWire,
+  MachineWire,
+  ProjectMemoryWire,
+  UsageBucketWire,
+} from '@podium/model'
 import { z } from 'zod'
-import { Inventory } from './inventory'
-import { AgentKind } from './terminal'
 
-// Memory state of a daemon host. "Available" is the kernel's estimate of memory
-// applications can still allocate without swapping (Linux MemAvailable) — used is
-// total − available, NOT total − free, so page cache doesn't read as pressure.
-// Swap travels alongside but is never folded into the headline number.
-const byteCount = z.number().int().nonnegative()
-export const HostMemoryWire = z.object({
-  totalBytes: byteCount,
-  availableBytes: byteCount,
-  swapTotalBytes: byteCount,
-  swapFreeBytes: byteCount,
-})
-export type HostMemoryWire = z.infer<typeof HostMemoryWire>
-
-export const HostMetricsWire = z.object({
-  hostname: z.string(),
-  machineId: z.string().optional(), // server-filled before broadcast
-  name: z.string().optional(), // server-filled before broadcast
-  sampledAt: z.string(), // ISO 8601
-  memory: HostMemoryWire,
-  /** Protected/ineligible idle-live sessions above the convergence target. */
-  idleCapUnmet: z.number().int().nonnegative().optional(),
-})
-export type HostMetricsWire = z.infer<typeof HostMetricsWire>
-
-export const MachineWire = z.object({
-  id: z.string(),
-  name: z.string(),
-  hostname: z.string(),
-  online: z.boolean(),
-  lastSeenAt: z.string(), // ISO 8601
-  inventory: Inventory.optional(),
-})
-export type MachineWire = z.infer<typeof MachineWire>
+// MachineWire, host metrics + memory, usage buckets and agent/machine quota all
+// live in @podium/model (POD-300) as one named per-machine fact group — see
+// packages/model/src/entities/machine.ts for why they are grouped and for the
+// see/use partition recorded on each field. What stays here is the FRAMES.
 
 export const MachinesChangedMessage = z.object({
   type: z.literal('machinesChanged'),
@@ -91,19 +69,7 @@ export const MemoryBreakdownRequestMessage = z.object({
 // Who owns the used memory. Agents are attributed by process tree (the session's
 // PTY/durable-host subtree); projects by working directory under a controlled root.
 // Sizes are PSS where readable (shared pages divided fairly), RSS otherwise.
-export const AgentMemoryWire = z.object({
-  sessionId: z.string(),
-  bytes: z.number().int().nonnegative(),
-  processCount: z.number().int().nonnegative(),
-})
-export type AgentMemoryWire = z.infer<typeof AgentMemoryWire>
-export const ProjectMemoryWire = z.object({
-  root: z.string(),
-  bytes: z.number().int().nonnegative(),
-  processCount: z.number().int().nonnegative(),
-  topProcesses: z.array(z.object({ name: z.string(), bytes: z.number().int().nonnegative() })),
-})
-export type ProjectMemoryWire = z.infer<typeof ProjectMemoryWire>
+
 export const MemoryBreakdownResultMessage = z.object({
   type: z.literal('memoryBreakdownResult'),
   requestId: z.string(),
@@ -122,17 +88,7 @@ export const MemoryBreakdownResultMessage = z.object({
 // Token-usage harvest from harness transcripts (ccusage-style, in-house so it
 // feeds the same wire). Hourly buckets keep the payload small while supporting
 // 5h/weekly windows and per-day analytics.
-export const UsageBucketWire = z.object({
-  /** Bucket start, ISO 8601, truncated to the hour. */
-  hour: z.string(),
-  model: z.string(),
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  cacheReadTokens: z.number().int().nonnegative(),
-  cacheCreationTokens: z.number().int().nonnegative(),
-  messages: z.number().int().nonnegative(),
-})
-export type UsageBucketWire = z.infer<typeof UsageBucketWire>
+
 export const UsageRequestMessage = z.object({
   type: z.literal('usageRequest'),
   requestId: z.string(),
@@ -150,43 +106,6 @@ export const UsageResultMessage = z.object({
 // is transcript-harvested token-cost analytics. Quota is the share of each rolling
 // plan window consumed + when it resets, read live from each agent's own usage
 // endpoint on the daemon host. Providers may add/remove scoped windows over time.
-export const QuotaWindowWire = z.object({
-  key: z.string().min(1),
-  label: z.string(),
-  usedPercent: z.number(), // 0..100
-  resetsAt: z.string(), // ISO 8601 ('' when unknown)
-  // 0 when a provider reports a new limit without enough metadata to infer its
-  // rolling duration. The UI still shows it, but omits the pace marker.
-  windowMinutes: z.number().int().nonnegative(),
-  // Set when the provider scopes this limit to one model (Claude's
-  // `weekly_scoped` + `scope.model`). Such a window is extra capacity for that
-  // model alone: spending it drops the model, not the harness, which falls back
-  // onto the unscoped pool. Absent means the window gates all work. [spec:SP-0610]
-  scopeModel: z.string().optional(),
-})
-export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
-
-export const AgentQuotaWire = z.object({
-  agent: AgentKind,
-  status: z.enum(['ok', 'unauthenticated', 'expired', 'error']),
-  account: z.object({ email: z.string().optional(), plan: z.string().optional() }).optional(),
-  windows: z.array(QuotaWindowWire),
-  error: z.string().optional(),
-  fetchedAt: z.string(), // ISO 8601
-})
-export type AgentQuotaWire = z.infer<typeof AgentQuotaWire>
-
-// One dev machine's quota, tagged with which machine it came from. The overlay
-// groups by machine because each machine runs its agents under its own account.
-// The daemon↔server wire (AgentQuotaRequest/Result) stays single-machine; the
-// server fans out one request per online machine and tags each reply.
-export const MachineQuotaWire = z.object({
-  machineId: z.string(),
-  machineName: z.string(),
-  hostname: z.string(),
-  agents: z.array(AgentQuotaWire),
-})
-export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
 
 export const AgentQuotaRequestMessage = z.object({
   type: z.literal('agentQuotaRequest'),
