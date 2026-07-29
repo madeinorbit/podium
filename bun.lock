@@ -346,12 +346,15 @@
       "devDependencies": {
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
         "react": "19.2.7",
+        "react-dom": "19.2.7",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
       },
       "peerDependencies": {
         "react": ">=19",
+        "react-dom": ">=19",
       },
     },
     "packages/transcript": {
