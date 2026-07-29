@@ -120,7 +120,7 @@ writeFileSync(join(SCRATCH_REPO, 'README.md'), 'e2e scratch repo\n')
 git(['add', '.'], SCRATCH_REPO)
 git(['commit', '-q', '-m', 'init'], SCRATCH_REPO)
 git(['worktree', 'add', '-q', SCRATCH_FEAT, '-b', 'e2e-feat'], SCRATCH_REPO)
-if (process.env.PODIUM_E2E_HANDOFF === '1') {
+if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   git(['remote', 'add', 'origin', E2E_ORIGIN], SCRATCH_REPO)
   git(['clone', '-q', SCRATCH_REPO, E2E_TARGET_REPO], SCRATCH_REPO)
 }
@@ -246,7 +246,7 @@ if (!REAL_AGENTS) {
   }
 }
 
-if (process.env.PODIUM_E2E_HANDOFF === '1') {
+if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   // A second online machine with the same repo identity. It answers discovery only;
   // execution remains covered by the coordinated live two-host E2E.
   const harnessStore = (server.registry as unknown as { store: SessionStore }).store

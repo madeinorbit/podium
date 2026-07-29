@@ -9,6 +9,7 @@ export interface SheetAction {
    *  (e.g. task vs bare session — where the work ends up differs). */
   hint?: string
   destructive?: boolean
+  disabled?: boolean
   onPress: () => void
 }
 
@@ -32,21 +33,28 @@ export function ActionSheet({
   const [mounted, setMounted] = useState(visible)
 
   useEffect(() => {
+    slide.stopAnimation()
     if (visible) {
       setMounted(true)
-      Animated.spring(slide, {
+      const opening = Animated.spring(slide, {
         toValue: 1,
         useNativeDriver: Platform.OS !== 'web',
         speed: 18,
         bounciness: 4,
-      }).start()
-    } else {
-      Animated.timing(slide, {
-        toValue: 0,
-        duration: 160,
-        useNativeDriver: Platform.OS !== 'web',
-      }).start(() => setMounted(false))
+      })
+      opening.start()
+      return () => opening.stop()
     }
+
+    const closing = Animated.timing(slide, {
+      toValue: 0,
+      duration: 160,
+      useNativeDriver: Platform.OS !== 'web',
+    })
+    closing.start(({ finished }) => {
+      if (finished) setMounted(false)
+    })
+    return () => closing.stop()
   }, [visible, slide])
 
   if (!mounted) return null
@@ -82,6 +90,8 @@ export function ActionSheet({
               accessibilityRole="button"
               accessibilityLabel={action.label}
               {...(action.hint ? { accessibilityHint: action.hint } : {})}
+              accessibilityState={{ disabled: action.disabled }}
+              disabled={action.disabled}
               onPress={() => {
                 onClose()
                 action.onPress()
@@ -89,6 +99,7 @@ export function ActionSheet({
               style={({ pressed }) => [
                 styles.action,
                 i > 0 && styles.actionDivider,
+                action.disabled && styles.actionDisabled,
                 pressed && styles.actionPressed,
               ]}
             >
@@ -166,6 +177,9 @@ const styles = StyleSheet.create({
   },
   actionPressed: {
     backgroundColor: color.surfacePressed,
+  },
+  actionDisabled: {
+    opacity: 0.38,
   },
   actionText: {
     ...sans(600),

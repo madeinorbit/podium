@@ -74,8 +74,10 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await page.goto(`/mobile?server=${RELAY}&e2e=1`)
   await expect(page.getByRole('button', { name: 'New work' })).toBeVisible({ timeout: 60_000 })
 
-  // The root header shortcut enters the canonical full New Session flow.
+  // The root plus opens the compact launcher; Session options keeps the full form reachable.
   await page.getByRole('button', { name: 'New work' }).click()
+  await expect(page.getByText('Choose harness', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Session options…' }).click()
   await expect(page).toHaveURL(/\/mobile\/new-session(?:\?|$)/)
   await expect(page.getByText('New session', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Working directory')).toBeVisible()

@@ -1,3 +1,10 @@
+import {
+  machinesWithRepo,
+  resolveDefaultAgent,
+  resolveTargetMachine,
+  sidebarSections,
+  spawnTargetForRepo,
+} from '@podium/client-core/viewmodels'
 import type { AgentKind } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
@@ -28,25 +35,39 @@ export function NewSessionScreen() {
   const presetCwd = param(params.cwd)
   const issueId = param(params.issueId)
 
-  const [repos, setRepos] = useState<string[]>([])
+  const repos = useMemo(() => {
+    const sections = sidebarSections(
+      client.repos,
+      client.sessions,
+      client.pins,
+      Date.now(),
+      client.issues,
+    )
+    return [...sections.pinnedRepos, ...sections.repos]
+  }, [client.repos, client.sessions, client.pins, client.issues])
   const [cwd, setCwd] = useState(presetCwd ?? '')
   const [agentKind, setAgentKind] = useState<AgentKind | undefined>(undefined)
+  const [machineId, setMachineId] = useState<string | undefined>(undefined)
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    client.trpc.repos.list
-      .query()
-      .then((list) => {
-        setRepos(list)
-        setCwd((prev) => prev || list[0] || '')
-      })
-      .catch(() => setRepos([]))
-  }, [client.trpc])
+    if (cwd || repos.length === 0) return
+    const repo = repos[0]
+    if (!repo) return
+    const targetMachine = resolveTargetMachine(repo, client.sessions, client.machines)
+    const { worktree } = spawnTargetForRepo(repo, targetMachine)
+    setCwd(worktree.path)
+    setMachineId(targetMachine)
+  }, [cwd, repos, client.sessions, client.machines])
 
   const issue = issueId ? client.issueById(issueId) : undefined
+  const selectedRepo = repos.find((repo) =>
+    repo.worktrees.some((worktree) => worktree.path === cwd),
+  )
+  const repoMachines = selectedRepo ? machinesWithRepo(selectedRepo, client.machines) : []
   const canCreate = useMemo(() => cwd.trim().length > 0 && !busy, [cwd, busy])
   const screenTitle = issueId ? 'Add agent' : 'New session'
   const submitLabel = issueId ? 'Add agent' : 'Start session'
@@ -56,13 +77,33 @@ export function NewSessionScreen() {
     setBusy(true)
     setError(null)
     try {
+      const path = cwd.trim()
+      const target = selectedRepo
+        ? spawnTargetForRepo(selectedRepo, machineId).worktree
+        : { path, repoPath: path, ...(machineId ? { machineId } : {}) }
+      const text = prompt.trim()
+
+      // The common root launch uses the shared desktop mechanism: optimistic
+      // session + draft vessel now, server reconciliation by those same ids.
+      if (!issueId && !title.trim()) {
+        const created = client.spawnDraftAgent({
+          target,
+          agentKind: resolveDefaultAgent(agentKind, client.sessions),
+          ...(text ? { firstPrompt: text } : {}),
+        })
+        router.replace(`/session/${created.sessionId}`)
+        return
+      }
+
+      // A custom title still uses the server half of that mechanism. The shared
+      // optimistic helper does not carry titles, but the draft issue is durable.
       const created = await client.trpc.sessions.create.mutate({
-        cwd: cwd.trim(),
+        cwd: target.path,
+        ...(target.machineId ? { machineId: target.machineId } : {}),
         ...(agentKind ? { agentKind } : {}),
         ...(title.trim() ? { title: title.trim() } : {}),
-        ...(issueId ? { issueId } : {}),
+        ...(issueId ? { issueId } : { draftIssue: { repoPath: target.repoPath } }),
       })
-      const text = prompt.trim()
       if (text) await client.sendMessage(created.sessionId, text)
       router.replace(`/session/${created.sessionId}`)
     } catch (e) {
@@ -84,17 +125,27 @@ export function NewSessionScreen() {
         {repos.length > 0 ? (
           <View style={styles.chipWrap}>
             {repos.map((repo) => {
-              const name = repo.split('/').filter(Boolean).pop() ?? repo
-              const active = cwd === repo
+              const active = selectedRepo?.path === repo.path
               return (
                 <Pressable
-                  key={repo}
+                  key={repo.path}
                   accessibilityRole="button"
-                  accessibilityLabel={`Repository ${name}`}
-                  onPress={() => setCwd(repo)}
+                  accessibilityLabel={`Repository ${repo.name}`}
+                  onPress={() => {
+                    const targetMachine = resolveTargetMachine(
+                      repo,
+                      client.sessions,
+                      client.machines,
+                    )
+                    const { worktree } = spawnTargetForRepo(repo, targetMachine)
+                    setCwd(worktree.path)
+                    setMachineId(targetMachine)
+                  }}
                   style={[styles.chip, active && styles.chipActive]}
                 >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{name}</Text>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {repo.name}
+                  </Text>
                 </Pressable>
               )
             })}
@@ -104,12 +155,50 @@ export function NewSessionScreen() {
           accessibilityLabel="Working directory"
           style={styles.input}
           value={cwd}
-          onChangeText={setCwd}
+          onChangeText={(value) => {
+            setCwd(value)
+            setMachineId(undefined)
+          }}
           placeholder="/path/to/repo"
           placeholderTextColor={color.textFaint}
           autoCapitalize="none"
           autoCorrect={false}
         />
+
+        {repoMachines.length > 1 ? (
+          <>
+            <SectionHeader label="Machine" />
+            <View style={styles.chipWrap}>
+              {repoMachines.map((machine) => {
+                const active = machineId === machine.id
+                return (
+                  <Pressable
+                    key={machine.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Machine ${machine.name}${machine.online ? '' : ' offline'}`}
+                    accessibilityState={{ disabled: !machine.online }}
+                    disabled={!machine.online}
+                    onPress={() => {
+                      if (!selectedRepo) return
+                      const { worktree } = spawnTargetForRepo(selectedRepo, machine.id)
+                      setMachineId(machine.id)
+                      setCwd(worktree.path)
+                    }}
+                    style={[
+                      styles.chip,
+                      active && styles.chipActive,
+                      !machine.online && styles.chipDisabled,
+                    ]}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {machine.name}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </>
+        ) : null}
 
         <SectionHeader label="Agent" />
         <View style={styles.chipWrap}>
@@ -194,6 +283,9 @@ const styles = StyleSheet.create({
   chipActive: {
     backgroundColor: color.accent,
     borderColor: color.accent,
+  },
+  chipDisabled: {
+    opacity: 0.38,
   },
   chipText: {
     color: color.textDim,

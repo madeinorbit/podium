@@ -10,6 +10,7 @@
  * ride on the store's hub/trpc). Demo mode (`?demo=1`) stays a static fixture.
  */
 
+import type { SpawnTarget } from '@podium/client-core'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
@@ -21,10 +22,12 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ServerConfig } from '@podium/client-core/transport'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
+  AgentKind,
   ConversationSummaryWire,
   GitRepositoryWire,
   HeadlessActivityEvent,
   IssueWire,
+  MachineWire,
   SessionMeta,
   TranscriptItem,
   WorkState,
@@ -56,6 +59,7 @@ export interface MobileClientValue {
   /** Repo registry + pin state — the Work list derives the desktop sidebar's
    *  project groups from exactly these (POD-338). */
   repos: GitRepositoryWire[]
+  machines: MachineWire[]
   pins: PinState
   conversations: ConversationSummaryWire[]
   connected: boolean
@@ -65,6 +69,11 @@ export interface MobileClientValue {
   /** The app-wide transport hub; terminal views share it instead of opening another socket. */
   hub: SocketHub | null
   trpc: MobileTrpc
+  /** The same optimistic draft-issue launch used by desktop's New Agent control. */
+  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+    sessionId: string
+    issueId: string
+  }
   sessionById(sessionId: string): SessionMeta | undefined
   issueById(issueId: string): IssueWire | undefined
   readTranscript(sessionId: string, anchor?: string): Promise<TranscriptPage>
@@ -104,6 +113,7 @@ function demoValue(config: ServerConfig): MobileClientValue {
     sessions,
     issues: DEMO_ISSUES,
     repos: [],
+    machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     conversations: [],
     connected: true,
@@ -145,6 +155,7 @@ function demoValue(config: ServerConfig): MobileClientValue {
         archive: { mutate: noop },
       },
     } as unknown as MobileTrpc,
+    spawnDraftAgent: () => ({ sessionId: 'demo-session', issueId: 'demo-issue' }),
     sessionById: (id) => sessions.find((s) => s.sessionId === id),
     issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
     readTranscript: async (sessionId) => ({
@@ -231,7 +242,8 @@ function LiveBridge({
   children: ReactNode
 }) {
   const store = useStore<MobileTrpc>()
-  const { hub, trpc, replica, sessions, issues, repos, pins, conversations, outboxSize } = store
+  const { hub, trpc, replica, sessions, issues, repos, machines, pins, conversations, outboxSize } =
+    store
   const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
   useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
 
@@ -284,6 +296,7 @@ function LiveBridge({
       sessions,
       issues,
       repos,
+      machines,
       pins,
       conversations,
       connected,
@@ -292,6 +305,7 @@ function LiveBridge({
       serverConfig: config,
       hub,
       trpc,
+      spawnDraftAgent: store.spawnDraftAgent,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
       focusSessionIds,
@@ -317,6 +331,7 @@ function LiveBridge({
       sessions,
       issues,
       repos,
+      machines,
       pins,
       conversations,
       connected,
@@ -325,6 +340,7 @@ function LiveBridge({
       config,
       hub,
       trpc,
+      store.spawnDraftAgent,
       focusSessionIds,
       outboxSize,
       readTranscript,
