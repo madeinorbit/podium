@@ -1899,3 +1899,39 @@ planning and found it.
 **A contract table with no dispatcher is mechanism without coverage.** POD-383 stated the same rule
 from the other side when it derived its own router arm rather than leaving one for its successor. When
 a family issue declares exposure, check that something SERVES it before closing.
+
+### The conformance suite is BLIND to what an adapter does inside the kernel's transaction
+
+POD-374's most important finding, and it changes what "conformance green" is evidence FOR.
+
+It applied mutant M1 — give each staged write its OWN transaction, which is the ADR 2 D10
+non-compliance verbatim — and **POD-373's conformance suite stayed green, all 30 cases.** The reason is
+structural: `failNextCommit` fires BEFORE the native transaction opens, so the suite's own
+`base/crash-between-writes` gate cannot observe what a durable adapter does INSIDE the kernel's single
+transaction. **The gate is correct for the kernel and blind to the adapter.**
+
+So a green conformance run is NOT on its own evidence for D4.1 on a real engine. POD-374 caught it only
+because it wrote `crash.test.ts` — which commits ONE transaction across entity, cursor and outbox and
+kills at four boundaries INSIDE it, then reads back through a connection of its own rather than through
+the mirror the crash was meant to destroy.
+
+**Consequence for POD-375 (mobile SQLite adapter) and any future adapter: you need your own
+crash test. Inheriting the conformance suite is not enough, and it will look like it is.**
+
+Related shape from the same issue, worth keeping: its quota case lands the denial at request 1 of a
+live transaction whose request 0 is ALREADY in flight, and asserts `writesIssued` moved by >= 2 before
+reading the store. Injected any earlier, "does not partially apply" would be vacuous — as written, it
+is IndexedDB's own abort that undoes the first write.
+
+### Name the placeholder so its deletion is forced
+
+POD-1077 shipped the scoped-feed MECHANISM but not a trustworthy principal, because `auth-store.ts` is
+still one shared password and `CLIENT_PRINCIPAL_GRADE` is `device`. Rather than wire the real
+grant-edge policy onto that transport — which "would produce a system that LOOKS scoped whose slices
+are decided by a shared credential, which is worse than an honestly unscoped one because it reads as
+privacy" — both composition roots name `DeviceGradeUnscopedPolicy`.
+
+The name is the mechanism: it says what it is, it is held to a two-entry allowlist by
+`audit:scoped-feed`, and it is **deleted outright when per-user login lands**, which forces every site
+to name a real policy at that moment. A placeholder with an honest name and a gate counting its uses is
+a scheduled deletion; an optional-permissive default is a fails-open hole nobody will find.
