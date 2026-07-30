@@ -51,7 +51,7 @@ import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
-import type { Capability } from '../../issue-authz'
+import { type Capability, OPERATOR } from '../../issue-authz'
 import {
   liveSessionsUsingWorktree,
   selectMailNudgeSession,
@@ -83,11 +83,16 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
+// Still used by the lazy workspace-fetch path (POD-658), which shares the
+// source-side bundle-base handshake and the chunked transfer with handoff.
 import {
   transferHandoffPackage,
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
+import { legacyAdminMachineUse } from './handoff/access'
+import { HandoffCoordinator } from './handoff/coordinator'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
 import {
   createViewKey,
@@ -312,6 +317,10 @@ export class SessionsService {
   private readonly headless: HeadlessService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
   private readonly autoContinue: AutoContinueController
+  /** The `sessions.handoff` handler (POD-642), built on first use. It holds the
+   *  single-flight registry that stops a duplicate dispatch from forking a
+   *  session, so it must outlive one call — see `handoffs()`. */
+  private handoffCoordinator?: HandoffCoordinator
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel: WriteFunnel
   private globalPublicationIdsCache?: {
@@ -3071,234 +3080,93 @@ export class SessionsService {
     return { ok: true }
   }
 
-  /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
-  async handoffSession(input: {
-    sessionId: string
-    machineId: string
-  }): Promise<{ ok: true; newCwd: string }> {
-    const session = this.sessions.get(input.sessionId)
-    if (!session) throw new Error('unknown session')
-    if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex') {
-      throw new Error('session harness does not support handoff')
-    }
-    if (!session.resume) throw new Error('session has no resume reference')
-    if (session.machineId === input.machineId) throw new Error('session is already on that machine')
+  /**
+   * Move one resumable worktree session to another machine ([spec:SP-3f7a]).
+   *
+   * THE COMPOSITION ROOT for the `sessions.handoff` command (POD-642). The
+   * choreography, the `use`-verb gate on both machines, the apply-time
+   * re-authorization and the single-flight idempotency live in
+   * {@link HandoffCoordinator}; this method's whole job is to build that
+   * coordinator's ports out of this service and hand it the transport caller.
+   *
+   * `caller` DEFAULTS TO THE OPERATOR, and that default is a legacy seam with
+   * exactly one justification: `sessions.handoff` is exposed on `trpc` only, and
+   * "every HTTP caller is the OPERATOR today" (the router context says so). So
+   * the default states today's truth rather than inventing an ambient identity —
+   * and it is deliberately NOT inside the coordinator, which refuses a call with
+   * no caller at all (ADR 3 D7 fail-closed). When POD-381's `command-ctx`
+   * resolves a real principal per transport, this parameter is what it fills.
+   */
+  handoffSession(
+    input: { sessionId: string; machineId: string },
+    caller: HandoffCaller = { capability: OPERATOR },
+  ): Promise<{ ok: true; newCwd: string }> {
+    // THE GATE IS BUILT PER DISPATCH, not held on the coordinator. Two callers
+    // with different rights can have transfers in flight at once, so a stored gate
+    // would answer the last installer's rights for both — and the coordinator's
+    // apply-time re-checks would replay one frozen answer, which is the exact
+    // snapshot ADR 3 D16 forbids.
+    return this.handoffs().handoff(input, caller, this.machineUseGate(caller))
+  }
 
-    const repos = this.store.repos.listRepos()
-    const issue = session.issueId ? this.issues().getMeta(session.issueId) : undefined
-    // A resumed old daemon can report a transcript's pre-handoff cwd after rollback.
-    // The issue's machine-local worktree is the durable workspace anchor; consult it
-    // before the session's momentary cwd when resolving the source repository.
-    const sourceAnchors = [
-      ...(issue?.machineId === session.machineId && issue.worktreePath ? [issue.worktreePath] : []),
-      session.cwd,
-    ]
-    const sourceRepo = repos
-      .filter(
-        (repo) =>
-          repo.machineId === session.machineId &&
-          sourceAnchors.some(
-            (anchor) => anchor === repo.path || anchor.startsWith(`${repo.path}/`),
-          ),
-      )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId)
-      throw new Error(
-        `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
-      )
-    // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
-    // agent that ran a command against the main checkout is stamped at the repo
-    // root. Its issue's worktree is still its home, so offer that as a fallback
-    // source instead of refusing. Restricted to this repo, so the package's repo
-    // identity always matches the tree it carries. Which candidate wins is the
-    // exporter's call (it asks git); refuse up front only when neither exists.
-    const issueWorktree =
-      issue?.machineId === session.machineId &&
-      issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
-        ? issue.worktreePath
-        : undefined
-    if (session.cwd === sourceRepo.path && !issueWorktree)
-      throw new Error('only worktree sessions can be handed off')
-    const targetMachine = this.machines
-      .listMachines()
-      .find((machine) => machine.id === input.machineId)
-    if (!targetMachine?.online) throw new Error('target machine is offline')
-    const harness = targetMachine.inventory?.agents.find(
-      (agent) => agent.kind === session.agentKind,
-    )
-    if (!harness?.installed || harness.login.state === 'out') {
-      throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
-    }
-    // Announce the move BEFORE the pre-flight (POD-337): everything from here on
-    // can take real time — `ensureTargetRepo` may clone the repo on the target —
-    // and `handoffTarget` is what every client renders the move with (the pane's
-    // handover state, the sidebar row). Set after the synchronous eligibility
-    // checks, so a refused move never flashes an overlay; cleared on every exit
-    // that doesn't reach the target.
-    this.mutateSessionView(session.sessionId, (current) => {
-      current.handoffTarget = targetMachine.name
-    })
-    this.broadcastSessions()
-    const clearHandoffOverlay = (): void => {
-      this.mutateSessionView(session.sessionId, (current) => {
-        current.handoffTarget = undefined
-      })
-      this.broadcastSessions()
-    }
+  /**
+   * HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately
+   * assignable (readiness §3.1.4, ADR 3 Amendment 1 D18).
+   *
+   * The DEFAULT is admin-only, which is what today's fleet can express: the
+   * `machines` table has no owner and no grant list (POD-1079), and every shipped
+   * caller of `sessions.handoff` is the operator. POD-381's `ctx.assertMachineUse`
+   * and POD-1079's grant table replace this property at the composition root — the
+   * point of it being a property rather than an inline call is that enabling real
+   * grants is one assignment, not a second migration through the handoff path.
+   *
+   * A factory of a gate, not a gate: it must re-read rights on every call, because
+   * the coordinator calls it again at each apply point.
+   */
+  machineUseGate: (caller: HandoffCaller) => AssertMachineUse = (caller) =>
+    legacyAdminMachineUse({ capability: caller.capability })
 
-    let targetRepo: { path: string }
-    let baseShas: string[]
-    let branch: string
-    try {
-      targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
-      branch = issue?.branch ?? basename(session.cwd)
-      const candidates = [
-        ...new Set(
-          [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
-            Boolean(ref),
-          ),
-        ),
-      ]
-      const sourceVerified = await Promise.all(
-        candidates.map((ref) =>
-          this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
-        ),
-      )
-      const sourceBaseShas = verifiedBundleBases(sourceVerified)
-      const targetVerified = await Promise.all(
-        sourceBaseShas.map((ref) =>
-          this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
-        ),
-      )
-      baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
-      if (baseShas.length === 0)
-        throw new Error('target repository has no verified common bundle base')
-    } catch (error) {
-      // Nothing has been stopped or moved yet — drop the overlay and report.
-      clearHandoffOverlay()
-      throw error
+  /**
+   * ONE coordinator for the life of this service, not one per call: its
+   * single-flight map is the thing that stops a duplicate dispatch from forking
+   * the session, and a per-call coordinator would start every dispatch with an
+   * empty map — a guard that still looked implemented.
+   */
+  private handoffs(): HandoffCoordinator {
+    if (this.handoffCoordinator) return this.handoffCoordinator
+    const ports: HandoffPorts = {
+      rpc: this.rpc,
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      listSessions: () =>
+        this.listSessions().map((meta) => ({
+          sessionId: meta.sessionId,
+          machineId: meta.machineId ?? '',
+          cwd: meta.cwd,
+          status: meta.status,
+        })),
+      listRepos: () => this.store.repos.listRepos(),
+      listMachines: () => this.machines.listMachines(),
+      issueMeta: (issueId) => this.issues().getMeta(issueId) ?? undefined,
+      rehomeIssue: (issueId, where) => this.issues().rehome(issueId, where),
+      ensureTargetRepo: (sourceRepo, targetMachineId) =>
+        this.ensureTargetRepo(sourceRepo, targetMachineId),
+      persist: (session) => this.persist(session),
+      mutateSessionView: (sessionId, mutate) => {
+        this.mutateSessionView(sessionId, mutate)
+      },
+      broadcastSessions: () => this.broadcastSessions(),
+      onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
+      toMachine: (machineId, message) => this.toMachine(machineId, message),
+      onWorktreesChanged: (repoPath, machineId) => this.deps.onWorktreesChanged(repoPath, machineId),
+      resumeSession: (resumeInput) => this.resumeSession(resumeInput),
+      resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
+      recordEvent: (event) => {
+        this.store.events.appendEvent(event)
+      },
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     }
-
-    const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
-    const wasRunning =
-      session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
-    if (wasRunning) {
-      session.status = 'hibernated'
-      this.autoContinue.onSessionGone(session.sessionId)
-      this.persist(session)
-      this.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
-      this.broadcastSessions()
-      await new Promise((resolve) => setTimeout(resolve, 500))
-    }
-
-    try {
-      const exported = await this.rpc.handoffExport(
-        {
-          sessionId: session.sessionId,
-          cwd: source.cwd,
-          ...(issueWorktree ? { fallbackCwd: issueWorktree } : {}),
-          agentKind: session.agentKind,
-          resume: session.resume,
-          branch,
-          baseShas,
-          repoId: sourceRepo.repoId,
-          ...(session.name || session.title ? { title: session.name || session.title } : {}),
-          ...(session.issueId ? { issueId: session.issueId } : {}),
-          sourceMachineId: source.machineId,
-        },
-        source.machineId,
-      )
-      if (
-        !exported.ok ||
-        !exported.stagePath ||
-        exported.sizeBytes === undefined ||
-        !exported.manifest
-      ) {
-        throw new Error(exported.error ?? 'source failed to export session')
-      }
-      await transferHandoffPackage({
-        rpc: this.rpc,
-        sessionId: session.sessionId,
-        sourceMachineId: source.machineId,
-        targetMachineId: input.machineId,
-        sourceStagePath: exported.stagePath,
-        sizeBytes: exported.sizeBytes,
-      })
-      // A retained target checkout may still belong to another resumable
-      // session. The daemon resolves the actual registered worktree; these cwds
-      // are the server-authoritative guard against resetting a shared workspace.
-      const occupiedWorktreePaths = this.listSessions()
-        .filter(
-          (other) =>
-            other.sessionId !== session.sessionId &&
-            other.machineId === input.machineId &&
-            other.status !== 'exited',
-        )
-        .map((other) => other.cwd)
-      const imported = await this.rpc.handoffImport(
-        session.sessionId,
-        targetRepo.path,
-        exported.manifest.worktreeName,
-        input.machineId,
-        occupiedWorktreePaths,
-      )
-      if (!imported.ok || !imported.newCwd)
-        throw new Error(imported.error ?? 'target failed to import session')
-
-      session.handoffTarget = undefined
-      session.machineId = input.machineId
-      session.cwd = imported.newCwd
-      session.status = 'hibernated'
-      this.persist(session)
-      // The import just ran `git worktree add` on the target, so `imported.newCwd`
-      // names a worktree no client has ever scanned. Clients only re-fetch repos on
-      // boot / a machine coming online / this invalidation, and the handoff gate
-      // resolves a session's cwd against that list — so without this the moved
-      // session has no known worktree and its own Handoff menu disappears until a
-      // reload (POD-821). Both sides: the target gained a worktree, and the source
-      // keeps its residue but is no longer where this session lives.
-      this.deps.onWorktreesChanged(targetRepo.path, input.machineId)
-      this.deps.onWorktreesChanged(sourceRepo.path, source.machineId)
-      // [spec:SP-3f7a] The issue's home follows its session (POD-824): the target
-      // worktree is where this work lives now, and the issue's home is what the
-      // user sees — the file-browser root, the sidebar's worktree, and the cwd a
-      // new agent on this issue spawns into. Keyed on the worktree ROOT the daemon
-      // reports, never `newCwd` (which may be a `cwdSubpath` below it). An older
-      // daemon sends no root; leave the issue alone rather than guess its layout.
-      if (session.issueId && imported.worktreeRoot) {
-        this.issues().rehome(session.issueId, {
-          machineId: input.machineId,
-          repoPath: targetRepo.path,
-          worktreePath: imported.worktreeRoot,
-        })
-      }
-      const resumed = await this.resumeSession({
-        agentKind: session.agentKind,
-        cwd: session.cwd,
-        resume: session.resume,
-        conversationId:
-          session.origin.kind === 'resume' ? session.origin.conversationId : session.resume.value,
-        ...(session.name || session.title ? { title: session.name || session.title } : {}),
-        machineId: input.machineId,
-      })
-      if (resumed.sessionId !== session.sessionId || (session.status as string) !== 'starting')
-        throw new Error('target session failed to resume')
-      return { ok: true, newCwd: imported.newCwd }
-    } catch (error) {
-      session.handoffTarget = undefined
-      session.machineId = source.machineId
-      session.cwd = source.cwd
-      session.status = 'hibernated'
-      this.persist(session)
-      const rollback = await this.resurrectSession({ sessionId: session.sessionId })
-      if (!rollback.ok)
-        console.warn(
-          `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
-        )
-      throw error
-    }
+    this.handoffCoordinator = new HandoffCoordinator(ports)
+    return this.handoffCoordinator
   }
 
   /** Clone and register a source repository on a target that does not have it yet. */

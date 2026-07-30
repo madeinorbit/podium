@@ -26,16 +26,21 @@ import {
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ControlMessage } from '@podium/protocol'
+import type { MachineId } from '@podium/model'
+import type { ControlMessage, UserId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type Capability, OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
+import { grantedMachineUse } from './handoff/access'
 import { SessionStore } from '../../store'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
 const SHA = 'a'.repeat(40)
 
+type FixtureMachine = 'm1' | 'm2' | 'm3'
+
 interface TimelineEvent {
-  machine: 'm1' | 'm2'
+  machine: FixtureMachine
   type: ControlMessage['type']
   msg: ControlMessage
 }
@@ -50,9 +55,9 @@ interface HandoffFixture {
    *  against a shared timeline, never against two per-machine arrays. */
   timeline: TimelineEvent[]
   /** Position of the first `machine:type` event, or -1. */
-  at(machine: 'm1' | 'm2', type: ControlMessage['type']): number
+  at(machine: FixtureMachine, type: ControlMessage['type']): number
   /** How many `machine:type` events happened. */
-  count(machine: 'm1' | 'm2', type: ControlMessage['type']): number
+  count(machine: FixtureMachine, type: ControlMessage['type']): number
   sessionId: string
 }
 
@@ -75,7 +80,21 @@ afterEach(() => {
  * resumable claude-code session living in a worktree on m1.
  */
 async function handoffFixture(
-  opts: { failExport?: boolean; targetHasBase?: boolean } = {},
+  opts: {
+    failExport?: boolean
+    targetHasBase?: boolean
+    /** Fires when the SOURCE receives the export request — i.e. after the kill and
+     *  before the import leg. The window a mid-transfer revocation lands in. */
+    onExport?: () => void
+    /** Fires when the TARGET is asked to prove a bundle base — i.e. after the
+     *  dispatch-time checks passed and BEFORE anything irreversible. A hook rather
+     *  than a re-attached daemon on purpose: a hand-written stand-in that answers
+     *  only the probe leaves the later legs unanswered, so a mutant that removes
+     *  the pre-kill re-check HANGS to a test timeout instead of failing on its
+     *  assertion — the POD-379 round-4 failure mode, in a file that has to stay
+     *  sharp because two of its tests exist to catch exactly that mutant. */
+    onTargetProbe?: () => void
+  } = {},
 ): Promise<HandoffFixture> {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
@@ -109,6 +128,7 @@ async function handoffFixture(
       })
     }
     if (msg.type === 'handoffExportRequest') {
+      opts.onExport?.()
       reg.modules.sessions.onDaemonMessageFrom(
         'm1',
         opts.failExport
@@ -162,6 +182,7 @@ async function handoffFixture(
       // The bundle-base handshake: the target proves which of the source's SHAs
       // it already has. `targetHasBase: false` is the d73e9121 shape — a target
       // that shares no verified commit with the source.
+      opts.onTargetProbe?.()
       const ok = opts.targetHasBase === false ? false : msg.args?.ref === SHA
       reg.modules.sessions.onDaemonMessageFrom('m2', {
         type: 'repoOpResult',
@@ -212,6 +233,26 @@ async function handoffFixture(
 
 const meta = (f: HandoffFixture) =>
   f.reg.modules.sessions.listSessions().find((s) => s.sessionId === f.sessionId)
+
+/** The PERSISTED row, as the store holds it — the widest view of "what moved". */
+const rowOf = (f: HandoffFixture): Record<string, unknown> => {
+  const row = f.store.sessions.loadSessions().find((r) => r.id === f.sessionId)
+  if (!row) throw new Error('session row vanished')
+  return row as unknown as Record<string, unknown>
+}
+
+/** Every durable handoff record, projected to the attribution pair + the move. */
+const handoffRecords = (f: HandoffFixture): unknown[] =>
+  f.store.events
+    .listEventsSince(0, { kinds: ['session.handoff'] })
+    .map((event) => event.payload as Record<string, unknown>)
+    .map(({ actor, actorKind, onBehalfOf, fromMachineId, toMachineId }) => ({
+      actor,
+      actorKind,
+      onBehalfOf,
+      fromMachineId,
+      toMachineId,
+    }))
 
 describe('oracle: handoff success across two machines', () => {
   it(`${MUST_NOT_CHANGE}: the row is re-homed onto the target and resumed there, and the source is told to kill`, async () => {
@@ -274,14 +315,137 @@ describe('oracle: handoff success across two machines', () => {
     expect(f.at('m2', 'handoffImportRequest')).toBeLessThan(f.at('m2', 'spawn'))
   })
 
-  it(`${willChange('POD-1079', "machines become owned compute; handoff must later check 'use' on the target")}: handoff to any paired ONLINE machine is allowed with no per-machine authorization`, async () => {
+  it(`${willChange('POD-1079', "the use-verb's BACKING becomes owner + per-machine grants; today it is admin-only")}: an OPERATOR may hand off to any paired online machine, and a constrained caller may not`, async () => {
     const f = await handoffFixture()
 
-    // The only gates today are reachability and harness capability. There is no
-    // owner, no grant list, and no caller identity involved at all.
+    // POD-642 put the `use` check point in the handoff path. What POD-1079
+    // replaces is what it is BACKED BY: with no owner and no grant list in the
+    // machines table there is nothing to resolve a per-machine grant from, so the
+    // only holder of `use` today is an admin-scoped capability — which is what
+    // every shipped caller is (`sessions.handoff` is exposed on trpc only).
     await expect(
-      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: OPERATOR },
+      ),
     ).resolves.toMatchObject({ ok: true })
+  })
+
+  it(`${willChange('POD-1079', 'a constrained caller gains use through a grant on the machine rather than being refused outright')}: a NON-ADMIN caller is refused at the FIRST machine it may not use — the SOURCE`, async () => {
+    const f = await handoffFixture()
+
+    // Handoff is a `use` operation on BOTH machines, and the source comes first:
+    // taking a session OFF a machine you may not use is already the refusal, so
+    // the target is never even considered. m2 is paired, online and fully eligible
+    // — the same fixture the operator just succeeded against — so this refusal is
+    // about the CALLER, not about either machine's state. It is spelled as an
+    // absent machine on purpose: a constrained capability holds no `see` either
+    // (there is no grant list to hold one in), so 'unauthorized' would confirm the
+    // machine exists to a principal not entitled to know (§3.1.5).
+    expect(
+      await messageOf(() =>
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: { role: 'worker', scope: { kind: 'all' } } },
+        ),
+      ),
+    ).toBe("unknown machine 'm1'")
+    // Refused BEFORE anything moved (§3.1.4 M5): nothing stopped, nothing exported.
+    expect(f.source.some((m) => m.type === 'kill')).toBe(false)
+    expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
+    expect(meta(f)).toMatchObject({ machineId: 'm1' })
+    expect(meta(f)?.handoffTarget).toBeUndefined()
+  })
+
+  it(`${MUST_NOT_CHANGE}: a caller that may use the SOURCE but not the TARGET is denied, and the session is not retargeted anywhere`, async () => {
+    const f = await handoffFixture()
+    // The case the admin-only default cannot express, driven through the gate
+    // POD-1079's grant table plugs into: alice OWNS m1 and merely SEES m2.
+    f.reg.modules.sessions.machineUseGate = () =>
+      grantedMachineUse({
+        subject: () => 'alice' as UserId,
+        admin: () => false,
+        ownershipOf: (machineId) =>
+          machineId === 'm1'
+            ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [] }
+            : machineId === 'm2'
+              ? {
+                  machine: 'm2' as MachineId,
+                  owner: 'bob' as UserId,
+                  grants: [{ subject: 'alice' as UserId, verb: 'see' }],
+                }
+              : undefined,
+      })
+
+    expect(
+      await messageOf(() =>
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: OPERATOR },
+        ),
+      ),
+      // DENIED, and distinguishable from unreachable: alice can SEE m2, so she is
+      // told she may not use it rather than that it does not exist.
+    ).toBe("not authorized to use machine 'm2'")
+    // NEVER SILENTLY RETARGETED (§3.1.4 M5): the session stayed where it was, and
+    // m1 — the one machine alice may use — was not handed its own session back as
+    // a consolation move.
+    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect(f.source.some((m) => m.type === 'handoffImportRequest')).toBe(false)
+    expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
+  })
+
+  it(`${MUST_NOT_CHANGE}: a machineId that does not exist is refused with the SAME message as one the caller may not SEE`, async () => {
+    const f = await handoffFixture()
+    // alice owns the source and can see NEITHER m2 nor a nonexistent id.
+    f.reg.modules.sessions.machineUseGate = () =>
+      grantedMachineUse({
+        subject: () => 'alice' as UserId,
+        admin: () => false,
+        ownershipOf: (machineId) =>
+          machineId === 'm1'
+            ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [] }
+            : machineId === 'm2'
+              ? { machine: 'm2' as MachineId, owner: 'bob' as UserId, grants: [] }
+              : undefined,
+      })
+
+    const invisible = await messageOf(() =>
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'm2' },
+        { capability: OPERATOR },
+      ),
+    )
+    const nonexistent = await messageOf(() =>
+      f.reg.modules.sessions.handoffSession(
+        { sessionId: f.sessionId, machineId: 'no-such-machine' },
+        { capability: OPERATOR },
+      ),
+    )
+
+    // The consistent-error rule (§3.1.5) is an EQUALITY between the two paths, not
+    // two string checks that could drift apart while both stayed green. Only the
+    // machine id differs — an id is what the caller already supplied.
+    expect(invisible).toBe("unknown machine 'm2'")
+    expect(nonexistent).toBe("unknown machine 'no-such-machine'")
+    expect(invisible.replace("'m2'", "'X'")).toBe(nonexistent.replace("'no-such-machine'", "'X'"))
+  })
+
+  it(`${MUST_NOT_CHANGE}: a machine the caller may use but that is OFFLINE says so — denied and unreachable are different answers`, async () => {
+    const f = await handoffFixture()
+    // Same operator, same eligible-in-every-other-way target: only reachability
+    // differs from the passing case, so the different message is attributable to
+    // reachability alone (§3.1.4 M5's visible-machine distinction).
+    f.reg.modules.sessions.detachDaemon('m2')
+
+    expect(
+      await messageOf(() =>
+        f.reg.modules.sessions.handoffSession(
+          { sessionId: f.sessionId, machineId: 'm2' },
+          { capability: OPERATOR },
+        ),
+      ),
+    ).toBe('target machine is offline')
   })
 })
 
@@ -350,6 +514,154 @@ describe('oracle: mid-transfer crash', () => {
     // The target never imported anything.
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
   })
+
+  it(`${MUST_NOT_CHANGE}: a grant REVOKED MID-TRANSFER refuses the import at APPLY time and rolls back to the source`, async () => {
+    // ADR 3 D8/D16: rights are re-resolved live at every apply, never carried as
+    // the snapshot taken when the command was dispatched. The revocation lands
+    // after the source has already been killed and the package exported — which is
+    // precisely the window a dispatch-time-only check cannot see.
+    const caller: { capability: Capability } = {
+      capability: { role: 'admin', scope: { kind: 'all' } },
+    }
+    const f = await handoffFixture({
+      onExport: () => {
+        caller.capability.role = 'worker'
+      },
+    })
+
+    expect(
+      await messageOf(() =>
+        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, caller),
+      ),
+    ).toBe("unknown machine 'm2'")
+
+    // NOT COMPLETED AND NOT LOST: no import ran on the target, and the session is
+    // back on the source with a recovery spawn — the same rollback contract as a
+    // daemon-side failure, because a refusal at apply IS a mid-transfer failure.
+    expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
+    expect(meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
+    expect(meta(f)?.handoffTarget).toBeUndefined()
+    await waitFor(
+      () => f.source.some((m) => m.type === 'spawn' && m.sessionId === f.sessionId),
+      'the rollback resurrect to spawn back on the source',
+    )
+  })
+
+  it(`${MUST_NOT_CHANGE}: a revocation landing DURING the base handshake refuses before the kill, with the live process untouched`, async () => {
+    // The earlier apply-time checkpoint. `ensureTargetRepo` may clone a repository
+    // and the base handshake is a network round trip per ref, so the window between
+    // dispatch and the first irreversible act is minutes wide; the revocation here
+    // lands inside it, and nothing may be stopped. Refused naming the SOURCE
+    // because the pre-kill checkpoint re-checks both machines and the source comes
+    // first — the point of the assertion is WHEN it refused, which a dispatch-time
+    // check alone could not do: this revocation had not happened at dispatch.
+    const caller: { capability: Capability } = {
+      capability: { role: 'admin', scope: { kind: 'all' } },
+    }
+    let seenTargetProbe = 0
+    const f = await handoffFixture({
+      onTargetProbe: () => {
+        seenTargetProbe += 1
+        // Revoke while the base handshake is still in flight.
+        caller.capability.role = 'worker'
+      },
+    })
+
+    expect(
+      await messageOf(() =>
+        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, caller),
+      ),
+    ).toBe("unknown machine 'm1'")
+
+    // The revocation really did land after dispatch: the target was probed, which
+    // only happens once the dispatch-time checks have already passed.
+    expect(seenTargetProbe).toBeGreaterThan(0)
+    expect(f.source.some((m) => m.type === 'kill')).toBe(false)
+    expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
+    expect(meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
+    expect(meta(f)?.handoffTarget).toBeUndefined()
+  })
+})
+
+describe('oracle: what the transfer is and is not allowed to change', () => {
+  it(`${MUST_NOT_CHANGE}: the moved row changes ONLY its placement — no owner, provenance or identity field moves with it`, async () => {
+    const f = await handoffFixture()
+    const before = rowOf(f)
+
+    await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
+
+    const after = rowOf(f)
+    const changed = Object.keys({ ...before, ...after })
+      .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      .sort()
+    // ASSERTED BY ABSENCE, deliberately. A session's owner is its on-behalf-of
+    // human (ADR 9 D5 A4) and a machine change is not an ownership change; the
+    // agent principal's lifecycle is its SessionBinding (POD-323/POD-644), so
+    // delegation survives the move by NOT being re-minted. There is no owner
+    // column to assert on yet (POD-1075), and a test that only checked today's
+    // columns would go quiet the moment one arrived. This one gets LOUDER: any new
+    // field the transfer starts writing has to be justified in this list.
+    // `cwd` + `machineId` are the placement; `activityCount` + `lastResumedAt`
+    // are the resume on the target, which is the last leg of the move. Nothing
+    // else — no owner, no provenance, no identity, no capability.
+    expect(changed).toEqual(['activityCount', 'cwd', 'lastResumedAt', 'machineId'])
+  })
+
+  it(`${MUST_NOT_CHANGE}: the durable record names the ACTOR and the ON-BEHALF-OF human, and an agent-initiated move is distinguishable from a human one`, async () => {
+    const human = await handoffFixture()
+    await human.reg.modules.sessions.handoffSession(
+      { sessionId: human.sessionId, machineId: 'm2' },
+      { capability: { role: 'admin', scope: { kind: 'all' }, actorUser: 'alice' } },
+    )
+
+    const agent = await handoffFixture()
+    await agent.reg.modules.sessions.handoffSession(
+      { sessionId: agent.sessionId, machineId: 'm2' },
+      {
+        capability: {
+          role: 'admin',
+          scope: { kind: 'all' },
+          actorSessionId: 'sess-agent-7',
+          onBehalfOf: 'alice',
+        },
+      },
+    )
+
+    // The counterfactual the pair exists for: both moves were made FOR alice, so
+    // an on-behalf-of alone cannot tell them apart. Only the actor half can.
+    expect(handoffRecords(human)).toEqual([
+      { actor: 'alice', actorKind: 'user', onBehalfOf: null, fromMachineId: 'm1', toMachineId: 'm2' },
+    ])
+    expect(handoffRecords(agent)).toEqual([
+      {
+        actor: 'sess-agent-7',
+        actorKind: 'agent',
+        onBehalfOf: 'alice',
+        fromMachineId: 'm1',
+        toMachineId: 'm2',
+      },
+    ])
+  })
+
+  it(`${MUST_NOT_CHANGE}: identity fields smuggled into the command INPUT are inert — the record still comes from the transport`, async () => {
+    const f = await handoffFixture()
+
+    await f.reg.modules.sessions.handoffSession(
+      {
+        sessionId: f.sessionId,
+        machineId: 'm2',
+        // ADR 3 D7 rule 1: payload identity is informational at best and must not
+        // reach an authorization or attribution decision. Cast because the command
+        // input has no such fields — which is the first half of the defence.
+        ...({ actor: 'mallory', onBehalfOf: 'mallory', capability: { role: 'admin' } } as object),
+      },
+      { capability: { role: 'admin', scope: { kind: 'all' }, actorUser: 'alice' } },
+    )
+
+    expect(handoffRecords(f)).toEqual([
+      { actor: 'alice', actorKind: 'user', onBehalfOf: null, fromMachineId: 'm1', toMachineId: 'm2' },
+    ])
+  })
 })
 
 describe('oracle: duplicate dispatch', () => {
@@ -368,7 +680,7 @@ describe('oracle: duplicate dispatch', () => {
     )
   })
 
-  it(`${willChange('POD-642', 'handoff gains idempotency across duplicate dispatch — a retry must not fork the session')}: CONCURRENT duplicate dispatch is NOT serialized today — BOTH orchestrations run end to end`, async () => {
+  it(`${MUST_NOT_CHANGE}: CONCURRENT duplicate dispatch to the same target is SINGLE-FLIGHTED — one export, one import, one spawn`, async () => {
     const f = await handoffFixture()
 
     const settled = await Promise.allSettled([
@@ -376,14 +688,12 @@ describe('oracle: duplicate dispatch', () => {
       f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
     ])
 
-    // There is NO in-flight lock and no dedup: both calls resolve ok, the package
-    // is exported twice, imported twice and spawned twice on the target.
-    //
-    // TAGGED will-change ON PURPOSE. POD-642 REQUIRES idempotency here — a retry
-    // must not fork or duplicate the session — so this test exists to make the
-    // change VISIBLE, not to forbid it. When POD-642 lands, these counts SHOULD
-    // fall to one and this characterization should be rewritten against the new
-    // contract, never "fixed" by restoring the duplication.
+    // REWRITTEN BY POD-642, WHICH IS WHAT THE will-change TAG WAS FOR. Before the
+    // command contract this ran TWO complete orchestrations: exported twice,
+    // imported twice, and SPAWNED TWICE on the target — two live owners of one
+    // conversation. Both callers still get the same successful answer, because the
+    // second one JOINS the transfer already in flight rather than being refused;
+    // what must never come back is the second set of daemon legs.
     expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled'])
     expect(
       settled.map((s) => (s.status === 'fulfilled' ? s.value : (s.reason as Error).message)),
@@ -391,18 +701,97 @@ describe('oracle: duplicate dispatch', () => {
       { ok: true, newCwd: '/target/repo/.worktrees/x' },
       { ok: true, newCwd: '/target/repo/.worktrees/x' },
     ])
-    expect(f.count('m1', 'handoffExportRequest')).toBe(2)
-    expect(f.count('m2', 'handoffImportRequest')).toBe(2)
-    expect(f.count('m2', 'spawn')).toBe(2)
-    // The source is killed ONCE: the second orchestration finds the row already
-    // parked, so `wasRunning` is false on its pass.
+    expect(f.count('m1', 'handoffExportRequest')).toBe(1)
+    expect(f.count('m2', 'handoffImportRequest')).toBe(1)
+    expect(f.count('m2', 'spawn')).toBe(1)
     expect(f.count('m1', 'kill')).toBe(1)
-    // Despite the double run there is still exactly one row, on the target.
+    // One row, on the target — which was ALSO true of the forked run, and is
+    // exactly why the row count alone was never evidence: the fork was visible
+    // only in the daemon legs above.
     expect(
       f.reg.modules.sessions
         .listSessions()
         .map((s) => ({ machineId: s.machineId, cwd: s.cwd, status: s.status })),
     ).toEqual([{ machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' }])
+  })
+
+  it(`${MUST_NOT_CHANGE}: a concurrent dispatch to a DIFFERENT target is refused rather than racing two targets for one session`, async () => {
+    const f = await handoffFixture()
+    // The counterfactual this name needs: m3 is a fully eligible target — paired,
+    // online, with the same logged-in harness and the same repo — so the refusal
+    // below is about the transfer already in flight and not about m3.
+    f.store.machines.upsertMachine({ id: 'm3', name: 'third', hostname: 'third', tokenHash: 'z' })
+    f.store.machines.setMachineInventory(
+      'm3',
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      }),
+    )
+    f.store.repos.addRepo('/third/repo', 'm3', 'git@github.com:example/repo.git')
+    f.reg.modules.sessions.attachDaemon('m3', () => {})
+
+    const first = f.reg.modules.sessions.handoffSession({
+      sessionId: f.sessionId,
+      machineId: 'm2',
+    })
+    const second = f.reg.modules.sessions.handoffSession({
+      sessionId: f.sessionId,
+      machineId: 'm3',
+    })
+
+    await expect(second).rejects.toThrow('session handoff already in progress')
+    await expect(first).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
+    // m3 was never asked for anything: not a rev-parse, not an import.
+    expect(f.count('m3', 'repoOpRequest')).toBe(0)
+    expect(f.count('m3', 'handoffImportRequest')).toBe(0)
+    expect(meta(f)).toMatchObject({ machineId: 'm2' })
+  })
+
+  it(`${MUST_NOT_CHANGE}: a caller JOINING an in-flight transfer is authorized with its OWN rights, not the initiator's`, async () => {
+    const f = await handoffFixture()
+
+    // The operator starts the move; a constrained caller asks for the same move
+    // while it is in flight. Coalescing is a latency optimisation and must not
+    // become an authorization one: the joiner is refused on its own rights and
+    // never learns the transfer succeeded.
+    const initiator = f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: OPERATOR },
+    )
+    const joiner = f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: { role: 'worker', scope: { kind: 'all' } } },
+    )
+
+    await expect(joiner).rejects.toThrow("unknown machine 'm1'")
+    // And the initiator's transfer is unharmed — the refusal touched only the
+    // caller that was refused, which is the other half of the claim.
+    await expect(initiator).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
+    expect(f.count('m2', 'handoffImportRequest')).toBe(1)
+  })
+
+  it(`${MUST_NOT_CHANGE}: a FAILED transfer releases the single-flight slot, so the move can be retried instead of being wedged`, async () => {
+    const f = await handoffFixture({ failExport: true })
+
+    const first = await messageOf(() =>
+      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+    )
+    // The retry must reach the daemon legs again and fail on the SAME cause. A
+    // slot released only on the success path would answer 'session handoff already
+    // in progress' here — permanently, for the life of the process — and every
+    // other test in this file would still pass.
+    const second = await messageOf(() =>
+      f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
+    )
+
+    expect([first, second]).toEqual([
+      'source exploded mid-export',
+      'source exploded mid-export',
+    ])
+    expect(f.count('m1', 'handoffExportRequest')).toBe(2)
   })
 })
 

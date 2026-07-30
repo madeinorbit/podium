@@ -114,9 +114,9 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'apps/server/src/modules/sessions/service.ts',
-    count: 9,
+    count: 7,
     phase: P5,
-    note: 'Transcript/title/dedup behavior keyed on claude-code vs codex — POD-292 moves it behind the harness layer. Count RE-MEASURED 2026-07-30 (POD-1105): 5 → 9. The four added sites are :2947 (codex half of a pair whose claude-code half was already counted), :4921 + :4926 (codex non-headless lock-loop dedup, bebb8127f 2026-07-15) and :5031 (claude-only title lock, 86fd9b597 2026-07-07) — all three commits PREDATE this ledger (2026-07-16), so this is a miscount being corrected, not new debt admitted.',
+    note: 'Transcript/title/dedup behavior keyed on claude-code vs codex — POD-292 moves it behind the harness layer. RATCHETED DOWN 9 → 7 by POD-642: the handoff choreography left this file for modules/sessions/handoff/coordinator.ts, and its "claude-code or codex" eligibility pair did not travel with it — the coordinator asks agentSupportsHandoff (POD-1105) and narrows the export type through the bundle manifest\'s own kind list, so the pair is gone rather than relocated. Count RE-MEASURED 2026-07-30 (POD-1105): 5 → 9. The four added sites are :2947 (codex half of a pair whose claude-code half was already counted), :4921 + :4926 (codex non-headless lock-loop dedup, bebb8127f 2026-07-15) and :5031 (claude-only title lock, 86fd9b597 2026-07-07) — all three commits PREDATE this ledger (2026-07-16), so this is a miscount being corrected, not new debt admitted.',
   },
   {
     rule: 'harness-branching',
