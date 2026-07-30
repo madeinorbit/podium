@@ -242,7 +242,7 @@ be assignable to exactly one of them:
 | **Type** | `InstanceId` brand (D5.1), **configuration-only** (D17) | `MachineId` brand | `InstanceServiceRole` union — **not an id** | `UserId` brand (POD-1075) |
 | **Who mints it** | **Not minted — selected.** A human supplies it at deploy time via `PODIUM_INSTANCE` or `--instance`; when neither is set, `resolveInstanceId` **supplies `default` automatically**, so the label on an unconfigured deployment is a fallback, not anyone's deliberate act. No process ever mints a *new* id; the first process to claim a state root merely **records** the selected one (`ensureInstanceStateIdentity` → `instance.json`) | **The daemon**, once, `randomUUID()` in `daemon.json` (identity.ts L35) — **in the target scheme.** Today the local machine is the documented exception: the **server** provisions `machines.id = 'local'` at startup with a server-minted secret (`ensureLocalMachine`, service.ts L409; server.ts L226). POD-318 deletes that exception — see D16.2 | Nobody — it is a compile-time constant of the entry point, surfaced in unit and command names | **The server**, at account creation / invite (ADR 9 D1.2) |
 | **Scoped by** | Nothing above it. It **is** the outermost scope — but see D16.1: the *carrier* of the partition is the resolved **state root**, and the id is a label on that root, not a global name for it | Its instance — because its identity file lives in that instance's state root, and its row lives in that instance's DB | Its instance | Its instance |
-| **What equality means** | **Nothing, by itself.** See **D16.1** — equality of instance-id strings is *not* evidence that two processes belong to one deployment, and no code path treats it as such | "The same daemon identity file", hence the same host **as far as this instance's fleet is concerned** — **not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly. Authoritative only inside the instance whose DB holds the row (D16.1) | "The same kind of process." Two live processes of the same role in one instance is a **conflict** (port bind, state claim), never an identity | "The same person" — **within one instance only.** Server-minted, so equal `UserId` values in two instances are unrelated strings (D21.3) |
+| **What equality means** | **Nothing, by itself.** See **D16.1** — equality of instance-id strings is *not* evidence that two processes belong to one deployment, and no code path treats it as such | "The same daemon identity file", hence the same host **as far as this instance's fleet is concerned** — **not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly. Authoritative only inside the instance whose DB holds the row (D16.1) | "The same **role class**" — and nothing more. **N live daemon processes in one deployment is NORMAL**, one per paired machine. Uniqueness is per **host**, not per deployment (D16.3); daemon processes are identified by their `MachineId` and pairing relation, never by their role | "The same person" — **within one instance only.** Server-minted, so equal `UserId` values in two instances are unrelated strings (D21.3) |
 | **Never** | Replicated, synced, wire-borne, or a column (D18, D19, D20) | A stand-in for a person (ADR 9 D1's rejected alternatives), nor for a partition | An id, an owner, or a security principal | A partition. `UserId` never separates deployments |
 | **If conflated with the others** | See the failure table below | | | |
 
@@ -301,7 +301,7 @@ for the moment an implementer is about to write `a.id === b.id`:
 | `InstanceId` | **Nothing.** Not unique in any scope the runtime can observe — it is a *label on a state root*, and `default` is the label of every unconfigured deployment on earth | Only that two things carry the same label | That they share a deployment, a database, a port triplet, a fleet, or anything else. Use the resolved **state root** (same host) or the **pairing relation** (across hosts) |
 | `MachineId` | One instance's `machines` table | The same daemon identity file, hence the same host **within that instance** | Anything across instances — and today the constant `'local'` is byte-equal in *every* instance while naming different hardware |
 | `UserId` | One instance's `User` aggregate | The same person **within that instance** | Anything across instances (D21.3: no identity portability) |
-| `InstanceServiceRole` | Not an id | The same *kind* of process | Any identity at all. Two live processes of one role in one instance is a conflict, not a match |
+| `InstanceServiceRole` | **A (host, instance) pair** — not the deployment. One server and one daemon *per host per instance*, enforced by port bind, state-root claim and unit name | The same role **class** | That the processes are the same process, or that only one may exist in the deployment. Identify a specific daemon by its `MachineId` (D16.3) |
 
 **And symmetrically, for the other two id axes** — stated here because the same mistake is
 available on each:
@@ -378,6 +378,35 @@ a brand that accepts any non-empty string, that is a direct path to `'local'` be
 permanent well-typed `MachineId` in a scheme whose whole point was to delete it. Separating
 as-built from target, and attaching the ordering constraint to POD-360's inventory where the
 sites are actually listed, is what makes the retirement enforceable rather than aspirational.
+
+#### D16.3 — Role multiplicity is per HOST, not per deployment. N daemons is the normal case
+
+**Decision.** The process-role axis carries no uniqueness constraint at the deployment level:
+
+| Scope | Constraint | Enforced by |
+|---|---|---|
+| **One host, one instance** | At most one live `server` and one live `daemon` | The derived port triplet (`defaultInstancePorts`), the state-root claim (`ensureInstanceStateIdentity`), and the unit name (`instanceServiceName(role, id)`) — all three are per `(host, instance)` |
+| **One deployment, across hosts** | **No constraint on daemons.** A normal multi-machine deployment runs **one daemon per paired machine**, all live, all in the same deployment. This is the product's ordinary shape, not a degenerate case | — |
+| **One deployment, the Authority** | Exactly one `server` is the Authority (ADR 1 D1) — but this follows from a deployment *being* one state root, **not** from role-name uniqueness. Two hosts both labelled `default` are two deployments (D16.1), not two servers of one |
+
+Therefore, normatively:
+
+1. **Role equality establishes the role class and nothing else.** It is not an identity test, and
+   two live daemons of the same role are not in conflict — they are the fleet.
+2. **A specific daemon process is identified by its `MachineId` and its pairing relation**, never
+   by its role. Role answers "what kind of process is this?"; `MachineId` answers "which one?".
+3. **POD-734 must not turn server-versus-daemon role threading into a one-daemon-per-deployment
+   constraint.** Threading `(instanceId, role)` into unit names, state paths, ports and durable
+   labels is correct and is per-host by construction. Any check that would reject a second live
+   daemon *in the deployment* — a registry keyed by role, a "the daemon" singleton, a uniqueness
+   assertion on `(instanceId, role)` — is a bug, and would break every multi-machine install.
+
+**Rationale.** The first draft said two live processes of one role in an instance are "a
+conflict (port bind, state claim)". The parenthetical was the giveaway: port bind and state
+claim are **host-local** mechanisms, so the conflict they produce is host-local, and the
+sentence silently promoted a host-scoped constraint to a deployment-scoped one. Podium's whole
+fleet model is N daemons per deployment; a record that says otherwise, in the document POD-734
+implements role threading from, is an invitation to write the singleton that breaks multi-machine.
 
 **Rationale (D16 overall).** POD-645's four questions are each locally answerable and jointly misleading:
 answer them one at a time and you get four defensible sentences that still permit an
@@ -613,19 +642,84 @@ authorise one.
      created. Both facts below are **machine-axis**, and neither is an instance discriminator,
      so D18's fence is untouched:
 
-     1. **A revocation record that OUTLIVES the row.** Intentional revoke writes a retained
-        tombstone keyed by `MachineId` (with the time and the revoking principal — which
-        ADR 3 D7 already supplies from the transport). *Absent row **with** a tombstone* =
-        revoked ⇒ deny. *Absent row **without** a tombstone* = the row was lost, not
-        surrendered. This is the fact whose absence causes §1.4's bug: today, deletion and
-        data loss are byte-identical states.
-     2. **An instance-scoped PAIRING ROOT at the state-root durability tier.** A secret held
-        beside `instance.json` (`0600`, same tier, not inside the DB) under which an issued
-        machine token is verifiable **without** the per-row hash. Then: absent row, no
-        tombstone, and the presented token verifies under this instance's root ⇒ **re-enrol
-        automatically**, recreating the row and preserving the `MachineId`. A token that does
-        **not** verify under this root was minted by a different instance, or forged, or is
-        stale beyond the root's rotation ⇒ deny.
+     Both live in **one durable store at the state-root tier** — beside `instance.json`,
+     mode `0600`, **outside the server database** — hereafter the **enrollment ledger**. That
+     they share a durability domain is not incidental; it is the correctness condition, and
+     D19.4a below is where the first draft was wrong.
+
+     1. **An APPEND-ONLY REVOCATION LEDGER, at the state-root tier.** Intentional revoke
+        appends `(MachineId, serial-at-revoke, revoking principal, time)` — the principal
+        supplied by ADR 3 D7 from the transport, never payload. Entries are **never pruned**
+        while the pairing root they refer to exists.
+     2. **An instance-scoped PAIRING ROOT, at the same tier.** A secret under which an issued
+        machine token is verifiable **without** the per-row hash, plus a **monotonic enrollment
+        serial** minted on every pair and every token rotation and recoverable from the token.
+
+     **The verdict algorithm** for a `hello` whose `machines` row is absent, in order:
+
+     | Step | Test | Verdict |
+     |---|---|---|
+     | 1 | Token does not verify under this instance's pairing root | **Deny** — foreign instance, forged, or stale beyond root rotation. Error identical to every other refusal |
+     | 2 | Revocation ledger holds an entry for this `MachineId` with `serial >= the token's serial` | **Deny, permanently** — deliberately revoked |
+     | 3 | Otherwise | **Re-enrol** — recreate the row per D19.4b, preserving the `MachineId` |
+
+     Step 2 compares serials rather than merely testing for presence, so a machine that was
+     revoked and later **deliberately re-paired** — minting a higher serial — is not denied by
+     its own history. Presence alone would make revocation permanent against the operator's
+     later intent.
+
+   - **D19.4a — THE REVOCATION FACT MUST SURVIVE THE FAILURE THE CONTRACT RECOVERS FROM.**
+     Normative, and the correction of a hole in the first draft:
+
+     > **The revocation ledger survives database recreation and database rollback**, at the
+     > same durability tier as the pairing root. Where the ledger and the database disagree
+     > about enrollment or revocation, **the ledger wins.** The ledger is append-only and is
+     > **not** restored, rewound, or reconciled backwards when the database is.
+
+     *Why this is load-bearing.* If revocation is recorded only as a fact that "outlives the
+     `machines` row" — a DB-resident tombstone — then this sequence defeats the contract
+     entirely: a `manage`-holder revokes a daemon; the database is later recreated or restored
+     from a backup predating the revoke; the tombstone vanishes with it; the **pairing root at
+     the state root is untouched**, so the old token still verifies; step 2 finds no entry; and
+     the permanently-revoked daemon takes the automatic re-enrol path. The outcome the contract
+     requires — revoke stays denied, permanently, and is never reachable by the automatic
+     path — would be violated by exactly the event the contract exists to survive. Two facts
+     that must be compared can never sit in different durability domains, and the *stronger*
+     of the two must not be the one that grants access.
+
+     An equivalent monotonic store is acceptable in place of a file at that tier — anything
+     whose defining property is that it cannot be rolled back below the pairing root's
+     lifetime. What is **not** acceptable is any store that is backed up, snapshotted, or
+     restored *together with* the server database.
+
+   - **D19.4b — THE RECONSTRUCTED ROW, especially ownership.** A pairing-root-verifiable token
+     proves **machine enrollment only**. It proves nothing about who owns the machine, and the
+     composed target row (D18) carries `owner` and grants, so "recreate the row" is
+     underspecified until those are decided. Decided:
+
+     | Field | On re-enrolment | Why |
+     |---|---|---|
+     | `MachineId` | **Preserved** from the token | The contract's core promise; `daemon.json` already guarantees it outlives the DB |
+     | `owner` | **Restored from the enrollment ledger**, which records the owner as of the last pair or ownership transfer | The only durable source at the surviving tier. Not re-derived, not inferred from who is connected |
+     | **grants** | **DROPPED. Always. Never restored** | Grants are per-user authorization state, and `use` is a code-execution boundary (ADR 9 D6 M2). Restoring a stale grant set could re-grant execution to someone whose access was removed in the lost database — a privilege *widening* performed by a recovery path. Default-closed (ADR 9 D4) requires dropping them; they are re-granted explicitly |
+     | visibility class | `owned-compute`, unchanged | Recovery never reclassifies |
+     | `name`, `hostname`, `inventory_json`, `last_seen_at` | **Re-observed** from the handshake and subsequent daemon reports | Observations, not identity |
+
+     Two consequences that must not be re-decided by POD-1114:
+
+     1. **Ownership transfer is a ledger write, not only a database write.** Whoever implements
+        owner transfer (POD-318 / POD-1079) must append the new owner to the enrollment ledger
+        **in the same operation** that updates the row. Otherwise recovery resurrects a stale
+        owner — handing a machine back to a previous owner — which is a privilege escalation
+        with the same shape as the one grants-dropping avoids.
+     2. **If the recorded owner no longer resolves** — a fully recreated database in which that
+        `UserId` does not exist — the machine returns **QUARANTINED**: admins hold `see`,
+        **nobody** holds `use`, and an admin must assign an owner explicitly before it is
+        usable. It is **NOT** auto-assigned to the first admin. POD-318's first-admin migration
+        applies to machines that **never had a recorded owner**; reusing it here would hand
+        somebody's personal Mac to whoever happens to be admin now, on the strength of a
+        database restore. Ownerless means usable by nobody (Amendment 1 D13.4) — and that rule
+        is exactly what makes quarantine the safe landing state rather than a failure.
 
      Note what the pairing root buys beyond durability: it makes **"wrong instance" decidable
      with zero protocol presence.** A token minted under instance A's root simply fails to
@@ -822,8 +916,9 @@ column and must not be read with the same rule:
 | ~~`machines.instance_id`~~ | — | **no, and never** | D18's fence |
 | daemon `daemon.json` (`machineId`, `token`) | Machine, **stored inside** the instance state root | yes | Two instances on one host ⇒ two MachineIds, correctly (D16) |
 | `daemon.secret` (local same-host daemon) | Machine (credential-local) | yes | Per state dir, therefore per instance — a *location* consequence, not a column |
-| pairing root (D19.4 fact 2) | Machine (secret; state-root tier, **not** in the DB) | **no — POD-1114** | Per state root, therefore per instance. Makes "wrong instance" decidable with zero protocol presence |
-| machine revocation tombstone (D19.4 fact 1) | Machine | **no — POD-1114** | Retained; must outlive the `machines` row, or revoke and data loss stay indistinguishable |
+| **enrollment ledger** — pairing root, enrollment serials, recorded owner, revocation entries (D19.4, D19.4a, D19.4b) | Machine (secret + machine facts). **State-root tier, `0600`, OUTSIDE the server DB**, append-only, never rolled back with the DB | **no — POD-1114** | Per state root, therefore per instance. Makes "wrong instance" decidable with zero protocol presence, and is the only tier at which revocation can outlive a DB rollback (D19.4a) |
+| `machines.owner` after re-enrolment | **User** — restored from the ledger, never re-derived | no — POD-318 records it; POD-1114 restores it | Quarantined (`see` for admins, `use` for nobody) if the recorded `UserId` no longer resolves — **never** auto-assigned to the first admin (D19.4b) |
+| machine grants after re-enrolment | **User** | — | **Always dropped, never restored** — a recovery path must not widen privilege (D19.4b) |
 
 **Transitional sentinels — NOT machine identities.** Listed separately because D16.2 makes
 them invalid `MachineId` values, and because `MachineId` validates length rather than shape, so
@@ -879,7 +974,7 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 
 | Item | Status |
 |---|---|
-| Pairing durability / unattended re-pair recovery (§1.4's bug) | **POD-1114**, `discovered-from` POD-733. The **observable contract and the two durable facts are DECIDED** in D19.4 — POD-1114 implements them and no longer chooses between outcomes. Machine-axis; not fixable by a wire field (D20) or a column (D18); not in POD-734's scope |
+| Pairing durability / unattended re-pair recovery (§1.4's bug) | **POD-1114**, `discovered-from` POD-733. The **observable contract (D19.4), the durability domain (D19.4a) and the reconstructed row including ownership and grants (D19.4b) are all DECIDED** — POD-1114 implements them and chooses none of them. Machine-axis; not fixable by a wire field (D20) or a column (D18); not in POD-734's scope |
 | Logging the **verdict** (re-enrolled / revoked / unverifiable) plus the instance id and state root on a refused handshake or refused state root | Required by D19.4, and possible only once its two durable facts exist — so it lands with POD-1114 rather than before it. No wire, no protocol change |
 
 ---
@@ -908,9 +1003,21 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 - [ ] First boot mints a **daemon-minted UUID** for the local machine — not a sentinel — and
       assigns an owner that fails closed (§3.3 target sequence).
 - [ ] Revoke and accidental row loss are **distinguishable from durable facts**, not inferred:
-      a retained revocation tombstone and an instance-scoped pairing root at the state-root
-      tier (D19.4). A previously paired daemon recovers unattended from row loss; revoke and
-      wrong-instance stay denied.
+      an append-only revocation ledger and an instance-scoped pairing root, **in one store at
+      the state-root tier, outside the server DB** (D19.4). A previously paired daemon recovers
+      unattended from row loss; revoke and wrong-instance stay denied.
+- [ ] The revocation ledger **survives database recreation and rollback**, is never restored
+      backwards with the DB, and wins over the DB on disagreement (D19.4a). Proven by the
+      pair → revoke → destroy/roll back the DB → reconnect with the old token → **deny**
+      sequence, not by inspection.
+- [ ] Re-enrolment restores `owner` from the ledger, **drops all grants**, and **quarantines**
+      (admins `see`, nobody `use`) when the recorded owner no longer resolves — never
+      ownerless-and-ambient, never auto-assigned to an arbitrary admin (D19.4b).
+- [ ] Ownership transfer appends the new owner to the ledger **in the same operation** as the
+      row update, so recovery cannot resurrect a previous owner (D19.4b consequence 1).
+- [ ] No code treats two live processes of one role as a conflict at deployment scope, and no
+      registry, singleton or uniqueness assertion is keyed on `(instanceId, role)` — N daemons
+      per deployment is the normal case (D16.3).
 - [ ] `repo_id` equality is never asserted globally for the **path-fallback** form — that form
       means `(machineId, path)` and is upgradable (§3.2, D19.3).
 - [ ] The `InstanceId (partition)` matrix row declares `deployment-substrate` with owner
