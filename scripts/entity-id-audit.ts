@@ -1,0 +1,560 @@
+/**
+ * THE RAW-STRING ENTITY ID DETECTOR — POD-301, and the instrument POD-423 held
+ * Phase 1 open for the absence of.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS FILE EXISTS
+ * ---------------------------------------------------------------------------
+ *
+ * POD-363's acceptance criterion said "the raw-string-entity-id audit item
+ * reaches ZERO repo-wide" and POD-301's fourth criterion says the same. There
+ * was **no such item**: `scripts/rearch-audit-baseline.json` had no key and
+ * `scripts/rearch-audit.ts` had no detector, so the number reported as zero was
+ * the `POD-361-EDGE-CAST` marker count — a different, genuinely-zero thing.
+ * POD-423's formulation is the one this file implements:
+ *
+ * > AN AUDIT ITEM NAMED IN AN ACCEPTANCE CRITERION BUT ABSENT FROM THE BASELINE
+ * > IS NOT A PASSING CHECK, IT IS AN UNMEASURED CLAIM.
+ *
+ * ---------------------------------------------------------------------------
+ * ENUMERATE THE CONCEPT, NOT ONE SPELLING
+ * ---------------------------------------------------------------------------
+ *
+ * POD-423 measured 66 sites with a grep over EIGHT field names
+ * (`sessionId|issueId|machineId|repoId|conversationId|threadId|mutationId|userId`)
+ * and said plainly that it could not see a ninth. A detector built the same way
+ * inherits that blindness — which is exactly how POD-1168 happened, where
+ * `instancePartitions` enumerated entity-shaped *declarations* and so never saw
+ * a drizzle `sqliteTable(...)` call expression at all.
+ *
+ * So neither half of the predicate is a literal list:
+ *
+ *   - **The vocabulary is DERIVED**, at runtime, from `packages/model`'s own
+ *     brand exports ({@link ID_BRANDS}). Adding a brand extends the detector;
+ *     renaming one cannot silence it. A field denotes a brand when its name IS
+ *     or ENDS IN `<brand>Id` — so `targetSessionId`, `lastSessionId`,
+ *     `sourceMachineId` and `deletedByIssueId` are all in scope without anyone
+ *     listing them. Measured: this finds **79** raw sites where the eight-name
+ *     grep found 66, and the extra ones are real.
+ *   - **The position is SCANNED, not line-matched.** Every `key:` field position
+ *     in the comment-stripped source is enumerated and its right-hand side is
+ *     classified into {@link IdFieldForm}. Classification is PER SITE, so a file
+ *     that brands one field and leaves the next raw is counted honestly — that
+ *     intra-file inconsistency is what rules out the innocent "this is a
+ *     boundary parse" reading (POD-423 verified it by hand at
+ *     `packages/commands/src/issues/contracts.ts`).
+ *
+ * Both spellings of "an entity id field" are enumerated:
+ *
+ *   1. a `<brand>Id`-suffixed key, at any depth; and
+ *   2. a bare `id:` key at the top level of a `z.object` whose declaration NAME
+ *      denotes a brand (`Account.id` in `packages/runtime/src/settings.ts`,
+ *      which an eight-name grep cannot see). See {@link REPRESENTATION_SUFFIXES}
+ *      for where that inference stops — `IssueComment.id` is NOT an `IssueId`,
+ *      and POD-423 named it as a defect in error.
+ *
+ * ---------------------------------------------------------------------------
+ * THE INSTRUMENT MUST BE ABLE TO SAY NO
+ * ---------------------------------------------------------------------------
+ *
+ * Two zod walkers in this run found NOTHING and passed everything (POD-363 peeled
+ * past the brand with `ZodBranded.unwrap()`; POD-640 keyed on
+ * `safeParse().success`, which succeeds because zod STRIPS unknown keys). This
+ * detector is the same shape, so:
+ *
+ *   - {@link assertBrandsLoaded} REFUSES to run on an empty brand vocabulary,
+ *     rather than reporting a serene zero the ratchet would bank as a win.
+ *   - {@link MIN_ID_FIELD_SITES} pins a non-trivial floor on the TOTAL
+ *     population (branded + raw + carve-out + column + type). A walk that breaks
+ *     anywhere collapses that number, and the audit fails loudly instead of
+ *     going quiet. It is deliberately a floor on the population and NOT on the
+ *     raw count, which must be free to fall to zero.
+ *   - `entity-id-audit.test.ts` plants each spelling and requires it to be
+ *     FOUND, then removes it and requires the finding to disappear.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THREE COUNTS, AND WHY THE DEBT IS SPLIT
+ * ---------------------------------------------------------------------------
+ *
+ * {@link rawStringEntityIds} — POD-301's item. Every id field declared as a bare
+ * zod string where the brand exists and nothing carves it out.
+ *
+ * {@link machineIdUnbrandedFields} — POD-318's item, split out because ADR 1
+ * Amendment 2 D16.2 is normative that `MachineId` must NOT be adopted at any
+ * field until `local` / `__local__` are retired: branding a sentinel *launders*
+ * it rather than flagging it. D16.2 asks for "a narrower, visible debt" and an
+ * unratcheted carve-out is not visible, so the carve-out sites are counted here
+ * — under POD-318 — instead of being silently excluded from POD-301's count.
+ * Both the bare `z.string()` spelling and the sanctioned
+ * `machineIdBlockedOnPOD318` marker are counted: they are the same debt.
+ *
+ * {@link unbrandedByDecisionFields} — the escape hatch, counted so it cannot be
+ * used quietly. A field is excused when its doc comment carries the uppercase
+ * token `UNBRANDED`, which is the convention `packages/model` already used at
+ * eleven sites before this detector existed (`entities/conversation.ts:38`,
+ * `entities/session.ts:113`, `entities/transcript.ts:32`, …). Because the
+ * excused set is ITSELF a ratcheted baseline key, adding a marker raises a
+ * committed number and the audit fails until someone records why — so POD-301's
+ * count cannot be driven to zero by sprinkling comments.
+ *
+ * ---------------------------------------------------------------------------
+ * LIMITS — stated, because a grep audit is never sufficient
+ * ---------------------------------------------------------------------------
+ *
+ *  1. **Only zod field positions are counted.** The same scan also classifies
+ *     drizzle columns (`text("session_id")`, measured 68) and hand-written TS
+ *     `sessionId: string` members (measured 754) and reports them under
+ *     `--sites` via `bun scripts/entity-id-audit.ts`, but neither is in a
+ *     baseline key. They are a different act: a
+ *     column is branded with drizzle's `$type<>()` and most TS members are
+ *     `z.infer`-derived and follow the zod flip for free. Reading a zero here as
+ *     "no raw entity id exists anywhere" is not valid; reading it as "no zod
+ *     schema declares one" is.
+ *  2. **A POLYMORPHIC id is out of scope by design.** `workflowAssignInput
+ *     .targetId` and `MessageRow.toId` name whichever entity `targetKind` says,
+ *     so branding them at the declaration forces a false choice (POD-362's
+ *     finding, upheld). Their names do not end in `<brand>Id`, so the detector
+ *     does not reach them — that is the right answer, not a miss, and it is
+ *     recorded here so a later sweep does not "fix" it.
+ *  3. **A brand can still be widened downstream.** This sees the declaration,
+ *     not what a consumer does with the value.
+ */
+
+import * as brands from '../packages/model/src/ids/brands'
+import type { AuditContext, AuditSite } from './rearch-audit'
+
+// ---------------------------------------------------------------------------
+// The vocabulary — read from the model, never restated here
+// ---------------------------------------------------------------------------
+
+/**
+ * Every brand `packages/model` defines, by its bare name (`Session`, `Issue`,
+ * `Machine`, …), derived from the `<Brand>IdField` exports.
+ *
+ * The FIELD schema is the right thing to key on rather than the validating
+ * boundary schema: `brands.ts` ships two per brand and it is the field form that
+ * belongs in an entity schema, so a brand without one has nothing for a field to
+ * be flipped TO.
+ */
+export const ID_BRANDS: readonly string[] = Object.keys(brands)
+  .filter((k) => k.endsWith('IdField'))
+  .map((k) => k.slice(0, -'IdField'.length))
+  .sort()
+
+/**
+ * Refuse to run on an empty brand vocabulary.
+ *
+ * A broken import would otherwise make every count fall to zero and the ratchet
+ * would print "you improved — lock it in" (`docs/rearch-deletion-audit.md`: "a
+ * detector that stops matching is not a deletion"). Exported so a test can watch
+ * it REFUSE — an unexercised guard is indistinguishable from an absent one.
+ */
+export function assertBrandsLoaded(brandNames: readonly string[]): void {
+  if (brandNames.length === 0) {
+    throw new Error(
+      'entity-id-audit: the brand vocabulary loaded EMPTY from packages/model/src/ids/brands. ' +
+        'Every count would be zero and the ratchet would read it as a deletion. Fix the import; ' +
+        'do not rebaseline.',
+    )
+  }
+}
+
+/**
+ * A floor on the TOTAL id-field population — branded, raw, carved out, column
+ * and TS member alike.
+ *
+ * This is the non-trivial count a broken walk cannot reach. The raw count is
+ * free to fall to zero (that is the point of the ratchet); the POPULATION is
+ * not, because every falling raw site becomes a branded one. Measured at
+ * POD-301: 1342. Set well below that so ordinary churn does not trip it, and
+ * far above what a scanner that has stopped matching could produce.
+ */
+export const MIN_ID_FIELD_SITES = 1800
+
+/** The carve-out marker `packages/model` uses at every machine-id field. */
+const CARVEOUT_MARKER = 'machineIdBlockedOnPOD318'
+
+/**
+ * The excuse token. Uppercase and word-anchored: `packages/model` already wrote
+ * it at eleven fields ("UNBRANDED: a HARNESS-minted `agent_id` …") before this
+ * detector read it, so the convention is inherited rather than invented, and
+ * lowercase prose about branding cannot trip it.
+ */
+const UNBRANDED_TOKEN = /\bUNBRANDED\b/
+
+// ---------------------------------------------------------------------------
+// Sites
+// ---------------------------------------------------------------------------
+
+export type IdFieldForm =
+  /** A bare zod string — the debt. */
+  | 'zod-string'
+  /** A zod schema carrying the brand (`SessionIdField`, `.brand<…>`, `.pipe(…)`). */
+  | 'zod-branded'
+  /** `machineIdBlockedOnPOD318` — ADR 1 Amendment 2 D16.2's sanctioned carve-out. */
+  | 'carveout-marker'
+  /** A drizzle column (`text("session_id")`). Limit 1. */
+  | 'db-column'
+  /** A hand-written TypeScript `string` member. Limit 1. */
+  | 'ts-string'
+  /** A branded TS type, a function parameter, a value expression — anything else. */
+  | 'other'
+
+export interface EntityIdSite extends AuditSite {
+  /** The declared key, verbatim (`targetSessionId`, `session_id`, `id`). */
+  readonly key: string
+  /** The brand its name denotes (`Session`, `Machine`, …). */
+  readonly brand: string
+  readonly form: IdFieldForm
+  /** The enclosing top-level declaration, when the site is a bare `id`. */
+  readonly symbol: string
+  /** True when the field's doc comment carries the `UNBRANDED` token. */
+  readonly excused: boolean
+}
+
+/** `session_id` → `sessionId`, so a snake-cased key is the same concept. */
+const toCamel = (key: string): string =>
+  key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase())
+
+/** Which brand a key's NAME denotes, or null. `<brand>Id` exactly, or any name
+ *  ENDING in it — the part an eight-name literal list cannot express. */
+export function brandOfKey(key: string, brandNames: readonly string[] = ID_BRANDS): string | null {
+  const camel = toCamel(key)
+  for (const brand of brandNames) {
+    const suffix = `${brand.charAt(0).toUpperCase()}${brand.slice(1)}Id`
+    if (camel === `${brand.charAt(0).toLowerCase()}${brand.slice(1)}Id`) return brand
+    if (camel.length > suffix.length && camel.endsWith(suffix)) return brand
+  }
+  return null
+}
+
+/**
+ * Suffixes that make a declaration a REPRESENTATION OF the brand it starts with,
+ * rather than a different entity that merely mentions it.
+ *
+ * This is the one JUDGEMENT in the detector, so it is stated rather than buried.
+ * Without it `brandOfSymbol` is `startsWith`, and `startsWith` says
+ * `IssueComment.id` is an `IssueId` — which is false and is the well-typed lie
+ * `brands.ts` warns about at `controllerId`. A COMMENT has its own id space;
+ * branding it `IssueId` would let a comment id be passed where an issue id is
+ * required. POD-423 named that site as a defect and it is not one.
+ *
+ * Note this list enumerates REPRESENTATION SUFFIXES, not entity names — the
+ * thing that made POD-423's grep brittle was a literal list of entities, which
+ * {@link ID_BRANDS} replaces with a derived one.
+ */
+export const REPRESENTATION_SUFFIXES: readonly string[] = [
+  '',
+  'Wire',
+  'Meta',
+  'Aggregate',
+  'Row',
+  'Record',
+  'Entity',
+  'Snapshot',
+  'Summary',
+  'SummaryWire',
+  'Head',
+  'Ref',
+  'State',
+]
+
+/** Which brand a DECLARATION's name denotes, for the bare-`id` spelling.
+ *  `SessionMeta` → Session, `ConversationSummaryWire` → Conversation,
+ *  `IssueComment` → null. Longest brand wins, so `AutomationRunWire` is an
+ *  AutomationRun and not an Automation. */
+export function brandOfSymbol(
+  symbol: string,
+  brandNames: readonly string[] = ID_BRANDS,
+): string | null {
+  let best: string | null = null
+  for (const brand of brandNames) {
+    if (!symbol.startsWith(brand)) continue
+    if (!REPRESENTATION_SUFFIXES.includes(symbol.slice(brand.length))) continue
+    if (best === null || brand.length > best.length) best = brand
+  }
+  return best
+}
+
+const DECL_AT_COL_0 = /^export (?:const|type|interface|class) (\w+)/
+
+/**
+ * Classify the right-hand side of a field declaration.
+ *
+ * Anchored on what the expression STARTS with, not on what it contains: a
+ * `sessionId: z.object({ … z.string() … })` contains a zod string and is not
+ * one. The union/wrapper arm is the exception and is admitted only when the
+ * expression opens no nested object.
+ */
+export function classifyRhs(rhs: string): IdFieldForm {
+  const norm = rhs.replace(/\s+/g, '')
+  if (norm.includes(CARVEOUT_MARKER)) return 'carveout-marker'
+  if (/\.brand</.test(norm)) return 'zod-branded'
+  if (/\b\w+IdField\b/.test(norm)) return 'zod-branded'
+  if (/\.pipe\(/.test(norm) && /\bz\./.test(norm)) return 'zod-branded'
+  if (/^z\.string\(/.test(norm)) return 'zod-string'
+  // A wrapper (`z.union([z.string(), z.null()])`, `z.nullable(z.string())`) is
+  // still a raw string field — but only when it opens no nested object, or the
+  // inner shape's own members would be read as this field's type.
+  if (/^z\./.test(norm) && /z\.string\(/.test(norm) && !/z\.object\(/.test(norm)) {
+    return 'zod-string'
+  }
+  if (/^z\./.test(norm)) return 'other'
+  if (/^(?:text|integer|blob|real|numeric)\(/.test(norm)) return 'db-column'
+  if (/^(?:string|\|?string\b)/.test(norm) || /^(?:string\|null|string\|undefined)/.test(norm)) {
+    return 'ts-string'
+  }
+  return 'other'
+}
+
+/** Prefix depth of `{` for every index in `text`, computed once per file. */
+function braceDepths(text: string): Int32Array {
+  const depths = new Int32Array(text.length + 1)
+  let depth = 0
+  for (let i = 0; i < text.length; i++) {
+    depths[i] = depth
+    const c = text[i]
+    if (c === '{') depth++
+    else if (c === '}') depth--
+  }
+  depths[text.length] = depth
+  return depths
+}
+
+/** The RHS expression: from `start` to the first `,`, `;` or closing bracket at
+ *  the same nesting depth. Bounded, so an unbalanced file cannot swallow the
+ *  rest of the module. */
+function rhsText(text: string, start: number): string {
+  let depth = 0
+  const limit = Math.min(text.length, start + 600)
+  for (let i = start; i < limit; i++) {
+    const c = text[i] as string
+    if (c === '{' || c === '(' || c === '[') depth++
+    else if (c === '}' || c === ')' || c === ']') {
+      if (depth === 0) return text.slice(start, i)
+      depth--
+    } else if ((c === ',' || c === ';') && depth === 0) return text.slice(start, i)
+  }
+  return text.slice(start, limit)
+}
+
+/** Line number (1-based) for a byte offset. */
+function lineOf(newlineIdx: readonly number[], offset: number): number {
+  let lo = 0
+  let hi = newlineIdx.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if ((newlineIdx[mid] as number) < offset) lo = mid + 1
+    else hi = mid
+  }
+  return lo + 1
+}
+
+/**
+ * Whether the field at `line` (1-based, in the RAW source) carries the
+ * `UNBRANDED` token — on its own line, or in the comment block immediately
+ * above it. Read from the RAW source because the audit context strips comments.
+ */
+function isExcused(rawLines: readonly string[], line: number): boolean {
+  const own = rawLines[line - 1] ?? ''
+  if (UNBRANDED_TOKEN.test(own)) return true
+  for (let n = line - 2; n >= 0 && n > line - 30; n--) {
+    const l = (rawLines[n] ?? '').trim()
+    if (l === '') break
+    const isComment = l.startsWith('*') || l.startsWith('/*') || l.startsWith('//')
+    if (!isComment) break
+    if (UNBRANDED_TOKEN.test(l)) return true
+  }
+  return false
+}
+
+const FIELD_POSITION =
+  /(^|[{;,(\n])[ \t]*(?:readonly[ \t]+)?(?:'([\w$]+)'|"([\w$]+)"|([\w$]+))\??[ \t]*:[ \t\n]*/g
+
+/**
+ * Every field position under `apps/` + `packages/` whose key denotes a branded
+ * entity id, with its classified form. Non-test, non-frozen files only.
+ *
+ * THROWS on an empty brand vocabulary (see {@link assertBrandsLoaded}).
+ */
+export function entityIdSites(ctx: AuditContext): EntityIdSite[] {
+  assertBrandsLoaded(ID_BRANDS)
+  const out: EntityIdSite[] = []
+  for (const f of ctx.files) {
+    if (f.isTest) continue
+    // Past migrations are immutable history; generated files are rebuilt from
+    // them. Neither may be edited to satisfy an audit.
+    if (f.file.includes('/migrations/drizzle/') || f.file.endsWith('.generated.ts')) continue
+    // Wire fixtures are captured PAYLOADS, not declarations of a shape.
+    if (f.file.endsWith('.fixtures.ts')) continue
+
+    const text = f.stripped
+    // Most files declare no entity id at all. Both index builds below are O(file)
+    // and were being paid for every file in the tree; they are deferred until a
+    // candidate key actually turns up.
+    let depths: Int32Array | null = null
+    let newlineIdx: number[] | null = null
+    const depthAt = (i: number): number => {
+      depths ??= braceDepths(text)
+      return depths[i] as number
+    }
+    const lineAt = (i: number): number => {
+      if (newlineIdx === null) {
+        newlineIdx = []
+        for (let k = 0; k < text.length; k++) if (text[k] === '\n') newlineIdx.push(k)
+      }
+      return lineOf(newlineIdx, i)
+    }
+    // Comments are the excuse marker's home, so this detector needs the source
+    // AS WRITTEN. Falling back to `stripped` means no site reads as excused,
+    // which is the fail-CLOSED direction: an unreadable comment cannot excuse.
+    const rawLines = (f.raw ?? text).split('\n')
+
+    // The nearest preceding column-0 declaration, for the bare-`id` spelling.
+    let decls: { at: number; symbol: string }[] | null = null
+    const symbolAt = (offset: number): string => {
+      if (decls === null) {
+        decls = []
+        for (const m of text.matchAll(new RegExp(DECL_AT_COL_0.source, 'gm'))) {
+          decls.push({ at: m.index ?? 0, symbol: m[1] as string })
+        }
+      }
+      let sym = ''
+      for (const d of decls) {
+        if (d.at > offset) break
+        sym = d.symbol
+      }
+      return sym
+    }
+
+    FIELD_POSITION.lastIndex = 0
+    for (const m of text.matchAll(FIELD_POSITION)) {
+      const key = (m[2] ?? m[3] ?? m[4]) as string
+      const at = (m.index ?? 0) + m[0].length
+      let brand = brandOfKey(key)
+      let symbol = ''
+      if (brand === null) {
+        // Spelling 2: a bare `id` at the top level of a declaration whose NAME
+        // denotes a brand. Depth 1 only — a nested object's `id` belongs to that
+        // inner shape, not to the declaration.
+        if (key !== 'id' || depthAt(at) !== 1) continue
+        symbol = symbolAt(m.index ?? 0)
+        brand = brandOfSymbol(symbol)
+        if (brand === null) continue
+      }
+      const form = classifyRhs(rhsText(text, at))
+      // The line of the KEY, not of the separator the match opened on: the
+      // separator is often the newline ENDING the previous line, and a site
+      // reported one line high points a reader at the wrong field.
+      const line = lineAt((m.index ?? 0) + m[0].indexOf(key))
+      out.push({
+        file: f.file,
+        line,
+        text: `${key}: ${rhsText(text, at).replace(/\s+/g, ' ').trim().slice(0, 100)}`,
+        key,
+        brand,
+        form,
+        symbol,
+        excused: isExcused(rawLines, line),
+      })
+    }
+  }
+  if (out.length < MIN_ID_FIELD_SITES) {
+    throw new Error(
+      `entity-id-audit: found only ${out.length} entity-id field positions, below the ` +
+        `${MIN_ID_FIELD_SITES} floor. The scanner has stopped matching — every count below ` +
+        'would be a false zero. Fix the scan; do not rebaseline.',
+    )
+  }
+  return out
+}
+
+const site = (s: EntityIdSite): AuditSite => ({ file: s.file, line: s.line, text: s.text })
+
+/** The three checks below share one scan of the tree. Without this the deletion
+ *  audit walks every file three times and its own CLI test — which spawns the
+ *  real binary — starts timing out on a loaded host. */
+const scanCache = new WeakMap<AuditContext, EntityIdSite[]>()
+const sitesOnce = (ctx: AuditContext): EntityIdSite[] => {
+  const hit = scanCache.get(ctx)
+  if (hit !== undefined) return hit
+  const sites = entityIdSites(ctx)
+  scanCache.set(ctx, sites)
+  return sites
+}
+
+/**
+ * POD-301's item: an entity id field declared as a bare zod string where the
+ * brand exists.
+ *
+ * Machine-id fields are NOT here — ADR 1 Amendment 2 D16.2 forbids adopting that
+ * brand before POD-318, so they are their own count
+ * ({@link machineIdUnbrandedFields}) rather than a silent exclusion.
+ */
+export function rawStringEntityIds(ctx: AuditContext): AuditSite[] {
+  return sitesOnce(ctx)
+    .filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused)
+    .map(site)
+}
+
+/**
+ * POD-318's item: every machine-id field still carrying an unbranded string,
+ * in either spelling — bare `z.string()` or the sanctioned
+ * `machineIdBlockedOnPOD318` marker. One debt, two spellings; D16.2 asks for it
+ * to be VISIBLE, and an unratcheted carve-out is not.
+ */
+export function machineIdUnbrandedFields(ctx: AuditContext): AuditSite[] {
+  return sitesOnce(ctx)
+    .filter(
+      (s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker'),
+    )
+    .map(site)
+}
+
+/**
+ * The escape hatch, counted. A zod id field excused by an `UNBRANDED` doc
+ * comment — harness-native ids, external correlation ids, and the four sites
+ * POD-423 checked individually and upheld.
+ *
+ * Ratcheted so POD-301's count cannot be zeroed by sprinkling comments: a new
+ * marker raises THIS number and the audit fails until it is recorded.
+ */
+export function unbrandedByDecisionFields(ctx: AuditContext): AuditSite[] {
+  return sitesOnce(ctx)
+    .filter((s) => s.form === 'zod-string' && s.excused)
+    .map(site)
+}
+
+// ---------------------------------------------------------------------------
+// CLI — the reporting surface for the classes the baseline does not ratchet
+// ---------------------------------------------------------------------------
+
+/**
+ * `bun scripts/entity-id-audit.ts [--sites] [--form <form>]`
+ *
+ * The ratchet lives in `rearch-audit.ts`; this prints the WHOLE classified
+ * population, including the drizzle-column and TS-member classes that are
+ * deliberately not in a baseline key (Limit 1). Without a way to see them, "not
+ * counted" would read as "not there".
+ */
+if (import.meta.main) {
+  const { loadContext } = await import('./rearch-audit')
+  const argv = process.argv.slice(2)
+  const only = argv.includes('--form') ? argv[argv.indexOf('--form') + 1] : undefined
+  const sites = entityIdSites(loadContext(process.cwd()))
+  const byForm = new Map<string, number>()
+  for (const s of sites) byForm.set(s.form, (byForm.get(s.form) ?? 0) + 1)
+  console.log(`entity-id field positions: ${sites.length} (floor ${MIN_ID_FIELD_SITES})`)
+  for (const [form, n] of [...byForm].sort((a, b) => b[1] - a[1])) console.log(`  ${form}: ${n}`)
+  console.log(
+    `  ratcheted: raw=${sites.filter((s) => s.form === 'zod-string' && s.brand !== 'Machine' && !s.excused).length} machine=${sites.filter((s) => s.brand === 'Machine' && (s.form === 'zod-string' || s.form === 'carveout-marker')).length} excused=${sites.filter((s) => s.form === 'zod-string' && s.excused).length}`,
+  )
+  if (argv.includes('--sites')) {
+    for (const s of sites) {
+      if (only !== undefined && s.form !== only) continue
+      console.log(
+        `  ${s.file}:${s.line} [${s.form}/${s.brand}${s.excused ? '/excused' : ''}] ${s.text}`,
+      )
+    }
+  }
+}

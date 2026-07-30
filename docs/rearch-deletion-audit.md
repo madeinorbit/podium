@@ -285,6 +285,61 @@ inline row shapes in `change-log.ts` and three more in `sync-repository.ts`,
 `replica/types.ts`, and one test-plumbing `Row`. POD-305 composes the ones it
 owns; the rest are POD-308's at the cutover.
 
+### 2026-07-30 — POD-301 adds the three entity-id items (25 → 28 items, 186 → 273 sites)
+
+**A ratchet EXTENSION, in a commit that touches no product code** — the same act
+and the same disclosure as POD-305's `change-row-typings` redefinition below. The
+counts rose because three kinds of debt that were always present became
+*measured*, not because any debt was added.
+
+POD-363's acceptance criterion said *"the raw-string-entity-id audit item reaches
+ZERO repo-wide"*, and POD-301's fourth criterion says the same. **There was no
+such item.** `scripts/rearch-audit-baseline.json` had no key, `scripts/rearch-audit.ts`
+had no detector, and the number being reported as zero was the
+`POD-361-EDGE-CAST` marker count — a different thing, which is genuinely zero.
+POD-423 held the Phase 1 exit gate open for this and stated the rule these three
+keys exist to satisfy:
+
+> An audit item named in an acceptance criterion but absent from the baseline is
+> not a passing check, it is an unmeasured claim.
+
+| Key | Baseline | Phase | What one count is |
+|---|---|---|---|
+| `raw-string-entity-ids` | 47 | POD-301 | a zod field whose key names a branded entity id and whose schema is an unbranded string |
+| `machine-id-unbranded-fields` | 38 | POD-318 | a machine-id zod field, in either spelling — bare `z.string()` or the `machineIdBlockedOnPOD318` marker |
+| `unbranded-by-decision-ids` | 2 | POD-301 | an id field excused by an `UNBRANDED` doc comment |
+
+Three decisions are recorded rather than left implicit:
+
+1. **The vocabulary is derived, not listed.** POD-423 measured 66 sites with a
+   grep over eight field names and said plainly that it could not see a ninth.
+   `scripts/entity-id-audit.ts` reads the brand set out of `packages/model`'s own
+   `<Brand>IdField` exports and matches any key that IS or ENDS IN `<brand>Id`,
+   so `targetSessionId`, `lastSessionId`, `sourceMachineId` and
+   `deletedByIssueId` are in scope without anyone naming them. Measured: **79**
+   raw sites against the eight-name grep's 66. A detector built the other way
+   inherits POD-1168's defect, where one syntax form of a concept was enumerated
+   and another was invisible.
+2. **`MachineId` is its own item, mapped to POD-318 — not to POD-301.** ADR 1
+   Amendment 2 D16.2 is normative that the brand must not be adopted at any field
+   until `local` / `__local__` are retired, because branding a sentinel launders
+   it rather than flagging it. D16.2 asks for *"a narrower, visible debt"*, and a
+   carve-out nobody counts is not visible — so the 38 sites are COUNTED, under
+   the phase that deletes them, instead of being silently excluded from POD-301's
+   number. POD-301 cannot close by laundering them; POD-318 cannot close while
+   they remain.
+3. **The excuse is counted too.** Without `unbranded-by-decision-ids`, the first
+   item is zeroable by writing `UNBRANDED` above every field. With it, an excuse
+   raises a committed number and the audit fails until the reason is recorded.
+
+**Limit, stated because a grep audit is never sufficient:** only zod field
+positions are in a baseline key. The same scan also classifies drizzle columns
+(68) and hand-written TS `sessionId: string` members (754) and prints them under
+`bun scripts/entity-id-audit.ts --sites`, but branding a column is drizzle's
+`$type<>()` and most TS members are `z.infer`-derived and follow the zod flip for
+free. A zero here means "no zod schema declares a raw entity id", not "no raw
+entity id exists".
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
