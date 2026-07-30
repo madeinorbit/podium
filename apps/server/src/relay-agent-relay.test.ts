@@ -8,7 +8,7 @@ type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 // a daemon's control-message send fn (confirmed in wsServer.ts); the relay reply routes to it.
 function captureReply(registry: SessionRegistry, machineId: string): Promise<RelayResult> {
   return new Promise((resolve) => {
-    registry.modules.sessions.attachDaemon(machineId, (msg) => {
+    registry.gateway.attachDaemon(machineId, (msg) => {
       if (msg.type === 'agentRelayResult') resolve(msg)
     })
   })
@@ -44,7 +44,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('relays a scoped op through the capability gate (rejects a write outside the subtree)', async () => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir1',
       sessionId: sA,
@@ -59,7 +59,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('override lets a scoped op write outside its subtree', async () => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir2',
       sessionId: sA,
@@ -73,7 +73,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('allows a same-issue child spawn and bounded await through the relay (#475)', async () => {
     const spawnReply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn',
       sessionId: sA,
@@ -94,7 +94,7 @@ describe('server agent relay handler (P1b)', () => {
     )
 
     const awaitReply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-await',
       sessionId: sA,
@@ -109,7 +109,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('still scope-gates a relayed child spawn onto another issue (#475)', async () => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn-scoped',
       sessionId: sA,
@@ -124,7 +124,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('rejects a non-allowlisted router', async () => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir3',
       sessionId: sA,
@@ -139,9 +139,9 @@ describe('server agent relay handler (P1b)', () => {
 
   it('relays the read-only multi-machine quota summary used by the panel', async () => {
     const reply = new Promise<RelayResult>((resolve) => {
-      registry.modules.sessions.attachDaemon(machineId, (msg) => {
+      registry.gateway.attachDaemon(machineId, (msg) => {
         if (msg.type === 'agentQuotaRequest') {
-          registry.modules.sessions.onDaemonMessageFrom(machineId, {
+          registry.gateway.routeDaemonFrame(machineId, {
             type: 'agentQuotaResult',
             requestId: msg.requestId,
             hostname: 'devbox',
@@ -167,7 +167,7 @@ describe('server agent relay handler (P1b)', () => {
         if (msg.type === 'agentRelayResult') resolve(msg)
       })
     })
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-quota-summary',
       sessionId: sA,
@@ -199,7 +199,7 @@ describe('server agent relay handler (P1b)', () => {
       issueId: B.id,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-scoped',
       sessionId: sA,
@@ -219,7 +219,7 @@ describe('server agent relay handler (P1b)', () => {
       issueId: B.id,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-override',
       sessionId: sA,
@@ -241,7 +241,7 @@ describe('server agent relay handler (P1b)', () => {
       agentKind: 'shell',
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless',
       sessionId: sA,
@@ -262,7 +262,7 @@ describe('server agent relay handler (P1b)', () => {
       spawnedBy: `session:${sA}`,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless-parent',
       sessionId: sA,
@@ -279,7 +279,7 @@ describe('server agent relay handler (P1b)', () => {
     // would index an INHERITED value and blow up on `.has(...)` — the guard must
     // treat non-own keys as simply not-permitted, not a confusing TypeError.
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir5',
       sessionId: sA,
@@ -295,7 +295,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('relays prime bound to the session capability', async () => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir4',
       sessionId: sA,
@@ -354,8 +354,8 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   })
 
   it('self-stop is free and reports deferredKill for after-reply arming', async () => {
-    registry.modules.sessions.attachDaemon(machineId, () => {})
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.attachDaemon(machineId, () => {})
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'bind',
       sessionId: sA,
       cmd: 'sh',
@@ -364,7 +364,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       geometry: { cols: 80, rows: 24 },
     })
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-self',
       sessionId: sA,
@@ -389,7 +389,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       issueId: A.id,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-sib',
       sessionId: sA,
@@ -409,7 +409,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       issueId: B.id,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out',
       sessionId: sA,
@@ -430,7 +430,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       issueId: B.id,
     }).sessionId
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out-ok',
       sessionId: sA,
@@ -448,7 +448,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
       agentKind: 'shell',
     }).sessionId
     const blocked = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-block',
       sessionId: sA,
@@ -461,7 +461,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     expect(blockedR.error).toMatch(/outside-scope/)
 
     const allowed = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-ok',
       sessionId: sA,
@@ -495,7 +495,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     input: unknown,
   ): Promise<RelayResult> => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `t${++requestSeq}`,
       sessionId,
@@ -612,7 +612,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
     input: unknown,
   ): Promise<RelayResult> => {
     const reply = captureReply(registry, machineId)
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `o${++requestSeq}`,
       sessionId,

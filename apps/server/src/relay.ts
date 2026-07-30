@@ -3,13 +3,14 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { DaemonMux } from './gateway/daemon-mux'
 import {
   formatIssueRef,
   isExposedOn,
   sessionCommandPlane,
   sessionTitleRule,
 } from '@podium/protocol'
-import { Ledger } from '@podium/sync'
+import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
@@ -153,6 +154,10 @@ export interface RegistryModules {
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
+  /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
+   *  module seam so a transport wires the framework's implementation rather than
+   *  reaching into a service for it. */
+  mutations: MutationLedger
 }
 
 /**
@@ -214,6 +219,13 @@ export class SessionRegistry {
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
+   * `routeDaemonFrame` live here, not on the sessions service: a daemon
+   * connection is a MACHINE principal whose frames belong to many features, and
+   * the sessions service is one of them.
+   */
+  readonly gateway: DaemonMux
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
   /** In-process issue command surface (≡ modules.issueCommands) — the registry
@@ -262,6 +274,20 @@ export class SessionRegistry {
     let issueSessionLifecycle!: IssueSessionLifecycle
     let workflows!: WorkflowService
     let automations!: AutomationsService
+    /**
+     * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
+     * honours a `mutationId` — the session presence class, the session command
+     * plane and the issue registry — dedupes through THIS object. It replaces
+     * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
+     * chance to forget (POD-379's idempotency oracle exists because of it) and
+     * which made the issue family reach the session service for a property that
+     * belongs to neither.
+     *
+     * Built here, at the composition root, ahead of every consumer: an envelope
+     * that constructed its own would be a second dedup cache, and two caches over
+     * one durable table is how a replay applies twice.
+     */
+    const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
@@ -384,7 +410,7 @@ export class SessionRegistry {
       isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
       forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
       upstreamIssueRepoPaths: () => upstreamIssues.repoPaths(),
-      withMutation: (mutationId, proc, fn) => sessionsSvc.withMutation(mutationId, proc, fn),
+      mutations,
       listSessions: () => sessionsSvc.listSessions(),
       repoPaths: () => this.store.repos.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
@@ -1012,9 +1038,7 @@ export class SessionRegistry {
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.currentIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
-      runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
       onWorktreesChanged: broadcastWorktreesChanged,
-      onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
@@ -1371,7 +1395,26 @@ export class SessionRegistry {
       issueArtifacts,
       automations,
       perf,
+      mutations,
     }
+    // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
+    // over the feature ports, so no feature module owns another feature's
+    // traffic. `agentRelay` is its own port and receives exactly the two relay
+    // frames — the host-edge separation of ADR 7 D2 / ADR 5 D7 survives the fact
+    // that both surfaces arrive on the same socket.
+    this.gateway = new DaemonMux({
+      bus: this.bus,
+      ports: {
+        sessions: sessionsSvc,
+        machines,
+        hosts,
+        conversations: () => conversations,
+        rpc,
+        headless,
+        approvals: { onExecResult: (msg) => approvals.onExecResult(msg) },
+        agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
+      },
+    })
   }
 
   /**

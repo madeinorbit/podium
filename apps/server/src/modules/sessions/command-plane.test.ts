@@ -114,7 +114,9 @@ function ctxFor(
       issues: modules.issues,
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
+    rpc: () => modules.rpc,
     ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
+    mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
 }
@@ -323,7 +325,7 @@ describe('delegation, resolved live at every apply', () => {
     // `use` denial below would be indistinguishable from unreachability — the
     // exact conflation D18.5 exists to prevent, arriving in the test that is
     // supposed to prove it.
-    o.reg.modules.sessions.attachDaemon('b', () => {})
+    o.reg.gateway.attachDaemon('b', () => {})
     const ownership = ownershipTable(
       new Map([
         ['a', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'A' }],
@@ -434,7 +436,7 @@ describe('attribution and ownership come from the principal', () => {
       cwd: '/p',
       machineId: 'box',
     })) as { sessionId: string }
-    o.reg.modules.sessions.onDaemonMessageFrom('box', {
+    o.reg.gateway.routeDaemonFrame('box', {
       type: 'bind',
       sessionId,
       cmd: 'claude',

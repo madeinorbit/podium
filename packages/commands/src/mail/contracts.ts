@@ -173,6 +173,7 @@ export const awaitAgentInput = z.object({
 export const mailSendContract: CommandContract<typeof mailSendInput> = {
   name: 'mail.send',
   version: 1,
+  visibility: 'personal',
   input: mailSendInput,
   policy: {
     action: 'write',
@@ -211,6 +212,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
 export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
   name: 'mail.reply',
   version: 1,
+  visibility: 'personal',
   input: mailReplyInput,
   policy: {
     action: 'write',
@@ -246,6 +248,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
 export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
   name: 'mail.spawnAgent',
   version: 1,
+  visibility: 'personal',
   input: spawnAgentInput,
   policy: {
     action: 'write',
@@ -325,6 +328,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
 export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
   name: 'mail.awaitAgent',
   version: 1,
+  visibility: 'personal',
   input: awaitAgentInput,
   policy: {
     action: 'write',
@@ -386,6 +390,7 @@ export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
 export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = {
   name: 'mail.inboxConsume',
   version: 1,
+  visibility: 'personal',
   input: mailInboxInput,
   policy: {
     action: 'write',
@@ -438,6 +443,7 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
 export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
   name: 'mail.ledger',
   version: 1,
+  visibility: 'personal',
   input: mailLedgerInput,
   policy: {
     action: 'read',
@@ -533,6 +539,7 @@ export const mailAskInput = z.object({
 export const mailShowContract: CommandContract<typeof mailShowInput> = {
   name: 'mail.show',
   version: 1,
+  visibility: 'personal',
   input: mailShowInput,
   policy: {
     action: 'read',
@@ -565,6 +572,7 @@ export const mailShowContract: CommandContract<typeof mailShowInput> = {
 export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
   name: 'mail.dismiss',
   version: 1,
+  visibility: 'personal',
   input: mailDismissInput,
   policy: {
     action: 'write',
@@ -590,6 +598,7 @@ export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
 export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
   name: 'mail.status',
   version: 1,
+  visibility: 'personal',
   input: mailStatusInput,
   policy: {
     action: 'read',
@@ -618,6 +627,7 @@ export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
 export const mailPendingRemindersContract: CommandContract<typeof mailPendingRemindersInput> = {
   name: 'mail.pendingReminders',
   version: 1,
+  visibility: 'personal',
   input: mailPendingRemindersInput,
   policy: {
     action: 'write',
@@ -648,6 +658,7 @@ export const mailPendingRemindersContract: CommandContract<typeof mailPendingRem
 export const mailAskContract: CommandContract<typeof mailAskInput> = {
   name: 'mail.ask',
   version: 1,
+  visibility: 'personal',
   input: mailAskInput,
   policy: {
     action: 'write',

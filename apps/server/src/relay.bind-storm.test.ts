@@ -22,8 +22,8 @@ describe('bind-storm regression', () => {
     store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
     store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
     const registry = new SessionRegistry(store)
-    registry.modules.sessions.attachDaemon('m1', () => {})
-    registry.modules.sessions.attachDaemon('m2', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {
       registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
@@ -47,7 +47,7 @@ describe('bind-storm regression', () => {
     const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
 
     // (c) Pipeline runs ≪ bind count: leading run + one coalesced trailing flush.
@@ -76,7 +76,7 @@ describe('bind-storm regression', () => {
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 3, issues: 1 })
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
     const last = inbox.filter((m) => m.type === 'sessionsChanged').at(-1)
@@ -87,7 +87,7 @@ describe('bind-storm regression', () => {
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 2, issues: 0 })
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
     registry.modules.machines.renameMachine('m1', 'renamed-one')
     registry.modules.sessions.flushBroadcasts()

@@ -24,7 +24,7 @@ function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = new SessionRegistry()
-  registry.modules.sessions.attachDaemon('local', onDaemon)
+  registry.gateway.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
@@ -164,8 +164,8 @@ describe('cloud router', () => {
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.modules.sessions.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },

@@ -29,7 +29,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   const reg = new SessionRegistry()
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
@@ -56,7 +56,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
 }
 
 function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
-  reg.modules.sessions.onDaemonMessageFrom('local', {
+  reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -64,7 +64,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  reg.modules.sessions.onDaemonMessageFrom('local', {
+  reg.gateway.routeDaemonFrame('local', {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'native-1' },

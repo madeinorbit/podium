@@ -188,10 +188,29 @@ describe('every path to message delivery is accounted for', () => {
 
   it('applies idempotency in the framework envelope, not in the handlers', () => {
     const src = sourceOf('../sessions/command-plane.ts')
-    // Exactly one `withMutation` call site, and it is the dispatcher's.
-    const sites = [...src.matchAll(/\.withMutation\(/g)]
+    // THE MECHANISM CHANGED UNDER THIS TEST AND ITS CLAIM DID NOT (POD-382, at the
+    // integration merge). It used to read `ctx.sessions.withMutation(mutationId,
+    // \`sessions.${key}\`)`; that method is deleted, and dedup is now
+    // `@podium/sync`'s `MutationLedger` — one implementation shared by the presence
+    // envelope, this dispatcher and the issue registry, injected as a dep rather
+    // than borrowed from the session service.
+    //
+    // What this test is FOR is unchanged and is asserted the same way: exactly ONE
+    // idempotency call site in this file, and it is the dispatcher's, not a
+    // handler's. The count is what carries the claim — a handler that wrapped
+    // itself would make it two.
+    // COMMENTS STRIPPED FIRST. The count is the assertion, and this file documents
+    // the seam it deleted by NAMING it — a doc comment saying "it used to be
+    // ctx.sessions.withMutation(...)" is not a call site, and counting it made the
+    // instrument report 2 for a file with exactly one.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const sites = [...code.matchAll(/\.(?:withMutation|once)\(/g)]
     expect(sites).toHaveLength(1)
-    expect(src).toContain('ctx.sessions.withMutation(mutationId, `sessions.${key}`')
+    expect(code).toContain('ctx.deps.mutations.once(')
+    // And the old seam is GONE, not merely unused: a re-introduction cannot
+    // compile against `ctx.sessions.withMutation` because the service no longer
+    // has it, so it would have to declare a new one — which the count above sees.
+    expect(code).not.toContain('ctx.sessions.withMutation')
   })
 })
 
@@ -450,7 +469,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       issueId: issue.id,
     })
     // Live and idle, so the push lands rather than queueing.
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -458,7 +477,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },

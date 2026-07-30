@@ -161,7 +161,7 @@ export function makeOracle(
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  reg.modules.sessions.attachDaemon(machineId, (msg) => {
+  reg.gateway.attachDaemon(machineId, (msg) => {
     daemon.push(msg)
     for (const waiter of relayWaiters) waiter(msg)
     // Answer the one RPC a session write makes of its daemon: `stop` inspects the
@@ -169,7 +169,7 @@ export function makeOracle(
     // unanswered would turn every stop test into a 20s RPC timeout rather than a
     // characterization. Tests that want the dirty-tree refusal drive it explicitly.
     if (msg.type === 'repoOpRequest') {
-      reg.modules.sessions.onDaemonMessageFrom(machineId, {
+      reg.gateway.routeDaemonFrame(machineId, {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok: true,
@@ -202,7 +202,7 @@ export function makeOracle(
         relayWaiters.push((msg) => {
           if (msg.type === 'agentRelayResult' && msg.requestId === req.requestId) resolve(msg)
         })
-        reg.modules.sessions.onDaemonMessageFrom(machineId, {
+        reg.gateway.routeDaemonFrame(machineId, {
           type: 'agentRelayRequest',
           requestId: req.requestId,
           sessionId: req.sessionId,

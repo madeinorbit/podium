@@ -25,7 +25,7 @@ describe('causal session observation gate', () => {
       ntfy: vi.fn(),
       telegram: vi.fn(),
     })
-    reg.modules.sessions.attachDaemon('local', (msg) => sent.push(msg))
+    reg.gateway.attachDaemon('local', (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -44,7 +44,7 @@ describe('causal session observation gate', () => {
     })
 
     const observe = (observation: AgentObservation) =>
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentObservation',
         observation,
       })
@@ -130,7 +130,7 @@ describe('causal session observation gate', () => {
     ])
 
     // Once v1 exists, a legacy daemon frame cannot downgrade it.
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
       sessionId,
       state: runtime('working', 40),
@@ -145,7 +145,7 @@ describe('causal session observation gate', () => {
     expect(
       restarted.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
-    restarted.modules.sessions.attachDaemon('local', (msg) => restartedSent.push(msg))
+    restarted.gateway.attachDaemon('local', (msg) => restartedSent.push(msg))
     const reattach = restartedSent.find(
       (msg): msg is Extract<ControlMessage, { type: 'reattach' }> =>
         msg.type === 'reattach' && msg.sessionId === sessionId,
@@ -163,7 +163,7 @@ describe('causal session observation gate', () => {
     restarted.bus.on('session.stateChanged', ({ observation }) => {
       if (observation) restartEffects.push(observation)
     })
-    restarted.modules.sessions.onDaemonMessageFrom('local', {
+    restarted.gateway.routeDaemonFrame('local', {
       type: 'agentObservation',
       observation: {
         ...done,
@@ -185,7 +185,7 @@ describe('causal session observation gate', () => {
     const store = new SessionStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = new SessionRegistry(store)
-    reg.modules.sessions.attachDaemon('local', (msg) => sent.push(msg))
+    reg.gateway.attachDaemon('local', (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
@@ -193,7 +193,7 @@ describe('causal session observation gate', () => {
     store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
 
     expect(() =>
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentObservation',
         observation: {
           podiumSessionId: sessionId,
@@ -239,12 +239,12 @@ describe('causal session observation gate', () => {
     const ntfy = vi.fn()
     const telegram = vi.fn()
     const reg = new SessionRegistry(store, { ntfy, telegram })
-    reg.modules.sessions.attachDaemon('local', (msg) => sent.push(msg))
+    reg.gateway.attachDaemon('local', (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/proj',
     })
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -275,13 +275,13 @@ describe('causal session observation gate', () => {
       transitionId: 'thread-1-bootstrap',
       state: runtime('idle', 10),
     }
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservation',
       observation: bootstrap,
     })
     expect(store.observationCheckpoints.get(sessionId)?.checkpoint).not.toBeNull()
 
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -314,7 +314,7 @@ describe('causal session observation gate', () => {
     expect(ntfy).not.toHaveBeenCalled()
     expect(telegram).not.toHaveBeenCalled()
 
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservation',
       observation: {
         ...bootstrap,
@@ -342,7 +342,7 @@ describe('causal session observation gate', () => {
       providerCursor: { segmentId: 'rollout-2', components: { file: 5 } },
       transitionId: 'thread-2-bootstrap',
     }
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservation',
       observation: thread2Bootstrap,
     })
@@ -354,7 +354,7 @@ describe('causal session observation gate', () => {
     expect(effects).toEqual([])
     expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -373,7 +373,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
       checkpoint: { providerSessionId: 'thread-2', lastTransitionId: 'thread-2-bootstrap' },
     })
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -403,7 +403,7 @@ describe('causal session observation gate', () => {
     const thread2Conversation = store.conversations.conversationPodiumId('local', 'thread-2')
     expect(thread2Conversation).toBeDefined()
     expect(store.conversations.conversationPodiumId('local', 'thread-3')).toBeUndefined()
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -427,7 +427,7 @@ describe('causal session observation gate', () => {
     reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = new SessionRegistry(store)
-    restarted.modules.sessions.attachDaemon('local', (msg) => restartedSent.push(msg))
+    restarted.gateway.attachDaemon('local', (msg) => restartedSent.push(msg))
     expect(
       restartedSent.find(
         (msg): msg is Extract<ControlMessage, { type: 'reattach' }> =>
@@ -450,9 +450,9 @@ describe('causal session observation gate', () => {
   it('rolls back resume and lease when conversation linking throws', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.modules.sessions.attachDaemon('local', vi.fn())
+    reg.gateway.attachDaemon('local', vi.fn())
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -479,7 +479,7 @@ describe('causal session observation gate', () => {
       transitionId: 'bootstrap-1',
       state: runtime('idle', 1),
     }
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentObservation',
       observation: bootstrap,
     })
@@ -487,7 +487,7 @@ describe('causal session observation gate', () => {
       throw new Error('link failed')
     })
     expect(() =>
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentObservationRebind',
         sessionId,
         provider: 'codex',

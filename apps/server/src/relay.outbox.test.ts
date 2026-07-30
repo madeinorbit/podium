@@ -36,8 +36,8 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 /** live claude session with a resume ref, parked via hibernate. */
 function hibernatedSession(reg: SessionRegistry): string {
   const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
-  reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
-  reg.modules.sessions.onDaemonMessageFrom('local', {
+  reg.gateway.routeDaemonFrame('local', bind(sessionId))
+  reg.gateway.routeDaemonFrame('local', {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'abc-123' },
@@ -51,7 +51,7 @@ function hibernatedSession(reg: SessionRegistry): string {
 function settle(reg: SessionRegistry, sessionId: string): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentFrame',
       sessionId,
       seq: seq++,
@@ -68,7 +68,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
@@ -89,7 +89,7 @@ describe('queueText (durable outbox sends)', () => {
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
-      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(sessionId))
       settle(reg, sessionId)
 
       // Exactly ONE bracketed-paste input containing the text (no double-type).
@@ -108,7 +108,7 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     try {
       const daemon: ControlMessage[] = []
-      reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
+      reg.gateway.attachDaemon('local', (message) => daemon.push(message))
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
@@ -136,7 +136,7 @@ describe('queueText (durable outbox sends)', () => {
       )
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
-      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(sessionId))
       settle(reg, sessionId)
 
       expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
@@ -163,13 +163,13 @@ describe('queueText (durable outbox sends)', () => {
   it('refuses a parked agent with no resume ref and queues NOTHING', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 1 })
+    reg.gateway.routeDaemonFrame('local', bind(sessionId))
+    reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 1 })
     daemon.length = 0
 
     expect(reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
@@ -189,7 +189,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = new SessionStore(file)
       const regA = new SessionRegistry(storeA)
       const daemonA: ControlMessage[] = []
-      regA.modules.sessions.attachDaemon('local', (m) => daemonA.push(m))
+      regA.gateway.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
       expect(regA.modules.sessions.queueText({ sessionId, text: 'survive-restart' })).toEqual({
         ok: true,
@@ -208,8 +208,8 @@ describe('queueText (durable outbox sends)', () => {
       ).toBe(1)
 
       const daemonB: ControlMessage[] = []
-      regB.modules.sessions.attachDaemon('local', (m) => daemonB.push(m))
-      regB.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      regB.gateway.attachDaemon('local', (m) => daemonB.push(m))
+      regB.gateway.routeDaemonFrame('local', bind(sessionId))
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       vi.advanceTimersByTime(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
@@ -230,12 +230,12 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(sessionId))
 
       reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
       reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
@@ -263,7 +263,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -278,7 +278,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and delivers after settle.
-      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(sessionId))
       settle(reg, sessionId)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
@@ -289,7 +289,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', () => {
     const reg = new SessionRegistry()
-    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
@@ -317,7 +317,7 @@ describe('queueText (durable outbox sends)', () => {
 
   it('clears an existing snooze when a message is queued (fresh user intent)', () => {
     const reg = new SessionRegistry()
-    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
     reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
@@ -328,15 +328,28 @@ describe('queueText (durable outbox sends)', () => {
   })
 })
 
-describe('withMutation (idempotency wrapper)', () => {
+/**
+ * FRAMEWORK IDEMPOTENCY as the REGISTRY exposes it (POD-382).
+ *
+ * These cases were written against `SessionsService.withMutation` and now run
+ * against `modules.mutations` — `@podium/sync`'s `MutationLedger`, the one
+ * implementation — over the SAME durable table. Renamed rather than duplicated:
+ * a case left wearing the old name would claim a wrapper that no longer exists.
+ *
+ * The ledger's own semantics are unit-tested in
+ * packages/sync/src/mutation-ledger.test.ts; what these add is that the wiring in
+ * the composition root reaches it, and that a replay through it does not
+ * double-type into a real PTY.
+ */
+describe('framework idempotency (modules.mutations)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', () => {
     const reg = new SessionRegistry()
     let runs = 0
-    const first = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
+    const first = reg.modules.mutations.once('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
+    const replay = reg.modules.mutations.once('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -345,7 +358,7 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(replay).toEqual(first) // deep-equal via the JSON round-trip
 
     // A different id runs again.
-    const other = reg.modules.sessions.withMutation('m-2', 'test.proc', () => {
+    const other = reg.modules.mutations.once('m-2', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['c'] }
     })
@@ -353,11 +366,11 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(other).toEqual({ ok: true, ids: ['c'] })
 
     // No id at all = today's behavior: always runs.
-    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
+    reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
-    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
+    reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
@@ -373,8 +386,8 @@ describe('withMutation (idempotency wrapper)', () => {
       runs += 1
       return { id: 'issue-1', title: 'once' }
     }
-    const first = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
-    const replay = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
+    const first = await reg.modules.mutations.once('m-async', 'issues.create', fn)
+    const replay = await reg.modules.mutations.once('m-async', 'issues.create', fn)
     expect(runs).toBe(1)
     expect(first).toEqual({ id: 'issue-1', title: 'once' })
     expect(replay).toEqual(first)
@@ -385,15 +398,15 @@ describe('withMutation (idempotency wrapper)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      reg.gateway.attachDaemon('local', (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.gateway.routeDaemonFrame('local', bind(sessionId))
 
       const send = () =>
-        reg.modules.sessions.withMutation('send-1', 'sessions.sendText', () =>
+        reg.modules.mutations.once('send-1', 'sessions.sendText', () =>
           reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
       expect(send()).toEqual({ ok: true })

@@ -82,7 +82,12 @@ export function sessionCommandCtx(
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
+    rpc: () => modules.rpc,
     ownership: ownershipFromMachines(modules.machines),
+    // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
+    // one durable table have two in-flight maps, and a replay arriving on the other
+    // transport while the original is still running would apply twice.
+    mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal, overrideScope)
 }

@@ -34,6 +34,8 @@
 import type { AgentKind } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
 import { sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/protocol'
+import type { MutationLedgerPort } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
@@ -43,6 +45,7 @@ import {
   machineAccessMessage,
   machineUseDecision,
 } from '../../machine-access'
+import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
 import type { SessionsService } from './service'
@@ -76,7 +79,7 @@ export type SessionCommandServices = Pick<
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
-  | 'withMutation'
+  | 'stopSession'
 >
 
 /**
@@ -109,6 +112,10 @@ export type MailSendPort = (input: {
   lifecycle?: 'wait' | 'wake'
 }) => Promise<unknown>
 
+/** The daemon round-trip `uploadImage` is (bytes to the session's machine, an
+ *  absolute path back). A `Pick` of the real service, not a restated signature. */
+export type SessionDaemonRpc = Pick<DaemonRpcService, 'uploadImage'>
+
 export interface SessionCommandDeps {
   sessions(): SessionCommandServices
   mailSend: MailSendPort
@@ -118,8 +125,20 @@ export interface SessionCommandDeps {
     agentKind: AgentKind | undefined,
     issueId?: string,
   ): { id: string }
+  /** The daemon control leg for `uploadImage`. */
+  rpc(): SessionDaemonRpc
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382) — applied by {@link dispatchSessionCommand}
+   * for EVERY command in the table, after its gates and before its handler.
+   *
+   * It used to be `ctx.sessions.withMutation(input.mutationId, proc, …)` written
+   * out inside three of the nine handlers, which is the per-proc shape POD-312
+   * exists to delete: the other six were correct only because their inputs carry
+   * no `mutationId`, and the tenth handler added would have had to remember.
+   */
+  mutations: MutationLedgerPort
 }
 
 /** Per-call execution context: who is calling, and what they may reach. */
@@ -336,10 +355,41 @@ async function substrateSend(
  * per handler is how two commands end up recording receipts under two spellings
  * of their own proc name, which is the defect the relay arm already had.
  */
+/**
+ * A send whose target is ABSENT — nonexistent, or invisible to the principal's
+ * delegating human — never reaches the substrate.
+ *
+ * FOUND BY POD-382's CROSS-COMMAND SWEEP, and it is the finding the gate existed
+ * for. The handler used to fall through to `substrateSend` whenever the caller was
+ * not an agent, and the substrate resolves the target from its OWN session list,
+ * which knows nothing about a principal. So a nonexistent id dead-lettered while an
+ * INVISIBLE-BUT-EXISTING session was `queued` — two observable answers, i.e. the
+ * existence oracle §3.1.5 forbids, and worse: the message was actually DELIVERED to
+ * a session the principal may not see.
+ *
+ * The shape is the substrate's own, reproduced rather than imported because it is
+ * built inside a private `deadLetter` path. `session-cutover.audit.test.ts` asserts
+ * this value equals what the substrate returns for a real ghost send, so the two
+ * cannot drift: the duplication is checked, not trusted. POD-379 pins `ok:false` +
+ * `disposition:'dead_letter'` for that path and asserts nothing about a ledger row,
+ * which is what makes not writing one behaviour-preserving.
+ */
+const UNADDRESSABLE_SEND = {
+  ok: false,
+  reason: 'dead-lettered: session no longer exists',
+  disposition: 'dead_letter',
+} as const
+
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
     const target = ctx.target(input.sessionId, proc)
-    if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+    if (!target) {
+      // A relayed agent's absent target throws; an operator's dead-letters. Both
+      // POD-379-pinned, and they differ because the TRANSPORTS differ — not because
+      // the target resolution does.
+      if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+      return { ...UNADDRESSABLE_SEND }
+    }
     return substrateSend(ctx, input, lifecycle)
   }
 }
@@ -422,6 +472,54 @@ export const SESSION_COMMAND_HANDLERS = {
     if (!ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
     return ctx.sessions.continueSession(input)
   },
+
+  /**
+   * Clean end, OPERATOR path (POD-382). The refusal is RETURNED, never thrown —
+   * POD-379 pins that for tRPC — so an absent target answers with the service's own
+   * `unknown session`, which is also what an invisible one must answer once
+   * visibility is real. The relay arm keeps its self-stop resolution and its throw;
+   * see the contract.
+   */
+  stop: (ctx: SessionCommandCtx, input: { sessionId: string; force?: boolean }) => {
+    if (!ctx.target(input.sessionId, 'sessions.stop')) {
+      return Promise.resolve({ ok: false, reason: 'unknown session' })
+    }
+    return ctx.sessions.stopSession(input)
+  },
+
+  /**
+   * Bytes onto the session's machine, an absolute path back.
+   *
+   * NO EXISTENCE GATE, deliberately, and this is the one handler where that is a
+   * preservation rather than an omission: POD-379 pins that an upload for an
+   * unknown session is dispatched to the default machine anyway, and tags the
+   * change as POD-1073's. Adding the gate here would silently take a pinned
+   * behaviour from another issue.
+   *
+   * The MACHINE gate is applied, because it is this class's whole point: the bytes
+   * land on the machine that runs the session (routing is a must-not-change
+   * invariant), so putting them there is the `use` verb. With no owner column yet
+   * an ownerless machine still allows — which is exactly POD-379's `willChange`
+   * characterization for POD-1079, unchanged by this migration.
+   */
+  uploadImage: async (
+    ctx: SessionCommandCtx,
+    input: { sessionId: string; filename: string; mimeType: string; dataBase64: string },
+  ) => {
+    const row = ctx.sessions.listSessions().find((s) => s.sessionId === input.sessionId)
+    if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)
+    const result = await ctx.deps.rpc().uploadImage(input)
+    if (result.error) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: result.error })
+    }
+    if (!result.path) {
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: 'no daemon answered the image upload request',
+      })
+    }
+    return result
+  },
 } satisfies Record<keyof typeof sessionCommandPlane.defs, Handler>
 
 export type SessionCommandKey = keyof typeof SESSION_COMMAND_HANDLERS
@@ -471,9 +569,24 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
     input: unknown,
   ) => SessionCommandResult<K>
   const input = contract.input.parse(rawInput)
-  const mutationId = (input as { mutationId?: string } | null)?.mutationId
-  return ctx.sessions.withMutation(mutationId, `sessions.${key}`, () =>
-    handler(ctx, input),
+  const name = `sessions.${key}`
+  // IDEMPOTENCY, FRAMEWORK-OWNED AND APPLIED HERE FOR EVERY COMMAND (POD-382).
+  //
+  // AFTER the parse and INSIDE the handler's gates: the handler runs its machine
+  // `use` and owner checks, so a replay whose grant was revoked is refused by
+  // those gates on the way in rather than served out of the dedup cache (ADR 3 D8
+  // / readiness §3.1.3 A1). The ledger is entered before the handler and the
+  // handler is what re-authorizes, which is the same order the presence envelope
+  // states explicitly.
+  //
+  // A command whose input carries no `mutationId` passes through unchanged — the
+  // ledger's own documented no-dedup case — so this is behaviour-identical for the
+  // six lifecycle commands and identical-by-construction for the three that do.
+  const mutationId = (input as { mutationId?: unknown }).mutationId
+  return ctx.deps.mutations.once(
+    typeof mutationId === 'string' ? mutationId : undefined,
+    name,
+    () => handler(ctx, input),
   ) as SessionCommandResult<K>
 }
 

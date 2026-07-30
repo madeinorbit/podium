@@ -22,11 +22,7 @@ import { OPERATOR, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
-import {
-  type PresencePrincipal,
-  PresenceRegistry,
-  soleHumanPrincipal,
-} from './presence-registry'
+import { type PresencePrincipal, PresenceRegistry, soleHumanPrincipal } from './presence-registry'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -40,11 +36,12 @@ function fixture() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.modules.sessions.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon('local', () => {})
   const presence = new PresenceRegistry({
     sessions: reg.modules.sessions,
     store,
     now: () => Date.now(),
+    mutations: reg.modules.mutations,
   })
   /**
    * A principal for an arbitrary user. `capability.scope` is `owned`/`self` for
@@ -115,8 +112,16 @@ describe('per-user state is isolated between principals', () => {
   it('tab order is per-principal for the SAME worktree', () => {
     const { store, presence, asUser } = fixture()
 
-    presence.execute('tabs.setOrder', { worktree: '/w', sessionIds: ['a', 'b'] }, asUser(ALICE, 'self'))
-    presence.execute('tabs.setOrder', { worktree: '/w', sessionIds: ['b', 'a'] }, asUser(BOB, 'self'))
+    presence.execute(
+      'tabs.setOrder',
+      { worktree: '/w', sessionIds: ['a', 'b'] },
+      asUser(ALICE, 'self'),
+    )
+    presence.execute(
+      'tabs.setOrder',
+      { worktree: '/w', sessionIds: ['b', 'a'] },
+      asUser(BOB, 'self'),
+    )
 
     expect(store.sessions.listTabOrders(ALICE)).toEqual({ '/w': ['a', 'b'] })
     expect(store.sessions.listTabOrders(BOB)).toEqual({ '/w': ['b', 'a'] })
@@ -206,7 +211,12 @@ describe('per-user writes are SELF-SCOPED', () => {
 // ---------------------------------------------------------------------------
 
 describe('owner-or-grant policy on the shared session writes', () => {
-  const SHARED = ['sessions.rename', 'sessions.setArchived', 'sessions.setWorkState', 'sessions.setIssueId']
+  const SHARED = [
+    'sessions.rename',
+    'sessions.setArchived',
+    'sessions.setWorkState',
+    'sessions.setIssueId',
+  ]
 
   const inputFor = (name: string, sessionId: string) => {
     switch (name) {
@@ -417,11 +427,12 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     })
     const reg = new SessionRegistry(store)
     registries.push(reg)
-    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon('local', () => {})
     const presence = new PresenceRegistry({
       sessions: reg.modules.sessions,
       store,
       now: () => Date.now(),
+      mutations: reg.modules.mutations,
     })
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const svc = reg.modules.sessions as unknown as {
