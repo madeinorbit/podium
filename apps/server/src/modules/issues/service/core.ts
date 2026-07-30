@@ -1,21 +1,20 @@
 import {
-  IssuePanel,
   isIssueBlocked,
   isIssueClosed,
-  isIssueColorSlot,
   isIssueDeferred,
   requireInstant,
   type Instant,
   type IssueDepWire,
   type IssueGitState,
   type IssueId,
+  type IssuePanel,
   type SessionId,
   type IssueWire,
-  type RepoId,
   type SessionMeta,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
+import { decodePanel, fromStorage } from '../../../store/issue-storage'
 import type { IssueRow } from '../../../store'
 import type { IssueDeps } from './types'
 
@@ -175,6 +174,12 @@ export abstract class IssueServiceCore {
     sessionList: SessionMeta[] = this.deps.listSessions(),
     commentCounts?: Map<string, number>,
   ): IssueWire {
+    // R3 -> R1 -> R4. Every encoding split this projection used to perform inline
+    // (raw panel JSON, the stage/type casts, the three D-2 renames, the two
+    // 'human' | 'agent' enums, the nullable->optional collapse) now lives in the
+    // ONE documented pair (ADR 4 §4.1). `row` is still passed to the predicates
+    // and store lookups below, which take rows by design.
+    const issue = fromStorage(row)
     const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
     const labels = this.deps.store.issues.getIssueLabels(row.id)
@@ -198,69 +203,68 @@ export abstract class IssueServiceCore {
     const ready = row.stage !== 'proposed' && !this.isClosed(row) && !deferred && !blocked
     const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
+    // Either shape of the needs-human quartet projects the same four wire keys;
+    // `askedLegacy` is a pre-#53 row whose asker was never recorded, and dropping
+    // it here would delete an open question from the wire.
+    const asked = issue.asked ?? issue.askedLegacy
     return {
-      // POD-361-EDGE-CAST (POD-362 owns): the server store row types its ids as
-      // plain strings, so the projection brands them. Branding the ROW type is
-      // POD-362's change; doing it here would be that sweep, in the wrong issue.
-      id: row.id as IssueId,
+      id: issue.id,
       repoPath: row.repoPath,
-      ...(row.repoId ? { repoId: row.repoId as RepoId } : {}),
+      ...(issue.repoId ? { repoId: issue.repoId } : {}),
       ...(prefix ? { prefix } : {}),
       displayRef,
-      seq: row.seq,
-      title: row.title,
-      description: row.description,
-      ...(row.brief ? { brief: row.brief } : {}),
-      stage: row.stage as IssueWire['stage'],
-      worktreePath: row.worktreePath,
-      branch: row.branch,
-      parentBranch: row.parentBranch,
-      defaultAgent: row.defaultAgent,
-      defaultModel: row.defaultModel,
-      defaultEffort: row.defaultEffort,
-      ...(row.machineId ? { machineId: row.machineId } : {}),
-      ...(row.linearId ? { linearId: row.linearId } : {}),
-      ...(row.linearIdentifier ? { linearIdentifier: row.linearIdentifier } : {}),
-      ...(row.linearUrl ? { linearUrl: row.linearUrl } : {}),
-      ...(row.activityNotes ? { activityNotes: row.activityNotes } : {}),
-      ...(row.notesUpdatedAt ? { notesUpdatedAt: row.notesUpdatedAt } : {}),
-      ...(row.suggestedStage ? { suggestedStage: row.suggestedStage as IssueWire['stage'] } : {}),
-      ...(row.suggestedReason ? { suggestedReason: row.suggestedReason } : {}),
-      blockedBy: row.blockedBy as IssueId[], // POD-361-EDGE-CAST
-      ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
-      ...(row.prUrl ? { prUrl: row.prUrl } : {}),
-      priority: row.priority,
-      type: row.type as IssueWire['type'],
+      seq: issue.seq,
+      title: issue.title,
+      description: issue.description.value,
+      ...(issue.brief ? { brief: issue.brief } : {}),
+      stage: issue.stage,
+      worktreePath: issue.worktreePath,
+      branch: issue.branch,
+      parentBranch: issue.parentBranch,
+      defaultAgent: issue.defaultAgent,
+      defaultModel: issue.defaultModel,
+      defaultEffort: issue.defaultEffort,
+      ...(issue.machineId ? { machineId: issue.machineId } : {}),
+      ...(issue.linearId ? { linearId: issue.linearId } : {}),
+      ...(issue.linearIdentifier ? { linearIdentifier: issue.linearIdentifier } : {}),
+      ...(issue.linearUrl ? { linearUrl: issue.linearUrl } : {}),
+      ...(issue.activityNotes ? { activityNotes: issue.activityNotes } : {}),
+      ...(issue.notesUpdatedAt ? { notesUpdatedAt: issue.notesUpdatedAt } : {}),
+      ...(issue.suggestedStage ? { suggestedStage: issue.suggestedStage } : {}),
+      ...(issue.suggestedReason ? { suggestedReason: issue.suggestedReason } : {}),
+      // POD-361-EDGE-CAST (POD-362 owns): `blockedByNotes` is LLM-authored prose
+      // (D-2's rename) that the wire still types as ids until POD-308.
+      blockedBy: issue.blockedByNotes as IssueId[],
+      ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
+      ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
+      priority: issue.priority,
+      type: issue.type,
       pinned: row.pinned,
-      ...(row.sortKey ? { sortKey: row.sortKey } : {}),
-      // Guarded so a corrupt/unknown stored value degrades to "no colour"
-      // rather than failing the whole issue's wire parse [spec:SP-b4d1].
-      ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),
-      needsHuman: row.needsHuman,
-      ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
-      ...(row.humanQuestionOptions?.length
-        ? { humanQuestionOptions: row.humanQuestionOptions }
-        : {}),
-      ...(row.humanQuestionAskedBy
-        ? { humanQuestionAskedBy: row.humanQuestionAskedBy as SessionId }
-        : {}),
-      ...(row.humanQuestionAskedAt ? { humanQuestionAskedAt: row.humanQuestionAskedAt } : {}),
-      ...(row.supersededBy ? { supersededBy: row.supersededBy as IssueId } : {}),
-      ...(row.duplicateOf ? { duplicateOf: row.duplicateOf as IssueId } : {}),
-      ...(row.assignee ? { assignee: row.assignee } : {}),
-      ...(row.parentId ? { parentId: row.parentId as IssueId } : {}),
-      ...(row.design ? { design: row.design } : {}),
-      ...(row.acceptance ? { acceptance: row.acceptance } : {}),
-      ...(row.notes ? { notes: row.notes } : {}),
-      ...(row.dueAt ? { dueAt: row.dueAt } : {}),
-      ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
-      ...(row.closedReason ? { closedReason: row.closedReason } : {}),
-      ...(row.closedAt ? { closedAt: row.closedAt } : {}),
+      ...(issue.sortKey ? { sortKey: issue.sortKey } : {}),
+      // A corrupt/unknown stored slot already degraded to "no colour" in
+      // `fromStorage` [spec:SP-b4d1] — one tolerant decode, not two.
+      ...(issue.color ? { color: issue.color } : {}),
+      needsHuman: issue.needsHuman,
+      ...(asked?.question ? { humanQuestion: asked.question } : {}),
+      ...(asked?.options?.length ? { humanQuestionOptions: asked.options } : {}),
+      ...(asked?.by ? { humanQuestionAskedBy: asked.by as SessionId } : {}),
+      ...(asked?.at ? { humanQuestionAskedAt: asked.at } : {}),
+      ...(issue.supersededBy ? { supersededBy: issue.supersededBy } : {}),
+      ...(issue.duplicateOf ? { duplicateOf: issue.duplicateOf } : {}),
+      ...(issue.assignee ? { assignee: issue.assignee } : {}),
+      ...(issue.parentId ? { parentId: issue.parentId } : {}),
+      ...(issue.design ? { design: issue.design } : {}),
+      ...(issue.acceptance ? { acceptance: issue.acceptance } : {}),
+      ...(issue.notes?.value ? { notes: issue.notes.value } : {}),
+      ...(issue.dueAt ? { dueAt: issue.dueAt } : {}),
+      ...(issue.deferUntil ? { deferUntil: issue.deferUntil } : {}),
+      ...(issue.closedReason ? { closedReason: issue.closedReason } : {}),
+      ...(issue.closedAt ? { closedAt: issue.closedAt } : {}),
       // Always on the wire (like readAt, not spread-when-truthy): the client
       // reads absence as "not tucked", and an untuck must be able to say so.
       tuckedAt: row.tuckedAt ?? null,
-      ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
-      ...(row.panel ? { panel: this.parsePanel(row) } : {}),
+      ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
+      ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
       deps: deps as IssueDepWire[], // POD-361-EDGE-CAST
       dependents: dependents as IssueDepWire[], // POD-361-EDGE-CAST
@@ -270,23 +274,23 @@ export abstract class IssueServiceCore {
       deferred,
       childCount: children.length,
       childDoneCount: children.filter((c) => this.isClosed(c)).length,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      archived: row.archived,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
+      archived: issue.archived,
       readAt: row.readAt ?? null,
-      ...(row.deletedAt ? { deletedAt: row.deletedAt } : {}),
+      ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
       unread: this.computeUnread(row, sessions),
       sessions,
       sessionSummary: summarizeSessions(sessions),
       ...(gitState ? { gitState } : {}),
-      origin: row.origin === 'agent' ? 'agent' : 'human',
-      audience: row.audience === 'agent' ? 'agent' : 'human',
-      draft: row.draft ?? false,
+      // D-2's two renames, read back: the wire keeps the unqualified names until
+      // POD-308, and this pair is the one place they map.
+      origin: issue.intentOrigin,
+      audience: issue.audience,
+      draft: issue.isDraftVessel,
       // Bare session ids (same format as humanQuestionAskedBy) — no `session:` prefix.
-      ...(row.coordinatorSessionId
-        ? { coordinatorSessionId: row.coordinatorSessionId as SessionId }
-        : {}),
-      ...(row.startedBySession ? { startedBySession: row.startedBySession as SessionId } : {}),
+      ...(issue.coordinatorSessionId ? { coordinatorSessionId: issue.coordinatorSessionId } : {}),
+      ...(issue.startedBySession ? { startedBySession: issue.startedBySession } : {}),
     }
   }
 
@@ -344,14 +348,12 @@ export abstract class IssueServiceCore {
     return wire
   }
 
-  /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel). */
+  /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
+   *  The decode itself is an R1 ↔ R3 encoding split and lives in the one pair
+   *  (ADR 4 §4.1); this stays as the row-shaped entry point `crud.ts` uses when
+   *  it is about to patch the same row AS a row. */
   protected parsePanel(row: IssueRow): IssuePanel {
-    if (!row.panel) return { todos: [], artifacts: [], deferred: [] }
-    try {
-      return IssuePanel.parse(JSON.parse(row.panel))
-    } catch {
-      return { todos: [], artifacts: [], deferred: [] }
-    }
+    return decodePanel(row.panel)
   }
 
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the

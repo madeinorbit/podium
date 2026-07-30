@@ -762,3 +762,33 @@ Two of the four were genuine decomposition of move 1 and became POD-1151 and POD
 without, so they stay the human's call. Worth being explicit: the same re-filing move would have
 laundered all four past the check, and nothing in the tooling would have objected — an authorization rule
 that re-filing circumvents is not protecting the triage queue.
+### POD-1151: the gate rejected a design that read well (inventory §3 #2 closed)
+
+`IssueRow` is bridged to R1 by the one `toStorage`/`fromStorage` pair (ADR 4 §4.1), with
+`StoredIssue` composed from `IssueAggregate` and two real callers (`toWire`, `create`). Three
+findings the next agent should not have to re-derive:
+
+- **Naming a gap as a schema can grow the debt you are collapsing.** The first design gave the
+  storage gap its own z.object (`readAt`/`tuckedAt`/`pinned`/`repoPath`). It read well, it
+  typechecked, every test passed — and `rearch-audit` said `per-user-singletons` 8 → 11. That item
+  is a RATCHET with no registry escape precisely so POD-302 cannot close by laundering POD-1076's
+  debt. Re-spelling it as a `Pick<IssueRow, …>` **type alias** did not help either: the detector
+  reads the picked key literals, correctly. The only real fix was accepting that R1 must not carry
+  them — the `Pick` moved into ARGUMENT position, so `IssueRow` stays their one declaration. **A
+  new named shape is a new declaration even when every key in it is borrowed.**
+- **Read the whole summary line.** The audit's failure wording is "Deletion audit: 2 item(s) GREW",
+  three lines below a block of per-site output that looks exactly like the passing output. Scanning
+  for "OK" finds nothing either way. It also exits **0** on GREW — the count is the signal, not the
+  exit code.
+- **The composition claim and the mapping claim need different instruments, and both were
+  mutation-checked.** `.extend({ title: z.string() })` on `StoredIssue` kills only
+  "title is the field group instance, not an equivalent copy" — no golden fixture moves, because
+  branding is compile-time. Swapping `origin`/`audience` in `toStorage` kills only the round-trip
+  tests, and ONLY because the fixture holds `'agent'` beside `'human'`; with `'human'` in both it
+  is a green mutant. Both mutants: pattern matched exactly once, hash changed, text grepped back
+  out, reverted against a backup, named test named in advance.
+
+Still open and handed on, with the measurement: `IssueAggregate` cannot become the service's
+in-memory type until **POD-1075** (owner/visibility/attribution columns) and **POD-1076** (per-user
+rows) land — `Map<string, IssueRow>` reads three field classes R1 excludes by construction. That is
+structural, not effort.

@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import {
+  asIssueId,
+  asRepoId,
+  asSessionId,
+  asUserId,
   isSortKey,
   normalizeClosedPatch,
   sortKeyBetween,
@@ -9,6 +13,7 @@ import {
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
+import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import type { IssueRow } from '../../../store'
 import { IssueServiceReads } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
@@ -279,15 +284,18 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const coding = resolveRole(settings, 'coding')
     const defaultAgent = input.defaultAgent || coding.harness
     const useCodingDefaults = defaultAgent === coding.harness // [spec:SP-7ff1]
-    const row: IssueRow = {
-      id: input.id ?? `iss_${randomUUID()}`,
-      repoPath: input.repoPath,
-      repoId,
+    // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
+    // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
+    // R1's own optionality — the storage nulls are `toStorage`'s to write, and
+    // spelling them out again is the restatement this issue deletes.
+    const issue: StoredIssue = {
+      id: asIssueId(input.id ?? `iss_${randomUUID()}`),
+      repoId: asRepoId(repoId),
       seq,
       title: input.title,
-      description: input.description ?? '',
-      brief: input.brief ?? null,
-      stage: input.stage ?? 'backlog',
+      description: { value: input.description ?? '' },
+      ...(input.brief != null ? { brief: input.brief } : {}),
+      stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
@@ -296,32 +304,18 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         input.defaultModel || (useCodingDefaults ? settings.roles.coding.model : 'auto'),
       defaultEffort:
         input.defaultEffort || (useCodingDefaults ? settings.roles.coding.effort : 'auto'),
-      machineId: input.machineId ?? null,
-      linearId: input.linear?.id ?? null,
-      linearIdentifier: input.linear?.identifier ?? null,
-      linearUrl: input.linear?.url ?? null,
-      activityNotes: null,
-      notesUpdatedAt: null,
-      suggestedStage: null,
-      suggestedReason: null,
-      blockedBy: [],
-      dependencyNote: null,
-      prUrl: null,
-      priority: 2,
-      type: 'task',
-      assignee: null,
-      parentId: null,
-      design: null,
-      acceptance: null,
-      notes: null,
-      dueAt: null,
-      deferUntil: null,
-      closedReason: null,
-      closedAt: null,
-      tuckedAt: null,
-      supersededBy: null,
-      duplicateOf: null,
-      pinned: false,
+      ...(input.machineId != null ? { machineId: input.machineId } : {}),
+      ...(input.linear?.id != null ? { linearId: input.linear.id } : {}),
+      ...(input.linear?.identifier != null ? { linearIdentifier: input.linear.identifier } : {}),
+      ...(input.linear?.url != null ? { linearUrl: input.linear.url } : {}),
+      blockedByNotes: [],
+      priority: input.priority ?? 2,
+      // POD-361-EDGE-CAST class: `CreateIssueInput.type`/`.stage` are the row's
+      // unvalidated text (the DDL CHECK is the constraint). Validating here would
+      // turn a create the tracker accepts today into a throw — a decoder/encoder
+      // change, not this issue's.
+      type: (input.type || 'task') as StoredIssue['type'],
+      ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
       // Keyed into the scope it will LAND in: the parent's children when this
       // is a subtask create (parentId is applied after persist via reparent,
       // so the scope is resolved from the input here).
@@ -330,28 +324,30 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         input.repoPath,
         input.parentId ? this.resolveRef(input.parentId, input.repoPath) : null,
       ),
-      color: input.color ?? null,
-      estimateMin: null,
+      ...(input.color != null ? { color: input.color } : {}),
       needsHuman: false,
-      humanQuestion: null,
-      humanQuestionOptions: null,
-      humanQuestionAskedBy: null,
-      humanQuestionAskedAt: null,
-      panel: null,
       createdAt: ts,
       updatedAt: ts,
       archived: false,
-      origin: input.origin ?? 'human',
+      // D-2's renames: the input keeps the wire's names, R1 uses the qualified
+      // ones, and the pair maps them back onto the columns.
+      intentOrigin: input.origin ?? 'human',
       audience: input.audience ?? 'human',
-      draft: input.draft ?? false,
+      isDraftVessel: input.draft ?? false,
       // Bare session id (same format as humanQuestionAskedBy / coordinatorSessionId).
-      // Null for operator creates; registry stamps agent creates from actorSessionId.
-      coordinatorSessionId: null,
-      startedBySession: input.startedBySession ?? null,
+      // Absent for operator creates; registry stamps agent creates from actorSessionId.
+      ...(input.startedBySession != null
+        ? { startedBySession: asSessionId(input.startedBySession) }
+        : {}),
     }
-    if (input.priority != null) row.priority = input.priority
-    if (input.type) row.type = input.type
-    if (input.assignee) row.assignee = input.assignee
+    // The R3-only quartet is not R1's to hold (see IssueStorageOnly): a fresh
+    // issue is unread, untucked, unpinned, and its repo spelling is the registry's.
+    const row: IssueRow = toStorage(issue, {
+      repoPath: input.repoPath,
+      readAt: null,
+      tuckedAt: null,
+      pinned: false,
+    })
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.rows first so wouldCycle/rowOrThrow work.
     let wire = this.persist(row)

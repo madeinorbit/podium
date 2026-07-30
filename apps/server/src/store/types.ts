@@ -197,14 +197,15 @@ export interface MachineRecord {
  * One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text).
  *
  * ---------------------------------------------------------------------------
- * WHY THIS IS STILL HAND-WRITTEN — inventory §3 #2, measured at POD-1141.
+ * WHY THIS IS HAND-WRITTEN, AND WHAT NOW BRIDGES IT — inventory §3 #2.
  * ---------------------------------------------------------------------------
  *
- * Every other issue representation now composes from the shared field groups in
- * `@podium/model`'s `fields/issue.ts`. This one does not, and the reason is
- * recorded here rather than left to be rediscovered. NOTHING BELOW IS ENFORCED
- * BY A TEST — it is an analysis handed to the issue that owns the change, not a
- * claim that an invariant holds.
+ * This is R3: the encoding, not the vocabulary. It is bridged to R1 by the ONE
+ * documented `toStorage` / `fromStorage` pair in `./issue-storage.ts` (ADR 4
+ * §4.1), landed by POD-1151 — which is what the analysis below (measured at
+ * POD-1141) asked for. Read that file before changing a member here: adding a
+ * column without a mapping is what the pair exists to make impossible, and
+ * `issue-storage.test.ts` is what fails when you do.
  *
  * A `Pick` of the aggregate does not typecheck, and neither does a mapped-type
  * derivation, because the divergence is not a uniform transform:
@@ -225,18 +226,32 @@ export interface MachineRecord {
  * of one. And it would protect nothing: a mapped type is checked structurally,
  * so it cannot notice two type-identical members being DIFFERENT FACTS.
  *
- * What #2 actually needs is the one documented `toStorage` / `fromStorage` pair
- * (ADR 4 §4.1) with `IssueAggregate` as the in-memory type — a mapper IS checked
- * per key, which is the property a derivation cannot buy. That is a store-wide
- * change: `IssueRow` is the in-memory service type today (`Map<string, IssueRow>`
- * in `service/core.ts`, 153 references across 28 files), so the pair only becomes
- * real when those sites move onto the aggregate. Landing the pair without them
- * would be mechanism with no callers.
+ * So the answer was the mapper, and it exists: `StoredIssue` in
+ * `./issue-storage.ts` composes the R1 side from `IssueAggregate` (every retained
+ * key is the SHARED SCHEMA INSTANCE, asserted with `toBe`), and the pair maps it
+ * to and from this shape PER KEY. Its callers are `IssueService.toWire` (which
+ * decodes a row once and projects R1 -> R4, instead of performing every split
+ * inline) and `IssueService.create` (which builds R1 and encodes once).
  *
- * THE MUTANT THAT WOULD PROVE THE PAIR, handed to whoever builds it: swap
- * `origin` and `audience` in `toStorage` (both `string`, both 'human' | 'agent',
- * type-identical and byte-identical) and require a named test to die. If nothing
- * reddens, the pair is not yet checked per key and the composition is unproven.
+ * WHAT THIS ROW STILL IS THAT R1 IS NOT, and who owns closing it:
+ *   - `readAt` / `tuckedAt` / `pinned` are PER-USER state. POD-1076 moves them to
+ *     `(userId, issueId)` rows; the aggregate's `registry.test.ts` fails if one
+ *     reappears on R1, so they cannot simply be added there.
+ *   - `repoPath` is DERIVED (inventory D-1) and lives on `IssueDerived`.
+ *   - there is no column for `owner`, `visibility`, `createdBy`,
+ *     `lastLifecycleActor` or the `attribution` half of the needs-human `asked`
+ *     group. POD-1075 owns those; `docs/multi-user-readiness.md` is explicit that
+ *     they are a table migration plus a wire change plus a replica migration.
+ *
+ * Until BOTH land, `IssueAggregate` cannot be the service's in-memory type —
+ * `Map<string, IssueRow>` in `service/core.ts` reads all four of the excluded
+ * classes. That is a measured blocker, not a deferral.
+ *
+ * THE MUTANT THAT PROVES THE PAIR, and its result: swapping `origin` and
+ * `audience` in `toStorage` (both `string`, both 'human' | 'agent', type-
+ * identical and byte-identical — the class no golden fixture can see) reddens
+ * "round-trips intentOrigin and audience to their OWN columns". Re-derive the
+ * pattern from the current file before re-running it.
  */
 export interface IssueRow {
   id: string
