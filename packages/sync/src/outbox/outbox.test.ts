@@ -1593,3 +1593,127 @@ describe('the POD-373 crash case, outbox half', () => {
     expect(reopened.outbox.all()).toEqual([])
   })
 })
+
+describe('review round 3 — concurrent writers, deterministically', () => {
+  it('two instances racing the SAME explicit mutationId: one wins, one is refused', async () => {
+    // Reviewer's probe: both promises fulfilled and durable storage kept Grace's
+    // row, silently replacing Ada's locally-acked intent. The barrier makes the
+    // interleaving deterministic — both callers read and stage, THEN both apply —
+    // which is exactly the window per-instance serialization cannot close.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock })
+    const grace = await harness(() => unreachable, { store, clock, principal: 'u-grace' })
+    const collide = 'm-collide' as MutationId
+
+    const release = store.holdNextApplies(2)
+    const both = Promise.allSettled([
+      ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
+      grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
+    ])
+    await Promise.resolve()
+    release()
+    const [first, second] = await both
+
+    // Exactly one fulfils. The loser is REFUSED rather than overwriting.
+    const outcomes = [first?.status, second?.status].sort()
+    expect(outcomes).toEqual(['fulfilled', 'rejected'])
+    const rejected = [first, second].find((r) => r?.status === 'rejected')
+    expect(String((rejected as PromiseRejectedResult).reason)).toMatch(/duplicate mutationId/)
+
+    // One row, and both instances agree with durable truth about who owns it.
+    expect(store.durable()).toHaveLength(1)
+    const owner = store.durable()[0]?.attribution.onBehalfOf
+    const winner = owner === 'u-ada' ? ada : grace
+    const loser = owner === 'u-ada' ? grace : ada
+    expect(winner.outbox.all()).toHaveLength(1)
+    expect(loser.outbox.all()).toEqual([])
+    // And the loser emitted no local-ack: nothing escapes for work that never landed.
+    expect(types(loser.events)).not.toContain('local-ack')
+  })
+
+  it('discard versus drain on two tabs: the user decision wins and nothing is submitted', async () => {
+    // Reviewer's probe: both fulfilled, the authority received a submission, and
+    // durable state ended `applied` — overwriting a successful user discard.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const tabA = await harness(() => applied, { store, clock, idPrefix: 'a-' })
+    const tabB = await harness(() => applied, { store, clock, idPrefix: 'b-' })
+    const record = await tabA.outbox.enqueue(close('POD-1'))
+    // Tab B learns about it the way a second tab does: on its next rebase.
+    await tabB.outbox.enqueue(close('POD-2'))
+
+    const release = store.holdNextApplies(2)
+    const both = Promise.allSettled([tabA.outbox.discard(record.mutationId), tabB.outbox.drain()])
+    await Promise.resolve()
+    release()
+    const [discarded, drained] = await both
+
+    // BOTH settle successfully, and that is a requirement rather than incidental:
+    // losing a race to the user's own discard is a NORMAL drain outcome, not a
+    // drain error. A pass that rejected here would make every concurrent cancel
+    // look like a failure to whatever drives the drain.
+    expect(discarded?.status).toBe('fulfilled')
+    expect(drained?.status).toBe('fulfilled')
+
+    // The discard is durable, and the drain did NOT overwrite it.
+    expect(store.durable().find((r) => r.mutationId === record.mutationId)?.state).toBe('cancelled')
+    // Nothing was sent for the cancelled entry: `sending` must be durable before
+    // the envelope goes out, so losing that race means never submitting.
+    expect(tabB.authority.envelopes.map((e) => e.mutationId)).not.toContain(record.mutationId)
+    // Scoped to the CONTESTED record: tab B's own entry drained legitimately, so a
+    // blanket "no applied event" assertion would be testing the wrong thing.
+    const aboutContested = tabB.events.filter(
+      (e) => 'mutationId' in e && e.mutationId === record.mutationId,
+    )
+    expect(types(aboutContested)).toEqual([])
+  })
+
+  it('a re-staged mutation still lands when the conflict was benign', async () => {
+    // A conflict is not automatically a refusal: if the body can still succeed
+    // against fresh truth, it does, and the caller never sees the retry.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock, idPrefix: 'ada-' })
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'g-',
+    })
+
+    const release = store.holdNextApplies(2)
+    const both = Promise.allSettled([
+      ada.outbox.enqueue(close('POD-1', { attribution: ADA })),
+      grace.outbox.enqueue(close('POD-2', { attribution: GRACE })),
+    ])
+    await Promise.resolve()
+    release()
+    const results = await both
+
+    // Different ids, so both are legitimate and BOTH must land.
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled'])
+    expect(
+      store
+        .durable()
+        .map((r) => r.attribution.onBehalfOf)
+        .sort(),
+    ).toEqual(['u-ada', 'u-grace'])
+  })
+
+  it('surfaces a permanent conflict instead of spinning forever', async () => {
+    const store = new InMemoryOutboxStore()
+    const { outbox } = await harness(() => unreachable, { store })
+    // A store that always reports a conflict stands in for a pathological writer.
+    const original = store.apply.bind(store)
+    let calls = 0
+    store.apply = async (mutation, span) => {
+      calls += 1
+      void original
+      return { ok: false, conflicts: (mutation.put ?? []).map((r) => r.mutationId) }
+    }
+
+    await expect(outbox.enqueue(close('POD-1'))).rejects.toThrow(/conflict/)
+    expect(calls).toBe(5)
+  })
+})

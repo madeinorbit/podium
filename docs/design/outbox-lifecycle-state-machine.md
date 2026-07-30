@@ -80,6 +80,7 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | Several retirements in one span | three retirements, one publication, all three durable; an aborted multi-retirement span rolls every one back and emits nothing; an id already retired in the span cannot be resurrected |
 | The batch shape POD-369 submits | two provenance matches commit as **exactly one** enrolled write with entity + cursor present; abort preserves both entries, the OLD entity/cursor and emits no observation; a second batch extends the span draft (bootstrap across two buffered frames); a bad id fails the whole batch before staging |
 | Shared span, two principals | both stage keyed mutations in ONE span and both survive; a cross-principal key write is refused with `OutboxInvariantError` |
+| Concurrent writers (deterministic, barrier-driven) | two instances racing the same explicit `mutationId`: exactly one fulfils, the loser is refused and emits no local-ack; discard-versus-drain across two tabs: the user's decision is durable, the contested entry is never submitted, and BOTH calls still settle successfully; two different ids racing both land; a permanent conflict surfaces after five attempts instead of spinning |
 
 ## Privacy is a binding, not a filter
 
@@ -129,6 +130,21 @@ retire nothing — that is the Replica's half, and nothing here retires on its o
 it can be enrolled, so two principal-bound instances staging into one shared span can only ever
 touch disjoint keys — a stronger statement than "does not today", and the reason a shared span is
 safe at all.
+
+**Validate and apply are ONE conflict-detecting operation.** A record-level delta stops a stale
+writer from deleting rows it never knew about, but it does not stop two writers interleaving a
+read-modify-write of the *same* row — and per-instance serialization cannot help, because the other
+writer is another instance or another browser tab. ADR 6 D4.6 asks for precisely this: a
+single-writer or **version-check** pattern. So every mutation declares what it believed when it
+staged (`expect: [{mutationId, expect: <state> | 'absent'}]`) and the adapter checks those beliefs
+atomically with the write. A refused mutation re-stages against fresh truth (bounded, five
+attempts, then it surfaces rather than spinning) and the body decides again — so the loser of a
+race may legitimately fail with `duplicate mutationId` or an illegal transition instead of
+overwriting the winner, and no local ack or event escapes for work that never landed. A transition
+invalidated by another writer raises `OutboxStaleError`, which the drain treats as "stop this
+partition and re-read next pass" rather than as an error: losing to the user's own discard is a
+normal outcome, and crucially the entry is never submitted, because `sending` must be durable
+before the envelope goes out.
 
 Only `retireApplied` / `retireAllApplied` take a span: the span exists to cover the Replica's entity write, cursor
 advance and the retirement that follows from them. Enqueue, discard, retry and edit are USER

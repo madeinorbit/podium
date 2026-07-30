@@ -7,6 +7,7 @@
 
 import type { MutationId } from '@podium/protocol'
 import type {
+  OutboxApplyResult,
   OutboxEnvelope,
   OutboxStoreMutation,
   OutboxStorePort,
@@ -52,15 +53,56 @@ export class InMemoryOutboxStore implements OutboxStorePort {
   delayNextWrites = 0
 
   /**
-   * Record-level apply, with the ORDER contract a real adapter owes: a first
-   * `put` appends, a replacing `put` keeps its position, `remove` deletes by id,
-   * and anything unmentioned is UNTOUCHED. That last clause is the whole point —
-   * it is what stops a writer holding a stale base from deleting another writer's
-   * rows.
+   * Held applies, for DETERMINISTIC two-writer races. `holdNextApplies(2)` parks the
+   * next two applies at their start — after both callers have read and staged, which
+   * is precisely the interleaving that a sleep-based test would only sometimes hit —
+   * and the returned function releases them.
    */
-  async apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<void> {
+  private readonly waiters: (() => void)[] = []
+  private holds = 0
+
+  holdNextApplies(n: number): () => void {
+    this.holds = n
+    return () => {
+      this.holds = 0
+      const waiting = this.waiters.splice(0, this.waiters.length)
+      for (const release of waiting) release()
+    }
+  }
+
+  /**
+   * Record-level apply with ATOMIC precondition checking — the version-check
+   * pattern ADR 6 D4.6 asks adapters for.
+   *
+   * `expect` is evaluated against the state the store holds AT APPLY TIME, in the
+   * same step as the write, so two instances that read the same base cannot both
+   * win: the loser gets `{ ok: false, conflicts }` and nothing of its mutation
+   * lands. The ORDER contract a real adapter owes also holds: a first `put`
+   * appends, a replacing `put` keeps its position, `remove` deletes by id, and
+   * anything unmentioned is UNTOUCHED.
+   */
+  async apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<OutboxApplyResult> {
     if (this.failWrite !== undefined) throw this.failWrite
-    const commit = (): void => {
+    if (this.holds > 0) {
+      this.holds -= 1
+      await new Promise<void>((resolve) => this.waiters.push(resolve))
+    }
+    if (this.delayNextWrites > 0) {
+      this.delayNextWrites -= 1
+      // Yield twice, so a caller that does not serialize will interleave.
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    const conflicts = (): readonly MutationId[] =>
+      (mutation.expect ?? [])
+        .filter(({ mutationId, expect }) => {
+          const held = this.parse().find((r) => r.mutationId === mutationId)
+          return expect === 'absent' ? held !== undefined : held?.state !== expect
+        })
+        .map((e) => e.mutationId)
+    const commit = (): OutboxApplyResult => {
+      const stale = conflicts()
+      if (stale.length > 0) return { ok: false, conflicts: stale }
       const records = this.parse()
       for (const id of mutation.remove ?? []) {
         const idx = records.findIndex((r) => r.mutationId === id)
@@ -73,23 +115,25 @@ export class InMemoryOutboxStore implements OutboxStorePort {
       }
       this.snapshot = JSON.stringify(records)
       this.writes += 1
+      return { ok: true }
     }
-    if (this.delayNextWrites > 0) {
-      this.delayNextWrites -= 1
-      // Yield twice, so a caller that does not serialize will interleave.
-      await Promise.resolve()
-      await Promise.resolve()
-    }
-    // Enroll in the span when one is supplied: the change lands with the entity
-    // rows and the cursor advance, or not at all (ADR 2 D10).
+    // Enroll in the span when one is supplied: the change — and its precondition
+    // check — lands with the entity rows and the cursor advance, or not at all
+    // (ADR 2 D10). A precondition that fails at commit ABORTS the span, because by
+    // then there is no caller left to hand a conflict back to.
     const enlistable = span as
       | (SyncSpan & { enlist?: (w: () => Promise<void>) => void })
       | undefined
     if (enlistable?.enlist) {
-      enlistable.enlist(async () => commit())
-      return
+      enlistable.enlist(async () => {
+        const outcome = commit()
+        if (!outcome.ok) {
+          throw new Error(`outbox precondition failed at commit: ${outcome.conflicts.join(', ')}`)
+        }
+      })
+      return { ok: true }
     }
-    commit()
+    return commit()
   }
 
   /** Seed durable state directly — for crash simulations that need the store to

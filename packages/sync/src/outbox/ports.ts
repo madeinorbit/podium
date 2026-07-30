@@ -8,6 +8,7 @@
 import type { MutationId } from '@podium/protocol'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
 import type { DeadLetterRecord, EnvelopeConfirmation, OutboxRecord, UserRef } from './records'
+import type { OutboxState } from './states'
 
 /**
  * What actually goes on the wire for one attempt.
@@ -100,14 +101,52 @@ export interface OutboxStorePort {
    * span it is its own transaction — see `SyncUnitOfWork` rule 3 on why that is a
    * surfaced degraded mode rather than the normal path.
    */
-  apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<void>
+  apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<OutboxApplyResult>
 }
 
-/** Record-level changes for `OutboxStorePort.apply`. */
+/**
+ * Record-level changes for `OutboxStorePort.apply`, with the PRECONDITIONS that
+ * make validate-and-apply one operation.
+ *
+ * Why preconditions and not just a delta: a delta stops a stale writer from
+ * deleting rows it never knew about, but it does NOT stop two writers from
+ * interleaving a read-modify-write of the SAME row. Per-instance serialization
+ * cannot help — the other writer is another Outbox instance or another browser
+ * tab. ADR 6 D4.6 asks for exactly this: "adapters SHOULD use a single-writer or
+ * VERSION-CHECK pattern so two tabs do not interleave non-transactional
+ * read-modify-write of the same logical record."
+ *
+ * So every mutation declares what it believed when it staged, and the adapter
+ * checks those beliefs ATOMICALLY with the write. A stale mutation is refused,
+ * not applied — and the kernel then re-stages against fresh truth before any
+ * local ack or event escapes.
+ */
 export interface OutboxStoreMutation {
   readonly put?: readonly OutboxRecord[]
   readonly remove?: readonly MutationId[]
+  /** Checked atomically with the write. An unmet expectation is a conflict. */
+  readonly expect?: readonly OutboxRecordExpectation[]
 }
+
+/**
+ * What the mutation believed about one record when it staged: the state it was in,
+ * or `'absent'` when it must not exist yet (which is how `mutationId` uniqueness
+ * becomes a real guarantee rather than a check that races).
+ */
+export interface OutboxRecordExpectation {
+  readonly mutationId: MutationId
+  readonly expect: OutboxState | 'absent'
+}
+
+/**
+ * The outcome of an apply. A conflict is a RESULT, not an exception: it is an
+ * ordinary concurrent-writer outcome the kernel resolves by re-staging, and
+ * typing it as a value keeps it distinguishable from a storage failure (quota,
+ * closed database) which is a throw.
+ */
+export type OutboxApplyResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly conflicts: readonly MutationId[] }
 
 /**
  * The observable lifecycle. Three of these exist because ADR 3 D9 distinguishes

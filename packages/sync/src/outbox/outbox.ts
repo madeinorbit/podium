@@ -57,6 +57,7 @@ import type {
   OutboxConfig,
   OutboxEnvelope,
   OutboxEvent,
+  OutboxRecordExpectation,
   OutboxStoreMutation,
   OutboxStorePort,
   OutboxSubmitOutcome,
@@ -82,7 +83,7 @@ import {
   type OutboxRecord,
   type UserRef,
 } from './records'
-import { applyOutboxTransition, type OutboxTransition } from './states'
+import { applyOutboxTransition, nextOutboxState, type OutboxTransition } from './states'
 
 export interface EnqueueRequest extends EnvelopeConfirmation {
   readonly command: OutboxCommand
@@ -127,6 +128,25 @@ export class OutboxUsageError extends Error {}
  * fail loudly at the moment it is written rather than silently eat user work.
  */
 export class OutboxInvariantError extends Error {}
+
+/**
+ * A mutation lost a race with another instance or tab: the record moved before the
+ * write landed. Not a bug and not the caller's mistake — it means "re-read and
+ * decide again", which the drain does by stopping its partition for this pass.
+ */
+export class OutboxStaleError extends Error {}
+
+/** Internal: the store refused a mutation because a precondition no longer held.
+ *  `mutate` re-stages against fresh truth; it never escapes to a caller. */
+class OutboxConflict extends Error {
+  constructor(readonly conflicts: readonly MutationId[]) {
+    super(`outbox store conflict on ${conflicts.join(', ')}`)
+  }
+}
+
+/** How many times a mutation re-stages against fresh truth before giving up. A
+ *  bound rather than a loop: a permanent conflict must surface, not spin. */
+const MUTATION_CONFLICT_ATTEMPTS = 5
 
 /** D9 invariant 1's two licences to make an entry gone. There is no third. */
 export type RemovalLicence =
@@ -181,6 +201,19 @@ class OutboxDraft {
     this.records = this.records.filter((r) => r.mutationId !== mutationId)
     this.removed.add(mutationId)
     this.touched.delete(mutationId)
+  }
+
+  /**
+   * What this draft BELIEVED about every record it touched, for the store to check
+   * atomically with the write. Without these the read-modify-write interleaves with
+   * another instance or tab (ADR 6 D4.6).
+   */
+  expectations(): readonly OutboxRecordExpectation[] {
+    const ids = new Set<MutationId>([...this.touched, ...this.removed])
+    return [...ids].map((id) => {
+      const was = this.before.find((r) => r.mutationId === id)
+      return { mutationId: id, expect: was ? was.state : ('absent' as const) }
+    })
   }
 
   /**
@@ -430,7 +463,16 @@ export class Outbox {
         // continues once the user recovers or discards it.
         return
       }
-      if (!(await this.attempt(record))) return
+      try {
+        if (!(await this.attempt(record))) return
+      } catch (error) {
+        // Another writer moved this entry (a discard from a second tab, say) while
+        // we were staging the send. The user's decision wins, this partition stops,
+        // and the next pass re-reads. Crucially the entry was never submitted:
+        // `sending` must be durable BEFORE the envelope goes out.
+        if (error instanceof OutboxStaleError) return
+        throw error
+      }
     }
   }
 
@@ -829,7 +871,17 @@ export class Outbox {
       // step in the same span) may have moved it on.
       const record = draft.find(subject.mutationId)
       if (!record) {
-        throw new OutboxUsageError(`outbox entry vanished before transition: ${subject.mutationId}`)
+        throw new OutboxStaleError(`outbox entry vanished before transition: ${subject.mutationId}`)
+      }
+      if (
+        record.state !== subject.state &&
+        nextOutboxState(record.state, transition) === undefined
+      ) {
+        // Another writer moved it somewhere this transition cannot leave from.
+        // A lost race, not a bug: the caller re-reads and decides again.
+        throw new OutboxStaleError(
+          `outbox entry ${subject.mutationId} moved to ${record.state} before ${transition}`,
+        )
       }
       const next: OutboxRecord = {
         ...record,
@@ -859,12 +911,25 @@ export class Outbox {
    */
   private async mutate<T>(body: (draft: OutboxDraft) => T, ambient?: SyncSpan): Promise<T> {
     const run = this.mutations.then(async () => {
-      if (ambient) return await this.stage(body, ambient)
-      const uow = this.config.unitOfWork
-      if (uow) return await uow.transact(async (span) => await this.stage(body, span))
-      // No unit of work wired: one transaction per mutation. Legal only as ADR 2's
-      // surfaced degraded mode (SyncUnitOfWork rule 3), never as POD-373 wiring.
-      return await this.stage(body, undefined)
+      // A conflict means another instance or tab committed first. Re-stage against
+      // fresh truth and let the body decide again — it may now legitimately fail (a
+      // duplicate id, an illegal transition), which is exactly the point: the loser
+      // of the race must not overwrite the winner. Nothing is adopted and no event
+      // escapes until an attempt actually lands.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          if (ambient) return await this.stage(body, ambient)
+          const uow = this.config.unitOfWork
+          if (uow) return await uow.transact(async (span) => await this.stage(body, span))
+          // No unit of work wired: one transaction per mutation. Legal only as
+          // ADR 2's surfaced degraded mode (SyncUnitOfWork rule 3).
+          return await this.stage(body, undefined)
+        } catch (error) {
+          if (!(error instanceof OutboxConflict) || attempt >= MUTATION_CONFLICT_ATTEMPTS) {
+            throw error
+          }
+        }
+      }
     })
     // The chain must survive a rejection, or one failed write would wedge every
     // later mutation.
@@ -900,9 +965,11 @@ export class Outbox {
     const draft = new OutboxDraft(base)
     const result = body(draft)
     const next = draft.sealed()
-    this.assertOwnKeysOnly(draft.delta(), base)
+    const delta = { ...draft.delta(), expect: draft.expectations() }
+    this.assertOwnKeysOnly(delta, base)
     if (!span) {
-      await this.store.apply(draft.delta())
+      const outcome = await this.store.apply(delta)
+      if (!outcome.ok) throw new OutboxConflict(outcome.conflicts)
       this.records = next
       for (const event of draft.events) this.emit(event)
       return result
@@ -928,7 +995,10 @@ export class Outbox {
       // abandoned span's staging is collected rather than lingering — there is no
       // cleanup a forgotten callback could skip.
     }
-    await this.store.apply(draft.delta(), span)
+    const outcome = await this.store.apply(delta, span)
+    // Inside a span an adapter may only be able to answer at commit time, in which
+    // case it aborts the span instead of returning a conflict here.
+    if (!outcome.ok) throw new OutboxConflict(outcome.conflicts)
     return result
   }
 
