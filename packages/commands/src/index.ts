@@ -1,16 +1,24 @@
 /**
- * `@podium/commands` — L1 command CONTRACTS (ADR 3 D1).
+ * `@podium/commands` — L1 command CONTRACTS (ADR 3 D1). THE contract framework:
+ * after POD-311 there is exactly one, and this package is it.
  *
  * Contracts only. Handlers register against these from their L3 feature modules
  * and are joined at the composition root; nothing here may import a service, a
  * database or an app.
  *
- * SCOPE NOTE (POD-728): this package is the framework POD-311 specifies, landed
- * with agent-mail as its FIRST TENANT rather than with issues. POD-311 still owns
- * migrating the issue registry onto it, folding in the stranded protocol
- * contracts (`protocol/commands.ts` CommandDef, `messages/mutations.ts`
- * MutationEnvelope/MutationResult) and deriving the four transports from the
- * table. Those are deliberately NOT done here — see the commit message.
+ * SCOPE NOTE (POD-728, CLOSED BY POD-311): this package landed with agent-mail as
+ * its first tenant, leaving three things open. All three are now done: the issue
+ * registry is migrated (`issues/`), and the two stranded protocol contract sets are
+ * ABSORBED rather than re-exported — `protocol/commands.ts` is `framework.ts`,
+ * `protocol/messages/mutations.ts` is `mutations.ts`, and the two session tables
+ * that depended on the framework (`session-commands.ts`, `session-command-plane.ts`)
+ * came with it because they had to: `@podium/commands` imports `@podium/protocol`,
+ * so a framework here with consumers there would be a cycle.
+ *
+ * NO RE-EXPORT SHIMS were left behind in `@podium/protocol`. A shim would have made
+ * the move invisible to every call site and would have added to the `reexport-shims`
+ * ratchet the deletion audit counts — the opposite of absorbing a duplicate. Every
+ * import site was repointed instead.
  */
 
 export {
@@ -151,3 +159,55 @@ export {
   type WorkflowVerb,
   workflowDecision,
 } from './workflows/ownership'
+export {
+  type CommandDef,
+  type CommandInput,
+  type CommandName,
+  type CommandOutput,
+  type CommandRedaction,
+  type CommandScope,
+  type CommandTransport,
+  type ConflictClass,
+  type OfflineClass,
+  type PolicyResource,
+  type PolicyScope,
+  commandExposure,
+  commandVisibility,
+  defineCommands,
+  isExposedOn,
+  LOCK_COMMAND_NAMES,
+  type LockCommandName,
+} from './framework'
+export {
+  ISSUE_COMMAND_NAMES,
+  ISSUE_CONTRACT_LIST,
+  ISSUE_CONTRACTS,
+  type IssueContractName,
+} from './issues/contracts'
+export {
+  ADDITIVE_POLICY,
+  CREATES_NOTHING,
+  ISSUE_ATTRIBUTION,
+  ISSUE_REDACTION,
+  ISSUE_VISIBILITY,
+  MANAGE_POLICY,
+  PER_USER_DELIVERY,
+  PER_USER_POLICY,
+  PER_USER_VISIBILITY,
+  READ_DELIVERY,
+  READ_POLICY,
+  SERVED_EVERYWHERE,
+  SERVED_ON_WIRE,
+  TARGETED_ERRORS,
+  UNTARGETED_ERRORS,
+  WRITE_DELIVERY,
+  WRITE_POLICY,
+} from './issues/cells'
+export {
+  MUTATION_RESULT_KINDS,
+  MutationEnvelope,
+  MutationResult,
+  type MutationResultKind,
+} from './mutations'
+export * from './sessions/command-plane'
+export * from './sessions/presence-commands'

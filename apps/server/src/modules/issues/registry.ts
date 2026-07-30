@@ -1,20 +1,12 @@
+import type { SessionId, SessionMeta } from '@podium/model'
 import {
-  IssueColor,
-  IssueIdField,
-  type SessionId,
-  SessionIdField,
-  IssueStage,
-  IssueType,
-  isSortKey,
-  type SessionMeta,
-  UserIdField,
-} from '@podium/model'
-import {
-  type CommandDef,
+  type CommandAction,
+  type ContractInput,
   defineCommands,
   ISSUE_COMMAND_NAMES,
-  type IssueCommandName,
-} from '@podium/protocol'
+  ISSUE_CONTRACTS,
+  type IssueContractName,
+} from '@podium/commands'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -24,10 +16,30 @@ import type { MessageSender, MessageSendInput, MessageSendResult } from '../mess
 import type { IssueService } from './service'
 
 /**
- * THE issue command registry (#248 [spec:SP-3fe2]): every issues.* command is
- * defined ONCE here — input schema, required action, scope class, target
- * extractor, and the handler over IssueService — and the four surfaces are
- * DERIVED from this table:
+ * THE ISSUE COMMAND HANDLERS, JOINED TO THEIR L1 CONTRACTS (#248 [spec:SP-3fe2],
+ * split by POD-311).
+ *
+ * THIS FILE USED TO BE BOTH HALVES. It declared each command's input schema,
+ * required action and scope class ALONGSIDE the handler that calls IssueService —
+ * which made an L1 contract table live inside an L3 feature module, the arrangement
+ * POD-311 finding 1 rules out. The contract half now lives in
+ * `@podium/commands`'s `issues/contracts.ts`; what stays here is the half that
+ * genuinely belongs to the feature:
+ *
+ *   - the HANDLER, which calls `IssueService` (an L3 service, which is precisely
+ *     why the handler may not live beside the contract);
+ *   - `kind`, the tRPC procedure type it mounts as — a transport fact;
+ *   - `target`, the raw-input extractor the capability guard and the viaHub
+ *     forwarding detection both read.
+ *
+ * `def('<name>', { … })` IS THE JOIN. It looks the contract up by name and merges
+ * its `input` and `policy.action` onto the handler record, so every derived surface
+ * keeps reading `def.input` / `def.action` exactly as before and no transport needed
+ * a line changed. The name argument is typed `IssueContractName`, so a handler for a
+ * command with no contract — or a contract with no handler — is a compile error
+ * rather than a surface that quietly serves nothing.
+ *
+ * The four surfaces are DERIVED from the joined table:
  *
  *   - the tRPC `issues:` sub-router (modules/issues/trpc.ts routerFromCommands),
  *   - the in-process command surface serving the daemon relay + MCP
@@ -37,11 +49,12 @@ import type { IssueService } from './service'
  *   - the `IssueTrpc` client the in-process MCP tools call
  *     ({@link IssueCommandDispatcher.asIssueTrpc}, replacing the Proxy soup).
  *
- * Authorization is declared ON each definition (`action` + `target`), replacing
- * the PROC_ACTION/SCOPED_TARGET string maps keyed by proc name — renaming a
- * command now moves its authz with it instead of silently resetting to 'read'.
- * The def keys are pinned to @podium/protocol's ISSUE_COMMAND_NAMES via
- * `satisfies`, so registry↔contract drift is a compile error.
+ * Authorization is declared on the CONTRACT (`policy.action` + `policy.resource`)
+ * and the extractor that feeds it stays here — replacing the PROC_ACTION /
+ * SCOPED_TARGET string maps keyed by proc name, so renaming a command still moves
+ * its authz with it instead of silently resetting to 'read'. The def keys are
+ * pinned to `ISSUE_CONTRACTS` via `satisfies`, so handler↔contract drift is a
+ * compile error in both directions.
  */
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
@@ -140,28 +153,42 @@ export interface IssueCommandDeps {
 export type IssueCommandKind = 'query' | 'mutation'
 
 /**
- * One issue command definition: the protocol CommandDef contract plus the
- * server-side pieces the derivations need.
+ * ONE JOINED ISSUE COMMAND: the handler half declared here, plus the two fields
+ * `def()` merges in from the L1 contract so every derived surface keeps the shape
+ * it already read.
  *
- * `target` is the old SCOPED_TARGET extractor, now a field ON the definition:
- * how to read the target EXISTING issue id from the raw input. Present exactly
- * on the write/manage commands that mutate an existing issue (`scope: 'issue'`);
- * absent on additive/self-addressed commands (create, mailSend, attachSession,
- * subscription*) and all reads. It feeds BOTH the capability guard's subtree
+ * `target` is the old SCOPED_TARGET extractor: how to read the target EXISTING
+ * issue id from the RAW, unparsed input. It stays on the server side because it
+ * feeds two server mechanisms and no client one — the capability guard's subtree
  * check ({@link guardIssueCommand}) and the viaHub forwarding detection
  * ({@link commandTarget}, consumed by modules/issues/upstream.ts).
+ *
+ * THE SEAM INVARIANT, which is asserted rather than assumed: an extractor is
+ * present if and only if the contract declares `policy.resource === 'issue'`.
+ * `registry.test.ts` checks the biconditional in both directions over the whole
+ * table, so "this command has no existing target" and "somebody forgot the
+ * extractor" cannot look alike. Note it is written over the PRESENCE of the
+ * extractor and never over the value it returns: `mailClaim` deliberately returns
+ * `undefined` from a present extractor, because its target is only discoverable by
+ * loading the message, and its handler runs the same gate once it can.
  */
 export interface IssueCommandDef<
   K extends IssueCommandKind = IssueCommandKind,
   In extends z.ZodTypeAny = z.ZodTypeAny,
   Out = unknown,
-> extends CommandDef<In, Out> {
-  /** tRPC procedure type this command mounts as. */
+> {
+  /** tRPC procedure type this command mounts as — a transport fact, not a
+   *  contract one, which is why it did not move to L1. */
   kind: K
   /** Target EXISTING-issue id extractor (see interface doc). */
   target?: (input: Record<string, unknown>) => string | undefined
   /** The command body — calls IssueService directly (the logic lives THERE). */
   handler: (ctx: IssueCommandCtx, input: z.infer<In>) => Out
+  /** Merged from the contract by {@link def}: the ONE schema instance every
+   *  transport parses with. Not re-declared here — see the module doc. */
+  input: In
+  /** Merged from the contract by {@link def}: `policy.action`. */
+  action: CommandAction
 }
 
 /** The generics-erased wildcard shape (what heterogeneous collections of defs
@@ -170,28 +197,48 @@ export interface IssueCommandDef<
 export type AnyIssueCommandDef = {
   kind: IssueCommandKind
   input: z.ZodTypeAny
-  action: CommandDef['action']
-  scope?: CommandDef['scope']
-  cli?: CommandDef['cli']
+  action: CommandAction
   target?: (input: Record<string, unknown>) => string | undefined
   // biome-ignore lint/suspicious/noExplicitAny: the wildcard def erases per-command generics on purpose
   handler: (ctx: IssueCommandCtx, input: any) => any
 }
 
-/** Identity helper that PRESERVES the per-def generics (kind literal, input
- *  schema, handler output) so the derived tRPC router keeps precise types. */
-function def<K extends IssueCommandKind, In extends z.ZodTypeAny, Out>(
-  d: IssueCommandDef<K, In, Out>,
-): IssueCommandDef<K, In, Out> {
-  return d
+/**
+ * THE JOIN — the composition point POD-311's split names, and the only place a
+ * contract meets a handler.
+ *
+ * It preserves the per-def generics (kind literal, contract input schema, handler
+ * output) so the derived tRPC router keeps precise types, and it takes the
+ * contract's `input` INSTANCE rather than a schema declared here. That is the
+ * difference between a move and a re-specification: a restatement of the same
+ * field list would parse identically, encode identically and pass every golden wire
+ * fixture, so `registry.test.ts` asserts `toBe` against the contract instance for
+ * all sixty-eight — object identity is the only instrument that sees the fork.
+ */
+function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
+  name: N,
+  d: {
+    kind: K
+    target?: (input: Record<string, unknown>) => string | undefined
+    handler: (
+      ctx: IssueCommandCtx,
+      input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>,
+    ) => Out
+  },
+): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out> {
+  const contract = ISSUE_CONTRACTS[name]
+  return {
+    ...d,
+    input: contract.input,
+    action: contract.policy.action,
+  } as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
 }
 
 // ---------------------------------------------------------------------------
-// Shared input fragments (the single validation source for tRPC/relay/MCP).
+// The target extractor the shipped table used on every `id`-keyed command. The
+// input SCHEMAS it used to sit beside now live on the contracts.
 // ---------------------------------------------------------------------------
 
-const repoScoped = z.object({ repoPath: z.string().optional() })
-const byId = z.object({ id: z.string() })
 const targetId = (i: Record<string, unknown>) => i.id as string
 
 /**
@@ -394,16 +441,12 @@ export class IssueCommandCtx {
 const defs = {
   // ---- reads (action 'read': never scope-gated, viewers allowed) ----
 
-  list: def({
+  list: def('list', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.list(input.repoPath),
   }),
-  prime: def({
+  prime: def('prime', {
     kind: 'query',
-    input: repoScoped.optional(),
-    action: 'read',
     handler: (ctx, input) =>
       ctx.issues.prime({
         repoPath: input?.repoPath,
@@ -413,145 +456,90 @@ const defs = {
             : null,
       }),
   }),
-  ready: def({
+  ready: def('ready', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.readyList(input.repoPath),
   }),
-  blocked: def({
+  blocked: def('blocked', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.blockedList(input.repoPath),
   }),
-  graph: def({
+  graph: def('graph', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.graph(input.repoPath),
   }),
-  epicStatus: def({
+  epicStatus: def('epicStatus', {
     kind: 'query',
-    input: byId,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.epicStatus(input.id),
   }),
-  children: def({
+  children: def('children', {
     kind: 'query',
-    input: z.object({ id: z.string(), recursive: z.boolean().optional() }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.children(input.id, input.recursive ?? false),
   }),
-  tree: def({
+  tree: def('tree', {
     kind: 'query',
-    input: byId,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.tree(input.id),
   }),
-  depReport: def({
+  depReport: def('depReport', {
     kind: 'query',
-    input: z.object({ id: z.string().optional(), repoPath: z.string().optional() }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.depReport(input),
   }),
-  closeEligibleEpics: def({
+  closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.closeEligibleEpics(input.repoPath),
   }),
-  findDuplicates: def({
+  findDuplicates: def('findDuplicates', {
     kind: 'query',
-    input: z.object({ repoPath: z.string().optional(), threshold: z.number().optional() }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.findDuplicates(input.repoPath, input.threshold),
   }),
-  stale: def({
+  stale: def('stale', {
     kind: 'query',
-    input: z.object({ repoPath: z.string().optional(), days: z.number().optional() }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.staleList(input.repoPath, input.days),
   }),
-  lint: def({
+  lint: def('lint', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.lint(input.repoPath),
   }),
-  doctor: def({
+  doctor: def('doctor', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.doctor(input.repoPath),
   }),
-  preflight: def({
+  preflight: def('preflight', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.preflight(input.repoPath),
   }),
-  search: def({
+  search: def('search', {
     kind: 'query',
-    input: z.object({
-      repoPath: z.string().optional(),
-      text: z.string().optional(),
-      status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
-      stage: IssueStage.optional(),
-      priority: z.number().int().optional(),
-      type: IssueType.optional(),
-      assignee: UserIdField.optional(),
-      label: z.string().optional(),
-      parentId: IssueIdField.optional(),
-    }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.search(input),
   }),
-  count: def({
+  count: def('count', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.count(input.repoPath),
   }),
-  stats: def({
+  stats: def('stats', {
     kind: 'query',
-    input: repoScoped,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.stats(input.repoPath),
   }),
-  orphans: def({
+  orphans: def('orphans', {
     kind: 'query',
-    input: z.object({ repoPath: z.string() }),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.orphans(input.repoPath),
   }),
-  get: def({
+  get: def('get', {
     kind: 'query',
-    input: byId,
-    action: 'read',
     handler: (ctx, input) => ctx.issues.get(input.id),
   }),
   /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
    *  A read (like get/list). Hub-mirrored issues have no local thread: their
    *  comments live on the hub, so this returns []. */
-  comments: def({
+  comments: def('comments', {
     kind: 'query',
-    input: byId,
-    action: 'read',
     handler: (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) return []
       return ctx.issues.comments(input.id)
     },
   }),
-  events: def({
+  events: def('events', {
     kind: 'query',
-    input: z.object({
-      since: z.number().int().min(0).default(0),
-      kinds: z.array(z.string()).optional(),
-      repoPath: z.string().optional(),
-      limit: z.number().int().min(1).max(1000).optional(),
-    }),
-    action: 'read',
     handler: (ctx, input) =>
       ctx.issues.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
@@ -560,49 +548,22 @@ const defs = {
       }),
   }),
   // hits the external Linear API — 'write' keeps read-only callers from driving it
-  linearSearch: def({
+  linearSearch: def('linearSearch', {
     kind: 'query',
-    input: z.object({ query: z.string() }),
-    action: 'write',
     handler: (ctx, input) => ctx.issues.linearSearch(input.query),
   }),
 
   // ---- writes (scope-gated on their existing target via `target`) ----
 
   // agent-posted current state (activityNotes) — same nature as panelApply
-  setState: def({
+  setState: def('setState', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), text: z.string() }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.setState(input.id, input.text)),
   }),
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
-  panelApply: def({
+  panelApply: def('panelApply', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      op: z.enum([
-        'todo-add',
-        'todo-done',
-        'todo-undone',
-        'todo-remove',
-        'todo-clear',
-        'artifact-add',
-        'artifact-remove',
-        'deferred-add',
-        'deferred-remove',
-      ]),
-      text: z.string().optional(),
-      index: z.number().int().min(1).optional(),
-      path: z.string().optional(),
-      title: z.string().optional(),
-      /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
-      extraPaths: z.array(z.string()).optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -638,36 +599,8 @@ const defs = {
   }),
   // write — filing/decomposing is additive; scope gates writes to EXISTING issues,
   // not creation (no `target`).
-  create: def({
+  create: def('create', {
     kind: 'mutation',
-    input: z.object({
-      repoPath: z.string(),
-      title: z.string().min(1),
-      description: z.string().optional(),
-      brief: z.string().optional(),
-      parentBranch: z.string().optional(),
-      defaultAgent: z.string().optional(),
-      defaultModel: z.string().optional(),
-      defaultEffort: z.string().optional(),
-      machineId: z.string().optional(),
-      startNow: z.boolean(),
-      linear: z
-        .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
-        .optional(),
-      priority: z.number().int().min(0).max(4).optional(),
-      type: IssueType.optional(),
-      assignee: UserIdField.optional(),
-      labels: z.array(z.string()).optional(),
-      parentId: IssueIdField.optional(),
-      // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
-      color: IssueColor.optional(),
-      // #198: an agent opts a work item onto the human's top-level board with
-      // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
-      // caller (operator vs constrained agent), so provenance cannot be forged.
-      audience: z.enum(['human', 'agent']).optional(),
-      mutationId: z.string().max(128).optional(),
-    }),
-    action: 'write',
     handler: async (ctx, input) => {
       // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
       // repo mapping — spec §2.2). A repoPath that exists only among the hub's
@@ -771,15 +704,8 @@ const defs = {
       })
     },
   }),
-  start: def({
+  start: def('start', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      agentKind: z.string().optional(),
-      forceUnknownModel: z.boolean().optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -798,43 +724,8 @@ const defs = {
         })
       }),
   }),
-  update: def({
+  update: def('update', {
     kind: 'mutation',
-    input: z.object({
-      id: IssueIdField,
-      patch: z.object({
-        title: z.string().optional(),
-        description: z.string().optional(),
-        brief: z.string().optional(),
-        stage: IssueStage.optional(),
-        parentBranch: z.string().optional(),
-        defaultAgent: z.string().optional(),
-        defaultModel: z.string().optional(),
-        defaultEffort: z.string().optional(),
-        machineId: z.string().nullable().optional(),
-        archived: z.boolean().optional(),
-        priority: z.number().int().min(0).max(4).optional(),
-        type: IssueType.optional(),
-        assignee: UserIdField.optional(),
-        parentId: IssueIdField.optional(),
-        design: z.string().optional(),
-        acceptance: z.string().optional(),
-        notes: z.string().optional(),
-        dueAt: z.string().optional(),
-        deferUntil: z.string().optional(),
-        closedReason: z.string().optional(),
-        pinned: z.boolean().optional(),
-        // Manual order (POD-168): fractional key, validated so a malformed key
-        // can never poison a sibling scope's ordering.
-        sortKey: z.string().max(128).refine(isSortKey, 'malformed sort key').optional(),
-        // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
-        color: IssueColor.nullable().optional(),
-        estimateMin: z.number().int().optional(),
-      }),
-      mutationId: z.string().max(128).optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -856,11 +747,8 @@ const defs = {
         }),
       ),
   }),
-  promote: def({
+  promote: def('promote', {
     kind: 'mutation',
-    input: z.object({ id: z.string() }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       // issueWrite like every sibling mutation: hub forwarding + store gating.
@@ -886,19 +774,8 @@ const defs = {
   // RE-HOMING itself onto another issue — targeting outside the current subtree
   // is the whole point, so no --outside-scope needed. Not hub-forwarded
   // (sessions are local).
-  attachSession: def({
+  attachSession: def('attachSession', {
     kind: 'mutation',
-    input: z.object({
-      sessionId: SessionIdField,
-      targetId: z.string().optional(),
-      confirmRehome: z.boolean().optional(),
-      // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
-      // from the caller below, exactly like issues.create, so it cannot be forged.
-      newSubissue: z.object({ title: z.string().min(1) }).optional(),
-      // POD-85: spinoff = top-level issue + discovered-from edge to the origin.
-      newSpinoff: z.object({ title: z.string().min(1) }).optional(),
-    }),
-    action: 'write',
     handler: (ctx, input) => {
       const origin: 'human' | 'agent' =
         ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
@@ -915,13 +792,10 @@ const defs = {
       })
     },
   }),
-  archive: def({
+  archive: def('archive', {
     kind: 'mutation',
-    input: byId,
     // Agent posture: allow in subtree; require --outside-scope confirmation
     // elsewhere. Archiving is reversible and no more destructive than close.
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -929,27 +803,18 @@ const defs = {
         return ctx.issues.archive(input.id)
       }),
   }),
-  delete: def({
+  delete: def('delete', {
     kind: 'mutation',
-    input: byId,
-    action: 'manage',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.deleteIssue(input.id)),
   }),
-  restore: def({
+  restore: def('restore', {
     kind: 'mutation',
-    input: byId,
-    action: 'manage',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.restoreIssue(input.id)),
   }),
-  action: def({
+  action: def('action', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.action(input.id, input.kind)),
   }),
@@ -960,11 +825,8 @@ const defs = {
   // THIS node's daemon. The hub cannot clean this node's worktree, and this node
   // must not delete another machine's. Hub-mirrored issues get a hard refusal
   // here instead of falling through to a misleading local 'unknown issue'.
-  cleanup: def({
+  cleanup: def('cleanup', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) {
@@ -980,14 +842,8 @@ const defs = {
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
   // outside needs --outside-scope). Local-only — hub-mirrored issues refuse.
-  stop: def({
+  stop: def('stop', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      force: z.boolean().optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: async (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) {
@@ -1024,11 +880,8 @@ const defs = {
   // nothing, so no confirm gate beyond the write role gate. Like cleanup,
   // deliberately NOT issueWrite-forwarded: integrate rebuilds a LOCAL integration
   // worktree/branch via THIS node's daemon. Hub-mirrored issues get a hard refusal.
-  integrate: def({
+  integrate: def('integrate', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) {
@@ -1041,15 +894,8 @@ const defs = {
       return ctx.issues.integrate(input.id)
     },
   }),
-  addSession: def({
+  addSession: def('addSession', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      agentKind: z.string().optional(),
-      forceUnknownModel: z.boolean().optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -1059,60 +905,37 @@ const defs = {
         }),
       ),
   }),
-  addShell: def({
+  addShell: def('addShell', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
         ctx.issues.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
       ),
   }),
-  applySuggestion: def({
+  applySuggestion: def('applySuggestion', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.applySuggestion(input.id)),
   }),
-  dismissSuggestion: def({
+  dismissSuggestion: def('dismissSuggestion', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.dismissSuggestion(input.id)),
   }),
-  refreshAssistant: def({
+  refreshAssistant: def('refreshAssistant', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.refreshAssistant(input.id)),
   }),
-  setLabels: def({
+  setLabels: def('setLabels', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), labels: z.array(z.string()) }),
-    action: 'manage',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.setLabels(input.id, input.labels)),
   }),
-  addComment: def({
+  addComment: def('addComment', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      author: z.string(),
-      body: z.string().min(1),
-      mutationId: z.string().max(128).optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -1121,42 +944,30 @@ const defs = {
         ),
       ),
   }),
-  depAdd: def({
+  depAdd: def('depAdd', {
     kind: 'mutation',
-    input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
-    action: 'write',
-    scope: 'issue',
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.addDep(input.fromId, input.toId, input.type)),
   }),
-  depRemove: def({
+  depRemove: def('depRemove', {
     kind: 'mutation',
-    input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
-    action: 'write',
-    scope: 'issue',
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.removeDep(input.fromId, input.toId, input.type)),
   }),
-  defer: def({
+  defer: def('defer', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), until: z.string().nullable() }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.defer(input.id, input.until)),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
   // which quietly clears it. Distinct route so it emits issue.unsnoozed cleanly.
-  undefer: def({
+  undefer: def('undefer', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.undefer(input.id)),
   }),
@@ -1164,20 +975,16 @@ const defs = {
   // Node-local read-tracking — deliberately NOT issueWrite (never hub-forwarded)
   // and 'read' authority only (reading marks read), despite being a mutation on
   // the wire.
-  markRead: def({
+  markRead: def('markRead', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
-    action: 'read',
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () => ctx.issues.markIssueRead(input.id)),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Node-local like markRead (NOT issueWrite / never
   // hub-forwarded) — read-tracking needs only 'read'.
-  markUnread: def({
+  markUnread: def('markUnread', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
-    action: 'read',
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () => ctx.issues.markIssueUnread(input.id)),
   }),
@@ -1185,29 +992,13 @@ const defs = {
   // (POD-333). Sidebar curation the operator performs while reading the board —
   // node-local like markRead (deliberately NOT issueWrite / never hub-forwarded)
   // and 'read' authority, despite being a mutation on the wire.
-  setTucked: def({
+  setTucked: def('setTucked', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      tucked: z.boolean(),
-      mutationId: z.string().max(128).optional(),
-    }),
-    action: 'read',
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () => ctx.issues.setIssueTucked(input.id, input.tucked)),
   }),
-  setNeedsHuman: def({
+  setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      question: z.string().optional(),
-      // Structured question metadata (issue #53): suggested answers rendered as
-      // Tray chips + the asking session (defaults to the caller's own session).
-      options: z.array(z.string().min(1)).max(20).optional(),
-      askedBy: SessionIdField.optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => {
       // askedBy is SERVER-AUTHORITATIVE (#53 review): issues.answerQuestion later
@@ -1243,11 +1034,8 @@ const defs = {
    *  option digits; otherwise a chat message through the durable resumeAndSend),
    *  then clear needsHuman — ONLY after successful delivery, so a failed match
    *  or dead session never silently drops the question. */
-  answerQuestion: def({
+  answerQuestion: def('answerQuestion', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), answer: z.string().trim().min(1) }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, async () => {
@@ -1284,21 +1072,15 @@ const defs = {
         return { issue: ctx.issues.clearNeedsHuman(input.id), deliveredVia: r.via }
       }),
   }),
-  clearNeedsHuman: def({
+  clearNeedsHuman: def('clearNeedsHuman', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.clearNeedsHuman(input.id)),
   }),
-  reparent: def({
+  reparent: def('reparent', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), parentId: z.string().nullable() }),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // This lets an agent repair its own planning hierarchy without recreating issues.
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1312,11 +1094,8 @@ const defs = {
         return ctx.issues.reparent(input.id, input.parentId)
       }),
   }),
-  claim: def({
+  claim: def('claim', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), assignee: UserIdField }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1327,17 +1106,8 @@ const defs = {
   /** Claim / set / clear the issue's designated coordinator session
    *  (docs/agent-comms-target.html §05 q1). Actionable issue-addressed mail
    *  prefers this session when it is live. Dangling-tolerant (no session FK). */
-  setCoordinator: def({
+  setCoordinator: def('setCoordinator', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      /** Explicit session id to set; null clears. Mutually exclusive with claim. */
-      sessionId: SessionIdField.nullable().optional(),
-      /** When true, set coordinator to the calling session (actorSessionId). */
-      claim: z.boolean().optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1362,15 +1132,8 @@ const defs = {
         return ctx.issues.setCoordinator(input.id, sessionId)
       }),
   }),
-  close: def({
+  close: def('close', {
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      reason: z.string().optional(),
-      mutationId: z.string().max(128).optional(),
-    }),
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1382,13 +1145,10 @@ const defs = {
         )
       }),
   }),
-  supersede: def({
+  supersede: def('supersede', {
     kind: 'mutation',
-    input: z.object({ oldId: z.string(), newId: z.string() }),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is oldId; newId remains a relation destination.
-    action: 'write',
-    scope: 'issue',
     target: (i) => i.oldId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1396,13 +1156,10 @@ const defs = {
         return ctx.issues.supersede(input.oldId, input.newId)
       }),
   }),
-  duplicate: def({
+  duplicate: def('duplicate', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), canonicalId: z.string() }),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is id; canonicalId remains a relation destination.
-    action: 'write',
-    scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -1418,10 +1175,8 @@ const defs = {
   // mailbox and addressing ANOTHER issue is the whole point of it — cross-issue
   // sends must not require --outside-scope. Treated like `create` (a write with
   // no existing-target issue), so the role gate still applies.
-  mailSend: def({
+  mailSend: def('mailSend', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), body: z.string().min(1) }),
-    action: 'write',
     // Unified substrate (#237) [spec:SP-34d7]: the send persists a `messages`
     // row + delivery ledger and mirrors the legacy issue_messages row (same
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
@@ -1455,10 +1210,8 @@ const defs = {
   }),
   // A mutation (listing marks the returned unread messages read), but authz-wise
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.
-  mailInbox: def({
+  mailInbox: def('mailInbox', {
     kind: 'mutation',
-    input: z.object({ id: z.string().optional() }).optional(),
-    action: 'read',
     handler: (ctx, input) => {
       const id = ctx.mailOwnIssue(input?.id)
       // Only the recipient consumes unread status: an agent reading its own
@@ -1476,11 +1229,8 @@ const defs = {
   // and the SAME shared check (#25) runs in the handler against the message's
   // issue — identical codes and messages. NOT hub-forwarded (message ids are
   // node-local).
-  mailClaim: def({
+  mailClaim: def('mailClaim', {
     kind: 'mutation',
-    input: z.object({ messageId: z.string() }),
-    action: 'write',
-    scope: 'issue',
     target: () => undefined,
     handler: (ctx, input) => {
       const msg = ctx.issues.mailMessage(input.messageId)
@@ -1494,10 +1244,8 @@ const defs = {
       return ctx.issues.mailClaim(input.messageId, ctx.mailIdentity())
     },
   }),
-  mailPending: def({
+  mailPending: def('mailPending', {
     kind: 'query',
-    input: z.object({ id: z.string().optional() }).optional(),
-    action: 'read',
     handler: (ctx, input) => ctx.issues.mailPending(ctx.mailOwnIssue(input?.id)),
   }),
 
@@ -1507,23 +1255,8 @@ const defs = {
   // are 'write' with no existing-issue target — the source-within-subtree /
   // own-row checks live in the handlers. list is a read of the caller's own rows.
 
-  subscriptionAdd: def({
+  subscriptionAdd: def('subscriptionAdd', {
     kind: 'mutation',
-    input: z.object({
-      event: z.string().min(1),
-      source: z.object({
-        kind: z.enum(['relationship', 'issue', 'session']),
-        ref: z.string().min(1),
-      }),
-      deliver: z
-        .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
-        .optional(),
-      // Operator-only (#129 Phase C): the Automations UI creates a subscription for an
-      // explicit subscriber (which issue/session to notify). Ignored for constrained
-      // agents, who always subscribe themselves via deriveSubscriber.
-      subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
-    }),
-    action: 'write',
     handler: (ctx, input) => {
       // Operator (scope 'all') may create a subscription for an explicit subscriber
       // (#129 Phase C — the Automations UI); constrained agents always subscribe
@@ -1549,10 +1282,8 @@ const defs = {
       })
     },
   }),
-  subscriptionRemove: def({
+  subscriptionRemove: def('subscriptionRemove', {
     kind: 'mutation',
-    input: byId,
-    action: 'write',
     handler: (ctx, input) => {
       // Constrained callers may only remove their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
@@ -1573,10 +1304,8 @@ const defs = {
   /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
    *  subscriptions only affect the additive dispatcher pass, so disabling one never
    *  touches the built-in handlers — safe and reversible. */
-  subscriptionSetEnabled: def({
+  subscriptionSetEnabled: def('subscriptionSetEnabled', {
     kind: 'mutation',
-    input: z.object({ id: z.string(), enabled: z.boolean() }),
-    action: 'write',
     handler: (ctx, input) => {
       // Constrained callers may only toggle their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
@@ -1594,12 +1323,10 @@ const defs = {
       return ctx.issues.subscriptionSetEnabled(input.id, input.enabled)
     },
   }),
-  subscriptionList: def({
+  subscriptionList: def('subscriptionList', {
     kind: 'query',
     // The one historical no-input proc: z.void() keeps `query()` (no args) valid
     // on every client while the registry contract still carries ONE schema.
-    input: z.void(),
-    action: 'read',
     handler: (ctx) => {
       // Operator sees every subscription; a constrained caller sees only its own.
       if (ctx.caller.capability.scope.kind === 'all') return ctx.issues.subscriptionList()
@@ -1607,7 +1334,7 @@ const defs = {
       return ctx.issues.subscriptionList({ subscriberId: subscriber.id })
     },
   }),
-} satisfies Record<IssueCommandName, AnyIssueCommandDef>
+} satisfies Record<IssueContractName, AnyIssueCommandDef>
 
 /** The one issues command registry — namespace + defs (see module doc). */
 export const issueRegistry = defineCommands('issues', defs)
@@ -1731,7 +1458,7 @@ export class IssueCommandDispatcher {
     }
     const issues = Object.fromEntries(
       ISSUE_COMMAND_NAMES.map((name) => [name, proc('issues', name)]),
-    ) as Record<IssueCommandName, IssueProc>
+    ) as Record<IssueContractName, IssueProc>
     // The in-process surface never served the specs router (pspec rides the
     // daemon relay / HTTP only) — keep the historical "no such procedure" throw.
     const specProc = (name: string): IssueProc => {

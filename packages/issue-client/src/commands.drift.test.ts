@@ -1,4 +1,5 @@
-import { ISSUE_COMMAND_NAMES, type IssueCommandName } from '@podium/protocol'
+
+import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
@@ -7,14 +8,15 @@ import { ISSUE_COMMANDS } from './commands.js'
  * CLI-table drift pins (#248 [spec:SP-3fe2]). The `podium issue` command table
  * is PRESENTATION (verbs, positionals, render bodies) over the shared command
  * name contract: its run() bodies compile against `IssueTrpc`, whose issues
- * record is keyed by @podium/protocol's ISSUE_COMMAND_NAMES — the same union
+ * record is keyed by @podium/commands' ISSUE_COMMAND_NAMES, itself derived from the
+ * contract table (POD-311) — the same union
  * the server registry is satisfies-checked against. These tests pin the
  * type-level linkage and catch runtime drift a rename could smuggle past.
  */
 
 describe('CLI table ↔ protocol command-name drift', () => {
   it("IssueTrpc.issues is keyed by the protocol's canonical name union (type-level)", () => {
-    expectTypeOf<keyof IssueTrpc['issues']>().toEqualTypeOf<IssueCommandName>()
+    expectTypeOf<keyof IssueTrpc['issues']>().toEqualTypeOf<IssueContractName>()
   })
 
   it('every proc a command body can call exists in the canonical list (runtime probe)', async () => {

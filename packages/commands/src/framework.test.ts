@@ -6,8 +6,9 @@ import type {
   CommandName,
   CommandOutput,
   CommandScope,
-} from './commands'
-import { type CommandDef, defineCommands, ISSUE_COMMAND_NAMES } from './commands'
+} from './framework'
+import { type CommandDef, defineCommands } from './framework'
+import { ISSUE_COMMAND_NAMES } from './issues/contracts'
 
 const issues = defineCommands('issues', {
   close: {

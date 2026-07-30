@@ -1,4 +1,5 @@
-import { type CommandDef, defineCommands, type LockCommandName } from '@podium/protocol'
+
+import { type CommandDef, defineCommands, type LockCommandName } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize } from '../../issue-authz'

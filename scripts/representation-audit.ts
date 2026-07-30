@@ -501,8 +501,26 @@ export const NOT_A_REPRESENTATION: readonly {
       // for a new one; excluding them by their old container only would have made
       // the audit's answer depend on which file the transport edge happens to
       // live in.
-      ['packages/protocol/src/session-command-plane.ts', 'createInput'],
-      ['packages/protocol/src/session-command-plane.ts', 'resumeInput'],
+      // POD-311 moved the whole command-plane table again — out of
+      // `@podium/protocol` and into `@podium/commands`, which is where the ONE
+      // contract framework now lives. Same declarations, same role, third address.
+      ['packages/commands/src/sessions/command-plane.ts', 'createInput'],
+      ['packages/commands/src/sessions/command-plane.ts', 'resumeInput'],
+      // POD-311's issue split, and the reason these appear on the list only now:
+      // they are the SAME field lists `apps/server/src/modules/issues/registry.ts`
+      // always declared, but they were ANONYMOUS there — written inline as
+      // `def({ input: z.object({ … }) })`, which the detector reads as an
+      // expression and not as a declaration. Extracting them onto the contracts
+      // gave them names, and a named declaration is what this audit can see.
+      //
+      // NAMING A RESTATEMENT IS NOT CREATING ONE, and the distinction matters
+      // because the ratchet is one-way: had these been counted as new debt, the
+      // gate would have punished the migration for making an existing restatement
+      // legible. They owe inventory §6.4 rule 1 — a Pick from model plus transport
+      // keys — exactly as the session pair above does, and that is POD-308's wire
+      // work, not this issue's.
+      ['packages/commands/src/issues/contracts.ts', 'createInput'],
+      ['packages/commands/src/issues/contracts.ts', 'updateInput'],
       ['apps/server/src/modules/workflows/service.ts', 'workflowInputs'],
       ['packages/client-core/src/api.ts', 'PodiumClientApi'],
       ['apps/mobile/src/client/trpc.ts', 'MobileTrpcExtras'],

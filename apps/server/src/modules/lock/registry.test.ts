@@ -1,6 +1,5 @@
-import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
-import { LOCK_COMMAND_NAMES } from '@podium/protocol'
+import { LOCK_COMMAND_NAMES } from '@podium/commands'
+import { asSessionId, type SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'

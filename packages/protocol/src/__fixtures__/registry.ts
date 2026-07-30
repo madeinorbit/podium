@@ -26,7 +26,6 @@
 
 import * as model from '@podium/model'
 import { z } from 'zod'
-import * as commands from '../commands'
 import * as maintenance from '../maintenance'
 import * as approvals from '../messages/approvals'
 import * as automations from '../messages/automations'
@@ -47,7 +46,6 @@ import * as inventory from '../messages/inventory'
 import * as issues from '../messages/issues'
 import * as localLink from '../messages/local-link'
 import * as messageClass from '../messages/message-class'
-import * as mutations from '../messages/mutations'
 import * as runtimeState from '../messages/runtime-state'
 import * as search from '../messages/search'
 import * as server from '../messages/server'
@@ -65,7 +63,6 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['automations', automations],
   ['browser-open', browserOpen],
   ['client', client],
-  ['commands', commands],
   ['control', control],
   ['credentials', credentials],
   ['daemon', daemon],
@@ -82,7 +79,6 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['local-link', localLink],
   ['maintenance', maintenance],
   ['message-class', messageClass],
-  ['mutations', mutations],
   ['perf', perf],
   ['runtime-state', runtimeState],
   ['search', search],

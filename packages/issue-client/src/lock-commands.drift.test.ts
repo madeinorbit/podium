@@ -1,4 +1,5 @@
-import { LOCK_COMMAND_NAMES, type LockCommandName } from '@podium/protocol'
+
+import { LOCK_COMMAND_NAMES, type LockCommandName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { LOCK_COMMANDS, parseTtl } from './lock-commands.js'
