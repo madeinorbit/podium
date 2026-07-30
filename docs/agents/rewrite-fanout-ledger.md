@@ -1637,3 +1637,38 @@ and the touched packages — the scripts lane is not optional, because it is the
 generated docs, ratchets and manifests against their sources. Same family: `bun run migration:manifest`
 after touching migrations, and `bun scripts/visibility-mutability-inventory.ts` after touching the
 ownership matrix.
+
+### THREE ISSUES, THREE SUITES THAT COULD NOT SAY NO — this is the dominant defect class of the run
+
+Not three unrelated bugs. One class, found three ways, and every instance was green and looked fine:
+
+- **POD-351:** every revocation test first ran as `OPERATOR`, which has scope `all` and short-circuits
+  `authorize()` **before the owner is read**. The whole suite would have passed against an
+  implementation with no ownership check at all.
+- **POD-391:** the CSWSH guard's enforcing branch only runs when the backend's `Host` is a real network
+  host, and a test server necessarily binds loopback — so it was **unreachable from the suite by
+  construction**. Deleting the guard survived as a mutant with all 20 tests green.
+- **POD-732:** the existing workflow CLI suite drove a `Proxy` that answers every procedure, so it
+  "would stay green against a server serving nothing". Replaced with a real
+  `runWorkflowCli → real tRPC client → real startServer` path.
+
+**The generalisation: ask what environmental or setup fact the REFUSING arm depends on, and whether
+the test environment can ever produce it.** If it cannot, every test you have exercises the permissive
+arm, and the mutant that deletes the check survives. A suite that is green against a gutted
+implementation is worse than no suite, because it is *credited*.
+
+POD-732's one-liner is the best statement of the remedy and generalises past routers: **"an empty
+router satisfies every absence claim perfectly."** So pair instruments of different KINDS — a
+source-text audit that cannot resolve modules, plus an audit of the RUNNING object — and give each a
+`--probe` mode with planted fixtures that FAIL the gate when a check cannot say YES. `audit:sessions`
+and `audit:workflows` both do this now; both are in the standing post-merge sweep.
+
+### Standing rule: on `scripts/rearch-audit-baseline.json`, always take the LOWER number
+
+Two issues can bank overlapping deletions from different bases. The ratchet is one-way by design, so a
+conflict there is resolved by taking the SMALLER count, never the larger — and the merged tree is then
+MEASURED rather than either side's number being carried across. POD-732 lowered `router-triple-access`
+86 → 68 (16 vanished, 2 moved into `modules/workflows/trpc.ts`, destination grepped). It deliberately
+did NOT widen the detector's roots, correctly: POD-1180 exists because widening changes everyone's
+number and must be done once across the issues and sessions derived routers too, not by whoever
+happens to notice first.
