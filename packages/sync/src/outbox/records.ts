@@ -178,10 +178,23 @@ export interface OutboxRecord extends EnvelopeConfirmation {
   // declared once so POD-311's rename is one line.
   readonly state: OutboxState
   readonly queuedAt: number
-  /** Number of drain attempts so far. Diagnostic; the retry CADENCE and the age
-   *  numbers are ADR 3 D10's and are implemented by POD-371. */
+  /** Number of drain attempts so far. It drives D10's exponential backoff and is
+   *  deliberately NOT a ceiling: D10 forbids a global attempt limit, because a
+   *  limit turns user work into silent failure. The age limit is the only bound. */
   readonly attempts: number
   readonly lastAttemptAt?: number
+  /**
+   * Earliest time the next attempt may be made — D10's exponential backoff, set
+   * when a TRANSIENT failure requeues the entry (`backoffDelayMs`).
+   *
+   * Durable rather than in-memory on purpose: a reconnect burst or a process
+   * restart would otherwise reset the spacing to zero and hammer an Authority
+   * that is already struggling, which is the failure mode backoff exists to
+   * prevent. It never extends the entry's life — `isAgedOut` measures from
+   * `queuedAt`, so an entry whose next attempt falls beyond the horizon expires
+   * instead of sleeping through it.
+   */
+  readonly nextAttemptAt?: number
   readonly acceptedAt?: number
   readonly appliedAt?: number
   /** Set when the entry reached `rejected` or `expired`. */

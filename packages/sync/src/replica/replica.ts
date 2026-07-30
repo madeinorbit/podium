@@ -36,6 +36,7 @@
  */
 
 import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
+import { computeOverlay, type OverlayRow } from './overlay-projection'
 import {
   type AuthorityReadPort,
   type CacheMutation,
@@ -179,15 +180,39 @@ export class Replica {
   /**
    * The read model: authoritative base with the optimistic overlay applied on top.
    * The overlay is DERIVED here and never persisted (ADR 4 D7).
+   *
+   * The value only. `overlay()` is the full row, and it is the one to use when the
+   * caller must distinguish "no row" from "a row whose value happens to be
+   * undefined", or must know that commands are in flight whose effect nothing
+   * derived.
    */
   view(entity: string, entityId: string): unknown {
+    return this.overlay(entity, entityId).value
+  }
+
+  /**
+   * The overlay row: what to render, where it came from, and what is still in
+   * flight over it (POD-372).
+   *
+   * The Replica's only job here is to GATHER the inputs — the base row from its
+   * own slice, the exit that removed or revoked it, the pending commands from the
+   * outbox port — and hand them to a pure function. It does not decide any of
+   * them. With no overlay port the answer is the base, unchanged: a replica that
+   * has been told no reducers must render authoritative truth and nothing else.
+   */
+  overlay(entity: string, entityId: string): OverlayRow {
     const base = this.store.read(entity, entityId)
-    if (this.overlayPort === undefined) return base?.value
-    let value: unknown = base?.value
-    for (const pending of this.overlayPort.pending(entity, entityId)) {
-      value = this.overlayPort.reduce(value, pending.command)
+    const exit = this.exits.get(entityKey(entity, entityId))
+    const port = this.overlayPort
+    if (port === undefined) {
+      return computeOverlay({ base, exit, pending: [], reduce: () => ({ kind: 'no-reducer' }) })
     }
-    return value
+    return computeOverlay({
+      base,
+      exit,
+      pending: port.pending(entity, entityId),
+      reduce: (value, command) => port.reduce(value, command),
+    })
   }
 
   /** The installed slice, base only. Conformance and hydrate use this. */

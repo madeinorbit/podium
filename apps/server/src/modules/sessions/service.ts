@@ -147,8 +147,19 @@ const READY_POLL_MS = 200
 // lands as its own submitted input (CR delay + separate-read margin).
 const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
-// Idempotency records outlive any sane replay horizon, then get pruned.
-const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+/**
+ * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
+ * owns this number and this is its prune site.
+ *
+ * EXPORTED because ADR 3 D11.3 requires the outbox age inequality
+ * (`OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS`) to IMPORT it
+ * rather than copy `30d` into the check — a copy is a comment that fails open the
+ * day this line is tuned. The importer is
+ * `receipt-retention.test.ts` beside this file: `packages/*` may not import
+ * `apps/*`, so the invariant is asserted on this side of that boundary, against
+ * the live constant. Lowering this value below the outbox horizon fails that test.
+ */
+export const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Normalize an agent-set session name the same way setAgentName does — trim,
  *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
