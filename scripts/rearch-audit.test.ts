@@ -527,6 +527,16 @@ describe('CLI exit codes', () => {
   // the signal, both directions are asserted: a phase with live items gates, and the
   // phase that reached zero does not. A single-direction test here cannot distinguish a
   // working `--phase` gate from one that exits 1 unconditionally.
+  //
+  // THE LIVE SUBJECT HAS AN EXPIRY, and it is worth naming so the next author looks for
+  // it at the right moment. `--phase POD-308` gates because POD-308 still owns live
+  // items; the day its LAST item reaches zero this case reds, and the fix is the same
+  // shape rather than a deletion — pick a phase that is still live and KEEP both
+  // directions. POD-308's own agent reports (unverified from here, since it is on their
+  // branch) that after `publish-computed-fanout` clears it retains a scheduled
+  // `legacy-wire-v1-adapter` item, which would push that moment out to Phase 7 when the
+  // N-1 adapter is finally deleted. Either way the trigger is "POD-308 goes fully
+  // clear", not any one item.
   it('gates a phase whose items are still alive, and clears one that reached zero', () => {
     expect(run(['--phase', 'POD-308'])).toBe(1)
     expect(run(['--phase', 'POD-309'])).toBe(0)
