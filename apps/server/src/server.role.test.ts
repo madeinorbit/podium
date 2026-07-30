@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { FLEET_CONTRACTS } from '@podium/commands'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { resolveServerRole } from './roles'
@@ -75,6 +76,45 @@ describe('startServer with the hub role disabled (node shape)', () => {
     }
   })
 
+  /**
+   * THE COUNTERFACTUAL FOR THE BLOCK ABOVE (POD-384).
+   *
+   * Three 404s prove the gate refuses; they do not prove it DISCRIMINATES. A
+   * server that 404'd every fleet write — a mis-derived surface, a `hubProc`
+   * accidentally applied to the whole family, a router that failed to build at
+   * all — would satisfy the previous test perfectly. So the same client, on the
+   * same hub-less server, must still reach the fleet commands whose contracts
+   * declare `serverRole: 'core'`.
+   *
+   * This is the test that fails if someone flips `repos.add`'s `serverRole` to
+   * `hub`, and the one above is the test that fails if they flip
+   * `machines.rename`'s to `core`. Neither direction is silent.
+   */
+  it('core fleet writes are NOT gated: repos.add/remove keep working with the hub role off', async () => {
+    expect(await trpc.repos.add.mutate({ path: '/abs/node-repo' })).toContain('/abs/node-repo')
+    expect(await trpc.repos.remove.mutate({ path: '/abs/node-repo' })).not.toContain(
+      '/abs/node-repo',
+    )
+  })
+
+  /**
+   * The 404 loop above names its three by hand, which is right for readability
+   * and wrong as a completeness claim: an eleventh hub-role command would be
+   * added with no 404 test and nothing would say so. This binds the list to the
+   * SHIPPED contract table.
+   */
+  it('covers every hub-role fleet contract, so an eleventh cannot arrive untested', () => {
+    const hubNames = Object.values(FLEET_CONTRACTS)
+      .filter((c) => c.serverRole === 'hub')
+      .map((c) => c.name)
+      .sort()
+    expect(hubNames).toEqual(['machines.pairingCode', 'machines.rename', 'machines.revoke'])
+    // Non-vacuity: the filter must actually be filtering. If every contract were
+    // `hub` (or the table were empty) the assertion above could still be made to
+    // pass by editing one literal; this cannot.
+    expect(Object.values(FLEET_CONTRACTS).some((c) => c.serverRole === 'core')).toBe(true)
+  })
+
   it('a daemon `pair` handshake is refused (no pairing manager injected)', () => {
     const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
@@ -125,5 +165,24 @@ describe('startServer default role (no upstream configured) keeps hub surfaces o
       hostname: 'joiner-host',
     })
     expect(auth.ok).toBe(true)
+  })
+
+  /**
+   * THE POSITIVE CONTROL for the hub-off 404s (POD-384): the same two commands,
+   * on a server that DOES run the hub role, must succeed. Without this, a
+   * derived procedure that was broken for every caller — a schema that rejects
+   * everything, a handler that always throws, a name that never got built —
+   * would produce the same 404-shaped evidence as a working role gate.
+   */
+  it('machines.rename and machines.revoke work when the hub role IS on', async () => {
+    const trpc = createTRPCClient<AppRouter>({
+      links: [httpBatchLink({ url: `http://127.0.0.1:${handle.port}/trpc` })],
+    })
+    const renamed = await trpc.machines.rename.mutate({ id: 'local', name: 'renamed-host' })
+    expect(renamed.find((m) => m.id === 'local')?.name).toBe('renamed-host')
+    // The schema is the contract's, and it still refuses what it always refused.
+    await expect(trpc.machines.rename.mutate({ id: 'local', name: '' })).rejects.toThrow()
+    const after = await trpc.machines.revoke.mutate({ id: 'joiner' })
+    expect(after.some((m) => m.id === 'joiner')).toBe(false)
   })
 })
