@@ -1404,3 +1404,43 @@ POD-729 flagged that my brief said 252 audit sites while the file said 219 befor
 brief was written before POD-380/381/728/1162 landed. That is my staleness, not its drift. **A brief that
 quotes a moving number will keep generating this report**; quote the invariant ("baseline exact, do not
 rebaseline") rather than the current value.
+
+### A queued instruction never reached a HEALTHY agent (POD-1174)
+
+Distinct from the wedge cases. I mailed POD-382 its merge instruction at 13:54 with `--urgency next-turn`.
+Two hours later `mail status` still said **queued — not yet in its context**, and in that window the session
+had gone idle at least once (it sent me its own done-report) and returned to `live/working` with 28
+uncommitted files. It had a boundary to drain at and did not take it.
+
+I only noticed because I attempted the merge myself and found the branch had not moved — **the outcome, not
+the instrument, again.**
+
+So there are now three channels for one conceptual action, with different semantics and different silent
+failure modes:
+
+| channel | semantics | failure mode |
+|---|---|---|
+| `mail --urgency interrupt` | ESC + inject | sweep re-injects; wedged POD-362 for four hours |
+| `mail --urgency next-turn` | drains at `onSessionIdle` | **queues forever** if the boundary is missed |
+| `podium session send --text` | submits a real user turn | the one that works |
+
+> To give an agent an instruction, use `podium session send`. Mail is for correspondence, and its delivery
+> is boundary-dependent in a way its help does not say.
+
+### POD-382 found a delivery, not just a leak
+
+Its cross-command sweep caught a real existence oracle on first run: `sendText`/`resumeAndSend` fell
+through to the message substrate for non-agent callers, and **the substrate resolves targets from its own
+session list, which knows nothing about a principal.** A nonexistent id dead-lettered while an
+invisible-but-existing session came back `queued` — and the message was **DELIVERED to a session the
+principal may not see.**
+
+Worse than an information leak, and exactly what the sweep existed to find. Its fix pins the synthesized
+dead-letter value EQUAL to the substrate's own answer *by asking the substrate directly*, so the duplicated
+string is checked rather than trusted.
+
+It also corrected two of its own rules, the second being the shape I keep hitting: its visibility lint
+asserted `resource:machine <=> visibility:owned-compute` and fired on two correctly-classified contracts,
+because **the two fields answer different questions** — what a command WRITES versus what it authorizes
+AGAINST. A spawn authorizes against compute while writing a personal session. True where measured,
+generalised one scope too wide.
