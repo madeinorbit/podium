@@ -1134,6 +1134,87 @@ damage lands at the consumer.
 router is done here because a contract table with no dispatcher is mechanism without
 coverage; POD-386 inherits a router whose superagent arm is already derived and audited.
 
+#### LEDGER ENTRY — POD-386 (3.3d cutover + router audit): what was actually left, and the gate that composes
+
+**Four fifths of the deliverable was already done, and finding that out was the first
+job.** The brief pointed at POD-311/POD-640, which each turned a redesign into a
+re-pointing after measuring. Same here: POD-383 derived the superagent arm, POD-384 derived
+machines/repos/discovery and moved the hub gate into the contract, and each shipped a paired
+audit. The census below is the measurement — 34 hand-written `.mutation(` in `router.ts`,
+of which the 3.3 families held exactly **three**, all in `specs`. POD-385's scope stopped at
+L1: it declared the three spec contracts with `exposure: ['trpc', 'relay', 'cli']` and
+repointed `specsInputs` at their schema instances, but `router.ts` still built the
+procedures by hand — a contract declaring a transport that nothing derived. That is the
+whole cutover that remained, and it is now `modules/specs/registry.ts` + `trpc.ts`.
+
+**FORK RESOLVED — no `serverRole` gate on the spec family.** The fleet derivation picks its
+base procedure from each contract's `serverRole` because three of its ten are hub-only. No
+spec contract declares one, and ADR 3 D3's content is that a transport is served because a
+contract NAMES it; deriving a gate from a field nobody declared would invent the field.
+What actually decides a spec write is the repo-root allowlist inside `SpecsService`, which
+every transport already runs and which this issue deliberately did not move.
+
+**SEVEN LOCAL ABSENCE CLAIMS DO NOT COMPOSE INTO A GLOBAL ONE, and that is why the second
+gate exists.** `audit:sessions`, `audit:workflows`, `audit:issues`, `audit:mail`,
+`audit:superagent`, `audit:fleet` and the new `audit:spec` each say "no hand-written
+`.mutation(` in MY routers". Every one of them is true of a `router.ts` that grew a
+brand-new router full of hand-written writes, because no audit owns a router nobody has
+claimed. `audit:router-mutations` reads the whole file: every top-level `t.router(` literal
+is accounted for exactly once — derived family, or `pending` with its remaining keys and
+owning issue — and a router in neither list is a finding. The total is ratcheted (31, down
+from 34) AND the membership is named, so a decrease must say WHICH key vanished. A bare
+delta is what POD-1180 exists for.
+
+**THE SETTINGS GUARD IS A TWO-DIRECTION CLAIM, which is the unusual part.** POD-313's own
+title carves settings out of this phase ("settings via #352"), so the obligation is that
+settings is UNTOUCHED — and a settings write DISAPPEARING is as much a failure as one
+appearing, because a cutover that quietly absorbed somebody else's surface would read as
+progress on every ratchet in the repo. The census enforces it with no ratchet relief.
+`router.settings-guard.test.ts` asserts the same against the RUNNING `appRouter` — the exact
+procedure set and the exact verbs, by whole-map equality rather than four `toBeDefined()`
+calls, which cannot see an extra — plus the check the source scan structurally cannot make:
+that no `*_CONTRACTS` table in `@podium/commands` names a `settings.*` command. A
+`...settingsFamily` spread would have left `router.ts` textually clean while migrating the
+whole surface.
+
+**A PARSER BUG THAT WAS LIVE IN THE CENSUS'S FIRST DRAFT, recorded because the shape
+generalises.** The per-family audits anchor the procedure key on a fixed indentation
+(`\n\s{4}(\w+):`), which is correct only because their routers happen to be flat. Applied
+file-wide it names the last field of an inline `z.object({…})` as the procedure:
+`conversations.setMeta` was recorded as `conversations.summary`, and the both-directions
+check then fired on four routers nobody had touched. The key is now chosen by nesting
+DEPTH — of the keys before the mutation, the last whose value begins no deeper than the
+mutation itself — and that exact shape is in both the `--probe` fixture and the lane test.
+The general form: an anchor that rides on formatting is an instrument that reports the
+formatting.
+
+**MUTATION EVIDENCE, four mutants, one per run, each compiled before it was believed.**
+(1) Deleting `settings.telegramSetupStart` → killed by the census as `settings-guard` AND
+by two cases of the running-router guard. (2) A hand-written `specs.smuggled` mutation
+planted after the derived spread → killed by `audit:spec` and by the census's
+`derived-family-clean` and `ratchet`; `tsgo` exit 0, so this was a valid mutant and not a
+compile failure misread as a kill. (3) Dropping `...specFamily` → killed by the
+presence check, which is what stops the absence checks being satisfiable by deletion.
+(4) Restating `specsCreateInput` as an identical inline `z.object` → **compiles, and
+PASSES `mutations-wire-golden.test.ts`**, killed only by the `toBe` identity assertion and
+the new textual check. That is POD-305's finding reproduced end to end: a restatement is
+byte-identical on the wire and invisible to every golden fixture.
+
+**Deletion audit: 61 → 58 on `router-triple-access`, and it is 2 vanished + 1 MOVED.**
+Three `mods(ctx).specs.<verb>` reach-throughs left `router.ts`; one came back as a single
+`mods(ctx).specs` in `modules/specs/trpc.ts`, because the derivation reaches the service
+once for all three. The detector scans `router.ts` only, so it reads the relocation as part
+of the win. Not extending it was deliberate and is argued in
+`docs/rearch-deletion-audit.md`: the same extension would have to cover
+`modules/fleet/handlers.ts` (POD-384's seven) in the same breath, which raises the number
+mid-phase and buries three real deletions under a definitional change. Widening that
+detector belongs to POD-314's cutover; POD-1180 already records the blind spot.
+
+**Deliberately NOT done.** The twelve `pending` routers are recorded, not migrated —
+`cloud`, `setup`, `auth`, `automations`, `approvals` and the rest are POD-314's, and
+`settings` is POD-352's. Growing this diff to cover them is the round-trip this run cannot
+afford; the census is what makes leaving them explicit rather than invisible.
+
 ### Phase 4 — Node decomposition (POD-291) · exit gate POD-425
 
 **Scope:** gateway + plane inventory implementation (POD-317 → 387–391), fleet service

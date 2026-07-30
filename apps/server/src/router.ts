@@ -57,6 +57,7 @@ import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
+import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
@@ -189,6 +190,12 @@ const sessionFamily = sessionFamilyProcedures()
  *  spread stays readable at the router while the CONTRACT TABLE decides the
  *  membership — including that there are seven and not eight. */
 const superagentFamily = superagentFamilyProcedures()
+
+/** The three spec writes, built from their contracts at module load (POD-386).
+ *  Built here for the same reason as `sessionFamily` and `superagentFamily`: the
+ *  spread stays readable beside the three reads the `specs` router also serves,
+ *  while the CONTRACT TABLE decides the membership. */
+const specFamily = specFamilyProcedures()
 
 import type { PinState, SnoozeMap } from './store/types'
 
@@ -863,7 +870,9 @@ export const appRouter = t.router({
     // Registered machines (online flag + last-seen), shown in Settings → Machines and
     // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
     // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
-    // administering machines is the hub's job (hubProc below).
+    // administering machines is the hub's job. That gate is no longer a `hubProc`
+    // written here: POD-384 moved it into `modules/fleet/trpc.ts`, where the base
+    // procedure follows each contract's `serverRole` instead of a call-site habit.
     // The spawn picker's source. Scoped to what THIS principal may see, with
     // its `use` decision attached, so a machine it cannot execute on is never
     // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
@@ -1190,20 +1199,25 @@ export const appRouter = t.router({
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).approvals.deny(input.id)),
   }),
+  /**
+   * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover).
+   *
+   * `create · save · remove` — the three writes POD-385 contracted — are built
+   * from `SPEC_CONTRACTS` by `specFamilyProcedures()`, so there is deliberately
+   * no `.mutation(` written out here and `scripts/audit-spec-commands.ts` fails
+   * the build if one appears.
+   *
+   * THE READS STAY. `list`, `get` and `search` have no contract — a `visibility`
+   * class describes what a command WRITES — and they are authorized by the
+   * identical `requireRepoRoot` call inside the service. The audit checks
+   * procedure TYPE, so a write cannot hide among them by being called a query.
+   */
   specs: t.router({
     list: t.procedure
       .input(specsInputs.list)
       .query(({ ctx, input }) => mods(ctx).specs.list(input)),
     get: t.procedure.input(specsInputs.get).query(({ ctx, input }) => mods(ctx).specs.get(input)),
-    create: t.procedure
-      .input(specsInputs.create)
-      .mutation(({ ctx, input }) => mods(ctx).specs.create(input)),
-    save: t.procedure
-      .input(specsInputs.save)
-      .mutation(({ ctx, input }) => mods(ctx).specs.save(input)),
-    remove: t.procedure
-      .input(specsInputs.remove)
-      .mutation(({ ctx, input }) => mods(ctx).specs.remove(input)),
+    ...specFamily,
     search: t.procedure
       .input(specsInputs.search)
       .query(({ ctx, input }) => mods(ctx).specs.search(input)),
