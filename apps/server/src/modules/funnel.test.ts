@@ -1,4 +1,5 @@
 import type { MetadataChange } from '@podium/protocol'
+import type { AuthorityPort, SequencedChange } from '@podium/sync'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../store'
@@ -15,22 +16,37 @@ function makeFunnel() {
     now: () => 1_000,
     transact: (fn) => store.transact(fn),
   })
-  const funnel = new WriteFunnel({ bus, fanOutSnapshot, sendDelta, ledger })
+  // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
+  const funnel = new WriteFunnel({ bus, fanOutSnapshot, sendDelta, authority: ledger.authority })
   return { store, bus, fanOutSnapshot, sendDelta, ledger, funnel }
 }
 
-/** A fake ledger exposing only the onAppended bridge (pipe-focused tests). */
-function fakeLedger() {
-  const listeners = new Set<(changes: MetadataChange[]) => void>()
-  return {
-    onAppended: (fn: (changes: MetadataChange[]) => void) => {
+/**
+ * A fake Authority exposing only the subscribe bridge (pipe-focused tests).
+ *
+ * `emit` takes WIRE rows and converts, so these tests keep stating their
+ * fixtures in the shape the pipe delivers to clients — which is what they are
+ * about — while the funnel still receives the kernel shape it will see in
+ * production. Restating every fixture in kernel vocabulary would have changed
+ * what these tests are asserting as a side effect of a refactor.
+ */
+function fakeAuthority() {
+  const listeners = new Set<(changes: readonly SequencedChange[]) => void>()
+  const authority = {
+    subscribe: (fn: (changes: readonly SequencedChange[]) => void) => {
       listeners.add(fn)
       return () => listeners.delete(fn)
     },
     changesSince: () => null,
     cursor: () => 0,
+  } as unknown as AuthorityPort
+  const toKernel = (c: MetadataChange): SequencedChange =>
+    ({ seq: c.seq, entity: c.entity, entityId: c.id, op: c.op, value: (c as { value?: unknown }).value }) as SequencedChange
+  return {
+    authority,
     emit: (changes: MetadataChange[]) => {
-      for (const fn of listeners) fn(changes)
+      const kernel = changes.map(toKernel)
+      for (const fn of listeners) fn(kernel)
     },
   }
 }
@@ -92,20 +108,25 @@ describe('WriteFunnel.publishComputed ([spec:SP-3fe2] #255/#256)', () => {
     funnel.publishComputed(snapshot)
     funnel.flushDeltas()
     expect(fanOutSnapshot).toHaveBeenCalledWith(snapshot, {})
-    expect(sendDelta).not.toHaveBeenCalled() // deltas come from the onAppended pipe only
+    expect(sendDelta).not.toHaveBeenCalled() // deltas come from the subscribe pipe only
     expect(funnel.cursor()).toBe(0) // no change-log append
     expect(appended).not.toHaveBeenCalled()
   })
 
-  it('bridges ledger appends onto the bus AND into the delta pipe', () => {
+  it('bridges Authority appends onto the bus AND into the delta pipe', () => {
     const bus = new EventBus()
-    const ledger = fakeLedger()
+    const fake = fakeAuthority()
     const appended = vi.fn()
     const sendDelta = vi.fn()
     bus.on('oplog.appended', appended)
-    const funnel = new WriteFunnel({ bus, fanOutSnapshot: vi.fn(), sendDelta, ledger })
+    const funnel = new WriteFunnel({
+      bus,
+      fanOutSnapshot: vi.fn(),
+      sendDelta,
+      authority: fake.authority,
+    })
     const changes = [{ seq: 1, entity: 'issue', id: 'iss_1', op: 'remove' }] as MetadataChange[]
-    ledger.emit(changes)
+    fake.emit(changes)
     expect(appended).toHaveBeenCalledWith({ changes })
     funnel.flushDeltas()
     expect(sendDelta).toHaveBeenCalledWith(changes)
@@ -116,9 +137,14 @@ describe('the ordered metadataDelta pipe (#256)', () => {
   function pipedFunnel() {
     const bus = new EventBus()
     const sendDelta = vi.fn()
-    const ledger = fakeLedger()
-    const funnel = new WriteFunnel({ bus, fanOutSnapshot: vi.fn(), sendDelta, ledger })
-    return { funnel, sendDelta, appended: ledger.emit }
+    const fake = fakeAuthority()
+    const funnel = new WriteFunnel({
+      bus,
+      fanOutSnapshot: vi.fn(),
+      sendDelta,
+      authority: fake.authority,
+    })
+    return { funnel, sendDelta, appended: fake.emit }
   }
 
   const up = (

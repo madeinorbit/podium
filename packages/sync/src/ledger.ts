@@ -140,8 +140,17 @@ interface StagedRow {
 }
 
 export class Ledger {
-  /** THE implementation. One write seam, not two (see the file header). */
-  private readonly authority: Authority
+  /**
+   * THE implementation, and the composition root's seam onto it.
+   *
+   * PUBLIC so the server can hand the SAME instance to its write funnel. Two
+   * Authority instances over one store would be a real bug and a quiet one:
+   * each keeps its own dedup baseline, so a change committed through one would
+   * look novel to the other and be appended twice, and each keeps its own
+   * ordered broadcast queue, so the append-order guarantee would hold within
+   * each and between neither.
+   */
+  readonly authority: Authority
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
   private readonly shutdown = new AbortController()
   private pruneFlight: Promise<void> | undefined
