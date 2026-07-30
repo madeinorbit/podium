@@ -391,15 +391,24 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     distinctSemantics:
       "It carries a foreign vocabulary on purpose: `agent` for `agentKind`, `resumeRef: string` " +
       'for `resume: ResumeRef`. Those are not our spellings and must not become our spellings — ' +
-      'the same treatment as `LinearIssue`.',
+      'the same treatment as `LinearIssue`. POD-366 offered two placements for it and this is the ' +
+      'one it permits explicitly: COUNTED, with the verdict "renames retained, by decision" rather ' +
+      'than "drift outstanding". Counted rather than excluded because `LinearIssue` is THEIR type ' +
+      'name while this is OUR declaration of their spelling — an excluded shape is invisible and ' +
+      'undocumented, and a registered one with a declared reason is strictly more auditable.',
     composition: {
       state: 'declared-legitimate-restatement',
       reason:
-        "an external system's shape, deliberately not ours. What §6.5 rule 2 requires instead " +
-        'is that the two spellings be written in exactly ONE named mapper, not at each call site.',
+        "an external system's shape, deliberately not ours: the whole request is JSON-POSTed to a " +
+        'THIRD-PARTY cloud control plane, so renaming `agent`/`resumeRef` would ship a body the ' +
+        'remote cannot parse — and nothing in this repo would fail, because the hosted provider is ' +
+        'only ever exercised through a mocked fetch. What §6.5 rule 2 requires instead is that the ' +
+        'two spellings be written in exactly ONE named mapper, not at each call site.',
       enforcedBy:
-        '`toCloudAgentSourceSession` is that single documented mapper, and it is the only place ' +
-        'either external spelling appears.',
+        '`toCloudAgentSourceSession` is that single documented mapper and the only place either ' +
+        'external spelling appears, with the reasoning at the declaration site so a reader hits it ' +
+        'before "fixing" it; `router.cloud.test.ts` pins the outbound body key-for-key and was not ' +
+        'edited when the inline literal was replaced (POD-366).',
     },
     matrixRow: ROW.sessionIdentity,
     visibility: 'personal',
@@ -985,4 +994,38 @@ export const DELETED_AS_DRIFTED_DUPLICATES: readonly {
     was: 'a key-for-key hand copy of SessionStatusResult whose own comment named its source (§2.1 #22)',
     retiredBy: 'POD-366 — the CLI reads the shared projection in projections/session-read.ts',
   },
+  // POD-366 retired THREE from `apps/cli/src/session-cli.ts`, not the one the
+  // inventory counted. §2.1 lists only `StatusWire` because of the
+  // one-role-per-symbol predicate, but all three were the same class in the same
+  // file and went together. Recorded here so the retirement is not undercounted
+  // as one — the inventory's own number would otherwise be the memory of it.
+  {
+    symbol: 'RecapWire',
+    was: 'a key-for-key hand copy of SessionRecapResult; uncounted by §2.1, same class as StatusWire',
+    retiredBy: 'POD-366 — the CLI reads projections/session-read.ts',
+  },
+  {
+    symbol: 'ReadWire',
+    was: 'a structural subset of SessionReadResult; uncounted by §2.1, same class as StatusWire',
+    retiredBy: 'POD-366 — the CLI reads projections/session-read.ts',
+  },
 ]
+
+/**
+ * Two read models in `../projections/session-read.ts` that are deliberately NOT
+ * registered, recorded because their absence beside their sibling looks like an
+ * omission and is not.
+ *
+ * `SessionReadResult` (a page of transcript items plus a cursor) and
+ * `SessionRecapResult` (a recap plus its watermark) each name exactly ONE session
+ * key — `sessionId` — and everything else is read-model payload: cursors,
+ * watermarks, item counts, transcript text. They are read models keyed BY a
+ * session rather than projections OF one, which is why they sit below the
+ * entity-shaped threshold and why POD-364 did not count them either. Their
+ * retired CLI copies (`RecapWire`, `ReadWire`) are above; the shared definitions
+ * they replaced those copies with are these.
+ */
+export const KEYED_BY_SESSION_NOT_A_PROJECTION_OF_ONE = [
+  'SessionReadResult',
+  'SessionRecapResult',
+] as const

@@ -10,7 +10,11 @@ import {
   representationViolations,
   representationVisibilityOf,
 } from './checks'
-import { DELETED_AS_DRIFTED_DUPLICATES, RETAINED_REPRESENTATIONS } from './registry'
+import {
+  DELETED_AS_DRIFTED_DUPLICATES,
+  KEYED_BY_SESSION_NOT_A_PROJECTION_OF_ONE,
+  RETAINED_REPRESENTATIONS,
+} from './registry'
 
 /**
  * A minimal, VALID entry. Every planted-failure case below is this object with
@@ -170,12 +174,26 @@ describe('the live registry', () => {
   it('records the two drifted duplicates that were DELETED rather than documented', () => {
     // The convention's teeth: a representation that cannot answer
     // `distinctSemantics` is deleted. These two could not, and are not registered.
+    // FOUR, not two: POD-366 retired three from apps/cli/src/session-cli.ts, and
+    // §2.1 counted only `StatusWire` because of its one-role-per-symbol
+    // predicate. Recorded in full so the retirement is not undercounted as one.
     expect(DELETED_AS_DRIFTED_DUPLICATES.map((d) => d.symbol)).toEqual([
       'BtwSessionInfo',
       'StatusWire',
+      'RecapWire',
+      'ReadWire',
     ])
     const registered = new Set(RETAINED_REPRESENTATIONS.map((r) => r.symbol))
     for (const d of DELETED_AS_DRIFTED_DUPLICATES) expect(registered.has(d.symbol)).toBe(false)
+  })
+
+  it('does not register the two read models that are keyed BY a session', () => {
+    // Their absence beside `SessionStatusResult` looks like an omission and is
+    // not: each names exactly one session key and the rest is read-model payload.
+    const registered = new Set(RETAINED_REPRESENTATIONS.map((r) => r.symbol))
+    for (const s of KEYED_BY_SESSION_NOT_A_PROJECTION_OF_ONE) {
+      expect(registered.has(s), s).toBe(false)
+    }
   })
 
   it('classifies every representation against a real matrix row, none louder than the matrix', () => {

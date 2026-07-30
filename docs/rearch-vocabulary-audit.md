@@ -373,6 +373,51 @@ enum, not a change-row typing — is one of its 7. The count is an over-count by
 alone deliberately: lowering someone else's count while re-phasing their item would be two changes
 wearing one justification.
 
+### 6.6 Three corrections taken from sibling mail, after the audit had run
+
+All three arrived from POD-366, POD-367 and POD-643 and all three were checked rather than adopted.
+
+1. **POD-366 retired THREE shapes from `session-cli.ts`, not the one §2.1 counted.** `RecapWire` (a
+   key-for-key copy of `SessionRecapResult`) and `ReadWire` (a structural subset of
+   `SessionReadResult`) went with `StatusWire`; the inventory counted only the third because of its
+   one-role-per-symbol predicate. `DELETED_AS_DRIFTED_DUPLICATES` now records all four deletions, so
+   the retirement is not undercounted as one. **Adopted.**
+
+2. **`CloudAgentSourceSession` — POD-366 offered two placements and this audit took the one its mail
+   permits explicitly.** It is **counted**, with the verdict *"renames retained, by decision"* rather
+   than moved out of the set as an external DTO. Counted rather than excluded because `LinearIssue` is
+   THEIR type name while this is OUR declaration of their spelling: an excluded shape is invisible and
+   undocumented, and a registered one carrying a declared reason plus its single named mapper is
+   strictly more auditable. POD-366's egress reasoning — the whole request is JSON-POSTed to a
+   third-party control plane, and nothing in this repo would fail if the spelling were "fixed",
+   because the hosted provider is only exercised through a mocked fetch — is recorded on the entry,
+   where a reader hits it before fixing anything. **Adopted, in the counted form.**
+
+3. **POD-643's self-report is stale, in its own favour, and is corrected here.** It wrote *"on your
+   'zero hand-restated session fields' item, HandoffManifest is currently NOT at zero, by a deliberate
+   and recorded choice"* — true when written, because POD-365 had landed nothing. POD-365 has since
+   landed, and this audit graded the manifest by **measurement rather than by intent**:
+   `HandoffManifest.shape.sessionId` **IS** `SessionMeta.shape.sessionId` — the same zod instance,
+   asserted with `toBe`. It grades **composed**. Recorded so nobody re-does work POD-643 correctly
+   declined to fork.
+
+**Two read models are deliberately NOT registered**, recorded because their absence beside
+`SessionStatusResult` looks like an omission: `SessionReadResult` and `SessionRecapResult` each name
+exactly one session key (`sessionId`) and everything else is read-model payload — cursors, watermarks,
+item counts, transcript text. They are read models keyed **by** a session rather than projections
+**of** one, which is why they sit below the entity-shaped threshold and why POD-364 did not count them
+either. Pinned by test as unregistered, with the reason.
+
+**Two sibling findings that this audit's design already respected, confirmed rather than retrofitted.**
+POD-366's and POD-367's conditional-spread work (POD-1138) warns that asserting the propagation
+property via a type annotation — or via the presence of a `satisfies` clause — is defeated by the very
+idiom it is meant to catch. This audit **never asserts that property**: `composition` is declared data
+with a named owner, the README states that composition cannot be graded from a schema, and the one
+composition claim made anywhere is the `toBe` instance-identity assertion, which mutant 10 proves is
+the only instrument that sees the failure. And POD-1137 — POD-366's filing of the name-listed
+`session-shapes` detector — is what §1 of this document resolves.
+
+
 ---
 
 ## 7. Handed to Phase 3 (POD-290) — confirmed, and OPEN
