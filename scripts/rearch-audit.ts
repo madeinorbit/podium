@@ -598,12 +598,12 @@ export const CHECKS: AuditCheck[] = [
     id: 'agent-kind-enums',
     title: 'Duplicate agent-kind enums',
     phase: 'POD-303',
-    unit: 'z.enum re-declaring the agent vocabulary outside the canonical protocol/messages/harness.ts (aliases are fine)',
+    unit: 'z.enum re-declaring the agent vocabulary outside the canonical model/entities/agent.ts (aliases are fine)',
     collect: (ctx) =>
       grep(ctx, {
         roots: ['apps', 'packages'],
         pattern: /^export const (?:AgentKind|HarnessAgent) = z\.enum\(/,
-        skip: (file) => file === 'packages/protocol/src/messages/harness.ts',
+        skip: (file) => file === 'packages/model/src/entities/agent.ts',
       }),
   },
   {

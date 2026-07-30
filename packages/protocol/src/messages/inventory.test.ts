@@ -1,6 +1,6 @@
+import { Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { encode, parseControlMessage, parseDaemonMessage } from './codec'
-import { Inventory } from './inventory'
 
 describe('inventory messages (#222)', () => {
   const inventory: Inventory = {
@@ -16,7 +16,13 @@ describe('inventory messages (#222)', () => {
       },
       { kind: 'codex', installed: false, login: { state: 'out' } },
       { kind: 'grok', installed: false, login: { state: 'out' } },
-      { kind: 'opencode', installed: true, version: '0.9.1', path: 'opencode', login: { state: 'unknown' } },
+      {
+        kind: 'opencode',
+        installed: true,
+        version: '0.9.1',
+        path: 'opencode',
+        login: { state: 'unknown' },
+      },
       { kind: 'cursor', installed: false, login: { state: 'unknown' } },
     ],
     // gh presence for #214's credential-propagation form.
@@ -43,7 +49,11 @@ describe('inventory messages (#222)', () => {
   })
 
   it('rejects an inventory with an unknown os/arch', () => {
-    const bad = { type: 'inventoryReport', machineId: 'm1', inventory: { ...inventory, os: 'win32' } }
+    const bad = {
+      type: 'inventoryReport',
+      machineId: 'm1',
+      inventory: { ...inventory, os: 'win32' },
+    }
     expect(() => parseDaemonMessage(encode(bad as never))).toThrow()
   })
 

@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind, IssueWire } from '@podium/protocol'
+import type { AgentKind, IssueWire } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'

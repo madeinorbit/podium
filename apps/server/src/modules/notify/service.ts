@@ -1,9 +1,5 @@
-import type {
-  AgentObservation,
-  AgentRuntimeState,
-  LiveServerMessage,
-  ServerMessage,
-} from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
+import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {
   type AttentionNotice,

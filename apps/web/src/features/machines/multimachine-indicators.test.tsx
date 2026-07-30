@@ -6,7 +6,7 @@
  *    (regression: it always showed the first online machine).
  *  - Quota: the overlay groups by machine so two accounts are both visible.
  */
-import type { MachineQuotaWire } from '@podium/protocol'
+import type { MachineQuotaWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'

@@ -3,7 +3,7 @@
   "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every item must reach 0 before its phase issue closes.",
   "counts": {
     "adoption-backfill-heals": 9,
-    "agent-kind-enums": 2,
+    "agent-kind-enums": 0,
     "capability-tables": 5,
     "change-row-typings": 7,
     "cli-launch-plan-debt": 1,

@@ -1,11 +1,13 @@
 import {
   type HandoffAvailability,
+  handoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
-  handoffAvailability,
+  type IssueWire,
+  type SessionMeta,
 } from '@podium/model'
-import { agentSupportsHandoff, type IssueWire, type SessionMeta } from '@podium/protocol'
+import { agentSupportsHandoff } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
 /**

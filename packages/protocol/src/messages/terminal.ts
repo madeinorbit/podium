@@ -1,9 +1,7 @@
+import { AgentKind, Geometry, ResumeRef } from '@podium/model'
 import { z } from 'zod'
 
 const positiveInt = z.number().int().positive()
-
-export const Geometry = z.object({ cols: positiveInt, rows: positiveInt })
-export type Geometry = z.infer<typeof Geometry>
 
 export const Viewport = z.object({
   cols: positiveInt,
@@ -11,14 +9,6 @@ export const Viewport = z.object({
   dpr: z.number().positive(),
 })
 export type Viewport = z.infer<typeof Viewport>
-
-export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
-export type AgentKind = z.infer<typeof AgentKind>
-
-/** Type guard for the wire kind (superagent metadata, hook payloads, …). */
-export function isAgentKind(v: unknown): v is AgentKind {
-  return typeof v === 'string' && (AgentKind.options as readonly string[]).includes(v)
-}
 
 /**
  * Per-kind capability flags (#158) — the ONE declarative table of what each
@@ -206,18 +196,12 @@ export function agentSupportsHandoff(kind: AgentKind | (string & {})): boolean {
   return agentCapabilitiesFor(kind)?.handoff ?? false
 }
 
-export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
-export type ResumeRef = z.infer<typeof ResumeRef>
-
 /** Server confirms that an exact native resume binding is durably stored. */
 export const SessionResumeRefAckMessage = z.object({
   type: z.literal('sessionResumeRefAck'),
   sessionId: z.string(),
   resume: ResumeRef,
 })
-
-export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
-export type SessionStatus = z.infer<typeof SessionStatus>
 
 // ---- Browser client -> server: terminal control frames ----
 /** Client capability: the client consumes `metadataDelta` streams, so the server

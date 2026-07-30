@@ -11,11 +11,11 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
+import { isAgentKind } from '@podium/model'
 import {
   type ApprovalOp,
-  FEATURES,
   type FeatureId,
-  isAgentKind,
+  FEATURES,
   type LocalDaemonLink,
   resolveFeatureState,
 } from '@podium/protocol'

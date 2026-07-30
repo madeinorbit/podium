@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core'
-import { type IssuePanelArtifact, type IssueWire, issueDisplayRef } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import {
   Archive,
   ArchiveRestore,

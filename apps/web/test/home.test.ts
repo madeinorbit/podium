@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   attentionGroup,

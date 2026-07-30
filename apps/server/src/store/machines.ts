@@ -4,7 +4,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { Inventory } from '@podium/protocol'
+import { Inventory } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
 

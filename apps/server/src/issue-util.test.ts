@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
 
 const sess = (cwd: string, phase?: string): SessionMeta =>

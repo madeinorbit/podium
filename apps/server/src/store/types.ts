@@ -3,12 +3,8 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { IssueColorSlot } from '@podium/model'
-import type {
-  Geometry,
-  ObservationProvider,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
+import type { Geometry, IssueColorSlot } from '@podium/model'
+import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -194,7 +190,7 @@ export interface MachineRecord {
   lastSeenAt: string
   /** Parsed machines.inventory_json (#222); absent until the daemon reports
    *  (or when the stored blob fails to parse — defensive). */
-  inventory?: import('@podium/protocol').Inventory
+  inventory?: import('@podium/model').Inventory
 }
 
 /** One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text). */

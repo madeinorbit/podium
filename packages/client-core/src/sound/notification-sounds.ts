@@ -20,7 +20,7 @@
  *    highest-priority cue.
  */
 
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import type { UiState } from '../replica/replica'
 import { play, prewarmAudio, type SoundName } from './cuelume'
 

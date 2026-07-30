@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 
 /**
  * Normalized cross-agent lifecycle events. Providers translate harness-native

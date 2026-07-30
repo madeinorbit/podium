@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 /**
  * Board/list scope filter (issue-as-workspace): drafts and internal

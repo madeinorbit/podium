@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
 

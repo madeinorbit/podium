@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { MachineWire } from '@podium/protocol'
+import type { MachineWire } from '@podium/model'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { type Store, useStoreSelector } from '@/app/store'

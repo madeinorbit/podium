@@ -10,7 +10,7 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
   return {

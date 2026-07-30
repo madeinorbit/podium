@@ -3,7 +3,7 @@ import {
   type IssueSessionSummary,
   type IssueStage,
   type SessionMeta,
-} from '@podium/protocol'
+} from '@podium/model'
 
 export function slugifyBranch(seq: number, title: string): string {
   const slug = title

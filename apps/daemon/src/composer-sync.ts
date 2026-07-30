@@ -14,7 +14,7 @@
  */
 
 import { type ComposerDriver, composerDriverFor } from '@podium/composer'
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import { Terminal } from '@xterm/headless'
 
 /** Coalesce a burst of PTY frames into a single scrape (~one animation frame). */

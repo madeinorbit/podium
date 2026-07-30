@@ -1,5 +1,5 @@
 import { type ConversationDiscoveryCache, scanAgentConversationsCached, summarizePaths } from '@podium/harness'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
   attributeMemory,

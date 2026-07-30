@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 export interface CursorParts {
   /** Stable id of the JSONL file this item's record lives in. */

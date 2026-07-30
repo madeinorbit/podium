@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"

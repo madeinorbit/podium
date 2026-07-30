@@ -29,6 +29,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/issue-client": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/telemetry": "workspace:*",
@@ -46,6 +47,7 @@
         "@podium/agent-bridge": "workspace:*",
         "@podium/composer": "workspace:*",
         "@podium/harness": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
@@ -210,6 +212,7 @@
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
       },
@@ -246,6 +249,7 @@
       "name": "@podium/composer",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
       },
       "devDependencies": {
@@ -270,6 +274,7 @@
       "name": "@podium/issue-client",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@trpc/client": "^11.0.0",
         "zod": "^3.24.0",
@@ -293,6 +298,7 @@
       "name": "@podium/protocol",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "zod": "^3.24.0",
       },
       "devDependencies": {
@@ -304,6 +310,7 @@
       "name": "@podium/pty",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "node-pty": "^1.0.0",
@@ -328,6 +335,7 @@
       "name": "@podium/sync",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@trpc/client": "^11.0.0",
@@ -343,6 +351,7 @@
       "name": "@podium/telemetry",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "zod": "^3.24.0",
@@ -356,6 +365,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/composer": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@xterm/addon-fit": "^0.10.0",
         "@xterm/addon-web-links": "^0.11.0",
@@ -392,6 +402,7 @@
       "name": "@podium/transcript",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
       },
       "devDependencies": {

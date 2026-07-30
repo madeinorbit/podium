@@ -1,3 +1,4 @@
+import { ResumeRef } from '@podium/model'
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
@@ -45,12 +46,11 @@ import {
 import {
   AgentColorMessage,
   AgentExitMessage,
-  AgentModelMessage,
   AgentFrameBatchMessage,
   AgentFrameMessage,
+  AgentModelMessage,
   BindMessage,
   ReattachFailedMessage,
-  ResumeRef,
   SpawnErrorMessage,
   TitleMessage,
 } from './terminal'

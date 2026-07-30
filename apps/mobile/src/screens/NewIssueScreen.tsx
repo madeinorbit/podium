@@ -1,4 +1,4 @@
-import type { IssueType } from '@podium/protocol'
+import type { IssueType } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'

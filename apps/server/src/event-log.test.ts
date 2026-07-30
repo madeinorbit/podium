@@ -1,6 +1,6 @@
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { SessionStore } from './store'
 import { IssueService, type IssueDeps } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'

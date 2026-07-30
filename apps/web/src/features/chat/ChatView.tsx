@@ -1,7 +1,8 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
+import type { HeadlessActivityEvent } from '@podium/protocol'
 import {
   ArrowDownToLine,
   ArrowUp,

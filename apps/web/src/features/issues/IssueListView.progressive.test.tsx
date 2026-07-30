@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'

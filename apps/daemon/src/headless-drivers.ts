@@ -13,7 +13,8 @@ import {
   type HeadlessExecOptions,
   harnessAdapterFor,
 } from '@podium/harness'
-import type { HarnessAgent, HeadlessTurnEvent } from '@podium/protocol'
+import type { HarnessAgent } from '@podium/model'
+import type { HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000

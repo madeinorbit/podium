@@ -2,7 +2,7 @@
 // transcript text), issue-ref target resolution, the read line cap, and the
 // per-read event log.
 
-import type { SessionMeta, TranscriptItem } from '@podium/protocol'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'

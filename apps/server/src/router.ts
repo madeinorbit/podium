@@ -2,12 +2,14 @@ import {
   AgentKind,
   AutomationScheduleKind,
   AutomationSessionMode,
-  agentSupportsCloud,
-  clientSwitchTraceSchema,
-  type FileReadResultMessage,
   isAgentKind,
   ResumeRef,
   WorkState,
+} from '@podium/model'
+import {
+  agentSupportsCloud,
+  clientSwitchTraceSchema,
+  type FileReadResultMessage,
 } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'

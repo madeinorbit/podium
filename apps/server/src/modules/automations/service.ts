@@ -13,12 +13,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import {
-  automationOccurrenceRunId,
-  type AgentKind,
-  type AutomationScheduleKind,
-  type AutomationSessionMode,
-} from '@podium/protocol'
+import type { AgentKind, AutomationScheduleKind, AutomationSessionMode } from '@podium/model'
+import { automationOccurrenceRunId } from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
 import type {
   AutomationRow,

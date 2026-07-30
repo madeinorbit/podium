@@ -1,15 +1,13 @@
 import type {
   AgentKind,
-  AgentObservation,
   AgentRuntimeState,
   ConversationSummaryWire,
   HostMetricsWire,
   IssueWire,
-  MetadataChange,
   SessionMeta,
-  SessionOpenUrlMessage,
   TranscriptItem,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 
 /**
  * The typed in-process event map (architecture redesign, issue #13 Phase 2).

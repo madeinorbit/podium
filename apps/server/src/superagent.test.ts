@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'

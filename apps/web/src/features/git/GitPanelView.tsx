@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { ChevronDown, ChevronRight, GitBranch, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'

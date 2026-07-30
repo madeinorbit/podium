@@ -7,12 +7,16 @@
  */
 import {
   agentCapabilityRejection,
-  DEFER_NEXT_MESSAGE,
+  type AgentKind,
   dedupeSessionsByResume,
+  DEFER_NEXT_MESSAGE,
+  type GitRepositoryWire,
+  type HostMetricsWire,
   isHeadlessSession,
   isIssueDeferred,
   isSnoozed,
   issueReturnedFromDefer,
+  type IssueWire,
   lastUsedMachine,
   machinesForRepo,
   machinesForRepoOrClone,
@@ -23,19 +27,13 @@ import {
   resolveTargetMachine,
   resolveTargetMachineForAgent,
   returnedFromSnooze,
+  type SessionMeta,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
   withoutHeadless,
   worktreeForCwd,
 } from '@podium/model'
-import {
-  type AgentKind,
-  type GitRepositoryWire,
-  type HostMetricsWire,
-  type IssueWire,
-  issueDisplayRef,
-  type SessionMeta,
-} from '@podium/protocol'
+import { issueDisplayRef } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
 

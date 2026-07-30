@@ -19,6 +19,7 @@ import ids from './ids.json' with { type: 'json' }
 import inventory from './inventory.json' with { type: 'json' }
 import issues from './issues.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
+import model from './model.json' with { type: 'json' }
 import mutations from './mutations.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
 import runtimeState from './runtime-state.json' with { type: 'json' }
@@ -49,6 +50,7 @@ export const GOLDEN: Record<string, unknown> = {
   inventory: inventory,
   issues: issues,
   maintenance: maintenance,
+  model: model,
   mutations: mutations,
   perf: perf,
   'runtime-state': runtimeState,

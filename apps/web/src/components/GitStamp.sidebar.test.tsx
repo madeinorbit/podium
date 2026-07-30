@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from '@testing-library/react'
-import type { IssueGitState } from '@podium/protocol'
+import type { IssueGitState } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitStamp } from './GitStamp'
 

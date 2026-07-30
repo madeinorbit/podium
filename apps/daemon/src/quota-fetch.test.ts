@@ -1,4 +1,4 @@
-import type { AgentKind, AgentQuotaWire } from '@podium/protocol'
+import type { AgentKind, AgentQuotaWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { makeQuotaFetcher } from './quota-fetch'
 

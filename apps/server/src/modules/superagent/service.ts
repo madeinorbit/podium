@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { HarnessAgent, type IssueWire } from '@podium/protocol'
+import { HarnessAgent, type IssueWire } from '@podium/model'
 import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'

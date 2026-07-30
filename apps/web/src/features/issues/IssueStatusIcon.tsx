@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/protocol'
+import type { IssueStage } from '@podium/model'
 import { ListTodo } from 'lucide-react'
 import type { JSX } from 'react'
 import { StageGlyph } from './issue-glyphs'

@@ -1,4 +1,4 @@
-import type { AgentKind, SessionMeta } from '@podium/protocol'
+import type { AgentKind, SessionMeta } from '@podium/model'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'

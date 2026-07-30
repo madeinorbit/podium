@@ -11,10 +11,10 @@ import type {
   AutomationScheduleKind,
   AutomationSessionMode,
   AutomationWire,
-} from '@podium/protocol'
+} from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
-export type { AutomationRunOutcome } from '@podium/protocol'
+export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire
 export type AutomationRunRow = AutomationRunWire
 

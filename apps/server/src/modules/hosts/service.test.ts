@@ -1,4 +1,4 @@
-import type { HostMetricsWire } from '@podium/protocol'
+import type { HostMetricsWire } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'

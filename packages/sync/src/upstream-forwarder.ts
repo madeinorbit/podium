@@ -1,4 +1,5 @@
-import { type IssueWire, SESSION_COOKIE } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
+import { SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { normalizeUpstreamUrl } from './upstream'
 

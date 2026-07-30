@@ -25,6 +25,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "zod": "^3.24.0"

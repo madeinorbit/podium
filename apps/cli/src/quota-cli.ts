@@ -6,7 +6,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type QuotaProc = {

@@ -1,4 +1,4 @@
-import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
 import {

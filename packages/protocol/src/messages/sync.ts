@@ -1,8 +1,12 @@
+import {
+  AutomationRunWire,
+  AutomationWire,
+  ConversationDiagnosticWire,
+  ConversationSummaryWire,
+  IssueWire,
+  SessionMeta,
+} from '@podium/model'
 import { z } from 'zod'
-import { AutomationRunWire, AutomationWire } from './automations'
-import { ConversationDiagnosticWire, ConversationSummaryWire } from './discovery'
-import { IssueWire } from './issues'
-import { SessionMeta } from './runtime-state'
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and

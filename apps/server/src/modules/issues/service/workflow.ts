@@ -1,10 +1,10 @@
-import { DEFER_NEXT_MESSAGE } from '@podium/model'
 import {
-  formatIssueRef,
+  DEFER_NEXT_MESSAGE,
   type IssueWire,
   type OrphanIssue,
   type SessionMeta,
-} from '@podium/protocol'
+} from '@podium/model'
+import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'

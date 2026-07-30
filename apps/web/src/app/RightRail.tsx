@@ -1,5 +1,4 @@
-import type { IssueColorSlot } from '@podium/model'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueColorSlot, IssueWire } from '@podium/model'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'

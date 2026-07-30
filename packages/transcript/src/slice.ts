@@ -1,5 +1,5 @@
 import { open, stat } from 'node:fs/promises'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { decodeCursor, recordUuid, stampCursors } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 // Self-import so the bounded reader routes its file reads through the module's

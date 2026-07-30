@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useRouter } from 'expo-router'
 import { useEffect } from 'react'

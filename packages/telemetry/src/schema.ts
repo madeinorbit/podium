@@ -18,7 +18,7 @@
  * regex-pinned string whose alphabet cannot express user data. If you cannot
  * express what you want that way, the answer is that you cannot send it.
  */
-import { AgentKind } from '@podium/protocol'
+import { AgentKind } from '@podium/model'
 import { z } from 'zod'
 
 /** Wire schema version. Bump only for a breaking payload change; the relay

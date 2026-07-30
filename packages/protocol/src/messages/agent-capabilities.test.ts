@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { AgentKind } from '@podium/model'
 import {
   AGENT_CAPABILITIES,
-  AgentKind,
   agentCapabilitiesFor,
   agentShowsPromptModeHints,
   agentSupportsHandoff,

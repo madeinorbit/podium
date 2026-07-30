@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { AgentKind } from '@podium/model'
 import {
-  AgentKind,
   type ExecutionProfileWire,
-  type WorkflowGitObservation as GitObservation,
   WorkflowBindingTarget,
+  type WorkflowGitObservation as GitObservation,
   WorkflowGitObservation,
   type WorkflowNextActionWire,
   type WorkflowRevisionWire,

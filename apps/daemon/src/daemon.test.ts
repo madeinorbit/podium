@@ -6,11 +6,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { abducoHasSession, isAbducoAvailable, isTmuxAvailable, killAbducoSession, killTmuxServer, reapAbducoTestSessions, tmuxHasSession } from '@podium/pty'
 import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
-import type {
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
-  DaemonHandshakeReply,
-} from '@podium/protocol'
+import type { DaemonHandshakeReply } from '@podium/protocol'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'

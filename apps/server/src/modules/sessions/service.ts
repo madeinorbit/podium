@@ -1,3 +1,5 @@
+import { AgentKind } from '@podium/model'
+import type { AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
@@ -5,35 +7,25 @@ import { computePriorities, repoNameFromOrigin } from '@podium/model'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  AgentKind,
-  type AgentRuntimeState,
-  type ApprovalWire,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
-  type AutomationRunWire,
-  type AutomationWire,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
+  type ApprovalWire,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
   type DraftEditMessage,
   formatSessionRef,
-  type Geometry,
-  type IssueWire,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type ObservationInputOrigin,
   type ObservationProvider,
-  type ResumeRef,
   type ServerMessage,
-  type SessionMeta,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
-  type TranscriptItem,
-  type WorkState,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'

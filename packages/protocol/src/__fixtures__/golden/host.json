@@ -3,32 +3,6 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
-      "schema": "AgentMemoryWire",
-      "variant": "minimal",
-      "wire": {
-        "sessionId": "sessionId",
-        "bytes": 1,
-        "processCount": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"bytes\":1,\"processCount\":1}"
-    },
-    {
-      "schema": "AgentMemoryWire",
-      "variant": "full",
-      "wire": {
-        "sessionId": "sessionId",
-        "bytes": 1,
-        "processCount": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"bytes\":1,\"processCount\":1}"
-    },
-    {
       "schema": "AgentQuotaRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -103,48 +77,6 @@
       "encoded": "{\"type\":\"agentQuotaResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
-      "schema": "AgentQuotaWire",
-      "variant": "minimal",
-      "wire": {
-        "agent": "claude-code",
-        "status": "ok",
-        "windows": [],
-        "fetchedAt": "fetchedAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"agent\":\"claude-code\",\"status\":\"ok\",\"windows\":[],\"fetchedAt\":\"fetchedAt\"}"
-    },
-    {
-      "schema": "AgentQuotaWire",
-      "variant": "full",
-      "wire": {
-        "agent": "claude-code",
-        "status": "ok",
-        "account": {
-          "email": "account.email",
-          "plan": "account.plan"
-        },
-        "windows": [
-          {
-            "key": "windows[0].key",
-            "label": "windows[0].label",
-            "usedPercent": 1,
-            "resetsAt": "windows[0].resetsAt",
-            "windowMinutes": 1,
-            "scopeModel": "windows[0].scopeModel"
-          }
-        ],
-        "error": "error",
-        "fetchedAt": "fetchedAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"account.email\",\"plan\":\"account.plan\"},\"windows\":[{\"key\":\"windows[0].key\",\"label\":\"windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"windows[0].scopeModel\"}],\"error\":\"error\",\"fetchedAt\":\"fetchedAt\"}"
-    },
-    {
       "schema": "AttentionEventMessage",
       "variant": "minimal",
       "wire": {
@@ -171,34 +103,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"attentionEvent\",\"sessionId\":\"sessionId\",\"title\":\"title\",\"body\":\"body\"}"
-    },
-    {
-      "schema": "HostMemoryWire",
-      "variant": "minimal",
-      "wire": {
-        "totalBytes": 1,
-        "availableBytes": 1,
-        "swapTotalBytes": 1,
-        "swapFreeBytes": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1}"
-    },
-    {
-      "schema": "HostMemoryWire",
-      "variant": "full",
-      "wire": {
-        "totalBytes": 1,
-        "availableBytes": 1,
-        "swapTotalBytes": 1,
-        "swapFreeBytes": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1}"
     },
     {
       "schema": "HostMetricsChangedMessage",
@@ -280,94 +184,6 @@
       "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"idleCapUnmet\":1}"
     },
     {
-      "schema": "HostMetricsWire",
-      "variant": "minimal",
-      "wire": {
-        "hostname": "hostname",
-        "sampledAt": "sampledAt",
-        "memory": {
-          "totalBytes": 1,
-          "availableBytes": 1,
-          "swapTotalBytes": 1,
-          "swapFreeBytes": 1
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1}}"
-    },
-    {
-      "schema": "HostMetricsWire",
-      "variant": "full",
-      "wire": {
-        "hostname": "hostname",
-        "machineId": "machineId",
-        "name": "name",
-        "sampledAt": "sampledAt",
-        "memory": {
-          "totalBytes": 1,
-          "availableBytes": 1,
-          "swapTotalBytes": 1,
-          "swapFreeBytes": 1
-        },
-        "idleCapUnmet": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"idleCapUnmet\":1}"
-    },
-    {
-      "schema": "MachineQuotaWire",
-      "variant": "minimal",
-      "wire": {
-        "machineId": "machineId",
-        "machineName": "machineName",
-        "hostname": "hostname",
-        "agents": []
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[]}"
-    },
-    {
-      "schema": "MachineQuotaWire",
-      "variant": "full",
-      "wire": {
-        "machineId": "machineId",
-        "machineName": "machineName",
-        "hostname": "hostname",
-        "agents": [
-          {
-            "agent": "claude-code",
-            "status": "ok",
-            "account": {
-              "email": "agents[0].account.email",
-              "plan": "agents[0].account.plan"
-            },
-            "windows": [
-              {
-                "key": "agents[0].windows[0].key",
-                "label": "agents[0].windows[0].label",
-                "usedPercent": 1,
-                "resetsAt": "agents[0].windows[0].resetsAt",
-                "windowMinutes": 1,
-                "scopeModel": "agents[0].windows[0].scopeModel"
-              }
-            ],
-            "error": "agents[0].error",
-            "fetchedAt": "agents[0].fetchedAt"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
-    },
-    {
       "schema": "MachinesChangedMessage",
       "variant": "minimal",
       "wire": {
@@ -423,61 +239,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]}}]}"
-    },
-    {
-      "schema": "MachineWire",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "name": "name",
-        "hostname": "hostname",
-        "online": true,
-        "lastSeenAt": "lastSeenAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\"}"
-    },
-    {
-      "schema": "MachineWire",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "name": "name",
-        "hostname": "hostname",
-        "online": true,
-        "lastSeenAt": "lastSeenAt",
-        "inventory": {
-          "os": "linux",
-          "arch": "x64",
-          "podiumVersion": "inventory.podiumVersion",
-          "agents": [
-            {
-              "kind": "claude-code",
-              "installed": true,
-              "version": "inventory.agents[0].version",
-              "path": "inventory.agents[0].path",
-              "login": {
-                "state": "in",
-                "account": "inventory.agents[0].login.account"
-              }
-            }
-          ],
-          "tools": [
-            {
-              "name": "inventory.tools[0].name",
-              "installed": true,
-              "version": "inventory.tools[0].version",
-              "path": "inventory.tools[0].path"
-            }
-          ]
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\"}}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MemoryBreakdownRequestMessage",
@@ -570,104 +331,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"memoryBreakdownResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"agents\":[{\"sessionId\":\"agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1}"
-    },
-    {
-      "schema": "ProjectMemoryWire",
-      "variant": "minimal",
-      "wire": {
-        "root": "root",
-        "bytes": 1,
-        "processCount": 1,
-        "topProcesses": []
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"root\":\"root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[]}"
-    },
-    {
-      "schema": "ProjectMemoryWire",
-      "variant": "full",
-      "wire": {
-        "root": "root",
-        "bytes": 1,
-        "processCount": 1,
-        "topProcesses": [
-          {
-            "name": "topProcesses[0].name",
-            "bytes": 1
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"root\":\"root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"topProcesses[0].name\",\"bytes\":1}]}"
-    },
-    {
-      "schema": "QuotaWindowWire",
-      "variant": "minimal",
-      "wire": {
-        "key": "key",
-        "label": "label",
-        "usedPercent": 1,
-        "resetsAt": "resetsAt",
-        "windowMinutes": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"key\":\"key\",\"label\":\"label\",\"usedPercent\":1,\"resetsAt\":\"resetsAt\",\"windowMinutes\":1}"
-    },
-    {
-      "schema": "QuotaWindowWire",
-      "variant": "full",
-      "wire": {
-        "key": "key",
-        "label": "label",
-        "usedPercent": 1,
-        "resetsAt": "resetsAt",
-        "windowMinutes": 1,
-        "scopeModel": "scopeModel"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"key\":\"key\",\"label\":\"label\",\"usedPercent\":1,\"resetsAt\":\"resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"scopeModel\"}"
-    },
-    {
-      "schema": "UsageBucketWire",
-      "variant": "minimal",
-      "wire": {
-        "hour": "hour",
-        "model": "model",
-        "inputTokens": 1,
-        "outputTokens": 1,
-        "cacheReadTokens": 1,
-        "cacheCreationTokens": 1,
-        "messages": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"messages\":1}"
-    },
-    {
-      "schema": "UsageBucketWire",
-      "variant": "full",
-      "wire": {
-        "hour": "hour",
-        "model": "model",
-        "inputTokens": 1,
-        "outputTokens": 1,
-        "cacheReadTokens": 1,
-        "cacheCreationTokens": 1,
-        "messages": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"messages\":1}"
     },
     {
       "schema": "UsageRequestMessage",

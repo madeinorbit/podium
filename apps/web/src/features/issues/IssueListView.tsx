@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/protocol'
+import type { IssueStage } from '@podium/model'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { type JSX, type MouseEvent as ReactMouseEvent, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'

@@ -1,46 +1,9 @@
+import { AgentKind, HandoffManifest, ResumeRef } from '@podium/model'
 import { z } from 'zod'
-import { AgentKind, ResumeRef } from './terminal'
 
-/** Canonical portable session package ([spec:SP-3f7a]). */
-export const HandoffManifest = z.object({
-  format: z.literal(1),
-  sessionId: z.string(),
-  agentKind: z.enum(['claude-code', 'codex']),
-  resume: ResumeRef,
-  transcriptFilename: z.string(),
-  transcriptRelativeDir: z.string().optional(),
-  repoId: z.string(),
-  branch: z.string(),
-  headSha: z.string(),
-  snapshotSha: z.string().nullable(),
-  snapshotFlattened: z.literal(true),
-  worktreeName: z.string(),
-  /** Repository-relative checkout location, using `/` separators. New exporters
-   *  include it when the linked worktree lives below the primary checkout;
-   *  older packages omit it and import under `.worktrees/<worktreeName>`.
-   *  [spec:SP-3f7a] */
-  worktreeRelativePath: z
-    .string()
-    .min(1)
-    .refine(
-      (value) =>
-        !value.startsWith('/') &&
-        !value.includes('\\') &&
-        value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'),
-      'worktreeRelativePath must stay inside the repository',
-    )
-    .optional(),
-  /** Where the agent sat inside the worktree, relative to its root ([spec:SP-3f7a]).
-   *  Absent = the root. The import lands the resumed agent in the equivalent
-   *  subdir, or the root when the target tree has no such directory. */
-  cwdSubpath: z.string().optional(),
-  bundleBase: z.array(z.string()),
-  title: z.string().optional(),
-  issueId: z.string().optional(),
-  sourceMachineId: z.string(),
-  exportedAt: z.string(),
-})
-export type HandoffManifest = z.infer<typeof HandoffManifest>
+// HandoffManifest — the entity-shaped member of this family — lives in
+// @podium/model (POD-300). The 7 request/result frames below STAY protocol
+// frames: they are transport, not entity.
 
 export const HandoffExportRequestMessage = z.object({
   type: z.literal('handoffExportRequest'),

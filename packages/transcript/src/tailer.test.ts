@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'

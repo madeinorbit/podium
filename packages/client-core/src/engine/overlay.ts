@@ -51,7 +51,7 @@
  *   poison drop        → overlay dropped + toast (rule (b))
  */
 
-import type { IssueWire, SessionMeta, WorkState } from '@podium/protocol'
+import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
 import type { OutboxEntry } from '../outbox'
 import type { OutboxKinds } from './wiring'
 

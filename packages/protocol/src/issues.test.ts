@@ -1,5 +1,6 @@
+import { ISSUE_STAGES, IssueStage, IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { ISSUE_STAGES, IssueStage, IssueWire, RepoOp, ServerMessage } from './messages'
+import { RepoOp, ServerMessage } from './messages'
 
 describe('issue protocol types', () => {
   it('has the five ordered stages', () => {

@@ -5,7 +5,7 @@
  * and pruneAwaiting implements retirement rule (a) (see overlay.ts header).
  */
 
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import {

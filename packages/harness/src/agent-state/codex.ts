@@ -4,10 +4,10 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import type { AgentRuntimeState } from '@podium/model'
 import type {
   AgentObservation,
   AgentObservationAckMessage,
-  AgentRuntimeState,
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'

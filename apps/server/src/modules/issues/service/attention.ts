@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import { IssueServiceCrud } from './crud'

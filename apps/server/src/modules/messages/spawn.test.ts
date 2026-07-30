@@ -3,7 +3,7 @@
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'

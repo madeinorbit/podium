@@ -1,4 +1,5 @@
-import type { ControlMessage, IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'

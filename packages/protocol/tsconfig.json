@@ -1,5 +1,6 @@
 {
-  "extends": "../../tooling/tsconfig/base.json",
+  "//": "dom.json, not base.json: protocol is browser-safe and, since POD-300, resolves @podium/model's SOURCE through the @podium/source condition — so model's files are checked under THIS config. model/src/predicates/mobile-entry.ts uses the WHATWG URLSearchParams global, which base.json's lib (ES2023 only, types: []) does not declare. DOM is the browser-safe way to declare it; adding @types/node here would not be.",
+  "extends": "../../tooling/tsconfig/dom.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",

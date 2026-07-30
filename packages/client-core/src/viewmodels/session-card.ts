@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import { type DotTone, panelLabel, sessionDotTone } from './derive'
 

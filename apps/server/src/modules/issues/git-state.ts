@@ -1,4 +1,4 @@
-import type { IssueGitState } from '@podium/protocol'
+import type { IssueGitState } from '@podium/model'
 
 /**
  * Git-state probe [POD-98] — the pure half of the "has this task committed,

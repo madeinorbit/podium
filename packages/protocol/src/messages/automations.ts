@@ -1,48 +1,9 @@
+import { AutomationRunWire, AutomationWire } from '@podium/model'
 import { z } from 'zod'
 
-/** How a scheduled fire chooses the agent conversation [spec:SP-17db]. */
-export const AutomationSessionMode = z.enum(['fresh', 'resume'])
-export type AutomationSessionMode = z.infer<typeof AutomationSessionMode>
-
-/** Recurring cron or a single timestamped fire [spec:SP-17db]. */
-export const AutomationScheduleKind = z.enum(['cron', 'once'])
-export type AutomationScheduleKind = z.infer<typeof AutomationScheduleKind>
-
-export const AutomationRunOutcome = z.enum(['spawned', 'missed', 'skipped_overlap', 'error'])
-export type AutomationRunOutcome = z.infer<typeof AutomationRunOutcome>
-
-/** Durable scheduled-automation definition [spec:SP-17db]. */
-export const AutomationWire = z.object({
-  id: z.string(),
-  name: z.string(),
-  enabled: z.boolean(),
-  repoPath: z.string().nullable(),
-  scheduleKind: AutomationScheduleKind,
-  cron: z.string().nullable(),
-  runAt: z.string().nullable(),
-  /** Explicit existing-session target. null keeps the fresh/previous-run behavior. */
-  targetSessionId: z.string().nullable(),
-  agentKind: z.string(),
-  model: z.string(),
-  effort: z.string(),
-  prompt: z.string(),
-  sessionMode: AutomationSessionMode,
-  nextRunAt: z.string().nullable(),
-  lastRunAt: z.string().nullable(),
-  createdAt: z.string(),
-})
-export type AutomationWire = z.infer<typeof AutomationWire>
-
-/** Durable record of one scheduled occurrence, including non-spawning outcomes. */
-export const AutomationRunWire = z.object({
-  id: z.string(),
-  automationId: z.string(),
-  firedAt: z.string(),
-  sessionId: z.string().nullable(),
-  outcome: AutomationRunOutcome,
-  detail: z.string().nullable(),
-})
-export type AutomationRunWire = z.infer<typeof AutomationRunWire>
+// The automation and automation-run entities live in @podium/model (POD-300) —
+// they ride metadataDelta, so sync.ts's MetadataEntityKind names them as
+// replicated entities. What stays here is the carrier FRAMES.
 
 export const AutomationsChangedMessage = z.object({
   type: z.literal('automationsChanged'),

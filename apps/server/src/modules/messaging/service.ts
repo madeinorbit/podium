@@ -1,9 +1,5 @@
-import {
-  issueDisplayRef,
-  type AgentRuntimeState,
-  type IssueWire,
-  type TranscriptItem,
-} from '@podium/protocol'
+import type { AgentRuntimeState, IssueWire, TranscriptItem } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'

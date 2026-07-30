@@ -281,65 +281,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"handoffImportResult\",\"requestId\":\"requestId\",\"ok\":true,\"newCwd\":\"newCwd\",\"worktreeRoot\":\"worktreeRoot\",\"error\":\"error\"}"
-    },
-    {
-      "schema": "HandoffManifest",
-      "variant": "minimal",
-      "wire": {
-        "format": 1,
-        "sessionId": "sessionId",
-        "agentKind": "claude-code",
-        "resume": {
-          "kind": "resume.kind",
-          "value": "resume.value"
-        },
-        "transcriptFilename": "transcriptFilename",
-        "repoId": "repoId",
-        "branch": "branch",
-        "headSha": "headSha",
-        "snapshotSha": null,
-        "snapshotFlattened": true,
-        "worktreeName": "worktreeName",
-        "bundleBase": [],
-        "sourceMachineId": "sourceMachineId",
-        "exportedAt": "exportedAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":null,\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"bundleBase\":[],\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
-    },
-    {
-      "schema": "HandoffManifest",
-      "variant": "full",
-      "wire": {
-        "format": 1,
-        "sessionId": "sessionId",
-        "agentKind": "claude-code",
-        "resume": {
-          "kind": "resume.kind",
-          "value": "resume.value"
-        },
-        "transcriptFilename": "transcriptFilename",
-        "transcriptRelativeDir": "transcriptRelativeDir",
-        "repoId": "repoId",
-        "branch": "branch",
-        "headSha": "headSha",
-        "snapshotSha": "snapshotSha",
-        "snapshotFlattened": true,
-        "worktreeName": "worktreeName",
-        "worktreeRelativePath": "worktreeRelativePath",
-        "cwdSubpath": "cwdSubpath",
-        "bundleBase": ["bundleBase[0]"],
-        "title": "title",
-        "issueId": "issueId",
-        "sourceMachineId": "sourceMachineId",
-        "exportedAt": "exportedAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
     }
   ]
 }

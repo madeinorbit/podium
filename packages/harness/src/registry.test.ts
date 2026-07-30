@@ -1,8 +1,8 @@
+import { HarnessAgent } from '@podium/model'
 import {
   AGENT_CAPABILITIES,
   BUILTIN_HARNESS_KINDS,
   type BuiltinHarnessKind,
-  HarnessAgent,
   HarnessId,
   isBuiltinHarnessKind,
 } from '@podium/protocol'

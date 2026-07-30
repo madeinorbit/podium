@@ -3,87 +3,6 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
-      "schema": "AgentInventory",
-      "variant": "minimal",
-      "wire": {
-        "kind": "claude-code",
-        "installed": true,
-        "login": {
-          "state": "in"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"login\":{\"state\":\"in\"}}"
-    },
-    {
-      "schema": "AgentInventory",
-      "variant": "full",
-      "wire": {
-        "kind": "claude-code",
-        "installed": true,
-        "version": "version",
-        "path": "path",
-        "login": {
-          "state": "in",
-          "account": "login.account"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\"}}"
-    },
-    {
-      "schema": "Inventory",
-      "variant": "minimal",
-      "wire": {
-        "os": "linux",
-        "arch": "x64",
-        "agents": []
-      },
-      "parseAdded": {
-        "tools": []
-      },
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"agents\":[],\"tools\":[]}"
-    },
-    {
-      "schema": "Inventory",
-      "variant": "full",
-      "wire": {
-        "os": "linux",
-        "arch": "x64",
-        "podiumVersion": "podiumVersion",
-        "agents": [
-          {
-            "kind": "claude-code",
-            "installed": true,
-            "version": "agents[0].version",
-            "path": "agents[0].path",
-            "login": {
-              "state": "in",
-              "account": "agents[0].login.account"
-            }
-          }
-        ],
-        "tools": [
-          {
-            "name": "tools[0].name",
-            "installed": true,
-            "version": "tools[0].version",
-            "path": "tools[0].path"
-          }
-        ]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\"}}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
-    },
-    {
       "schema": "InventoryReportMessage",
       "variant": "minimal",
       "wire": {
@@ -160,32 +79,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"inventoryRequest\"}"
-    },
-    {
-      "schema": "ToolInventory",
-      "variant": "minimal",
-      "wire": {
-        "name": "name",
-        "installed": true
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"name\":\"name\",\"installed\":true}"
-    },
-    {
-      "schema": "ToolInventory",
-      "variant": "full",
-      "wire": {
-        "name": "name",
-        "installed": true,
-        "version": "version",
-        "path": "path"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"name\":\"name\",\"installed\":true,\"version\":\"version\",\"path\":\"path\"}"
     }
   ]
 }

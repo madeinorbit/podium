@@ -30,6 +30,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*"
   },
   "devDependencies": {

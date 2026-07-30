@@ -56,51 +56,6 @@
       "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"tail\":\"tail\",\"reset\":true}"
     },
     {
-      "schema": "TranscriptItem",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "role": "user",
-        "text": "text"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"role\":\"user\",\"text\":\"text\"}"
-    },
-    {
-      "schema": "TranscriptItem",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "cursor": "cursor",
-        "role": "user",
-        "ts": "ts",
-        "text": "text",
-        "toolName": "toolName",
-        "toolInput": "toolInput",
-        "toolTitle": "toolTitle",
-        "toolInputJson": "toolInputJson",
-        "toolResult": "toolResult",
-        "toolUseId": "toolUseId",
-        "tags": [
-          {
-            "kind": "image",
-            "label": "tags[0].label"
-          }
-        ],
-        "toolPaths": ["toolPaths[0]"],
-        "event": "interrupt",
-        "answer": true,
-        "systemKind": "recap",
-        "durationMs": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"user\",\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}"
-    },
-    {
       "schema": "TranscriptMirrorReadMessage",
       "variant": "minimal",
       "wire": {
@@ -259,24 +214,6 @@
       "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
     },
     {
-      "schema": "TranscriptRole",
-      "variant": "minimal",
-      "wire": "user",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"user\""
-    },
-    {
-      "schema": "TranscriptRole",
-      "variant": "full",
-      "wire": "user",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"user\""
-    },
-    {
       "schema": "TranscriptSubscribeMessage",
       "variant": "minimal",
       "wire": {
@@ -300,29 +237,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"transcriptSubscribe\",\"sessionId\":\"sessionId\",\"since\":\"since\"}"
-    },
-    {
-      "schema": "TranscriptTag",
-      "variant": "minimal",
-      "wire": {
-        "kind": "image"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"image\"}"
-    },
-    {
-      "schema": "TranscriptTag",
-      "variant": "full",
-      "wire": {
-        "kind": "image",
-        "label": "label"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"image\",\"label\":\"label\"}"
     },
     {
       "schema": "TranscriptUnsubscribeMessage",

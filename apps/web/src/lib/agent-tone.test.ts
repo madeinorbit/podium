@@ -1,4 +1,4 @@
-import { AgentKind } from '@podium/protocol'
+import { AgentKind } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   agentBrandDot,

@@ -61,7 +61,7 @@ import type {
   IssueWire,
   SessionMeta,
   TranscriptItem,
-} from '@podium/protocol'
+} from '@podium/model'
 import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser

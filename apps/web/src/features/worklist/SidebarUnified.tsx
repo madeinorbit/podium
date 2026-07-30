@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueColorSlot } from '@podium/model'
-import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
+import type { AgentKind, IssueColorSlot, IssueWire, SessionMeta } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,

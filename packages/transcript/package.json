@@ -22,6 +22,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*"
   },
   "scripts": {

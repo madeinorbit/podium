@@ -1,19 +1,21 @@
 import type {
   AgentKind,
   AgentRuntimeState,
-  ControlMessage,
   Geometry,
-  MetadataChange,
   ResumeRef,
-  ServerMessage,
   SessionMeta,
-  SessionObservationCheckpointV1,
   SessionOffer,
   SessionOrigin,
   TranscriptItem,
   WorkState,
+} from '@podium/model'
+import { WorkState as WorkStateSchema } from '@podium/model'
+import type {
+  ControlMessage,
+  MetadataChange,
+  ServerMessage,
+  SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { WorkState as WorkStateSchema } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import type { SessionRow } from '../../store'
 import { perf } from '../perf/registry'

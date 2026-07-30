@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AutomationSessionMode } from '@podium/protocol'
+import type { AutomationSessionMode } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'

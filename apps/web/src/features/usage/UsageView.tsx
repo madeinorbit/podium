@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { UsageBucketWire } from '@podium/protocol'
+import type { UsageBucketWire } from '@podium/model'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

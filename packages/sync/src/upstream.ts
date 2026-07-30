@@ -1,16 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
-  type ConversationSummaryWire,
-  type IssueWire,
   isKnownMetadataChange,
   type MetadataChangeLenient,
   type MetadataDeltaMessageLenient,
   parseChangesSinceResult,
   parseServerMessageLenient,
   SESSION_COOKIE,
-  type SessionMeta,
   type SyncChangesSinceResultLenient,
   WIRE_VERSION,
 } from '@podium/protocol'

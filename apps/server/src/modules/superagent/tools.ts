@@ -4,8 +4,8 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import type { LiveServerMessage, TranscriptItem } from '@podium/protocol'
-import { isAgentKind, WorkState } from '@podium/protocol'
+import { isAgentKind, type TranscriptItem, WorkState } from '@podium/model'
+import type { LiveServerMessage } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
 import type { McpToolProvider } from '../../mcp-route'

@@ -1,13 +1,22 @@
 /**
  * The covered surface of the golden wire fixtures (POD-360).
  *
- * Families are the protocol's own module split, so "every message family" is a
- * mechanical fact rather than a list someone has to remember to extend: each
- * module contributes EVERY zod schema it exports. Add a message type, and its
+ * Families are the protocol's module split PLUS @podium/model's barrel,
+ * so "every message family" is a mechanical fact rather than a list someone has to
+ * remember to extend: each module contributes EVERY zod schema it exports.
+ *
+ * The `model` family exists because POD-300 moved 67 entity schemas out of protocol
+ * into @podium/model. This registry REFLECTS over export surfaces, so without them
+ * the relocation would have silently dropped those schemas' byte pin and the suite
+ * would have gone green on reduced coverage — a relocation read as a deletion,
+ * which is the exact failure class the deletion audit exists to catch. Coverage
+ * follows the schemas to their new home instead. protocol -> model is a legal
+ * dependency direction after POD-300. Add a message type, and its
  * fixture appears the next time the golden is regenerated — and CI fails until
  * someone regenerates it and looks at the diff. That is the point.
  */
 
+import * as model from '@podium/model'
 import { z } from 'zod'
 import * as commands from '../commands'
 import * as ids from '../ids'
@@ -45,6 +54,7 @@ import * as perf from '../perf'
 /** One fixture family == one protocol module. The name is the golden filename. */
 const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, unknown>]> = [
   ['approvals', approvals],
+  ['model', model],
   ['automations', automations],
   ['browser-open', browserOpen],
   ['client', client],

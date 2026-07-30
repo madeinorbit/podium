@@ -1,4 +1,4 @@
-import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
 export function formatReset(resetsAt: string, nowMs: number): string {

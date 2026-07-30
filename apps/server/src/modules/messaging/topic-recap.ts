@@ -2,7 +2,7 @@
  * Issue-topic entry recap [spec:SP-62c3]: last few conversational messages from
  * the bound agent transcript, truncated for phone chat.
  */
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 /** How many conversational turns to show on topic entry. */
 export const TOPIC_RECAP_MESSAGE_COUNT = 3

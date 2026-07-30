@@ -1,4 +1,5 @@
-import type { ControlMessage, Inventory } from '@podium/protocol'
+import type { Inventory } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
 import { SessionStore } from '../../store'
 import type { Send } from '../sessions/session'

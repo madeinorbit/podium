@@ -9,9 +9,9 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentInventory, Inventory, ToolInventory } from '@podium/protocol'
 import type { AgentManifest } from '../manifest.js'
 import { AGENT_MANIFESTS } from '../registry.js'
+import type { AgentInventory, Inventory, ToolInventory } from '@podium/model'
 
 const execFileAsync = promisify(execFile)
 

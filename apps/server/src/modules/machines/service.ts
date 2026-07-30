@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { agentCapabilityRejection } from '@podium/model'
+import {
+  agentCapabilityRejection,
+  type AgentKind,
+  type Inventory,
+  type MachineWire,
+} from '@podium/model'
 import type {
-  AgentKind,
   ControlMessage,
   DaemonHandshake,
-  Inventory,
   LiveServerMessage,
-  MachineWire,
   ServerMessage,
 } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'

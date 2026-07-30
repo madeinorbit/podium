@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import {

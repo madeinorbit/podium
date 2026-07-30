@@ -20,7 +20,7 @@
  */
 
 import { createRequire } from 'node:module'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import type {
   PersistedCollectionPersistence,
   SQLiteDriver,

@@ -20,9 +20,9 @@ import type {
   AgentKind,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  SyncChangesSinceResult,
   WorkState,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { SyncChangesSinceResult } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { PinKind, PinState } from './viewmodels/types'
 

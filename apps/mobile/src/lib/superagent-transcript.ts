@@ -19,7 +19,7 @@
  * Kept pure and RN-free so the composition rules are testable in the node lane.
  */
 
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 /** Structural twin of the screen's `PendingTurn` — declared here so this module
  *  stays free of the component graph. */

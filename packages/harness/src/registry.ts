@@ -1,9 +1,5 @@
-import {
-  type AgentKind,
-  type BuiltinHarnessKind,
-  type HarnessAgent,
-  isBuiltinHarnessKind,
-} from '@podium/protocol'
+import type { AgentKind, HarnessAgent } from '@podium/model'
+import { type BuiltinHarnessKind, isBuiltinHarnessKind } from '@podium/protocol'
 import type { AgentStateProvider } from './agent-state/types.js'
 import { type AgentManifest, declaredValue } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'

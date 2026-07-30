@@ -1,5 +1,5 @@
 import type { AgentConversationDiagnostic, AgentConversationSummary } from '@podium/harness'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 
 export function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
   return {

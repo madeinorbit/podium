@@ -5,14 +5,22 @@ import { ControlMessage, DaemonMessage } from './messages'
 describe('file asset messages', () => {
   it('accepts a fileAssetRequest in ControlMessage', () => {
     const m = ControlMessage.parse({
-      type: 'fileAssetRequest', requestId: 'fa1', cwd: '/w', path: '/w/a.png', knownPath: false,
+      type: 'fileAssetRequest',
+      requestId: 'fa1',
+      cwd: '/w',
+      path: '/w/a.png',
+      knownPath: false,
     })
     expect(m.type).toBe('fileAssetRequest')
   })
   it('accepts a fileAssetResult in DaemonMessage', () => {
     const m = DaemonMessage.parse({
-      type: 'fileAssetResult', requestId: 'fa1', ok: true, path: '/w/a.png',
-      dataBase64: 'AAAA', contentType: 'image/png',
+      type: 'fileAssetResult',
+      requestId: 'fa1',
+      ok: true,
+      path: '/w/a.png',
+      dataBase64: 'AAAA',
+      contentType: 'image/png',
     })
     expect(m.type).toBe('fileAssetResult')
     // Narrow the discriminated union before reading result-only fields (strict TS).

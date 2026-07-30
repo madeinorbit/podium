@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AutomationRunWire, AutomationWire } from '@podium/protocol'
+import type { AutomationRunWire, AutomationWire } from '@podium/model'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'

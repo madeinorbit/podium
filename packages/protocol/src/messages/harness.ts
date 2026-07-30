@@ -1,8 +1,5 @@
+import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
-
-/** The non-interactive harness surfaces the daemon can drive (AgentKind minus 'shell'). */
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
-export type HarnessAgent = z.infer<typeof HarnessAgent>
 
 // ---------------------------------------------------------------------------
 // Harness identity (POD-303): OPEN on the wire, CLOSED in-repo.
@@ -37,9 +34,10 @@ export type HarnessId = z.infer<typeof HarnessId>
  * NOT the wire type — third-party runtime plugin registration is not a goal, but
  * receiving an unknown harness name from a newer peer very much is.
  *
- * Today it is exactly `HarnessAgent`: the same five literals, one source of
- * truth. It is named separately because the two have different JOBS — when the
- * registry and the wire enum diverge, this is the name the registry keeps.
+ * Today it is an ALIAS of `HarnessAgent`, which since POD-300 is declared once in
+ * @podium/model and imported here — there is no second copy to drift. It is named
+ * separately because the two have different JOBS: when the registry and the wire
+ * vocabulary diverge, this is the name the registry keeps.
  */
 export type BuiltinHarnessKind = HarnessAgent
 

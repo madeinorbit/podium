@@ -4,7 +4,7 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import { AgentKind } from '@podium/protocol'
+import { AgentKind } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
   OfferMap,

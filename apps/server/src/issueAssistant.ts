@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage } from '@podium/model'
 import type { LlmMessage } from './llm'
 
 export interface StageDigest {

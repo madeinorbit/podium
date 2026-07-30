@@ -1,4 +1,5 @@
-import type { IssueWire, ServerMessage } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueUpstreamForwarder } from './relay'
 import { SessionRegistry } from './relay'

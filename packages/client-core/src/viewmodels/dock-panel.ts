@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the

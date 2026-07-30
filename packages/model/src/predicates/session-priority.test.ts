@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { computePriorities } from './session-priority'
 
-const C = (attached: string[], viewVisible: string[], focused: string | null) =>
-  ({ attached: new Set(attached), viewVisible: new Set(viewVisible), focused })
+const C = (attached: string[], viewVisible: string[], focused: string | null) => ({
+  attached: new Set(attached),
+  viewVisible: new Set(viewVisible),
+  focused,
+})
 
 describe('computePriorities', () => {
   it('focused=0, visible=1, attached=2, unwatched=3', () => {

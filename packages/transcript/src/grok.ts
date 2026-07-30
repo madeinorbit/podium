@@ -1,4 +1,4 @@
-import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
+import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { toolInputPreview } from './claude'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */

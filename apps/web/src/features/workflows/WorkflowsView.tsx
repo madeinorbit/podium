@@ -1,13 +1,13 @@
-import {
-  AgentKind,
-  type ExecutionProfileWire,
-  type WorkflowBindingTarget,
-  type WorkflowBindingWire,
-  type WorkflowDetailWire,
-  type WorkflowRunWire,
-  type WorkflowScope,
-  type WorkflowStep,
-  type WorkflowWire,
+import { AgentKind } from '@podium/model'
+import type {
+  ExecutionProfileWire,
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
+  WorkflowDetailWire,
+  WorkflowRunWire,
+  WorkflowScope,
+  WorkflowStep,
+  WorkflowWire,
 } from '@podium/protocol'
 import { Check, Plus, RefreshCw, ShieldCheck, Workflow } from 'lucide-react'
 import type { ComponentProps, FormEvent, JSX, ReactElement } from 'react'

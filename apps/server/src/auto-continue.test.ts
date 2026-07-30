@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AutoContinueController, type AutoContinueDeps } from './auto-continue'
 

@@ -3,7 +3,8 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
+import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow, MessageRow } from '../../store'

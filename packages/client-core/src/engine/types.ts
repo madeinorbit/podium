@@ -8,7 +8,6 @@
 
 import type {
   AgentKind,
-  ApprovalWire,
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
@@ -19,7 +18,8 @@ import type {
   MachineWire,
   SessionMeta,
   WorkState,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'

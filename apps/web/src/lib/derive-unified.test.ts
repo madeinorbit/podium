@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,

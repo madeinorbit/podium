@@ -2,7 +2,7 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'

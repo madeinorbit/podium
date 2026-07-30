@@ -611,8 +611,8 @@ same commit.**
 
 | Workspace | Layer | Platform | Owns (features) | Transition |
 |---|---|---|---|---|
-| `packages/model` | L0 model | browser-safe | entity-predicates, issue-stage, issue-authz, session-dedup, git-identity, clock | **DONE** (Phase 1 POD-299): absorbed and deleted `packages/domain`, plus the `@podium/runtime/git.ts` shim. Zod-only, zero workspace deps. Reserved homes: `ids/` (POD-360…363), `annotations/` (POD-304), `user-state/` (POD-1076) |
-| `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | Phase 1 POD-300 moves schemas out; Phase 2 POD-308 wire cutover |
+| `packages/model` | L0 model | browser-safe | entity-schemas, entity-predicates, issue-stage, issue-authz, session-dedup, git-identity, clock | **DONE** (Phase 1 POD-299 + POD-300): absorbed and deleted `packages/domain`, plus the `@podium/runtime/git.ts` shim; then POD-300 moved every replicated-entity schema in from `packages/protocol` (`entities/`: agent, session, issue, conversation, machine, transcript, handoff — the machine file is one named group because per-machine facts inherit machine scoping). Zod-only, zero workspace deps. Reserved homes: `ids/` (POD-360…363), `annotations/` (POD-304), `user-state/` (POD-1076) |
+| `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | **DONE** (Phase 1 POD-300): entity schemas moved to `packages/model`; protocol keeps only frames (message unions, codec, handshake, sync-class taxonomy, versioning) and imports the entities. No re-export shim. Wire proven byte-identical by the golden fixtures in `packages/protocol/src/messages/wire-golden.json`. Next: Phase 2 POD-308 wire cutover |
 | `packages/issue-client` | L1 wire | node-only | issue-command-table | → folded into the command registry (Phase 3 POD-311) |
 | `packages/transcript` | L2 kernel | node-only | transcript-parsing | package placement settled by ADR 8; POD-398 implements |
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |

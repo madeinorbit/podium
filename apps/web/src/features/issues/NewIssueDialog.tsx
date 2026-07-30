@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentQuotaWire, QuotaWindowWire } from '@podium/model'
 
 /** Private Build CLI billing surface used by Grok's `/usage` slash command. */
 const BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing'

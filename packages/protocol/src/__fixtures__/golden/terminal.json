@@ -133,24 +133,6 @@
       "encoded": "{\"source\":\"source\",\"content\":\"content\"}"
     },
     {
-      "schema": "AgentKind",
-      "variant": "minimal",
-      "wire": "claude-code",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"claude-code\""
-    },
-    {
-      "schema": "AgentKind",
-      "variant": "full",
-      "wire": "claude-code",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"claude-code\""
-    },
-    {
       "schema": "AgentModelMessage",
       "variant": "minimal",
       "wire": {
@@ -389,30 +371,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
-    },
-    {
-      "schema": "Geometry",
-      "variant": "minimal",
-      "wire": {
-        "cols": 1,
-        "rows": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"cols\":1,\"rows\":1}"
-    },
-    {
-      "schema": "Geometry",
-      "variant": "full",
-      "wire": {
-        "cols": 1,
-        "rows": 1
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"cols\":1,\"rows\":1}"
     },
     {
       "schema": "GeometryMessage",
@@ -805,30 +763,6 @@
       "encoded": "{\"type\":\"resize\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
     },
     {
-      "schema": "ResumeRef",
-      "variant": "minimal",
-      "wire": {
-        "kind": "kind",
-        "value": "value"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"kind\",\"value\":\"value\"}"
-    },
-    {
-      "schema": "ResumeRef",
-      "variant": "full",
-      "wire": {
-        "kind": "kind",
-        "value": "value"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"kind\":\"kind\",\"value\":\"value\"}"
-    },
-    {
       "schema": "SessionPriorityMessage",
       "variant": "minimal",
       "wire": {
@@ -885,24 +819,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
-    },
-    {
-      "schema": "SessionStatus",
-      "variant": "minimal",
-      "wire": "starting",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"starting\""
-    },
-    {
-      "schema": "SessionStatus",
-      "variant": "full",
-      "wire": "starting",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"starting\""
     },
     {
       "schema": "SetSessionDraftMessage",

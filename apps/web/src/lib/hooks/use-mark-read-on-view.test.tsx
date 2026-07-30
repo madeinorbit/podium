@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMarkReadOnView } from './use-mark-read-on-view'

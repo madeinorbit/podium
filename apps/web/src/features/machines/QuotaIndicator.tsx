@@ -1,4 +1,4 @@
-import type { AgentQuotaWire, MachineQuotaWire } from '@podium/protocol'
+import type { AgentQuotaWire, MachineQuotaWire } from '@podium/model'
 import { Gauge } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'

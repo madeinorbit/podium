@@ -8,7 +8,7 @@
  * what yanked the engine's worktree selection (see engine.test.ts).
  */
 
-import type { AutomationRunWire, AutomationWire, IssueWire, SessionMeta } from '@podium/protocol'
+import type { AutomationRunWire, AutomationWire, IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 

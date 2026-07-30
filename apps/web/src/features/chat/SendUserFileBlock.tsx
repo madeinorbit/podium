@@ -1,5 +1,5 @@
 import { isImagePath } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { FileText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'

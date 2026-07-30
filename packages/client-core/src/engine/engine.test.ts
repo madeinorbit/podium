@@ -9,7 +9,7 @@
  * no DOM, no network.
  */
 
-import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/model'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'

@@ -12,7 +12,8 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import { resolveSessionIdentifier, type SessionMeta, type TranscriptItem } from '@podium/protocol'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
+import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'

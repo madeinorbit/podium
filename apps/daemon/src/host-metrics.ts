@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { freemem, totalmem } from 'node:os'
-import type { HostMemoryWire } from '@podium/protocol'
+import type { HostMemoryWire } from '@podium/model'
 
 const MEMINFO_PATH = '/proc/meminfo'
 

@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/protocol'
+import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { formatClock, motionPhase, motionTiming } from './derive'
 

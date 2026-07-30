@@ -1,4 +1,4 @@
-import type { IssueGitState } from '@podium/protocol'
+import type { IssueGitState } from '@podium/model'
 
 /**
  * View-model for the git stamp [POD-98] — the pure half of GitStamp.tsx so the

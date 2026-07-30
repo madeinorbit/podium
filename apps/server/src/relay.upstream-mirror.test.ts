@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { ConversationSummaryWire, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { ConversationSummaryWire, SessionMeta } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { UPSTREAM_COMMAND_REJECTION } from './modules/sessions/service'

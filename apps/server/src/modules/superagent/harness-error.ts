@@ -16,7 +16,7 @@
  * provider-auth rule or every transport blip would read as a login failure.
  */
 
-import type { HarnessAgent } from '@podium/protocol'
+import type { HarnessAgent } from '@podium/model'
 
 export type HarnessErrorKind =
   | 'usage-limit'

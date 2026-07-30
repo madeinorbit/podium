@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core'
-import { type IssueGitState, type IssueWire, issueDisplayRef } from '@podium/protocol'
+import type { IssueGitState, IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { type CSSProperties, type JSX, useState } from 'react'
 import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'

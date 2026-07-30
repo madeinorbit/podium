@@ -1,5 +1,4 @@
-import type { AgentKind } from '@podium/protocol'
-
+import type { AgentKind } from '@podium/model'
 /**
  * Per-kind brand tone (POD-293) as TOTAL RESOLVERS over tables.
  *

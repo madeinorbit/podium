@@ -1,4 +1,4 @@
-import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   lastUsedMachine,

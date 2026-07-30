@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs'
-import type { ServerMessage, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import {
   createViewKey,
   type PublicationView,

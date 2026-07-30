@@ -1,4 +1,5 @@
-import { IssueColor, TITLE_RULE_TERSE } from '@podium/protocol'
+import { IssueColor } from '@podium/model'
+import { TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 

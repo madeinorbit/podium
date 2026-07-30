@@ -1,13 +1,9 @@
-import { isSortKey } from '@podium/model'
+import { isSortKey, IssueColor, IssueStage, IssueType, type SessionMeta } from '@podium/model'
 import {
   type CommandDef,
   defineCommands,
   ISSUE_COMMAND_NAMES,
-  IssueColor,
   type IssueCommandName,
-  IssueStage,
-  IssueType,
-  type SessionMeta,
 } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'

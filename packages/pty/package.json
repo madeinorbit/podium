@@ -23,6 +23,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "node-pty": "^1.0.0"

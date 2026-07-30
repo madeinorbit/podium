@@ -10,7 +10,7 @@ import {
   parseAskQuestions,
   toolVerdict,
 } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   FlatList,

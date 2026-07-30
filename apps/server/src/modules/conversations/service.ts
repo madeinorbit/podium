@@ -1,12 +1,10 @@
 import type {
   AgentKind,
-  ControlMessage,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
-  MetadataChange,
-  ServerMessage,
   TranscriptItem,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'

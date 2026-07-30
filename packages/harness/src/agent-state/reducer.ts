@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 import type { AgentStateEvent } from './types.js'
 
 export function initialAgentState(now: string): AgentRuntimeState {

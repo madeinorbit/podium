@@ -1,5 +1,6 @@
 {
-  "extends": "../../tooling/tsconfig/base.json",
+  "//": "dom.json, not base.json: this package resolves @podium/model's SOURCE through the @podium/source condition (POD-300), so model files are checked under THIS config, and model/src/predicates/mobile-entry.ts uses the WHATWG URLSearchParams global that base.json's lib does not declare. See packages/protocol/tsconfig.json for the same note.",
+  "extends": "../../tooling/tsconfig/dom.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",

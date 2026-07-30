@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
+import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 
 /**
  * Fixture metadata for demo mode (`?demo=1` on web): realistic sessions and

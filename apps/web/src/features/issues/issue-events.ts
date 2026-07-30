@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/protocol'
+import type { IssueStage } from '@podium/model'
 import { STAGE_LABELS } from './issue-card'
 
 /**

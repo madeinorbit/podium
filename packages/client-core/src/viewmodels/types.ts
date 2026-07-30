@@ -1,4 +1,4 @@
-import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
+import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/model'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 

@@ -101,7 +101,12 @@ describe('ref grammar', () => {
 
   it('disambiguates session vs issue in parseAnyRef', () => {
     expect(parseAnyRef('POD-13')).toEqual({ kind: 'issue', prefix: 'POD', seq: 13 })
-    expect(parseAnyRef('POD-13-A')).toEqual({ kind: 'session', prefix: 'POD', seq: 13, letter: 'A' })
+    expect(parseAnyRef('POD-13-A')).toEqual({
+      kind: 'session',
+      prefix: 'POD',
+      seq: 13,
+      letter: 'A',
+    })
     expect(parseAnyRef('POD-DRAFT-3')).toEqual({ kind: 'session', prefix: 'POD', draft: 3 })
     // `UTF-8` is grammatically a bare issue ref; the linkify/resolve caller
     // rejects it because no registered repo owns the `UTF` prefix.

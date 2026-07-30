@@ -11,7 +11,8 @@
  *   3. single-machine invariant: agentQuotaAll() == one entry with agentQuota()'s agents.
  *   4. memoryBreakdown(roots, machineId) routes to that machine.
  */
-import type { AgentQuotaWire, ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { AgentQuotaWire } from '@podium/model'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import {
   formatTopicRecap,
   pickRecapMessages,

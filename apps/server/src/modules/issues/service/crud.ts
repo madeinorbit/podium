@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { isSortKey, normalizeClosedPatch, sortKeyBetween } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import {
+  isSortKey,
+  type IssueWire,
+  normalizeClosedPatch,
+  type SessionMeta,
+  sortKeyBetween,
+} from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'

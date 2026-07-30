@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
+import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 import {

@@ -1,4 +1,5 @@
-import type { ConversationSummaryWire, ServerMessage } from '@podium/protocol'
+import type { ConversationSummaryWire } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 

@@ -10,7 +10,7 @@
  * Read-side loaders (`loadIssueComments`, `loadIssueEventsPage`,
  * `loadMergeStyle`) live here too so the model hook has no raw call sites.
  */
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/model'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { ActivityComment, IssueEvent } from './issue-events'

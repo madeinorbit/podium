@@ -18,16 +18,16 @@ import {
   initialAgentState,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
+
 } from '@podium/harness'
 import type {
-  AgentKind,
   AgentObservation,
   ControlMessage,
   DaemonMessage,
   ObservationInputOrigin,
-  TranscriptItem,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { AgentKind, TranscriptItem } from '@podium/model'
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,

@@ -1,3 +1,4 @@
+import { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   ControlMessage,
@@ -8,7 +9,6 @@ import {
   FileReadResultMessage,
   FileWriteRequestMessage,
   FileWriteResultMessage,
-  TranscriptItem,
 } from './messages'
 
 describe('file RPC messages', () => {
@@ -49,13 +49,22 @@ describe('file RPC messages', () => {
       }).type,
     ).toBe('fileWriteRequest')
     expect(
-      FileWriteResultMessage.parse({ type: 'fileWriteResult', requestId: 'fw1', ok: false, conflict: true })
-        .conflict,
+      FileWriteResultMessage.parse({
+        type: 'fileWriteResult',
+        requestId: 'fw1',
+        ok: false,
+        conflict: true,
+      }).conflict,
     ).toBe(true)
   })
 
   it('TranscriptItem accepts optional toolPaths', () => {
-    const item = TranscriptItem.parse({ id: '1', role: 'tool', text: '', toolPaths: ['/repo/a.ts'] })
+    const item = TranscriptItem.parse({
+      id: '1',
+      role: 'tool',
+      text: '',
+      toolPaths: ['/repo/a.ts'],
+    })
     expect(item.toolPaths).toEqual(['/repo/a.ts'])
   })
 })

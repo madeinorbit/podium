@@ -1,5 +1,5 @@
 import type { Stats } from 'node:fs'
-import type { HarnessAgent } from '@podium/protocol'
+import type { HarnessAgent } from '@podium/model'
 
 /** The discoverable harness kinds — protocol's AgentKind minus 'shell'.
  *  Unified with the wire enum (#158); previously a duplicate literal union. */

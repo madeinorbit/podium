@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises'
+import type { HarnessAgent, ResumeRef, TranscriptItem } from '@podium/model'
 import type {
   AgentCapabilities,
   AgentInstruction,
@@ -8,9 +9,7 @@ import type {
   BuiltinHarnessKind,
   ObservationProvider,
   ProviderCursor,
-  ResumeRef,
   SessionObservationCheckpointV1,
-  TranscriptItem,
 } from '@podium/protocol'
 import type { StatTick, TranscriptSource } from '@podium/transcript'
 import type { AgentStateEvent, AgentStateProvider } from './agent-state/types.js'

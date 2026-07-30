@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage } from '@podium/model'
 
 const STAGES = new Set<string>(ISSUE_STAGES)
 

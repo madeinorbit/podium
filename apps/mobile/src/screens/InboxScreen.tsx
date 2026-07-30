@@ -1,6 +1,6 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'

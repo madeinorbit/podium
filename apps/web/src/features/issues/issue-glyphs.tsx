@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/protocol'
+import type { IssueStage } from '@podium/model'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'

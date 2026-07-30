@@ -1,15 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import type { AgentKind, Geometry, HarnessAgent, ResumeRef } from '@podium/model'
 import type {
-  AgentKind,
   ControlMessage,
   DaemonMessage,
-  Geometry,
-  HarnessAgent,
   HeadlessActivityEvent,
   HeadlessTurnEvent,
   LiveServerMessage,
-  ResumeRef,
   ServerMessage,
 } from '@podium/protocol'
 import { Session } from '../sessions/session'

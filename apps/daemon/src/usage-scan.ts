@@ -2,7 +2,7 @@ import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LineDecoder } from '@podium/harness'
-import type { UsageBucketWire } from '@podium/protocol'
+import type { UsageBucketWire } from '@podium/model'
 
 /**
  * Harvest token usage from Claude Code transcript JSONLs (each assistant record

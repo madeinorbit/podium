@@ -22,7 +22,7 @@
  *    predicate-driven `sleep` seam.
  */
 
-import type { AgentPhase, SessionMeta } from '@podium/protocol'
+import type { AgentPhase, SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'

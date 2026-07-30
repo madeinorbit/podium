@@ -3,12 +3,12 @@ import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { type GitDiscoveryDiagnostic, type GitRepositorySummary, scanGitRepositories, scanGitRepositoriesAtPath } from '@podium/harness'
 import type {
-  ControlMessage,
   DirectoryEntryWire,
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'

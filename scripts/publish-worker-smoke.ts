@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { createViewKey } from '../apps/server/src/modules/sessions/publish-worker-actor.js'
 import { PublishWorkerClient } from '../apps/server/src/modules/sessions/publish-worker-client.js'
 

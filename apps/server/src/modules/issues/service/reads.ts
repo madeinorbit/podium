@@ -11,7 +11,7 @@ import type {
   LintFinding,
   OrphanIssue,
   SessionMeta,
-} from '@podium/protocol'
+} from '@podium/model'
 import {
   DELEGATION_RULE,
   formatIssueRef,

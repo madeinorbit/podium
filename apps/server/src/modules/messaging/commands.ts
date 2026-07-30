@@ -1,4 +1,5 @@
-import { issueDisplayRef, type IssueWire, type SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 
 const KNOWN_COMMANDS = new Set(['help', 'issues', 'stop', 'new'])

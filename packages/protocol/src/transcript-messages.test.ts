@@ -1,3 +1,4 @@
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   ControlMessage,
@@ -8,7 +9,6 @@ import {
   parseDaemonMessage,
   parseServerMessage,
   ServerMessage,
-  type TranscriptItem,
 } from './messages'
 
 const item: TranscriptItem = {

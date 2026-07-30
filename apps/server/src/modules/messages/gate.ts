@@ -6,7 +6,8 @@
  * never contributes sender fields (mailIdentity pattern).
  */
 
-import { MAX_AGENT_TITLE_LENGTH, type SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
+import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { z } from 'zod'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { MessageRow } from '../../store'

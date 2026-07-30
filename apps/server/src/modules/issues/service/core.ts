@@ -4,10 +4,13 @@ import {
   isIssueClosed,
   isIssueColorSlot,
   isIssueDeferred,
+  type IssueGitState,
+  IssuePanel,
+  type IssueWire,
   requireInstant,
+  type SessionMeta,
 } from '@podium/model'
-import type { IssueGitState, IssueWire, SessionMeta } from '@podium/protocol'
-import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
+import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
 import type { IssueDeps } from './types'

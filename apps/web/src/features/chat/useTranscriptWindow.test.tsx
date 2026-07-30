@@ -1,5 +1,5 @@
 import { beginSwitch, getRecentSwitchTraces, resetSwitchTraces } from '@podium/client-core/perf'
-import type { SessionMeta, TranscriptItem } from '@podium/protocol'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

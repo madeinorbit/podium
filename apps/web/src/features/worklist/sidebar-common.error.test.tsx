@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'

@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion'

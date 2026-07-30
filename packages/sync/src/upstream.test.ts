@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { IssueWire, SyncChangesSinceResultLenient } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
+import type { SyncChangesSinceResultLenient } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   normalizeUpstreamUrl,

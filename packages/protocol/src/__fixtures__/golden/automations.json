@@ -3,24 +3,6 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
-      "schema": "AutomationRunOutcome",
-      "variant": "minimal",
-      "wire": "spawned",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"spawned\""
-    },
-    {
-      "schema": "AutomationRunOutcome",
-      "variant": "full",
-      "wire": "spawned",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"spawned\""
-    },
-    {
       "schema": "AutomationRunsChangedMessage",
       "variant": "minimal",
       "wire": {
@@ -52,38 +34,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"automationRunsChanged\",\"automationRuns\":[{\"id\":\"automationRuns[0].id\",\"automationId\":\"automationRuns[0].automationId\",\"firedAt\":\"automationRuns[0].firedAt\",\"sessionId\":\"automationRuns[0].sessionId\",\"outcome\":\"spawned\",\"detail\":\"automationRuns[0].detail\"}]}"
-    },
-    {
-      "schema": "AutomationRunWire",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "automationId": "automationId",
-        "firedAt": "firedAt",
-        "sessionId": null,
-        "outcome": "spawned",
-        "detail": null
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"automationId\":\"automationId\",\"firedAt\":\"firedAt\",\"sessionId\":null,\"outcome\":\"spawned\",\"detail\":null}"
-    },
-    {
-      "schema": "AutomationRunWire",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "automationId": "automationId",
-        "firedAt": "firedAt",
-        "sessionId": "sessionId",
-        "outcome": "spawned",
-        "detail": "detail"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"automationId\":\"automationId\",\"firedAt\":\"firedAt\",\"sessionId\":\"sessionId\",\"outcome\":\"spawned\",\"detail\":\"detail\"}"
     },
     {
       "schema": "AutomationsChangedMessage",
@@ -127,94 +77,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"automationsChanged\",\"automations\":[{\"id\":\"automations[0].id\",\"name\":\"automations[0].name\",\"enabled\":true,\"repoPath\":\"automations[0].repoPath\",\"scheduleKind\":\"cron\",\"cron\":\"automations[0].cron\",\"runAt\":\"automations[0].runAt\",\"targetSessionId\":\"automations[0].targetSessionId\",\"agentKind\":\"automations[0].agentKind\",\"model\":\"automations[0].model\",\"effort\":\"automations[0].effort\",\"prompt\":\"automations[0].prompt\",\"sessionMode\":\"fresh\",\"nextRunAt\":\"automations[0].nextRunAt\",\"lastRunAt\":\"automations[0].lastRunAt\",\"createdAt\":\"automations[0].createdAt\"}]}"
-    },
-    {
-      "schema": "AutomationScheduleKind",
-      "variant": "minimal",
-      "wire": "cron",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"cron\""
-    },
-    {
-      "schema": "AutomationScheduleKind",
-      "variant": "full",
-      "wire": "cron",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"cron\""
-    },
-    {
-      "schema": "AutomationSessionMode",
-      "variant": "minimal",
-      "wire": "fresh",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"fresh\""
-    },
-    {
-      "schema": "AutomationSessionMode",
-      "variant": "full",
-      "wire": "fresh",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"fresh\""
-    },
-    {
-      "schema": "AutomationWire",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "name": "name",
-        "enabled": true,
-        "repoPath": null,
-        "scheduleKind": "cron",
-        "cron": null,
-        "runAt": null,
-        "targetSessionId": null,
-        "agentKind": "agentKind",
-        "model": "model",
-        "effort": "effort",
-        "prompt": "prompt",
-        "sessionMode": "fresh",
-        "nextRunAt": null,
-        "lastRunAt": null,
-        "createdAt": "createdAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"enabled\":true,\"repoPath\":null,\"scheduleKind\":\"cron\",\"cron\":null,\"runAt\":null,\"targetSessionId\":null,\"agentKind\":\"agentKind\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"sessionMode\":\"fresh\",\"nextRunAt\":null,\"lastRunAt\":null,\"createdAt\":\"createdAt\"}"
-    },
-    {
-      "schema": "AutomationWire",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "name": "name",
-        "enabled": true,
-        "repoPath": "repoPath",
-        "scheduleKind": "cron",
-        "cron": "cron",
-        "runAt": "runAt",
-        "targetSessionId": "targetSessionId",
-        "agentKind": "agentKind",
-        "model": "model",
-        "effort": "effort",
-        "prompt": "prompt",
-        "sessionMode": "fresh",
-        "nextRunAt": "nextRunAt",
-        "lastRunAt": "lastRunAt",
-        "createdAt": "createdAt"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"enabled\":true,\"repoPath\":\"repoPath\",\"scheduleKind\":\"cron\",\"cron\":\"cron\",\"runAt\":\"runAt\",\"targetSessionId\":\"targetSessionId\",\"agentKind\":\"agentKind\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"sessionMode\":\"fresh\",\"nextRunAt\":\"nextRunAt\",\"lastRunAt\":\"lastRunAt\",\"createdAt\":\"createdAt\"}"
     }
   ]
 }

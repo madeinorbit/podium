@@ -199,9 +199,7 @@ export function resolveSessionIdentifier<T extends { sessionId: string; displayR
  * Any ref token (issue or session). Session forms are tried first so that the
  * `PREFIX-seq-LETTER` and `PREFIX-DRAFT-n` shapes are not misread as an issue.
  */
-export type AnyRef =
-  | ({ kind: 'issue' } & IssueRef)
-  | ({ kind: 'session' } & SessionRef)
+export type AnyRef = ({ kind: 'issue' } & IssueRef) | ({ kind: 'session' } & SessionRef)
 
 export function parseAnyRef(s: string): AnyRef | null {
   const session = parseSessionRef(s)
@@ -247,7 +245,11 @@ export function formatShort(ref: string): string {
 }
 
 /** long: `POD-13 · <title>` with the title truncated at ~40 chars. */
-export function formatLong(ref: string, title: string | null | undefined, max = LONG_TITLE_MAX): string {
+export function formatLong(
+  ref: string,
+  title: string | null | undefined,
+  max = LONG_TITLE_MAX,
+): string {
   const t = (title ?? '').trim()
   if (!t) return ref
   return `${ref} · ${truncateTitle(t, max)}`

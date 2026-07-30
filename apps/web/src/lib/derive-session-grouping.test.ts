@@ -1,7 +1,7 @@
 // Cross-harness child grouping (#237) [spec:SP-34d7 web]: sessions spawned by
 // another session nest under their spawner in the sidebar; consumed (exited)
 // children auto-tuck behind a disclosure. M6 also expands for native counts.
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupSessionsByParent,

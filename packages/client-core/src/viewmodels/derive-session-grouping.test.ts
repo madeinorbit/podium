@@ -1,5 +1,5 @@
 // Cross-harness child grouping + native-subagent expand rules (M6 / POD-900).
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupSessionsByParent,

@@ -3,7 +3,7 @@
  * blocks derived from a chat session's transcript — the seed for a fresh
  * `btw_<sessionId>` thread and the marked delta a re-opened thread gets.
  */
-import type { HarnessAgent, TranscriptItem } from '@podium/protocol'
+import type { HarnessAgent, TranscriptItem } from '@podium/model'
 
 export interface BtwSessionInfo {
   sessionId: string

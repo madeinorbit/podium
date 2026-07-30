@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'

@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { HostMetricsWire } from '@podium/protocol'
+import type { HostMetricsWire } from '@podium/model'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'

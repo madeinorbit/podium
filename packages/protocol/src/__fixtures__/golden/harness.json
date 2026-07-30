@@ -3,24 +3,6 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
-      "schema": "HarnessAgent",
-      "variant": "minimal",
-      "wire": "claude-code",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"claude-code\""
-    },
-    {
-      "schema": "HarnessAgent",
-      "variant": "full",
-      "wire": "claude-code",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"claude-code\""
-    },
-    {
       "schema": "HarnessExecRequestMessage",
       "variant": "minimal",
       "wire": {
@@ -81,6 +63,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"harnessExecResult\",\"requestId\":\"requestId\",\"ok\":true,\"output\":\"output\"}"
+    },
+    {
+      "schema": "HarnessId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "HarnessId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
     }
   ]
 }

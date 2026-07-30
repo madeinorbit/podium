@@ -1,6 +1,7 @@
 import type { AgentSession } from '@podium/pty'
 import type { agentLaunchCommand } from '@podium/harness'
-import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { UsageBucketWire } from '@podium/model'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BrowserOpenManager } from '../browser-open'
@@ -82,7 +83,7 @@ export interface DaemonContext {
   refreshAndPublishConversations(full?: boolean): Promise<ConversationDeltaWire>
   /** Per-agent plan-quota reader (TTL-cached). */
   quotaFetcher: {
-    getAgentQuota(refresh?: boolean): Promise<import('@podium/protocol').AgentQuotaWire[]>
+    getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
   }
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }

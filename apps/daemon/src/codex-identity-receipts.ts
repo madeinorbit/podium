@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { DaemonMessage, ResumeRef } from '@podium/protocol'
+import type { ResumeRef } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol'
 
 const RECEIPT_NAME = /^([\w.-]+)\.json$/
 const CLAIM_NAME = /^([\w.-]+?)\.json\.\d+\.[0-9a-f-]+\.ack$/

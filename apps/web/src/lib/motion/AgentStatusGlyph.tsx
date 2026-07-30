@@ -13,7 +13,7 @@
  * remain StatusBadge's job.
  */
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { BrailleSpinner } from './BrailleSpinner'

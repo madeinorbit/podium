@@ -12,8 +12,12 @@
  * confusable with a status); red is folded into rose; slate #94a3b8 is the
  * no-colour flow, not a pickable slot.
  *
- * Structural on purpose  * leaf). The wire enum in @podium/protocol mirrors this list; a drift test in
- * apps/server pins the two.
+ * Structural on purpose: `model` is the L0 zero-dependency root and imports no
+ * workspace package. The wire enum used to be a second hand-maintained copy in
+ * `@podium/protocol` (which could not import the old domain package), pinned to
+ * this list by a drift test in apps/server. Since POD-300 both live at L0 and
+ * `IssueColor` in `entities/issue.ts` is BUILT from this array — same members,
+ * same order — so the two cannot drift at all.
  */
 
 export const ISSUE_COLOR_SLOTS = [

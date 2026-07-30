@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 
 /**
  * Notification triage for agent-state transitions. High-signal by design: only

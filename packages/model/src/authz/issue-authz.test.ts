@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   type AuthDecision,
+  authorize,
   type Capability,
   type IssueScope,
   OPERATOR,
-  authorize,
 } from './issue-authz'
 
-const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({ role, scope })
+const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({
+  role,
+  scope,
+})
 
 describe('authorize — role gate', () => {
   it('denies an action the role does not carry, whatever the scope', () => {

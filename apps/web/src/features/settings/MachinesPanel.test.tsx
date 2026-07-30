@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/protocol'
+import type { MachineWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'

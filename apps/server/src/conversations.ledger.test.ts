@@ -1,4 +1,5 @@
-import type { ConversationSummaryWire, MetadataChange, ServerMessage } from '@podium/protocol'
+import type { ConversationSummaryWire } from '@podium/model'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'

@@ -1,4 +1,5 @@
-import type { MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOCAL_MACHINE_ID } from './local-machine'

@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentRuntimeState } from '@podium/model'
 import type {
   AgentObservation,
-  AgentRuntimeState,
   ControlMessage,
   ObservationProvider,
   ServerMessage,

@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { attentionNotice, pushTelegram } from './notify'
 

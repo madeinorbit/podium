@@ -7,7 +7,7 @@
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'

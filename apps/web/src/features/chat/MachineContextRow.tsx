@@ -1,5 +1,5 @@
 import { machineContextLabel } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAINTENANCE_SCHEMA_VERSION,
   eventLogPruneRunKey,
   issueAutoArchiveRunKey,
+  MAINTENANCE_SCHEMA_VERSION,
   MaintenanceCommand,
   MaintenanceCommandReply,
   MaintenanceHandshake,

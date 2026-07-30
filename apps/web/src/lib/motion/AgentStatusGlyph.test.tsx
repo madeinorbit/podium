@@ -4,7 +4,7 @@
  * everything else → nothing. Stillness is a signal, so the "renders nothing"
  * cases are as load-bearing as the glyphs.
  */
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AgentStatusGlyph } from './AgentStatusGlyph'

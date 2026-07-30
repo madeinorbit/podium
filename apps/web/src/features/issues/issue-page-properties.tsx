@@ -7,13 +7,8 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import {
-  ISSUE_DEP_TYPES,
-  ISSUE_STAGES,
-  IssueType,
-  type IssueWire,
-  issueDisplayRef,
-} from '@podium/protocol'
+import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, type IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useState } from 'react'

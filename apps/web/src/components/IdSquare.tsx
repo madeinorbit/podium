@@ -1,5 +1,9 @@
-import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLOTS, type IssueColorSlot } from '@podium/model'
-import type { IssueWire } from '@podium/protocol'
+import {
+  ISSUE_COLOR_HEX,
+  ISSUE_COLOR_SLOTS,
+  type IssueColorSlot,
+  type IssueWire,
+} from '@podium/model'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'

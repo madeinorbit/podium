@@ -1,6 +1,5 @@
-import { ISSUE_COLOR_SLOTS } from '@podium/model'
+import { ISSUE_COLOR_SLOTS, IssueColor } from '@podium/model'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
-import { IssueColor } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import { issueRegistry } from './registry'

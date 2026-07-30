@@ -14,7 +14,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { claudeProjectSlug, locateClaudeSessionFile, resolvePinnedCodexRollout } from '@podium/harness'
-import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/protocol'
+import { HandoffManifest, HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)

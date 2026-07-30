@@ -1,18 +1,23 @@
-import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
-  AgentQuotaResultMessage,
   AgentRuntimeState,
+  ConversationSummaryWire,
+  GitRepositoryWire,
+  MachineWire,
+  ResumeRef,
+  SessionMeta,
+  SessionStatus,
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import {
+  AgentQuotaResultMessage,
   ApprovalOp,
   ClientMessage,
   type ControlMessage,
-  ConversationSummaryWire,
   type DaemonMessage,
   describeApprovalOp,
   encode,
-  GitRepositoryWire,
   isKnownMetadataChange,
-  MachineWire,
   parseClientMessage,
   parseControlMessage,
   parseDaemonHandshake,
@@ -20,10 +25,7 @@ import {
   parseDaemonMessage,
   parseServerMessage,
   parseServerMessageLenient,
-  ResumeRef,
   ServerMessage,
-  SessionMeta,
-  SessionStatus,
 } from './messages'
 
 describe('shared schemas', () => {
