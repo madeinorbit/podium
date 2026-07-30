@@ -95,6 +95,9 @@ function sessionCommand<K extends SessionCommandKey>(
 }
 
 import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
+import { sessionRenameContract } from '@podium/commands'
+import { renamePath } from './modules/sessions/rename-adapter'
+import { renameOnTargetPath } from './modules/sessions/rename-target-path'
 import type { PinState, SnoozeMap } from './store/types'
 
 /**
@@ -146,6 +149,53 @@ function presenceProc<Out = void>(name: string) {
  *  (§3.2); POD-1075 replaces this with a real per-user principal. */
 function presencePrincipal(ctx: Context) {
   return soleHumanPrincipal(ctx.capability)
+}
+
+/**
+ * THE WALKING SKELETON'S COMPOSITION-ROOT JOIN (POD-351).
+ *
+ * `sessions.rename` on the target path: the L1 contract from `@podium/commands`
+ * joined to its L3 handler here, with the flag deciding which of the two live
+ * paths serves the call. Everything else in the presence family keeps
+ * `presenceProc` untouched — that is the "legacy path unchanged for all other
+ * commands" half of the acceptance criterion, and it is visible in this diff as
+ * ten unchanged lines beside one changed one.
+ *
+ * The input schema is the contract's, and the contract's input IS the presence
+ * contract's schema instance (asserted with `toBe` in
+ * `packages/commands/src/sessions/rename.test.ts`), so the wire this procedure
+ * accepts is identical under either path by construction rather than by review.
+ *
+ * The return type stays `void` on BOTH paths. That is deliberate and it is the
+ * §3.1.5 consistent-error rule: the presence class's refusal shape is a silent
+ * no-op, so surfacing the target path's richer outcome to this transport would
+ * make a denial distinguishable from a not-found and turn the procedure into an
+ * existence oracle. The outcome is not discarded — it is what the outbox drain
+ * reads to dead-letter a rejected offline write (POD-316), where the caller has
+ * already been authorized and the reason leaks nothing.
+ */
+function renameProc() {
+  return t.procedure.input(sessionRenameContract.input).mutation(({ ctx, input }): void => {
+    if (renamePath() === 'legacy') {
+      const registry = new PresenceRegistry({
+        sessions: mods(ctx).sessions,
+        store: ctx.registry.sessionStore,
+        now: () => Date.now(),
+      })
+      registry.execute('sessions.rename', input, presencePrincipal(ctx), 'trpc')
+      return
+    }
+    renameOnTargetPath(
+      {
+        sessions: mods(ctx).sessions,
+        store: ctx.registry.sessionStore,
+        now: () => Date.now(),
+      },
+      input,
+      sessionCommandCtx(mods(ctx), ctx.capability).principal,
+      'trpc',
+    )
+  })
 }
 
 const cloudRepoInput = z.object({
@@ -545,7 +595,13 @@ export const appRouter = t.router({
     // contract's policy, and `withMutation` is GONE from every one of them:
     // idempotency is the framework envelope's, applied once in PresenceRegistry
     // rather than eleven times here. See `presenceProc` at the top of this file.
-    rename: presenceProc('sessions.rename'),
+    // THE WALKING SKELETON (POD-351). This ONE command runs on the target path —
+    // the `@podium/commands` contract, the real CommandPrincipal with its
+    // delegation chain resolved live, and the contract's accept/reject outcome —
+    // while its ten siblings below are untouched on the legacy presence path.
+    // `PODIUM_SESSION_RENAME_PATH=legacy` is the rollback. See ./modules/sessions/
+    // rename-adapter.ts for why the DEFAULT is the target path.
+    rename: renameProc(),
     setArchived: presenceProc('sessions.setArchived'),
     // Mark a session read (issue #124): stamp read_at = now, flipping derived `unread`.
     markRead: presenceProc('sessions.markRead'),
