@@ -82,6 +82,18 @@ describe('handoff reason copy (POD-821)', () => {
     expect(handoffRejectionText('repo-missing', 'codex')).toBe('no clone URL for repo')
   })
 
+  it('says "no access" for a denied machine, not "offline" (POD-303)', () => {
+    // The two reasons need opposite responses from the user — ask the machine's
+    // owner for `use`, versus wait for it to come back — so the copy must not
+    // reuse the offline wording. Asserted as a PAIR: same call, same harness,
+    // only the rejection differs, and the strings differ with it.
+    expect(handoffRejectionText('unauthorized', 'codex')).toBe('no access')
+    expect(handoffRejectionText('offline', 'codex')).toBe('offline')
+    expect(handoffRejectionText('unauthorized', 'codex')).not.toBe(
+      handoffRejectionText('offline', 'codex'),
+    )
+  })
+
   it('explains a blocked session in terms of what would unblock it', () => {
     expect(handoffBlockerText('no-worktree', 'claude-code')).toBe(
       'Only sessions in a worktree can be handed off',
