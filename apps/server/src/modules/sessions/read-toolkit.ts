@@ -57,6 +57,17 @@ export interface SessionReadToolkitDeps {
   now(): string
 }
 
+/**
+ * WHO is reading — a Podium session, or the operator (POD-362).
+ *
+ * NOT a bare `SessionId`: `router.ts` passes `capability.actorSessionId ??
+ * 'operator'`, and `'operator'` is a SENTINEL, not an id. Branding it would
+ * launder a non-id into the session space — the same mistake ADR 1 Am2 D16.2
+ * carves MachineId's 'local' out to prevent. As a union the sentinel stays
+ * visible and every consumer that cares must narrow.
+ */
+export type ReaderRef = SessionId | 'operator'
+
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
 
@@ -84,7 +95,7 @@ export class SessionReadToolkit {
       .at(0)
   }
 
-  async status(ref: string, reader: string): Promise<SessionStatusResult> {
+  async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
     const target = this.resolveTarget(ref)
     if (!target) throw new Error(`no session found for ${ref}`)
     this.logRead('session.status_read', target.sessionId, reader)
@@ -134,7 +145,7 @@ export class SessionReadToolkit {
 
   async read(
     input: { sessionId: SessionId; turns?: number; cursor?: string },
-    reader: string,
+    reader: ReaderRef,
   ): Promise<SessionReadResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
@@ -189,7 +200,7 @@ export class SessionReadToolkit {
    */
   async recap(
     input: { sessionId: SessionId; since?: string },
-    reader: string,
+    reader: ReaderRef,
   ): Promise<SessionRecapResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
@@ -245,7 +256,7 @@ export class SessionReadToolkit {
   }
 
   /** Event-log every cross-session read [spec:SP-34d7 read-toolkit authz]. */
-  private logRead(kind: string, sessionId: SessionId, reader: string): void {
+  private logRead(kind: string, sessionId: SessionId, reader: ReaderRef): void {
     try {
       this.deps.events.appendEvent({
         ts: this.deps.now(),

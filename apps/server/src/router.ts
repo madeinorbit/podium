@@ -4,6 +4,7 @@ import {
   AutomationSessionMode,
   isAgentKind,
   ResumeRef,
+  SessionIdField,
   WorkState,
 } from '@podium/model'
 import {
@@ -155,7 +156,7 @@ const cloudRepoInput = z.object({
 })
 const cloudRuntimeSizeInput = z.enum(['small', 'medium', 'large'])
 const cloudSourceSessionInput = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   agent: z.enum(['claude-code', 'codex']),
   resumeRef: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
@@ -178,7 +179,7 @@ const cloudMachineInput = z.object({
   purpose: z.string().optional(),
 })
 const cloudMoveSessionInput = z.object({
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   tenantId: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput.optional(),
@@ -432,7 +433,7 @@ export const appRouter = t.router({
       .input(sessionCommandPlaneInputs.kill)
       .mutation(({ ctx, input }) => sessionCommand(ctx, 'kill', input)),
     handoff: t.procedure
-      .input(z.object({ sessionId: z.string(), machineId: z.string() }))
+      .input(z.object({ sessionId: SessionIdField, machineId: z.string() }))
       // The caller is passed as a SEPARATE argument, from the context's
       // capability — never out of `input` (ADR 3 D7: payload identity is inert).
       // Handoff is a `use` operation on both machines, and this is where the
@@ -472,7 +473,7 @@ export const appRouter = t.router({
     transcriptRead: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           anchor: z.string().optional(),
           direction: z.enum(['before', 'after']),
           limit: z.number().int().positive().max(2000),
@@ -492,7 +493,7 @@ export const appRouter = t.router({
     read: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           turns: z.coerce.number().int().positive().optional(),
           cursor: z.string().optional(),
         }),
@@ -504,7 +505,7 @@ export const appRouter = t.router({
     // since a watermark — repeated check-ins pay only for the delta (the
     // watermark persists per (reader, target)).
     recap: t.procedure
-      .input(z.object({ sessionId: z.string(), since: z.string().optional() }))
+      .input(z.object({ sessionId: SessionIdField, since: z.string().optional() }))
       .query(({ ctx, input }) =>
         mods(ctx).readToolkit.recap(input, ctx.capability.actorSessionId ?? 'operator'),
       ),
@@ -525,7 +526,7 @@ export const appRouter = t.router({
     stop: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           force: z.boolean().optional(),
         }),
       )
@@ -556,7 +557,7 @@ export const appRouter = t.router({
     uploadImage: t.procedure
       .input(
         z.object({
-          sessionId: z.string(),
+          sessionId: SessionIdField,
           filename: z.string().max(255),
           mimeType: z.string().max(100),
           dataBase64: z.string().max(10 * 1024 * 1024), // ~7.5 MB decoded
@@ -653,7 +654,7 @@ export const appRouter = t.router({
     // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
     // re-open delta is prepended to the thread's next sendTurn.
     startBtw: t.procedure
-      .input(z.object({ sessionId: z.string() }))
+      .input(z.object({ sessionId: SessionIdField }))
       .mutation(({ ctx, input }) => ctx.superagent.startBtwTurn(input)),
     // Per-repo concierge intake (issue #64): ensure the repo's thread, then run
     // the message as a headless harness turn (digest seed on the first turn,
@@ -1326,7 +1327,7 @@ export const appRouter = t.router({
     read: t.procedure
       .input(
         z.union([
-          z.object({ sessionId: z.string(), path: z.string() }),
+          z.object({ sessionId: SessionIdField, path: z.string() }),
           z.object({ issueId: z.string(), artifactId: z.string(), path: z.string() }),
           z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
         ]),
@@ -1350,7 +1351,7 @@ export const appRouter = t.router({
       .input(
         z.union([
           z.object({
-            sessionId: z.string(),
+            sessionId: SessionIdField,
             path: z.string(),
             content: z.string(),
             baseHash: z.string().optional(),

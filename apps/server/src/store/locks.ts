@@ -5,18 +5,32 @@
  * modules/lock/service.ts.
  */
 
-import type { SessionId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
 
+/**
+ * A lock holder's / waiter's key (POD-362): a real `SessionId`, or one of TWO
+ * documented sentinels that are deliberately not session ids —
+ * {@link OPERATOR_LOCK_SESSION} here, and `UNKNOWN_RELAY_SESSION` in
+ * `modules/lock/registry.ts` (a relayed caller the live map does not know, kept
+ * distinct from the operator's null so it can never release an operator lock).
+ *
+ * A UNION, not `SessionId`: this file's own `sessionAlive` check special-cases
+ * the operator sentinel precisely because it is not a session, so branding it
+ * would launder a non-id into the session space. Same discipline as the
+ * `MachineId` 'local' carve-out.
+ */
+export type LockSessionKey = SessionId | typeof OPERATOR_LOCK_SESSION | 'unknown-session'
+
 export interface LockRow {
   repoId: string
   name: string
   /** NULL = held by the operator (no session to bind the lease to). */
-  holderSessionId: string | null
-  holderIssueId: string | null
+  holderSessionId: LockSessionKey | null
+  holderIssueId: IssueId | null
   holderLabel: string
   note: string | null
   acquiredAt: string
@@ -28,8 +42,8 @@ export interface LockWaiterRow {
   id: number
   repoId: string
   name: string
-  sessionId: SessionId
-  issueId: string | null
+  sessionId: LockSessionKey
+  issueId: IssueId | null
   label: string
   enqueuedAt: string
 }
@@ -41,8 +55,9 @@ export class LocksRepository {
     return {
       repoId: r.repo_id as string,
       name: r.name as string,
-      holderSessionId: (r.holder_session_id as string | null) ?? null,
-      holderIssueId: (r.holder_issue_id as string | null) ?? null,
+      // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
+      holderSessionId: (r.holder_session_id as LockSessionKey | null) ?? null,
+      holderIssueId: (r.holder_issue_id as IssueId | null) ?? null,
       holderLabel: r.holder_label as string,
       note: (r.note as string | null) ?? null,
       acquiredAt: r.acquired_at as string,
@@ -55,9 +70,9 @@ export class LocksRepository {
       id: r.id as number,
       repoId: r.repo_id as string,
       name: r.name as string,
-      // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
-    sessionId: r.session_id as SessionId,
-      issueId: (r.issue_id as string | null) ?? null,
+      // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
+      sessionId: r.session_id as LockSessionKey,
+      issueId: (r.issue_id as IssueId | null) ?? null,
       label: r.label as string,
       enqueuedAt: r.enqueued_at as string,
     }
@@ -86,7 +101,7 @@ export class LocksRepository {
   }
 
   /** Every lock a session currently holds (session-bound auto-release). */
-  listLocksHeldBySession(sessionId: SessionId): LockRow[] {
+  listLocksHeldBySession(sessionId: LockSessionKey): LockRow[] {
     const rows = this.db
       .prepare('SELECT * FROM locks WHERE holder_session_id = ?')
       .all(sessionId) as Record<string, unknown>[]
@@ -125,7 +140,7 @@ export class LocksRepository {
   renewLock(
     repoId: string,
     name: string,
-    holderSessionId: string | null,
+    holderSessionId: LockSessionKey | null,
     expiresAt: string,
   ): boolean {
     const r = this.db
@@ -164,7 +179,7 @@ export class LocksRepository {
     this.db.prepare('DELETE FROM lock_waiters WHERE id = ?').run(id)
   }
 
-  removeWaiterBySession(repoId: string, name: string, sessionId: SessionId): void {
+  removeWaiterBySession(repoId: string, name: string, sessionId: LockSessionKey): void {
     this.db
       .prepare('DELETE FROM lock_waiters WHERE repo_id = ? AND name = ? AND session_id = ?')
       .run(repoId, name, sessionId)
