@@ -19,6 +19,7 @@
 import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
+import { onBehalfOfUser } from '../../command-principal'
 import { fleetAuthzDeps, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
@@ -83,7 +84,18 @@ export const machinePairingCodeHandler = ({
   code: string
   joinCommand: string | null
 } => {
+  // WHO THE MACHINE WILL BELONG TO IS DECIDED HERE, AT MINT (POD-1079, ADR 9 D6
+  // M3: "a newly paired machine is private to its pairer").
+  //
+  // Resolved from the transport principal, never from the pair frame: the daemon
+  // that later redeems this code supplies its own id, name and hostname, and if
+  // it could also supply an owner then pairing would be an identity claim from a
+  // payload (ADR 3 D7). A code minted by nobody — a system principal, which has
+  // no human — carries `null`, and a machine paired with it is owned by nobody
+  // and usable by nobody, which is the fail-closed arm rather than a crash.
+  const pairer = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
   const code = mods(ctx).machines.mintPairingCode({
+    ...(pairer === null ? {} : { ownerUserId: pairer }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
   })
   return { code, joinCommand: ports.joinCommand(code) }

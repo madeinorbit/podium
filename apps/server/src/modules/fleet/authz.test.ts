@@ -323,3 +323,55 @@ describe('the derived fleet router actually calls the gate', () => {
     )
   })
 })
+
+/**
+ * THE PAIRING PATH, END TO END — the one that broke first.
+ *
+ * `PairingGrant.ownerUserId` is stamped at MINT, from the transport principal,
+ * and carried opaquely to redeem. The first version of this change added the
+ * field and never set it, and every freshly paired machine came out UNOWNED and
+ * therefore unusable — caught by `server.role.test.ts` driving a real pair
+ * handshake. That is the regression these two cases pin, and they pin it at the
+ * seam rather than through an HTTP server.
+ */
+describe('a paired machine belongs to whoever minted its code', () => {
+  function service() {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
+    return { store, machines: registry.modules.machines }
+  }
+
+  const pairFrame = (code: string) =>
+    ({
+      type: 'pair' as const,
+      code,
+      machineId: 'joiner',
+      hostname: 'joiner.local',
+      name: 'joiner',
+    })
+
+  it('the pairer named at mint becomes the owner of the machine that redeems the code', () => {
+    const { store, machines } = service()
+    const code = machines.mintPairingCode({ ownerUserId: FIRST_ADMIN_USER_ID })
+
+    expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
+    expect(store.machines.getMachine('joiner')?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+  })
+
+  it('a code minted with NO pairer produces an unowned machine — refused, not shared', () => {
+    const { store, machines } = service()
+    const code = machines.mintPairingCode({})
+
+    expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
+    expect(store.machines.getMachine('joiner')?.ownerUserId).toBeNull()
+    // Unowned is the fail-CLOSED arm: `machineUseAllowed` refuses everyone,
+    // rather than the machine landing as ambient team compute.
+    expect(
+      fleetAuthzFailure(
+        'machines.rename',
+        { id: 'joiner' },
+        deps(user(OWNER), { owner: null, machines: ['joiner'] }),
+      )?.code,
+    ).toBe('NOT_FOUND')
+  })
+})
