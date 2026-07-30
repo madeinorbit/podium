@@ -736,83 +736,72 @@ authorise one.
      lifetime. What is **not** acceptable is any store that is backed up, snapshotted, or
      restored *together with* the server database.
 
-   - **D19.4b — THE RECONSTRUCTED ROW, especially ownership.** A pairing-root-verifiable token
-     proves **machine enrollment only**. It proves nothing about who owns the machine, and the
-     composed target row (D18) carries `owner` and grants, so "recreate the row" is
-     underspecified until those are decided. Decided:
+   - **D19.4b — CONSTRAINT (mechanism belongs to POD-1114 / POD-318): the recovered row must
+     not be ambient.** A pairing-root-verifiable token proves machine **enrolment only** — it
+     proves nothing about ownership — while the composed target row (D18) carries `owner` and
+     grants. This record does **not** design the recovery; it fixes the safety properties the
+     recovery must preserve, because they are the ones that would be lost if left unstated:
 
-     | Field | On re-enrolment | Why |
-     |---|---|---|
-     | `MachineId` | **Preserved** from the token | The contract's core promise; `daemon.json` already guarantees it outlives the DB |
-     | `owner` | **Restored from the enrollment ledger**, which records the owner as of the last pair or ownership transfer | The only durable source at the surviving tier. Not re-derived, not inferred from who is connected |
-     | **grants** | **DROPPED. Always. Never restored** | Grants are per-user authorization state, and `use` is a code-execution boundary (ADR 9 D6 M2). Restoring a stale grant set could re-grant execution to someone whose access was removed in the lost database — a privilege *widening* performed by a recovery path. Default-closed (ADR 9 D4) requires dropping them; they are re-granted explicitly |
-     | visibility class | `owned-compute`, unchanged | Recovery never reclassifies |
-     | `name`, `hostname`, `inventory_json`, `last_seen_at` | **Re-observed** from the handshake and subsequent daemon reports | Observations, not identity |
+     > **SAFETY PROPERTY.** Recovered owned compute may **never** become ambient, ownerless,
+     > or reassigned to an arbitrary admin — and recovery may never **widen** anyone's access.
 
-     Two consequences that must not be re-decided by POD-1114:
+     Binding consequences of that property, and only these:
 
-     1. **Ownership transfer is a ledger write, and the ledger is the commit point.** See
-        **D19.4d** — "the same operation" is not available across two stores and must not be
-        asked for.
-     2. **If the recorded owner no longer resolves** — a fully recreated database in which that
-        `UserId` does not exist — the machine returns **QUARANTINED**: admins hold `see`,
-        **nobody** holds `use`, and an admin must assign an owner explicitly before it is
-        usable. It is **NOT** auto-assigned to the first admin. POD-318's first-admin migration
-        applies to machines that **never had a recorded owner**; reusing it here would hand
-        somebody's personal Mac to whoever happens to be admin now, on the strength of a
-        database restore. Ownerless means usable by nobody (Amendment 1 D13.4) — and that rule
-        is exactly what makes quarantine the safe landing state rather than a failure.
+     1. **`MachineId` is preserved** from the token. That is the contract's core promise.
+     2. **The owner must survive at the ledger's durability tier**, not only in the database —
+        it is the only surviving source after the failure this contract recovers from. Recovery
+        restores that recorded owner; it never re-derives one, and never infers it from who
+        happens to be connected.
+     3. **Grants are dropped, never restored.** Restoring a stale grant set could re-grant the
+        `use` verb — a **code-execution** boundary (ADR 9 D6 M2) — to someone whose access was
+        removed in the lost database. That is privilege widening performed by a recovery path,
+        and ADR 9 D4's default-closed rule forbids it. They are re-granted explicitly.
+     4. **An unresolvable recorded owner means QUARANTINE**, not assignment: admins hold `see`,
+        **nobody** holds `use`, until an admin assigns an owner. It is **not** auto-assigned to
+        the first admin — POD-318's first-admin migration covers machines that *never had* a
+        recorded owner, and reusing it after a database restore would hand somebody's personal
+        Mac to whoever is admin now. Ownerless means usable by nobody (Amendment 1 D13.4), which
+        is what makes quarantine the safe landing state rather than a failure.
+     5. **Ownership transfer must reach the durable tier** — see D19.4d for the property that
+        governs it.
 
-     Note what the pairing root buys beyond durability: it makes **"wrong instance" decidable
-     with zero protocol presence.** A token minted under instance A's root simply fails to
-     verify under instance B's, so the wrong-instance case is caught by cryptography rather
-     than by an instance field on the wire — which is why D20 can stay absolute. This is the
-     answer to §1.4's "three situations, one rejection" without touching the frames.
+     **Mechanism is explicitly handed off**: the ledger's owner-record shape, reconciliation
+     points, and the transfer path belong to **POD-1114** (recovery) and **POD-318** (the owner
+     column and the pairing principal). Both briefs carry these constraints so they travel with
+     the work.
 
-   - **D19.4d — Owner transitions are CRASH-CONSISTENT by ordering, not by a shared
-     transaction.** The enrollment ledger is a file at the state-root tier and the `machines`
-     row is in SQLite; **there is no transaction spanning them**, so a requirement that they be
-     written "in the same operation" is unimplementable, and a crash between the two writes is
-     precisely the stale-owner escalation the clause was meant to prevent. Decided:
+   - **D19.4d — CONSTRAINT (mechanism belongs to POD-318 / POD-1114): a crash between the two
+     writes may not leave a stale owner effective.** The enrollment ledger is a file at the
+     state-root tier and `machines.owner` is a row in SQLite; **no transaction spans them**. An
+     earlier draft of this amendment required them to be written "in the same operation", which
+     is unimplementable and therefore left open exactly the window it claimed to close. Replaced
+     by a safety property and four normative rules — the ordering and precedence, not a
+     protocol:
 
-     1. **The ledger append IS the owner transition.** It is the commit point. An owner change
-        is *effective* the instant the append is durable, whether or not the row was updated.
-     2. **`machines.owner` is a PROJECTION of the ledger, not an independent fact.** It is
-        reconciled from the ledger — at boot, and before any `use` / `manage` authorization
-        decision that reads it — so an authorization check can never be served from a stale
-        projection.
-     3. **Strict ordering: the database write may never precede a successful ledger commit.**
-        Ledger first, always. There is no path in which the row names an owner the ledger has
-        not recorded.
-     4. **D19.4a's precedence extends to ownership.** Where ledger and database disagree about
-        **owner** — not only about enrollment and revocation — **the ledger wins**, and the row
-        is repaired to match. The earlier scoping of ledger-wins to enrollment/revocation was
-        too narrow, and left owner as the one field where a rolled-back database could out-rank
-        the durable store.
-     5. **Observable failure and retry rule**, so POD-318 and POD-1114 cannot invent
-        incompatible dual-write protocols:
+     > **SAFETY PROPERTY.** A crash between the ledger write and the database write may
+     > **never** leave the previous owner effective.
 
-        | Outcome | Effective owner | What the caller sees | Repair |
-        |---|---|---|---|
-        | Ledger append fails | **Old owner** — transfer did not happen | **Error.** The command failed | None needed; no row was touched |
-        | Append succeeds, then crash before the row update | **NEW owner** — the transition committed | Command may report success, or the caller may retry | Reconciliation repairs the row at next boot or next authorization read (rule 2) |
-        | Append succeeds, row update fails | **NEW owner** | Success | Same reconciliation |
-        | Retry of an already-appended transition | **NEW owner**, unchanged | Success | **Appends are idempotent**: a transition carries an id (or serial) and re-appending the same one is a no-op, never a second transition |
+     1. **The ledger append is the authoritative owner transition** — the commit point. An owner
+        change is effective once the append is durable, whether or not the row was written.
+     2. **`machines.owner` is a projection**, reconciled from the ledger **before any `use` /
+        `manage` authorization decision** that reads it. An authorization check is never served
+        from a stale projection.
+     3. **The database update may never precede a successful ledger commit.** Ledger first.
+     4. **D19.4a's ledger-wins precedence covers `owner`**, not only enrollment and revocation.
+        The narrower scoping left owner as the single field where a rolled-back database could
+        out-rank the durable store.
 
-     6. **The old owner must never be effective after a durable append.** This is the property
-        the regression test asserts, and it is the whole point of rules 1–4.
-     7. **Required regression test — crash between the writes.** Append an owner transition,
-        kill the process before the row update, restart, and assert that the **new** owner holds
-        `use` / `manage` and the **old** owner holds neither — with no manual repair step. A test
-        that only exercises the happy path does not discharge this decision.
+     **Required regression test — crash between the writes:** append an owner transition, kill
+     the process before the row update, restart, and assert the **new** owner holds `use` /
+     `manage` and the **old** owner holds neither, with no manual repair. A happy-path transfer
+     test does not discharge this.
 
-     Two notes on reach. The same commit-point rule governs **revocation**: the ledger append is
-     the revocation, and any DB-side tombstone is a projection of it — which is what makes
-     D19.4a's rollback guarantee hold end-to-end rather than only at read time. And this
-     decision is deliberately about *ordering and precedence*, not about a distributed-commit
-     protocol: two stores with no shared transaction can still be made safe by making one of
-     them authoritative and the other derived, which is the same shape ADR 1 D1 already uses for
-     Authority and Replica.
+     **Mechanism is explicitly handed off**: commit-point implementation, retry and idempotency
+     semantics, and reconciliation scheduling belong to **POD-318** (which owns the transfer
+     path) and **POD-1114** (which owns the ledger). The same commit-point property governs
+     **revocation** — the append is the revocation, any DB-side tombstone is a projection of it —
+     which is what makes D19.4a's rollback guarantee hold end-to-end rather than only at read
+     time.
 
    - **D19.4c — The pairing root is NORMATIVE, not a suggested implementation.** Recorded
      because it was explicitly asked and explicitly answered at review (2026-07-30): the
@@ -1117,11 +1106,10 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 - [ ] Re-enrolment restores `owner` from the ledger, **drops all grants**, and **quarantines**
       (admins `see`, nobody `use`) when the recorded owner no longer resolves — never
       ownerless-and-ambient, never auto-assigned to an arbitrary admin (D19.4b).
-- [ ] Ownership transitions are crash-consistent by **ordering**, not by an impossible shared
-      transaction (D19.4d): the ledger append is the commit point, `machines.owner` is a
-      projection reconciled before any `use`/`manage` decision, the DB write never precedes a
-      durable append, ledger-wins covers **owner** as well as enrollment and revocation, and
-      appends are idempotent under retry.
+- [ ] Ownership transitions satisfy D19.4d: the ledger append is the authoritative transition,
+      `machines.owner` is a projection reconciled before any `use`/`manage` decision, the DB
+      write never precedes a durable append, and ledger-wins covers **owner** as well as
+      enrollment and revocation.
 - [ ] A **crash-between-writes** regression test asserts the new owner holds `use`/`manage` and
       the old owner holds neither, with no manual repair (D19.4d rule 7).
 - [ ] No code treats two live processes of one role as a conflict at deployment scope, and no
