@@ -502,6 +502,15 @@ would have left every one of them green while covering one case fewer. Now guard
 length (68) plus a membership check that every named arm is still in the canonical list — derived from
 the list it would be a tautology.
 
+Verified by deleting `'markUnread'` from `ISSUE_COMMAND_NAMES` (1 site, hash `d37271d7`→`ba891127`):
+**only the guard reds; the other 24 tests pass**, which is the demonstration — without it the deletion
+is invisible to this suite. Worth stating precisely rather than as "the suite was blind", because two
+instruments disagree here: the **runtime** suite misses it, while **typecheck** catches it twice —
+`TS2820` on the 14 names this file spells out under `satisfies IssueCommandName[]` (helpfully:
+*"Did you mean 'markRead'?"*), and once in `apps/server`, whose registry is
+`satisfies Record<IssueCommandName, …>`. So the canonical list is not unguarded; what was unguarded is
+the **iterated** coverage, which no type can see. A vitest run alone would have said nothing.
+
 **The exactly-once assertion earned its keep immediately.** Attempting that mutant with the obvious
 pattern `issueId: z.string().min(1).max(256)` matched **twice** — both auto-archive observations carry
 an `issueId` — and the helper refused to run. Had it proceeded it would have mutated both schemas; had
