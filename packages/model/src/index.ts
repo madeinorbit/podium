@@ -91,6 +91,7 @@ export * from './provenance/envelope'
 // the shapes the CLI used to hand-copy because `apps/cli` cannot import
 // `apps/server` (POD-366). Distinct from the aggregates above by role, not by
 // accident — ADR 4 D1 keeps storage / live / wire / read models apart.
+export * from './projections/issue-read'
 export * from './projections/session-read'
 
 // Pure derivations over entity shapes.
