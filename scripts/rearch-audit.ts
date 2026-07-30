@@ -485,10 +485,25 @@ export const CHECKS: AuditCheck[] = [
     // whole subject is `packages/protocol/src/messages/sync.ts`: the strict /
     // lenient / unknown triple exists so a replica can tolerate an entity kind it
     // does not know (ADR 2 D9), which is sync-envelope shape, not entity
-    // vocabulary. POD-364's inventory scopes sync infrastructure out of 1.4 by
-    // name (§12), and ADR 1's matrix puts `change-log` and `applied-mutations` in
-    // its `sync-infrastructure` section as deployment substrate — neither is a
-    // session or an issue field.
+    // vocabulary. ADR 1 §10 "Sync infrastructure (not product entities)" files
+    // `changes` and `applied_mutations` there explicitly — neither is a session or
+    // an issue field.
+    //
+    // COORDINATOR ADJUDICATION (POD-279): re-phasing ACCEPTED, because it makes
+    // POD-302's gate pass and therefore had to be checked rather than taken. The
+    // decisive evidence is this item's own site list, not the citations: all seven
+    // sites are change-ENVELOPE types in messages/sync.ts, and not one of them
+    // declares a session or issue field. One citation POD-368 offered did NOT hold
+    // and is removed above — POD-364 §12's scope table names machines, superagent
+    // state, messages/workflows, the id-branding sweep and schema moves, but it does
+    // NOT name sync infrastructure. The ADR 1 §10 half stands on its own.
+    //
+    // Also confirmed as POD-368 reported it: the 7 is an OVER-COUNT by at least one,
+    // because the pattern's unanchored name alternation catches `MetadataChangeOp`
+    // — an enum of 'upsert' | 'remove', which is an operation vocabulary rather than
+    // a change-row typing. Left uncorrected deliberately: lowering the count while
+    // re-phasing the item would be two changes wearing one justification, and the
+    // count is a ratchet POD-308 has to drive to zero anyway.
     //
     // The duality collapses when one canonical change-row shape lands at the wire
     // cutover, which is POD-308's — the same issue that owns nesting the
