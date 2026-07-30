@@ -599,8 +599,22 @@ export class Replica {
         this.note('D6-RESTART')
       } catch (error) {
         if (error instanceof ReplicaStoreCorruptError) {
-          this.onCorruption()
-          return
+          // Rung 5 discovered from INSIDE a walk. Escalating is correct exactly
+          // once: a walk that is not already the corruption walk hands over to
+          // onCorruption, which discards the cache and re-bootstraps for that
+          // cause. But a corruption walk that finds the store STILL corrupt must
+          // not escalate again — onCorruption starts a fresh walk with a fresh
+          // attempt budget, so every attempt would renew its own bound and the
+          // ladder would never terminate. D7 requires it to resolve strictly
+          // DOWNWARD, so here corruption simply consumes an attempt and the walk
+          // runs out into D6-EXHAUSTED like any other unrecoverable bootstrap.
+          if (cause !== 'local-corruption') {
+            this.onCorruption()
+            return
+          }
+          lastError = 'store still corrupt'
+          this.note('D6-RESTART')
+          continue
         }
         lastError = error instanceof Error ? error.message : String(error)
         this.note('D6-RESTART')
