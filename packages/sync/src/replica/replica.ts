@@ -107,6 +107,7 @@ export class Replica {
   /** Set while a bootstrap walk is in flight; bumped to abandon a superseded walk. */
   private walkGeneration = 0
   private inflight: Promise<void> = Promise.resolve()
+  private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
    * it is how `transition-table.test.ts` proves the ADR's table is EXERCISED
@@ -114,6 +115,13 @@ export class Replica {
    * inside an async heal or bootstrap walk and never surface as a return value.
    */
   readonly trace: string[] = []
+  /**
+   * The same rows with the postures actually observed around them. The bare
+   * `trace` proved a row IDENTIFIER was reached; this proves the row's declared
+   * `from`/`to` match what the machine really did, which is what caught the table
+   * claiming D6-BUFFER lands in `bootstrapping` when it fires during a heal.
+   */
+  readonly transitions: { rowId: string; from: Posture; to: Posture }[] = []
 
   private counters = {
     heals: 0,
@@ -188,6 +196,7 @@ export class Replica {
 
   /** Resolves once every input accepted so far has fully settled (heals and walks included). */
   async settled(): Promise<void> {
+    this.sealTransitions()
     // A heal can start a bootstrap, which can start a heal. Drain until quiet.
     for (let i = 0; i < 50; i += 1) {
       const before = this.inflight
@@ -201,12 +210,13 @@ export class Replica {
 
   /** Come online. From `cold` this bootstraps; from `stale` it RESUMES from the cursor. */
   connect(): TransitionOutcome {
+    const from = this.state
     if (this.cursorValue === null) {
       this.startRebootstrap('cold-start')
-      return this.outcome('D7-2-COLD')
+      return this.outcome('D7-2-COLD', from)
     }
     this.startHeal()
-    return this.outcome('D7-1-RESUME')
+    return this.outcome('D7-1-RESUME', from)
   }
 
   /** Go offline. The last-known slice stays VISIBLE, marked stale (D7). Never blank. */
@@ -221,16 +231,18 @@ export class Replica {
 
   /** ADR 2 D4 / D7 rung 6 — the local store layout moved; discard rather than migrate. */
   replicaSchemaChanged(): TransitionOutcome {
+    const from = this.state
     this.store.discardCache()
     this.cursorValue = null
     this.startRebootstrap('schema-version')
-    return this.outcome('D7-6-SCHEMA')
+    return this.outcome('D7-6-SCHEMA', from)
   }
 
   /** The one entry point for everything the authority pushes. */
   receive(frame: ServerFrame): TransitionOutcome {
+    const from = this.state
     try {
-      return this.route(frame)
+      return this.route(frame, from)
     } catch (error) {
       if (error instanceof ReplicaStoreCorruptError) return this.onCorruption()
       throw error
@@ -239,7 +251,7 @@ export class Replica {
 
   // ─── Routing ──────────────────────────────────────────────────────────────
 
-  private route(frame: ServerFrame): TransitionOutcome {
+  private route(frame: ServerFrame, from: Posture): TransitionOutcome {
     // Control frames act immediately and are never buffered: both resolve
     // strictly DOWNWARD, so deferring them could only delay the terminal path.
     if (frame.kind === 'rescope') {
@@ -247,11 +259,25 @@ export class Replica {
       // every other rung. Cause is recorded as authz, distinguishable in
       // telemetry from backpressure.
       this.startRebootstrap('rescope')
-      return this.outcome('D14-RESCOPE')
+      return this.outcome('D14-RESCOPE', from)
     }
     if (frame.kind === 'resync-required') {
       this.startRebootstrap('resync-required')
-      return this.outcome('D7-2-RESYNC')
+      return this.outcome('D7-2-RESYNC', from)
+    }
+
+    // ADR 2 D1 / D7 rung 4 — equality only, and checked BEFORE the buffering
+    // branch. It used to sit after it, so a mismatched frame arriving during a
+    // heal or a walk was quietly buffered (D6-BUFFER) instead of taking the
+    // declared D7-4-EPOCH transition; the mismatch was then noticed much later,
+    // in drainBuffer, or silently skipped at install. Rung 4 says discard and
+    // re-bootstrap, and it must fire wherever a cursor exists to compare against.
+    if (
+      this.cursorValue !== null &&
+      (frame.feedId !== this.cursorValue.feedId || frame.epoch !== this.cursorValue.epoch)
+    ) {
+      this.startRebootstrap('epoch-mismatch')
+      return this.outcome('D7-4-EPOCH', from)
     }
 
     if (this.state === 'bootstrapping' || this.state === 'healing') {
@@ -261,28 +287,21 @@ export class Replica {
       // unavoidable on EVERY route into the store, not only the live one.
       if (this.rejects(frame) !== null) {
         this.startRebootstrap('malformed')
-        return this.outcome('D7-3-MALFORMED')
+        return this.outcome('D7-3-MALFORMED', from)
       }
       this.buffer.push(frame)
-      return this.outcome('D6-BUFFER')
+      return this.outcome('D6-BUFFER', from)
     }
 
     if (this.state === 'cold' || this.cursorValue === null) {
       // Nothing to apply a delta onto.
       this.startRebootstrap('cold-start')
-      return this.outcome('D7-2-COLD')
-    }
-
-    // ADR 2 D1 / D7 rung 4 — equality only, checked before anything else: a
-    // mismatched epoch means every seq comparison below is meaningless.
-    if (frame.feedId !== this.cursorValue.feedId || frame.epoch !== this.cursorValue.epoch) {
-      this.startRebootstrap('epoch-mismatch')
-      return this.outcome('D7-4-EPOCH')
+      return this.outcome('D7-2-COLD', from)
     }
 
     if (this.rejects(frame) !== null) {
       this.startRebootstrap('malformed')
-      return this.outcome('D7-3-MALFORMED')
+      return this.outcome('D7-3-MALFORMED', from)
     }
 
     if (this.state === 'stale') {
@@ -290,10 +309,10 @@ export class Replica {
       // heal from the cursor rather than applying blind.
       this.buffer.push(frame)
       this.startHeal()
-      return this.outcome('D7-1-FRAME-WHILE-STALE')
+      return this.outcome('D7-1-FRAME-WHILE-STALE', from)
     }
 
-    return this.applyCertified(frame)
+    return this.applyCertified(frame, from)
   }
 
   /**
@@ -315,7 +334,7 @@ export class Replica {
    * re-deliver, which resolves and terminates — it is not the endless-heal shape
    * D13 exists to prevent, because the heal advances the cursor.
    */
-  private applyCertified(frame: DeltaFrame): TransitionOutcome {
+  private applyCertified(frame: DeltaFrame, from: Posture): TransitionOutcome {
     const cursor = this.cursorValue as Cursor
 
     if (frame.fromSeq !== cursor.seq) {
@@ -324,10 +343,10 @@ export class Replica {
       this.buffer.push(frame)
       this.counters.pendingGap = true
       this.startHeal()
-      return this.outcome('D7-1-GAP')
+      return this.outcome('D7-1-GAP', from)
     }
 
-    return this.outcome(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }))
+    return this.outcome(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }), from)
   }
 
   /**
@@ -336,21 +355,11 @@ export class Replica {
    * that best describes what the frame carried.
    */
   private commitChanges(changes: readonly ChangeEnvelope[], nextCursor: Cursor): string {
-    const readmissions = new Set<string>()
-    for (const change of changes) {
-      const key = entityKey(change.entity, change.entityId)
-      // Amendment 1 D14.2 — an upsert whose revision has NOT moved is still a
-      // valid upsert. Never dedupe by revision here: that is authority-side
-      // change detection (ChangeBaseline), not a replica constraint, and dropping
-      // one would break re-admission after an evict.
-      if (change.op === 'upsert' && this.exits.get(key) === 'evicted') readmissions.add(key)
-    }
-
     this.store.applyAtomic(toMutation(changes, nextCursor))
     this.cursorValue = nextCursor
     this.counters.pendingGap = false
 
-    return this.emitApplied(changes, nextCursor, readmissions)
+    return this.emitApplied(changes, nextCursor)
   }
 
   /**
@@ -367,23 +376,30 @@ export class Replica {
    * Emission happens strictly AFTER the commit, so no observer can see
    * uncommitted state.
    */
-  private emitApplied(
-    changes: readonly ChangeEnvelope[],
-    cursor: Cursor,
-    readmissions: ReadonlySet<string>,
-  ): string {
+  private emitApplied(changes: readonly ChangeEnvelope[], cursor: Cursor): string {
     let sawEvict = false
     let sawRemove = false
     let sawReadmit = false
 
+    // Project each change SEQUENTIALLY, from its own envelope, against an exit
+    // state that evolves as we walk the frame. Two earlier shortcuts both broke
+    // feed order in the PUBLIC projection while the cache had it right:
+    //  - re-admission was precomputed from the pre-frame exit map, so
+    //    evict(seq 1) + same-revision upsert(seq 2) in ONE frame emitted
+    //    readmitted:false and a client would render a re-share as a creation
+    //    (Amendment 1 D14.2);
+    //  - each upsert's record was read back from the already-final store, so
+    //    upsert-then-remove in one frame emitted NO upserted event at all, and
+    //    two upserts of one entity both reported the last value.
+    // The envelope is the truth about what happened at that seq; the store is
+    // only the truth about where the frame ENDED.
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
       if (change.op === 'upsert') {
-        const readmitted = readmissions.has(key)
+        const readmitted = this.exits.get(key) === 'evicted'
         sawReadmit ||= readmitted
         this.exits.delete(key)
-        const record = this.store.read(change.entity, change.entityId)
-        if (record !== undefined) this.emit({ type: 'upserted', record, readmitted })
+        this.emit({ type: 'upserted', record: recordOf(change), readmitted })
       } else if (change.op === 'remove') {
         sawRemove = true
         this.exits.set(key, 'removed')
@@ -456,7 +472,11 @@ export class Replica {
       }
       // Rung 3, not a retry: re-asking the question that just failed is the
       // infinite loop D7 forbids.
-      if (validateFrame(reply) !== null || reply.fromSeq !== cursor.seq) {
+      // this.rejects(), not validateFrame(): the authority-pull route must clear
+      // the SAME rung-3 bar as the pushed route, injected known-kind check
+      // included. Using the shape-only check here let a corrupt known-kind row
+      // in through the heal reply.
+      if (this.rejects(reply) !== null || reply.fromSeq !== cursor.seq) {
         this.note('D7-3-REPLY-MALFORMED')
         this.startRebootstrap('malformed')
         return
@@ -589,6 +609,14 @@ export class Replica {
         if (change.seq > head.snapshotSeq) {
           throw new Error('bootstrap chunk carried a row above the snapshot point')
         }
+        // The third ingress route. A snapshot is the RECOVERY path, so a corrupt
+        // known-kind row here is the worst place to accept one: it installs as
+        // authoritative truth and the cursor advances over it. Unknown kinds stay
+        // lenient (D4) exactly as on the other two routes.
+        if (this.validator?.knows(change.entity) === true) {
+          const reason = this.validator.validate(change)
+          if (reason !== null) throw new Error(`bootstrap chunk failed validation: ${reason}`)
+        }
         staging.set(entityKey(change.entity, change.entityId), {
           entity: change.entity,
           entityId: change.entityId,
@@ -675,7 +703,7 @@ export class Replica {
     // function, so a change applied through a bootstrap retires its outbox entry
     // exactly as a change applied live does.
     for (const emission of emissions) {
-      this.emitApplied(emission.changes, emission.cursor, new Set())
+      this.emitApplied(emission.changes, emission.cursor)
     }
 
     this.setPosture('live')
@@ -688,7 +716,10 @@ export class Replica {
       // authoritative truth — a stale frame buffered around the walk is not
       // something to hold the ladder open for. One heal catches up, resolved
       // against the authority instead of against our own stale buffer.
-      this.note('D6-INSTALL-GAP')
+      // Recorded against 'bootstrapping': the install transaction has already
+      // committed (which is why the posture reads live), but this row describes
+      // what the WALK found in its leftover buffer.
+      this.note('D6-INSTALL-GAP', 'bootstrapping')
       this.buffer = []
       this.counters.pendingGap = true
       this.startHeal()
@@ -698,6 +729,7 @@ export class Replica {
   // ─── Rung 5 ───────────────────────────────────────────────────────────────
 
   private onCorruption(): TransitionOutcome {
+    const from = this.state
     // The store is unreadable, so the cache must go explicitly rather than at
     // the swap. The outbox lives behind a port this method cannot name; if it
     // is ALSO lost, that loss is surfaced by its own store, loudly (D7).
@@ -710,7 +742,7 @@ export class Replica {
     this.buffer = []
     this.exits.clear()
     this.startRebootstrap('local-corruption')
-    return this.outcome('D7-5-CORRUPT')
+    return this.outcome('D7-5-CORRUPT', from)
   }
 
   /**
@@ -761,28 +793,67 @@ export class Replica {
     if (next === this.state) return
     const previous = this.state
     this.state = next
+    // A row's `to` is the posture its effect settles on, so seal here rather than
+    // making callers remember. A row that changes no posture keeps to === from,
+    // which is also correct.
+    this.sealTransitions()
     this.emit({ type: 'posture', posture: next, previous })
   }
 
   private transitionTo(next: Posture, rowId: string): TransitionOutcome {
+    const from = this.state
     this.setPosture(next)
-    return this.outcome(rowId)
+    return this.outcome(rowId, from)
   }
 
-  private note(rowId: string): string {
+  private note(rowId: string, from: Posture = this.state): string {
     transitionRow(rowId) // fails loudly on a row that is not in the ADR's table
+    // Seal the previous row's `to` before opening a new one: by the time the next
+    // row fires, the previous one's effect has finished.
+    this.sealTransitions()
     this.trace.push(rowId)
+    // `from` is the posture BEFORE this row's effect ran. Several effects
+    // (startHeal, startRebootstrap) change posture synchronously, so reading
+    // this.state here would record the DESTINATION as the source and make the
+    // table look wrong when it was right.
+    this.transitions.push({ rowId, from, to: this.state })
+    this.pendingTransition = true
     return rowId
   }
 
-  private outcome(rowId: string): TransitionOutcome {
-    this.note(rowId)
+  /** Stamp the observed post-state onto any row whose effect has now completed. */
+  private sealTransitions(): void {
+    if (!this.pendingTransition) return
+    const last = this.transitions.at(-1)
+    if (last !== undefined) last.to = this.state
+    this.pendingTransition = false
+  }
+
+  private outcome(rowId: string, from: Posture = this.state): TransitionOutcome {
+    this.note(rowId, from)
+    this.sealTransitions()
     return {
       rowId,
       posture: this.state,
       cursor: this.cursorValue,
       rung: transitionRow(rowId).rung,
     }
+  }
+}
+
+/** The record a change describes, built from the ENVELOPE rather than read back. */
+function recordOf(change: ChangeEnvelope): EntityRecord {
+  return {
+    entity: change.entity,
+    entityId: change.entityId,
+    value: change.payload,
+    revision: change.revision,
+    provenance: {
+      seq: change.seq,
+      originId: change.originId,
+      causationId: change.causationId,
+      mutationId: change.mutationId,
+    },
   }
 }
 

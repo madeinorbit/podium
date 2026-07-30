@@ -30,14 +30,23 @@ import {
   watermark,
 } from './test-support'
 import { REPLICA_TRANSITIONS } from './transition-table'
-import type { ChangeEnvelope, RebootstrapCause, ReplicaEvent } from './types'
+import type { ChangeEnvelope, Posture, RebootstrapCause, ReplicaEvent } from './types'
 
 /** Union of every transition row driven by this file. Asserted for totality at the end. */
 const SEEN = new Set<string>()
+/** Every (row, from, to) the suite actually observed. Asserted against the table. */
+const OBSERVED: { rowId: string; from: Posture; to: Posture }[] = []
 const live: Replica[] = []
 
 afterEach(() => {
-  for (const replica of live) for (const row of replica.trace) SEEN.add(row)
+  // Deliberately NOT awaiting settled(): several tests park a replica mid-walk on
+  // a manually-driven bootstrap channel, and awaiting one of those hangs. The
+  // machine seals each transition's post-state when its posture settles, so the
+  // record is already accurate without waiting.
+  for (const replica of live) {
+    for (const row of replica.trace) SEEN.add(row)
+    OBSERVED.push(...replica.transitions)
+  }
   live.length = 0
 })
 
@@ -1184,21 +1193,216 @@ describe('the ladder always resolves downward and TERMINATES', () => {
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
-describe('transition-table totality', () => {
+describe('rescope and resync are legal from ANY posture (D14.4 / D9)', () => {
+  // The table claims these are always-legal terminal paths. A claim the suite
+  // never drives is exactly the "declared transition the code may not perform"
+  // the table is supposed to rule out, so each declared posture is driven here.
+  const rescope = { kind: 'rescope', feedId: FEED_ID, epoch: EPOCH } as const
+  const resync = { kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH } as const
+
+  it('rescope from cold', () => {
+    const h = harness()
+    expect(h.replica.posture).toBe('cold')
+    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+  })
+
+  it('rescope from bootstrapping, mid-walk', async () => {
+    const h = harness()
+    const channel = h.authority.driveManually()
+    h.replica.connect()
+    channel.push(bootstrapChunk(5, [], false))
+    await Promise.resolve()
+    expect(h.replica.posture).toBe('bootstrapping')
+    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+  })
+
+  it('rescope from healing', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
+    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    expect(h.replica.posture).toBe('healing')
+    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+  })
+
+  it('rescope from stale — a rights change while offline still lands', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.replica.disconnect()
+    expect(h.replica.posture).toBe('stale')
+    expect(h.replica.receive(rescope).rowId).toBe('D14-RESCOPE')
+  })
+
+  it('resync-required from healing and from stale', async () => {
+    const a = harness()
+    await bootstrapped(a, 10, [])
+    a.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
+    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    expect(a.replica.posture).toBe('healing')
+    expect(a.replica.receive(resync).rowId).toBe('D7-2-RESYNC')
+
+    const b = harness()
+    await bootstrapped(b, 10, [])
+    b.replica.disconnect()
+    expect(b.replica.receive(resync).rowId).toBe('D7-2-RESYNC')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('every declared ADR route is driven, not merely declared', () => {
+  // These exist because the table DECLARES these source postures. A declared
+  // transition nobody drives is worse than an undocumented one: POD-372 and
+  // POD-373 implement against the table.
+  const bad = deltaFrame(10, 14, [
+    { seq: 11, entity: 'session', entityId: 'i', op: 'evict', payload: {} },
+  ])
+  const otherEpoch = (fromSeq: number, seq: number) =>
+    deltaFrame(fromSeq, seq, [], { epoch: 'epoch-OTHER' })
+
+  it('rung 4 fires from stale and from bootstrapping', async () => {
+    const a = harness()
+    await bootstrapped(a, 10, [])
+    a.replica.disconnect()
+    expect(a.replica.receive(otherEpoch(10, 11)).rowId).toBe('D7-4-EPOCH')
+
+    const b = harness()
+    await bootstrapped(b, 10, [])
+    const channel = b.authority.driveManually()
+    b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(20, [], false))
+    await Promise.resolve()
+    expect(b.replica.posture).toBe('bootstrapping')
+    expect(b.replica.receive(otherEpoch(10, 11)).rowId).toBe('D7-4-EPOCH')
+  })
+
+  it('rung 3 fires from stale', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.replica.disconnect()
+    expect(h.replica.receive(bad).rowId).toBe('D7-3-MALFORMED')
+  })
+
+  it('rung 6 (schema bump) fires from cold and from stale', async () => {
+    const a = harness()
+    expect(a.replica.posture).toBe('cold')
+    expect(a.replica.replicaSchemaChanged().rowId).toBe('D7-6-SCHEMA')
+
+    const b = harness()
+    await bootstrapped(b, 10, [])
+    b.replica.disconnect()
+    expect(b.replica.replicaSchemaChanged().rowId).toBe('D7-6-SCHEMA')
+  })
+
+  it('rung 5 (corruption) fires from healing and from bootstrapping', async () => {
+    const a = harness()
+    await bootstrapped(a, 10, [])
+    a.authority.changesSinceQueue = [deltaFrame(10, 12, [session(12, 's', 'v')])]
+    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    expect(a.replica.posture).toBe('healing')
+    a.store.setCorrupt(true)
+    await a.replica.settled().catch(() => undefined)
+    expect(a.replica.trace).toContain('D7-5-CORRUPT')
+
+    const b = harness()
+    await bootstrapped(b, 10, [])
+    const channel = b.authority.driveManually()
+    b.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(20, [], false))
+    await Promise.resolve()
+    b.store.setCorrupt(true)
+    channel.push(bootstrapChunk(20, [], true))
+    await b.replica.settled().catch(() => undefined)
+    expect(b.replica.trace).toContain('D7-5-CORRUPT')
+  })
+
+  it('D6-BUFFER and D6-BUFFER-COVERED fire from healing', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    // Heal reply lands at 20, so the frame buffered mid-heal is wholly covered.
+    h.authority.changesSinceQueue = [deltaFrame(10, 20, [])]
+    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    expect(h.replica.posture).toBe('healing')
+    expect(h.replica.receive(deltaFrame(12, 15, [])).rowId).toBe('D6-BUFFER')
+    await h.replica.settled()
+    expect(h.replica.trace).toContain('D6-BUFFER-COVERED')
+  })
+
+  it('disconnect fires from healing, from stale, and cold from bootstrapping', async () => {
+    const a = harness()
+    await bootstrapped(a, 10, [])
+    a.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
+    a.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+    expect(a.replica.posture).toBe('healing')
+    expect(a.replica.disconnect().rowId).toBe('D7-STALE-VISIBLE')
+    // Idempotent: disconnecting an already-stale replica is still stale-visible.
+    expect(a.replica.disconnect().rowId).toBe('D7-STALE-VISIBLE')
+
+    const b = harness()
+    b.authority.driveManually()
+    b.replica.connect()
+    expect(b.replica.posture).toBe('bootstrapping')
+    // Never installed a cursor, so there is no slice to keep visible.
+    expect(b.replica.disconnect().rowId).toBe('D7-DISCONNECT-COLD')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('transition-table totality — the table must AGREE with the machine', () => {
   it('every row of the ADR transition table is driven by this suite', () => {
     const declared = REPLICA_TRANSITIONS.map((row) => row.id)
     const missing = declared.filter((id) => !SEEN.has(id))
     expect(missing).toEqual([])
   })
 
+  it('every OBSERVED transition matched its declared from/to postures', () => {
+    // The id-presence check above only proves a row was reached. This one proves
+    // the row is TRUE: that the machine really moved between the postures the
+    // normative table declares. It is what catches a declared transition the code
+    // does not perform — worse than an undocumented one, because POD-372 and
+    // POD-373 implement against the table.
+    const violations: string[] = []
+    for (const observed of OBSERVED) {
+      const row = REPLICA_TRANSITIONS.find((r) => r.id === observed.rowId)
+      if (row === undefined) {
+        violations.push(`${observed.rowId}: not in the table at all`)
+        continue
+      }
+      if (!row.from.includes(observed.from)) {
+        violations.push(
+          `${row.id}: fired from '${observed.from}', which the table does not declare (${row.from.join('|')})`,
+        )
+      }
+      if (!row.to.includes(observed.to)) {
+        violations.push(
+          `${row.id}: landed in '${observed.to}', which the table does not declare (${row.to.join('|')})`,
+        )
+      }
+    }
+    expect([...new Set(violations)]).toEqual([])
+  })
+
+  it('every declared from-posture is actually exercised somewhere in the suite', () => {
+    // A declared route nobody drives is an untested claim. Reported as a list so
+    // adding a from-posture to the table without a test fails loudly.
+    const unexercised: string[] = []
+    for (const row of REPLICA_TRANSITIONS) {
+      for (const from of row.from) {
+        const seen = OBSERVED.some((o) => o.rowId === row.id && o.from === from)
+        if (!seen) unexercised.push(`${row.id} from '${from}'`)
+      }
+    }
+    expect(unexercised).toEqual([])
+  })
+
   it('every row cites the clause that decides it, and rungs resolve downward', () => {
     for (const row of REPLICA_TRANSITIONS) {
       expect(row.adr, `${row.id} must cite its ADR clause`).not.toBe('')
       expect(row.from.length, `${row.id} must declare a source posture`).toBeGreaterThan(0)
+      expect(row.to.length, `${row.id} must declare a destination posture`).toBeGreaterThan(0)
     }
     // Rungs 2-6 all terminate at the same place — that is the whole design.
     const terminal = REPLICA_TRANSITIONS.filter((r) => r.rung !== null && r.rung >= 2)
-    expect(terminal.every((r) => r.to === 'bootstrapping')).toBe(true)
+    expect(terminal.every((r) => r.to.includes('bootstrapping'))).toBe(true)
     expect(terminal.length).toBeGreaterThanOrEqual(8)
   })
 
