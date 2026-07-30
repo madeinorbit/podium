@@ -1979,3 +1979,21 @@ count. POD-314 proposed engineering the widened number to land at or below the c
 it not to. A detector whose boundary is picked for what it measures rather than what it means is not an
 instrument. If two scopes are both defensible and they disagree, report both rather than picking the
 kind one.
+
+### A scrub that destroys data can report success TRUTHFULLY
+
+POD-419, while building the secret scrub, found that **a `Date` satisfies a naive plain-object check** —
+so its value-rebuilding walker was reconstructing structured-clone values as `{}`. It "would have
+destroyed replica rows while reporting a clean scrub".
+
+This is the purest form of the class: **every assertion the instrument made would have been correct.**
+The secret really was gone. The report really was accurate. And the operation was catastrophic.
+
+**The shape to learn from: the bug was not in the SCRUBBING, it was in the REBUILDING — so no test of
+"is the secret gone" could ever have caught it. What caught it was a test of what SURVIVED.**
+
+Generalises to any transform that walks and rebuilds: a scrub, a migration backfill, a projection, a
+redaction. Their contract is always two-sided — remove exactly X, preserve exactly everything else —
+and only the second half is at risk from a faulty rebuild. Seed values the walker might not recognise
+(`Date`, `Map`, `Set`, TypedArray, nested arrays), and assert they survive BYTE-IDENTICAL alongside the
+removal you were actually testing.
