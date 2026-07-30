@@ -67,8 +67,15 @@ const armTypeLiterals = (union: unknown): string[] =>
 
 describe('golden wire fixtures', () => {
   it('covers every zod schema the protocol package exports', () => {
-    // Not an assertion about a count — a count would just get updated. The check
-    // is that the corpus and the export surface are the SAME set.
+    // Not an assertion about a count — a count would just get updated.
+    //
+    // Precise about what this does and does not check, because an earlier comment
+    // here claimed "the corpus and the export surface are the SAME set" and the
+    // body only checks one direction: every exported schema has a fixture. The
+    // reverse (a fixture for a schema no longer exported) is impossible by
+    // construction, since `buildCorpus` derives its cases FROM the registry — so
+    // asserting it would be a check that cannot fail, which is the thing this
+    // suite is supposed to be the opposite of.
     const covered = new Set(corpus.flatMap((f) => f.cases.map((c) => c.schema)))
     const missing = coveredSchemas()
       .map((entry) => entry.name)
@@ -125,9 +132,67 @@ describe('golden wire fixtures', () => {
     })
 
     it('covers every flag across the whole resolver input matrix', () => {
-      const ids = new Set(built.cases.map((c) => c.input.id))
-      // 3 config states × 3 user states × 2 channels × 2 devMode values.
-      expect(built.cases.length).toBe(ids.size * 36)
+      // ASSERTS THE MATRIX, NOT ITS CARDINALITY. The previous version checked
+      // `cases.length === ids.size * 36`, which a mutation the name should have
+      // caught passed straight through: dropping the `edge` channel and emitting
+      // `stable` twice keeps the count at 36 per flag, so the corpus lost half the
+      // matrix while this test — the one whose name promises the matrix — stayed
+      // green. Only the byte-pin caught it, and that pin moves the moment someone
+      // regenerates, which the documented workflow tells them to do.
+      //
+      // Two assertions, and deliberately NOT a copy of the generator's literals —
+      // restating `['unset', true, false]` here would be one more copy to drift
+      // (the same mistake as reading an enum off a doc comment). Instead: derive
+      // each axis from the corpus, assert its ARITY, then assert the full cross
+      // product of the observed values is present for every flag. A dropped
+      // channel collapses that axis to arity 1 and fails the first check; a hole
+      // inside a full axis fails the second.
+      const axis = (pick: (input: FeatureStateGolden['cases'][number]['input']) => unknown) =>
+        new Set(built.cases.map((c) => JSON.stringify(pick(c.input))))
+      const axes = {
+        configValue: axis((i) => i.configValue),
+        userValue: axis((i) => i.userValue),
+        channel: axis((i) => i.channel),
+        devMode: axis((i) => i.devMode),
+      }
+      const arity = Object.fromEntries(Object.entries(axes).map(([k, v]) => [k, v.size]))
+      expect(arity, 'resolver input axes are 3 × 3 × 2 × 2').toEqual({
+        configValue: 3,
+        userValue: 3,
+        channel: 2,
+        devMode: 2,
+      })
+
+      const expected = new Set<string>()
+      for (const configValue of axes.configValue) {
+        for (const userValue of axes.userValue) {
+          for (const channel of axes.channel) {
+            for (const devMode of axes.devMode) {
+              expected.add([configValue, userValue, channel, devMode].join('|'))
+            }
+          }
+        }
+      }
+      expect(expected.size, 'the matrix itself is 3 × 3 × 2 × 2').toBe(36)
+
+      const byFlag = new Map<string, Set<string>>()
+      for (const wireCase of built.cases) {
+        const i = wireCase.input
+        const combos = byFlag.get(i.id) ?? new Set<string>()
+        combos.add(
+          [i.configValue, i.userValue, i.channel, i.devMode]
+            .map((value) => JSON.stringify(value))
+            .join('|'),
+        )
+        byFlag.set(i.id, combos)
+      }
+
+      // Per flag: every combination present, none missing. A duplicate collapses
+      // in the Set, so a hole cannot be masked by emitting something else twice.
+      const holes = [...byFlag].flatMap(([id, combos]) =>
+        [...expected].filter((combo) => !combos.has(combo)).map((combo) => `${id}: ${combo}`),
+      )
+      expect(holes, 'flag/input combinations missing from the corpus').toEqual([])
     })
   })
 })

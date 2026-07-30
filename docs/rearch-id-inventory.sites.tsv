@@ -194,11 +194,11 @@ apps/server/src/issues.answer-question.test.ts	126	object-literal-field	E-attrib
 apps/server/src/issues.answer-question.test.ts	144	object-literal-field	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId: 'sess_me'
 apps/server/src/issues.ledger.test.ts	145	ts-property	A-schema-flip	parentId	type member; gains the brand with its schema	parentId?: string
 apps/server/src/issues.test.ts	428	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
-apps/server/src/issues.test.ts	901	tagged-identity	B-helper-adoption	spawnedBy=issue:	tag+id in one string; the tag is a closed vocabulary living unparsed	`issue:${created.id}`
-apps/server/src/issues.test.ts	1086	tagged-identity	B-helper-adoption	spawnedBy=issue:	tag+id in one string; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
-apps/server/src/issues.test.ts	1140	tagged-identity	B-helper-adoption	spawnedBy=issue:	tag+id in one string; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
-apps/server/src/issues.test.ts	1165	tagged-identity	B-helper-adoption	spawnedBy=issue:	tag+id in one string; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
-apps/server/src/issues.test.ts	1169	tagged-identity	B-helper-adoption	spawnedBy=issue:	tag+id in one string; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
+apps/server/src/issues.test.ts	901	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${created.id}`
+apps/server/src/issues.test.ts	1086	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
+apps/server/src/issues.test.ts	1140	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
+apps/server/src/issues.test.ts	1165	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
+apps/server/src/issues.test.ts	1169	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${a.id}`
 apps/server/src/issues.test.ts	3030	object-literal-field	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId: '/wt'
 apps/server/src/linear.ts	69	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/server/src/linear.ts	102	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string;
@@ -357,7 +357,7 @@ apps/server/src/modules/automations/service.ts	75	ts-property	A-schema-flip	id	t
 apps/server/src/modules/automations/service.ts	91	ts-property	A-schema-flip	targetSessionId	type member; gains the brand with its schema	targetSessionId?: string | null
 apps/server/src/modules/automations/service.ts	476	ts-property	A-schema-flip	automationId	type member; gains the brand with its schema	automationId: string
 apps/server/src/modules/automations/service.ts	479	ts-property	A-schema-flip	liveSessionIds	type member; gains the brand with its schema	liveSessionIds: Set<string>
-apps/server/src/modules/automations/service.ts	587	tagged-identity	B-helper-adoption	spawnedBy=automation:	tag+id in one string; the tag is a closed vocabulary living unparsed	`automation:${automation.id}`
+apps/server/src/modules/automations/service.ts	587	tagged-identity	B-helper-adoption	spawnedBy=automation:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`automation:${automation.id}`
 apps/server/src/modules/bus.ts	30	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/bus.ts	38	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/server/src/modules/bus.ts	40	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
@@ -400,6 +400,8 @@ apps/server/src/modules/issues/registry.test.ts	395	ts-property	E-attribution	co
 apps/server/src/modules/issues/registry.ts	114	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string
 apps/server/src/modules/issues/registry.ts	116	ts-property	A-schema-flip	callerSessionId	type member; gains the brand with its schema	callerSessionId?: string
 apps/server/src/modules/issues/registry.ts	179	zod-field	A-schema-flip	id	zod declaration; becomes a branded schema	id: z.string()
+apps/server/src/modules/issues/registry.ts	280	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${this.caller.capability.actorSessionId}`
+apps/server/src/modules/issues/registry.ts	284	tagged-identity	B-helper-adoption	return=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${this.caller.capability.scope.rootId}`
 apps/server/src/modules/issues/registry.ts	303	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/modules/issues/registry.ts	341	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	source.ref === this.caller.capability.actorSessionId
 apps/server/src/modules/issues/registry.ts	360	ts-property	A-schema-flip	parentId	type member; gains the brand with its schema	parentId?: string | null
@@ -472,6 +474,7 @@ apps/server/src/modules/issues/service/crud.ts	204	object-literal-field	E-attrib
 apps/server/src/modules/issues/service/crud.ts	434	object-literal-field	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId: opts.actorSessionId
 apps/server/src/modules/issues/service/crud.ts	446	object-literal-field	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId: opts.actorSessionId
 apps/server/src/modules/issues/service/crud.ts	456	object-literal-field	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId: opts.actorSessionId
+apps/server/src/modules/issues/service/mail-pending.ts	37	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${m.fromSession}`
 apps/server/src/modules/issues/service/reads.ts	180	comparison	E-attribution	coordinatorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	row.coordinatorSessionId === s.sessionId
 apps/server/src/modules/issues/service/reads.ts	214	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string;
 apps/server/src/modules/issues/service/reads.ts	481	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
@@ -497,6 +500,8 @@ apps/server/src/modules/issues/service/types.ts	281	ts-property	A-schema-flip	pa
 apps/server/src/modules/issues/service/types.ts	293	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string
 apps/server/src/modules/issues/service/workflow.ts	46	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string;
 apps/server/src/modules/issues/service/workflow.ts	89	ts-property	A-schema-flip	agentId	type member; gains the brand with its schema	agentId: string
+apps/server/src/modules/issues/service/workflow.ts	166	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${row.id}`
+apps/server/src/modules/issues/service/workflow.ts	788	tagged-identity	B-helper-adoption	spawnedBy=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${row.id}`
 apps/server/src/modules/issues/upstream.ts	11	ts-property	A-schema-flip	mutationId	type member; gains the brand with its schema	mutationId: string;
 apps/server/src/modules/lock/registry.test.ts	41	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string | null;
 apps/server/src/modules/lock/registry.test.ts	51	object-literal-field	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId: 'sess_agent'
@@ -577,14 +582,19 @@ apps/server/src/modules/messages/gate.ts	139	ts-property	A-schema-flip	id	type m
 apps/server/src/modules/messages/gate.ts	157	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/modules/messages/gate.ts	158	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string
 apps/server/src/modules/messages/gate.ts	405	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
+apps/server/src/modules/messages/gate.ts	481	tagged-identity	B-helper-adoption	spawnedBy=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${caller.capability.actorSessionId}`
 apps/server/src/modules/messages/gate.ts	576	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	caller.capability.actorSessionId !== undefined
+apps/server/src/modules/messages/gate.ts	577	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${caller.capability.actorSessionId}`
 apps/server/src/modules/messages/gate.ts	793	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/modules/messages/gate.ts	793	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/modules/messages/gate.ts	819	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	caller.capability.actorSessionId !== undefined
+apps/server/src/modules/messages/gate.ts	820	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${caller.capability.actorSessionId}`
 apps/server/src/modules/messages/gate.ts	830	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string
 apps/server/src/modules/messages/gate.ts	832	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string
 apps/server/src/modules/messages/gate.ts	841	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	m.deliveredTo === capability.actorSessionId
 apps/server/src/modules/messages/gate.ts	851	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	m.fromSession === capability.actorSessionId
+apps/server/src/modules/messages/gate.ts	869	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${sessionId}`
+apps/server/src/modules/messages/gate.ts	871	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${sessionId}`
 apps/server/src/modules/messages/service.test.ts	64	object-literal-field	E-attribution	coordinatorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	coordinatorSessionId: coord
 apps/server/src/modules/messages/service.test.ts	74	object-literal-field	E-attribution	coordinatorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	coordinatorSessionId: coord
 apps/server/src/modules/messages/service.test.ts	152	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
@@ -624,12 +634,19 @@ apps/server/src/modules/messages/service.ts	1604	ts-property	A-schema-flip	issue
 apps/server/src/modules/messages/service.ts	1604	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId?: string;
 apps/server/src/modules/messages/service.ts	1723	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string | null
 apps/server/src/modules/messages/service.ts	1742	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id?: string | null
+apps/server/src/modules/messages/service.ts	1807	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${from.sessionId}`
+apps/server/src/modules/messages/service.ts	1808	tagged-identity	B-helper-adoption	compare=issue:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`issue:${from.issueId}`
 apps/server/src/modules/messages/service.ts	1997	composite-key	B-helper-adoption	<expressions>	ad-hoc composite key; adopts a typed key helper	`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`
+apps/server/src/modules/messages/service.ts	2064	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${message.fromSession}`
+apps/server/src/modules/messages/service.ts	2278	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${from.sessionId}`
 apps/server/src/modules/messages/spawn.test.ts	130	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/server/src/modules/messages/spawn.test.ts	131	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/server/src/modules/messages/spawn.ts	27	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId?: string
 apps/server/src/modules/messages/spawn.ts	29	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId?: string
 apps/server/src/modules/messages/spawn.ts	30	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
+apps/server/src/modules/messages/spawn.ts	40	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${m.fromSession}`
+apps/server/src/modules/messages/spawn.ts	41	tagged-identity	B-helper-adoption	return=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${m.fromIssue}`
+apps/server/src/modules/messaging/commands.ts	102	tagged-identity	B-helper-adoption	return=i:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`i:${issueId}`
 apps/server/src/modules/messaging/service.test.ts	95	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/server/src/modules/messaging/service.test.ts	96	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string;
 apps/server/src/modules/messaging/service.test.ts	97	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string;
@@ -657,13 +674,15 @@ apps/server/src/modules/messaging/service.ts	61	ts-property	A-schema-flip	sessio
 apps/server/src/modules/messaging/service.ts	76	ts-property	A-schema-flip	sessionIssueId	type member; gains the brand with its schema	sessionIssueId?: (sessionId: string) => string | null
 apps/server/src/modules/messaging/service.ts	84	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string
 apps/server/src/modules/messaging/service.ts	90	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string
-apps/server/src/modules/messaging/service.ts	114	composite-key	B-helper-adoption	chatId	ad-hoc composite key; adopts a typed key helper	`${ref.chatId}\0${ref.threadRef ?? ''}`
-apps/server/src/modules/messaging/service.ts	210	composite-key	B-helper-adoption	botToken+chatId	ad-hoc composite key; adopts a typed key helper	`${botToken}\n${chatId}`
+apps/server/src/modules/messaging/service.ts	114	composite-key	C-stringly-on-purpose	chatId	composite key over non-entity values (paths/display/cursors) — not a branded id	`${ref.chatId}\0${ref.threadRef ?? ''}`
+apps/server/src/modules/messaging/service.ts	210	composite-key	C-stringly-on-purpose	botToken+chatId	composite key over non-entity values (paths/display/cursors) — not a branded id	`${botToken}\n${chatId}`
 apps/server/src/modules/messaging/service.ts	219	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string
 apps/server/src/modules/messaging/service.ts	250	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId?: string
-apps/server/src/modules/messaging/service.ts	254	composite-key	B-helper-adoption	botToken+chatId	ad-hoc composite key; adopts a typed key helper	`${botToken}\n${chatId}`
+apps/server/src/modules/messaging/service.ts	254	composite-key	C-stringly-on-purpose	botToken+chatId	composite key over non-entity values (paths/display/cursors) — not a branded id	`${botToken}\n${chatId}`
 apps/server/src/modules/messaging/service.ts	543	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string;
 apps/server/src/modules/messaging/service.ts	623	ts-property	A-schema-flip	superagentThreadId	type member; gains the brand with its schema	superagentThreadId: string
+apps/server/src/modules/messaging/service.ts	673	tagged-identity	B-helper-adoption	return=turn:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`turn:${threadId}`
+apps/server/src/modules/messaging/service.ts	677	tagged-identity	B-helper-adoption	return=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${sessionId}`
 apps/server/src/modules/messaging/telegram.ts	22	ts-property	A-schema-flip	updateId	type member; gains the brand with its schema	updateId: number
 apps/server/src/modules/messaging/telegram.ts	23	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string
 apps/server/src/modules/messaging/telegram.ts	33	ts-property	A-schema-flip	updateId	type member; gains the brand with its schema	updateId: number
@@ -682,7 +701,7 @@ apps/server/src/modules/messaging/topic-recap.ts	24	ts-property	A-schema-flip	or
 apps/server/src/modules/messaging/types.ts	14	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId?: string
 apps/server/src/modules/messaging/types.ts	22	ts-property	A-schema-flip	chatId	type member; gains the brand with its schema	chatId: string
 apps/server/src/modules/messaging/types.ts	43	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
-apps/server/src/modules/notify/service.ts	44	composite-key	B-helper-adoption	<expressions>	ad-hoc composite key; adopts a typed key helper	`${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
+apps/server/src/modules/notify/service.ts	44	composite-key	C-stringly-on-purpose	<expressions>	composite key over non-entity values (paths/display/cursors) — not a branded id	`${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
 apps/server/src/modules/notify/service.ts	50	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/sessions/draft-doc.ts	24	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/sessions/handoff-transfer.ts	45	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
@@ -749,6 +768,7 @@ apps/server/src/modules/sessions/service.ts	2514	ts-property	A-schema-flip	sessi
 apps/server/src/modules/sessions/service.ts	2542	comparison	D-delete-not-brand	machineId	'__local__' placeholder constant — POD-318	session.machineId === LOCAL_PLACEHOLDER
 apps/server/src/modules/sessions/service.ts	2661	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string
 apps/server/src/modules/sessions/service.ts	2664	ts-property	A-schema-flip	callerSessionId	type member; gains the brand with its schema	callerSessionId?: string
+apps/server/src/modules/sessions/service.ts	2762	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${session.sessionId}`
 apps/server/src/modules/sessions/service.ts	2860	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/sessions/service.ts	2942	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/sessions/service.ts	2943	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string
@@ -831,19 +851,20 @@ apps/server/src/modules/superagent/service.ts	404	ts-property	A-schema-flip	thre
 apps/server/src/modules/superagent/service.ts	404	ts-property	A-schema-flip	podiumSessionId	type member; gains the brand with its schema	podiumSessionId: string
 apps/server/src/modules/superagent/service.ts	417	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string;
 apps/server/src/modules/superagent/service.ts	417	ts-property	A-schema-flip	podiumSessionId	type member; gains the brand with its schema	podiumSessionId: string
-apps/server/src/modules/superagent/service.ts	462	tagged-identity	B-helper-adoption	spawnedBy=superagent:	tag+id in one string; the tag is a closed vocabulary living unparsed	`superagent:${threadId}`
+apps/server/src/modules/superagent/service.ts	462	tagged-identity	B-helper-adoption	spawnedBy=superagent:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`superagent:${threadId}`
 apps/server/src/modules/superagent/service.ts	582	ts-property	A-schema-flip	harnessSessionId	type member; gains the brand with its schema	harnessSessionId?: string;
 apps/server/src/modules/superagent/service.ts	658	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string
 apps/server/src/modules/superagent/service.ts	674	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string
 apps/server/src/modules/superagent/service.ts	686	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string
 apps/server/src/modules/superagent/service.ts	686	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
-apps/server/src/modules/superagent/service.ts	704	tagged-identity	B-helper-adoption	spawnedBy=superagent:	tag+id in one string; the tag is a closed vocabulary living unparsed	`superagent:${threadId}`
+apps/server/src/modules/superagent/service.ts	704	tagged-identity	B-helper-adoption	spawnedBy=superagent:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`superagent:${threadId}`
 apps/server/src/modules/superagent/service.ts	719	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string;
 apps/server/src/modules/superagent/service.ts	719	ts-property	A-schema-flip	podiumSessionId	type member; gains the brand with its schema	podiumSessionId: string;
 apps/server/src/modules/superagent/service.ts	743	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/modules/superagent/service.ts	743	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string;
 apps/server/src/modules/superagent/service.ts	758	ts-property	A-schema-flip	threadId	type member; gains the brand with its schema	threadId: string;
 apps/server/src/modules/superagent/service.ts	1059	ts-property	A-schema-flip	overflowLastId	type member; gains the brand with its schema	overflowLastId?: number
+apps/server/src/modules/superagent/tools.ts	94	tagged-identity	B-helper-adoption	spawnedBy=superagent:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`superagent:${threadId}`
 apps/server/src/modules/workflows/service.test.ts	14	object-literal-field	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId: sessionId
 apps/server/src/modules/workflows/service.test.ts	21	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/server/src/modules/workflows/service.ts	50	zod-field	A-schema-flip	id	zod declaration; becomes a branded schema	id: z.string().min(1)
@@ -902,6 +923,8 @@ apps/server/src/quota-machines.test.ts	48	ts-property	C-stringly-on-purpose	requ
 apps/server/src/relay-agent-relay.test.ts	25	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/server/src/relay-agent-relay.test.ts	26	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/relay-agent-relay.test.ts	87	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
+apps/server/src/relay-agent-relay.test.ts	92	tagged-identity	B-helper-adoption	spawnedBy=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${sA}`
+apps/server/src/relay-agent-relay.test.ts	262	tagged-identity	B-helper-adoption	spawnedBy=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${sA}`
 apps/server/src/relay-agent-relay.test.ts	318	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/relay-agent-relay.test.ts	319	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/server/src/relay-agent-relay.test.ts	485	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
@@ -919,13 +942,17 @@ apps/server/src/relay.test.ts	2224	ts-property	C-stringly-on-purpose	requestId	c
 apps/server/src/relay.test.ts	3726	ts-property	C-stringly-on-purpose	requestId	correlation/transport handle, not a durable entity identity	requestId: string;
 apps/server/src/relay.ts	271	comparison	D-delete-not-brand	machineId	'__local__' placeholder constant — POD-318	s.machineId === LOCAL_PLACEHOLDER
 apps/server/src/relay.ts	782	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	capability.actorSessionId !== undefined
+apps/server/src/relay.ts	783	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${capability.actorSessionId}`
 apps/server/src/relay.ts	848	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId !== undefined
 apps/server/src/relay.ts	866	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	actorSessionId !== undefined
+apps/server/src/relay.ts	866	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${actorSessionId}`
 apps/server/src/relay.ts	891	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId?: unknown;
 apps/server/src/relay.ts	891	ts-property	A-schema-flip	mutationId	type member; gains the brand with its schema	mutationId?: unknown
 apps/server/src/relay.ts	931	comparison	E-attribution	actorSessionId	names who acted; gains an on-behalf-of UserId in POD-1075	capability.actorSessionId !== undefined
+apps/server/src/relay.ts	932	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${capability.actorSessionId}`
 apps/server/src/relay.upstream-issues.test.ts	67	ts-property	A-schema-flip	mutationId	type member; gains the brand with its schema	mutationId: string;
 apps/server/src/repo-discovery.test.ts	75	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string;
+apps/server/src/repo-discovery.test.ts	82	tagged-identity	B-helper-adoption	return=name:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`name:${id}`
 apps/server/src/repo-discovery.ts	42	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string
 apps/server/src/repo-discovery.ts	50	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId: string;
 apps/server/src/repo-discovery.ts	109	ts-property	A-schema-flip	localMachineId	type member; gains the brand with its schema	localMachineId: string
@@ -934,7 +961,7 @@ apps/server/src/repo-id.ts	66	ts-property	A-schema-flip	machineId	type member; g
 apps/server/src/restart-notification-storm.integration.test.ts	41	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/server/src/restart-notification-storm.integration.test.ts	43	ts-property	A-schema-flip	providerSessionId	type member; gains the brand with its schema	providerSessionId: string
 apps/server/src/restart-notification-storm.integration.test.ts	47	ts-property	C-stringly-on-purpose	transitionId	correlation/transport handle, not a durable entity identity	transitionId: string
-apps/server/src/restart-notification-storm.integration.test.ts	154	tagged-identity	B-helper-adoption	spawnedBy=session:	tag+id in one string; the tag is a closed vocabulary living unparsed	`session:${parentId}`
+apps/server/src/restart-notification-storm.integration.test.ts	154	tagged-identity	B-helper-adoption	spawnedBy=session:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`session:${parentId}`
 apps/server/src/restart-notification-storm.integration.test.ts	351	ts-property	C-stringly-on-purpose	transitionId	correlation/transport handle, not a durable entity identity	transitionId: string
 apps/server/src/router.issues.test.ts	49	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/server/src/router.issues.test.ts	50	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
@@ -1058,20 +1085,20 @@ apps/server/src/steward.ts	125	ts-property	A-schema-flip	parentId	type member; g
 apps/server/src/steward.ts	378	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId?: string;
 apps/server/src/steward.ts	378	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId?: string
 apps/server/src/steward.ts	550	ts-property	A-schema-flip	parentId	type member; gains the brand with its schema	parentId?: string
-apps/server/src/steward.ts	567	tagged-identity	B-helper-adoption	key=settle:	tag+id in one string; the tag is a closed vocabulary living unparsed	`settle:${sessionId}`
+apps/server/src/steward.ts	567	tagged-identity	B-helper-adoption	key=settle:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`settle:${sessionId}`
 apps/server/src/steward.ts	579	ts-property	A-schema-flip	parentId	type member; gains the brand with its schema	parentId?: string;
 apps/server/src/steward.ts	582	composite-key	B-helper-adoption	parentId+seq	ad-hoc composite key; adopts a typed key helper	`parentnudge:review:${p.parentId}:${p.seq}`
 apps/server/src/steward.ts	593	composite-key	B-helper-adoption	parentId+seq	ad-hoc composite key; adopts a typed key helper	`parentnudge:needs_human:${parentId}:${seq}`
 apps/server/src/steward.ts	638	ts-property	A-schema-flip	srcIssueId	type member; gains the brand with its schema	srcIssueId: string | null
 apps/server/src/steward.ts	678	composite-key	C-stringly-on-purpose	event+subject	composite key over non-entity values (paths/display/cursors) — not a branded id	`sub:${sub.event}:${e.subject}`
 apps/server/src/steward.ts	688	ts-property	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId?: string
-apps/server/src/steward.ts	709	tagged-identity	B-helper-adoption	source=subscription:	tag+id in one string; the tag is a closed vocabulary living unparsed	`subscription:${sub.id}`
-apps/server/src/steward.ts	723	tagged-identity	B-helper-adoption	source=subscription:	tag+id in one string; the tag is a closed vocabulary living unparsed	`subscription:${sub.id}`
+apps/server/src/steward.ts	709	tagged-identity	B-helper-adoption	source=subscription:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`subscription:${sub.id}`
+apps/server/src/steward.ts	723	tagged-identity	B-helper-adoption	source=subscription:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`subscription:${sub.id}`
 apps/server/src/steward.ts	771	ts-property	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId?: string
 apps/server/src/steward.ts	818	composite-key	B-helper-adoption	id+closedSeq	ad-hoc composite key; adopts a typed key helper	`unblock:${dependent.id}:${closedSeq}`
 apps/server/src/steward.ts	938	ts-property	E-attribution	causedBySessionId	names who acted; gains an on-behalf-of UserId in POD-1075	causedBySessionId?: string
 apps/server/src/steward.ts	996	composite-key	B-helper-adoption	group+parentId+lastChildSeq	ad-hoc composite key; adopts a typed key helper	`parentnudge:${group}:${parentId}:${lastChildSeq}`
-apps/server/src/steward.ts	1021	tagged-identity	B-helper-adoption	key=settle:	tag+id in one string; the tag is a closed vocabulary living unparsed	`settle:${sessionId}`
+apps/server/src/steward.ts	1021	tagged-identity	B-helper-adoption	factKey=settle:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`settle:${sessionId}`
 apps/server/src/store.machines.test.ts	56	object-literal-field	D-delete-not-brand	machineId	'__local__' placeholder — POD-318 deletes it; branding would freeze it into the type system	machineId: '__local__'
 apps/server/src/store.repo-id.test.ts	76	object-literal-field	D-delete-not-brand	machineId	'__local__' placeholder — POD-318 deletes it; branding would freeze it into the type system	machineId: '__local__'
 apps/server/src/store.repo-id.test.ts	121	object-literal-field	D-delete-not-brand	machineId	'__local__' placeholder — POD-318 deletes it; branding would freeze it into the type system	machineId: '__local__'
@@ -1272,7 +1299,7 @@ apps/web/src/app/NewPanelMenu.tsx	400	ts-property	A-schema-flip	issueId	type mem
 apps/web/src/app/RightDock.test.tsx	42	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId?: string;
 apps/web/src/app/RightDock.test.tsx	42	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId?: string
 apps/web/src/app/RightDock.tsx	26	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: RightPanelTab;
-apps/web/src/app/Workspace.tsx	160	tagged-identity	A-consequence	key=issue:	React render key — sibling-scoped, no injectivity requirement; a brand is still a string	`issue:${issue.id}`
+apps/web/src/app/Workspace.tsx	160	tagged-identity	B-helper-adoption	orderKey=issue:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`issue:${issue.id}`
 apps/web/src/app/command-palette.test.ts	13	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/web/src/app/command-palette.ts	10	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/web/src/app/optimistic-spawn.test.ts	89	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
@@ -1312,6 +1339,7 @@ apps/web/src/features/chat/ToolBatchView.tsx	28	ts-property	A-schema-flip	sessio
 apps/web/src/features/chat/ToolBlock.tsx	19	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 apps/web/src/features/chat/chat.ts	278	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/web/src/features/chat/chat.ts	293	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
+apps/web/src/features/chat/chat.ts	305	tagged-identity	B-helper-adoption	compare=session:	RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently	`session:${sessionId}`
 apps/web/src/features/chat/message-envelope.ts	18	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/web/src/features/chat/useTranscriptWindow.test.tsx	28	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
 apps/web/src/features/chat/useTranscriptWindow.test.tsx	36	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string;
@@ -1340,7 +1368,7 @@ apps/web/src/features/issues/issue-context-menu.ts	180	ts-property	A-schema-flip
 apps/web/src/features/issues/issue-events.ts	10	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: number
 apps/web/src/features/issues/issue-events.ts	110	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
 apps/web/src/features/issues/issue-events.ts	111	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string;
-apps/web/src/features/issues/issue-events.ts	137	tagged-identity	B-helper-adoption	id=e|	tag+id in one string; the tag is a closed vocabulary living unparsed	`e|${e.id}`
+apps/web/src/features/issues/issue-events.ts	137	tagged-identity	B-helper-adoption	id=e|	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`e|${e.id}`
 apps/web/src/features/issues/issue-page-commands.ts	241	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 apps/web/src/features/issues/issue-page-commands.ts	242	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string
 apps/web/src/features/issues/issue-page-properties.tsx	72	ts-property	A-schema-flip	testId	type member; gains the brand with its schema	testId?: string
@@ -1564,7 +1592,7 @@ packages/client-core/src/engine/engine.ts	1503	ts-property	A-schema-flip	session
 packages/client-core/src/engine/engine.ts	1503	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string
 packages/client-core/src/engine/overlay.ts	72	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 packages/client-core/src/engine/overlay.ts	83	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
-packages/client-core/src/engine/overlay.ts	153	tagged-identity	B-helper-adoption	key=spawn:	tag+id in one string; the tag is a closed vocabulary living unparsed	`spawn:${id}`
+packages/client-core/src/engine/overlay.ts	153	tagged-identity	B-helper-adoption	key=spawn:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`spawn:${id}`
 packages/client-core/src/engine/overlay.ts	282	ts-property	A-schema-flip	pendingInsertIds	type member; gains the brand with its schema	pendingInsertIds: ReadonlySet<string>
 packages/client-core/src/engine/types.ts	56	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId?: string
 packages/client-core/src/engine/types.ts	57	ts-property	A-schema-flip	focusedSessionId	type member; gains the brand with its schema	focusedSessionId?: string
@@ -1650,7 +1678,7 @@ packages/client-core/src/viewmodels/file-scope.ts	2	ts-property	A-schema-flip	se
 packages/client-core/src/viewmodels/file-scope.ts	3	ts-property	A-schema-flip	machineId	type member; gains the brand with its schema	machineId?: string;
 packages/client-core/src/viewmodels/file-scope.ts	6	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string;
 packages/client-core/src/viewmodels/file-scope.ts	6	ts-property	A-schema-flip	artifactId	type member; gains the brand with its schema	artifactId: string
-packages/client-core/src/viewmodels/file-scope.ts	10	tagged-identity	B-helper-adoption	key=s:	tag+id in one string; the tag is a closed vocabulary living unparsed	`s:${scope.sessionId}`
+packages/client-core/src/viewmodels/file-scope.ts	10	tagged-identity	B-helper-adoption	return=s:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`s:${scope.sessionId}`
 packages/client-core/src/viewmodels/file-scope.ts	11	composite-key	B-helper-adoption	issueId+artifactId	ad-hoc composite key; adopts a typed key helper	`a:${scope.issueId}:${scope.artifactId}`
 packages/client-core/src/viewmodels/optimistic-spawn.ts	40	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 packages/client-core/src/viewmodels/optimistic-spawn.ts	41	ts-property	A-schema-flip	issueId	type member; gains the brand with its schema	issueId: string
@@ -2059,6 +2087,7 @@ packages/transcript/src/opencode.ts	9	ts-property	A-schema-flip	messageId	type m
 packages/transcript/src/opencode.ts	10	ts-property	A-schema-flip	partId	type member; gains the brand with its schema	partId: string
 packages/transcript/src/opencode.ts	11	ts-property	A-schema-flip	sessionId	type member; gains the brand with its schema	sessionId: string
 packages/transcript/src/slice.ts	478	composite-key	C-stringly-on-purpose	direction+limit+initial	composite key over non-entity values (paths/display/cursors) — not a branded id	`${opts.direction}|${opts.limit}|${opts.anchor ?? ''}|${initial}|${parts.join(',')}`
+packages/transcript/src/source.ts	65	tagged-identity	B-helper-adoption	return=opencode:	CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed	`opencode:${sessionId}`
 scripts/architecture-manifest.ts	643	composite-key	C-stringly-on-purpose	rule+file	composite key over non-entity values (paths/display/cursors) — not a branded id	`${rule}\u0000${file}`
 scripts/loop-split-load.integration.test.ts	100	ts-property	A-schema-flip	id	type member; gains the brand with its schema	id: string
 scripts/loop-split-load.integration.test.ts	102	ts-property	A-schema-flip	allowedSessionIds	type member; gains the brand with its schema	allowedSessionIds: string[]
