@@ -66,11 +66,11 @@ const THREE: readonly SpecContractName[] = ['create', 'remove', 'save']
 describe('the three spec write contracts', () => {
   it('declares exactly create · save · remove, and no fourth', () => {
     expect(SPEC_CONTRACT_NAMES).toEqual([...THREE])
-    expect(Object.values(SPEC_CONTRACTS).map((c) => c.name).sort()).toEqual([
-      'specs.create',
-      'specs.remove',
-      'specs.save',
-    ])
+    expect(
+      Object.values(SPEC_CONTRACTS)
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(['specs.create', 'specs.remove', 'specs.save'])
   })
 
   it('passes the classification lint with no unclassified field', () => {
@@ -229,9 +229,9 @@ describe('the machine boundary — this family’s one real policy question', ()
         distinguishesUnauthorizedFromUnreachable: false,
       },
     } as AnyCommandContract
-    expect(
-      SPEC_CONTRACTS.remove.errorConsistency.distinguishesUnauthorizedFromUnreachable,
-    ).toBe(true)
+    expect(SPEC_CONTRACTS.remove.errorConsistency.distinguishesUnauthorizedFromUnreachable).toBe(
+      true,
+    )
     expect(classificationErrors(collapsed)).toEqual([
       'specs.remove: machine `use` must keep unauthorized distinguishable from unreachable (readiness §3.1.4 M5)',
     ])
@@ -284,17 +284,17 @@ describe('the machine boundary — this family’s one real policy question', ()
 describe('the input schemas refuse what the shipped surface refuses', () => {
   it('requires a non-empty repoPath on all three — the routing key the gate resolves', () => {
     for (const schema of [specsCreateInput, specsSaveInput, specsRemoveInput]) {
-      expect(schema.safeParse({ repoPath: '', id: 'SP-abcd', title: 't', parent: '' }).success).toBe(
-        false,
-      )
+      expect(
+        schema.safeParse({ repoPath: '', id: 'SP-abcd', title: 't', parent: '' }).success,
+      ).toBe(false)
       expect(schema.safeParse({ id: 'SP-abcd', title: 't', parent: '' }).success).toBe(false)
     }
   })
 
   it('requires a title on create and an id on save/remove', () => {
-    expect(specsCreateInput.safeParse({ repoPath: '/r', title: '', parent: 'SP-root' }).success).toBe(
-      false,
-    )
+    expect(
+      specsCreateInput.safeParse({ repoPath: '/r', title: '', parent: 'SP-root' }).success,
+    ).toBe(false)
     expect(specsSaveInput.safeParse({ repoPath: '/r', id: '' }).success).toBe(false)
     expect(specsRemoveInput.safeParse({ repoPath: '/r', id: '' }).success).toBe(false)
   })

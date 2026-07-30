@@ -25,7 +25,6 @@ export {
   type AnyCommandContract,
   type AttributionPolicy,
   type AuthoredAttribution,
-  type OptimisticEffect,
   type CommandAction,
   type CommandContract,
   type CommandContractBase,
@@ -39,6 +38,7 @@ export {
   type DeliveryPolicy,
   type ErrorConsistency,
   type MachineVerb,
+  type OptimisticEffect,
   type OptimisticReducer,
   type RedactionPolicy,
   type RoleFloor,
@@ -47,6 +47,50 @@ export {
   type TransportTag,
   type VisibilityClass,
 } from './contract'
+export {
+  type CommandDef,
+  type CommandInput,
+  type CommandName,
+  type CommandOutput,
+  type CommandRedaction,
+  type CommandScope,
+  type CommandTransport,
+  type ConflictClass,
+  commandExposure,
+  commandVisibility,
+  defineCommands,
+  isExposedOn,
+  LOCK_COMMAND_NAMES,
+  type LockCommandName,
+  type OfflineClass,
+  type PolicyResource,
+  type PolicyScope,
+} from './framework'
+export {
+  ADDITIVE_POLICY,
+  CREATES_NOTHING,
+  ISSUE_ATTRIBUTION,
+  ISSUE_REDACTION,
+  ISSUE_VISIBILITY,
+  MANAGE_POLICY,
+  PER_USER_DELIVERY,
+  PER_USER_POLICY,
+  PER_USER_VISIBILITY,
+  READ_DELIVERY,
+  READ_POLICY,
+  SERVED_EVERYWHERE,
+  SERVED_ON_WIRE,
+  TARGETED_ERRORS,
+  UNTARGETED_ERRORS,
+  WRITE_DELIVERY,
+  WRITE_POLICY,
+} from './issues/cells'
+export {
+  ISSUE_COMMAND_NAMES,
+  ISSUE_CONTRACT_LIST,
+  ISSUE_CONTRACTS,
+  type IssueContractName,
+} from './issues/contracts'
 export {
   type AddressDeps,
   type AddressResolution,
@@ -85,14 +129,6 @@ export {
   spawnAgentInput,
 } from './mail/contracts'
 export {
-  RENAME_REJECTIONS,
-  type SessionRenameInput,
-  type SessionRenameOutcome,
-  sessionRenameContract,
-  sessionRenameInput,
-  sessionRenameReducer,
-} from './sessions/rename'
-export {
   deliversUnwrapped,
   exemptFromBrakes,
   isHumanPrincipal,
@@ -102,6 +138,13 @@ export {
   senderLabel,
 } from './mail/principal'
 export {
+  MUTATION_RESULT_KINDS,
+  MutationEnvelope,
+  MutationResult,
+  type MutationResultKind,
+} from './mutations'
+export * from './sessions/command-plane'
+export {
   EXPORTABLE_HARNESSES,
   type SessionHandoffInput,
   type SessionHandoffOutput,
@@ -109,6 +152,27 @@ export {
   sessionHandoffInput,
   sessionHandoffOutput,
 } from './sessions/handoff'
+export * from './sessions/presence-commands'
+export {
+  RENAME_REJECTIONS,
+  type SessionRenameInput,
+  type SessionRenameOutcome,
+  sessionRenameContract,
+  sessionRenameInput,
+  sessionRenameReducer,
+} from './sessions/rename'
+export {
+  SPEC_CONTRACT_NAMES,
+  SPEC_CONTRACTS,
+  type SpecContractName,
+  SpecStatus,
+  specsCreateContract,
+  specsCreateInput,
+  specsRemoveContract,
+  specsRemoveInput,
+  specsSaveContract,
+  specsSaveInput,
+} from './specs/contracts'
 export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,
@@ -159,67 +223,3 @@ export {
   type WorkflowVerb,
   workflowDecision,
 } from './workflows/ownership'
-export {
-  type CommandDef,
-  type CommandInput,
-  type CommandName,
-  type CommandOutput,
-  type CommandRedaction,
-  type CommandScope,
-  type CommandTransport,
-  type ConflictClass,
-  type OfflineClass,
-  type PolicyResource,
-  type PolicyScope,
-  commandExposure,
-  commandVisibility,
-  defineCommands,
-  isExposedOn,
-  LOCK_COMMAND_NAMES,
-  type LockCommandName,
-} from './framework'
-export {
-  ISSUE_COMMAND_NAMES,
-  ISSUE_CONTRACT_LIST,
-  ISSUE_CONTRACTS,
-  type IssueContractName,
-} from './issues/contracts'
-export {
-  ADDITIVE_POLICY,
-  CREATES_NOTHING,
-  ISSUE_ATTRIBUTION,
-  ISSUE_REDACTION,
-  ISSUE_VISIBILITY,
-  MANAGE_POLICY,
-  PER_USER_DELIVERY,
-  PER_USER_POLICY,
-  PER_USER_VISIBILITY,
-  READ_DELIVERY,
-  READ_POLICY,
-  SERVED_EVERYWHERE,
-  SERVED_ON_WIRE,
-  TARGETED_ERRORS,
-  UNTARGETED_ERRORS,
-  WRITE_DELIVERY,
-  WRITE_POLICY,
-} from './issues/cells'
-export {
-  SPEC_CONTRACT_NAMES,
-  SPEC_CONTRACTS,
-  type SpecContractName,
-  SpecStatus,
-  specsCreateContract,
-  specsCreateInput,
-  specsRemoveContract,
-  specsRemoveInput,
-  specsSaveContract,
-  specsSaveInput,
-} from './specs/contracts'
-export {
-  MUTATION_RESULT_KINDS,
-  MutationEnvelope,
-  MutationResult,
-  type MutationResultKind,
-} from './mutations'
-export * from './sessions/command-plane'
-export * from './sessions/presence-commands'
