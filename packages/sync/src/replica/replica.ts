@@ -745,12 +745,9 @@ export class Replica {
     // retiring a command whose effect never landed would tell the user their write
     // was accepted when it was not. `emissions` is exactly the included set, which
     // is why the batch is derived from it rather than from `buffered`.
-    this.commitRegions(
-      retirementsOf(emissions.map((emission) => emission.changes)),
-      (span) => {
-        this.store.installSnapshot(rows, snapshotCursor, mutations, span)
-      },
-    )
+    this.commitRegions(retirementsOf(emissions.map((emission) => emission.changes)), (span) => {
+      this.store.installSnapshot(rows, snapshotCursor, mutations, span)
+    })
     this.note('D6-INSTALL')
     this.cursorValue = running
     this.exits.clear()
@@ -920,7 +917,9 @@ export class Replica {
  * per-principal at a shared seq, D14.3). A duplicate intent is noise at best, and at
  * worst a second retirement of an entry the first already removed.
  */
-function retirementsOf(frames: readonly (readonly ChangeEnvelope[])[]): readonly RetirementIntent[] {
+function retirementsOf(
+  frames: readonly (readonly ChangeEnvelope[])[],
+): readonly RetirementIntent[] {
   const seen = new Set<string>()
   const batch: RetirementIntent[] = []
   for (const changes of frames) {

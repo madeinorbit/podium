@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
+import { type InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
 import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
 import type { CacheOperation, KnownKindValidatorPort } from './ports'
 import { Replica } from './replica'
@@ -1145,14 +1145,10 @@ describe('the optimistic-overlay reducer seam', () => {
     // TWO buffered frames, each confirming one of my commands. The install commits
     // both onto the snapshot in one transaction, so it owes ONE batch of two.
     h.replica.receive(
-      deltaFrame(10, 11, [
-        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' }),
-      ]),
+      deltaFrame(10, 11, [session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' })]),
     )
     h.replica.receive(
-      deltaFrame(11, 12, [
-        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' }),
-      ]),
+      deltaFrame(11, 12, [session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' })]),
     )
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
@@ -1175,14 +1171,10 @@ describe('the optimistic-overlay reducer seam', () => {
     channel.push(bootstrapChunk(10, [session(3, 'fresh', 'new')], false))
     await Promise.resolve()
     h.replica.receive(
-      deltaFrame(10, 11, [
-        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' }),
-      ]),
+      deltaFrame(10, 11, [session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' })]),
     )
     h.replica.receive(
-      deltaFrame(11, 12, [
-        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' }),
-      ]),
+      deltaFrame(11, 12, [session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' })]),
     )
     h.store.cache.failNextPrepare = 'durable write denied'
     channel.push(bootstrapChunk(10, [], true))
