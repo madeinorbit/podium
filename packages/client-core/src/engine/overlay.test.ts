@@ -6,6 +6,7 @@
  */
 
 import type { IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
+import { presenceCommand, presenceCommandNames } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import {
@@ -16,6 +17,7 @@ import {
   insertOverlay,
   overlayForOutboxEntry,
   type PendingOverlay,
+  PRESENCE_REDUCER_KINDS,
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
@@ -235,10 +237,63 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'theirs' })], keyOf, NOW)).toEqual([])
   })
 
-  it('retires when the row is gone, and ignores other entities', () => {
+  // REWRITTEN by POD-380 (was: "retires when the row is gone"). That name was a
+  // true statement about the old behaviour and a false one about the rule the
+  // function now implements, so it is replaced rather than joined by a second test
+  // — a name is a claim, and adding coverage does not retract one.
+  it('a REPORTED REMOVAL retires the overlay; ignores other entities', () => {
     const awaiting = [awaitRename(sess())]
-    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW)).toEqual([])
-    expect(pruneAwaiting(awaiting, 'issues', [], (i: IssueWire) => i.id, NOW)).toBe(awaiting)
+    const removed = new Set([sess().sessionId])
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW, removed)).toEqual([])
+    expect(pruneAwaiting(awaiting, 'issues', [], (i: IssueWire) => i.id, NOW, removed)).toBe(
+      awaiting,
+    )
+  })
+
+  it('a row absent WITHOUT a removal is out-of-slice, not deleted — the overlay is KEPT', () => {
+    // docs/multi-user-readiness.md §3.1/§3.1.2: a replica holds its principal's
+    // slice, so a row can vanish through an un-share or POD-1077's `evict` rather
+    // than through a delete. Reading that as a deletion is the specific bug ADR 2
+    // says `remove` must not be reused for.
+    const awaiting = [awaitRename(sess())]
+
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW)).toBe(awaiting)
+    // And an UNRELATED id being removed does not retire it either — the check is on
+    // identity, not on "some removal happened".
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW, new Set(['someone-else']))).toBe(
+      awaiting,
+    )
+  })
+
+  it('an out-of-slice row that RETURNS UNCHANGED finds its overlay still pending', () => {
+    // The consequence that makes the rule worth having: rescoped back in, the
+    // optimistic value is still painted instead of having been silently dropped.
+    //
+    // The row must return BYTE-IDENTICAL to its enqueue baseline for this to be the
+    // eviction case. A row that comes back DIFFERENT is a competing write, and the
+    // moved-past-baseline escape retires it — correctly, and for an unrelated
+    // reason. Getting that wrong is how this test would appear to fail for the
+    // rule it is actually asserting.
+    const row = sess()
+    const awaiting = [awaitRename(row)]
+    const whileGone = pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW)
+    expect(whileGone).toBe(awaiting)
+
+    expect(pruneAwaiting(whileGone, 'sessions', [row], keyOf, NOW)).toBe(whileGone)
+  })
+
+  it('the TTL still bounds an absent row, so a permanently evicted overlay cannot wedge', () => {
+    // Keeping the overlay must not mean keeping it forever: the tradeoff
+    // AWAITING_TRUTH_TTL_MS documents (bounding beats wedging) applies to the
+    // absent case too, or an un-shared row would pin a durable outbox entry.
+    const awaiting = [awaitRename(sess())]
+
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW + AWAITING_TRUTH_TTL_MS - 1)).toBe(
+      awaiting,
+    )
+    expect(
+      pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW + AWAITING_TRUTH_TTL_MS + 1),
+    ).toEqual([])
   })
 
   it('only the OLDEST awaiting entry per row may use the moved-past escape (#263 finding 3)', () => {
@@ -315,6 +370,48 @@ describe('pruneAwaiting (retirement rule (a))', () => {
       expect(dbg.mock.calls.some((c) => String(c[0]).includes('outlived its TTL'))).toBe(true)
     } finally {
       dbg.mockRestore()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-380 — every offline-eligible presence contract has an optimistic reducer
+// ---------------------------------------------------------------------------
+
+describe('the presence contracts and their optimistic reducers', () => {
+  it('every OFFLINE-ELIGIBLE presence contract maps to an outbox kind that reduces', () => {
+    const eligible = presenceCommandNames().filter(
+      (name) => presenceCommand(name)?.offline === 'eligible',
+    )
+    // Totality: a new offline-eligible contract with no reducer would queue a write
+    // that paints nothing, which reads to the user as the click not registering.
+    expect(Object.keys(PRESENCE_REDUCER_KINDS).sort()).toEqual(eligible.sort())
+  })
+
+  it('each mapped kind really produces an overlay — the map is not just names', () => {
+    // Guards the guard above: a map whose kinds had no reducer case would satisfy
+    // the totality test and still paint nothing.
+    const inputs: Record<string, object> = {
+      rename: { sessionId: 's1', name: 'n' },
+      setArchived: { sessionId: 's1', archived: true },
+      setWorkState: { sessionId: 's1', workState: 'done' },
+      sessionMarkRead: { sessionId: 's1' },
+      sessionMarkUnread: { sessionId: 's1' },
+      snoozeSet: { sessionId: 's1', until: null },
+      snoozeClear: { sessionId: 's1' },
+    }
+    for (const name of Object.keys(PRESENCE_REDUCER_KINDS)) {
+      const kind = PRESENCE_REDUCER_KINDS[name] as string
+      const overlay = overlayForOutboxEntry(entry(kind as never, inputs[kind] as never))
+      expect(overlay, `${name} -> ${kind}`).not.toBeNull()
+      expect(overlay?.entity, name).toBe('sessions')
+    }
+  })
+
+  it('the DIRECT-ONLY presence contracts are deliberately absent from the map', () => {
+    for (const name of ['pins.set', 'tabs.setOrder', 'sessions.setIssueId', 'sessions.setDraft']) {
+      expect(presenceCommand(name)?.offline).not.toBe('eligible')
+      expect(Object.hasOwn(PRESENCE_REDUCER_KINDS, name), name).toBe(false)
     }
   })
 })
