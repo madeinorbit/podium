@@ -65,7 +65,7 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      - name: no raw NUL bytes in TypeScript sources
+      - name: no raw NUL bytes in TypeScript sources or docs
         run: bun run lint:no-nul
 
   typecheck:
