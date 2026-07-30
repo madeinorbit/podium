@@ -1444,3 +1444,7 @@ asserted `resource:machine <=> visibility:owned-compute` and fired on two correc
 because **the two fields answer different questions** — what a command WRITES versus what it authorizes
 AGAINST. A spawn authorizes against compute while writing a personal session. True where measured,
 generalised one scope too wide.
+
+**Confirmed: `podium session send` is the working channel.** After the mail sat queued two hours, the same
+instruction sent via `session send` reached POD-382 and it is mid-merge (`MERGE_HEAD` present, four files
+unmerged) within minutes. That settles POD-1174's recommendation from evidence rather than inference.
