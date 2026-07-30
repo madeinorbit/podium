@@ -389,7 +389,7 @@ describe('the needs-human quartet', () => {
     // The degenerate half-written quartet. It reaches the wire today, so a
     // decoder that silently dropped it would delete it on the next write.
     const row = emptyRow()
-    asSessionId(row.humanQuestionAskedBy) = 'sess_9'
+    row.humanQuestionAskedBy = asSessionId('sess_9')
     const decoded = fromStorage(row)
     expect(decoded.asked).toBeUndefined()
     expect(decoded.askedLegacy).toEqual({ by: 'sess_9' })
