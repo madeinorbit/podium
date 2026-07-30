@@ -773,6 +773,10 @@ identical drains resolve differently when ownership flips between them.
    share cannot be re-exposed optimistically. Recorded rather than implied because a
    filter without a watermark is a protocol break, and every suppressed row without one
    is a permanent invisible gap that heal-loops forever.
+   **CLOSED by POD-1077 (2026-07-30)** — see its ledger entry at the end of this phase.
+   The filter and the watermark landed together and inseparably (the delivery type carries
+   the evaluated range beside the rows), and the qualifier that remains is the
+   authenticator rather than the mechanism: `CLIENT_PRINCIPAL_GRADE` is still `device`.
 2. **TODAY'S OPERATOR SHORT-CIRCUITS THE OWNER GATE.** The tRPC human is `OPERATOR`
    (`role: admin`, `scope: all`), and `authorize()` allows on scope `all` before reading
    the target's owner. So owner/grant gating is real and proven for an agent (whose
@@ -957,6 +961,85 @@ Mutation-verified: appending `UPDATE sqlite_sequence SET seq = 0` to the
 migration fails the three seq assertions and PASSES the row-preservation and
 NULL-column ones, so the test fails when seq restarts rather than only when the
 migration errors.
+
+#### LEDGER ENTRY — POD-1077 (2.8 watermarked scoped feed): which half shipped
+
+**What landed.** ADR 2 Amendment 1 D12–D14's producing half, in the kernel. The feed is
+per principal: `Authority.subscribe(principal, subscriber)` and
+`Authority.changesSince(cursor, principal)`, with no unscoped overload of either, and
+`FeedPublisher.connect(id, fromSeq, principal)` / `publish(principal, delivery)`. The four
+tripwires POD-305/POD-306/POD-351/POD-390 pinned all went red and were replaced by their
+positive form, assertion for assertion.
+
+**The design decision worth carrying forward: the range travels with the filter.** D13
+requires the filter and the watermark together, and POD-351 stated the failure exactly — a
+suppressed row nobody certifies is a hole, the replica heals, the heal returns the same
+filtered rows, forever. That is prevented by a TYPE rather than by a rule: `ScopedDelivery`
+carries `throughSeq` beside `changes`, so there is no way to hand the framing side a
+filtered list without the range the filtering covered. The dangerous outcome was never
+"scoping does not work" — it was "scoping works and the client silently never converges",
+so every suppression case in the suite also asserts where the receiver's position ends up.
+
+**Two other shapes chosen to make a mistake unrepresentable rather than forbidden.**
+`evict` vs a re-admitting `upsert` is derived from the policy at the anchor seq, never
+named by a caller; a caller who could name it would be an oracle for what another
+principal may see. And `rescope` (D14.4) is an ARM of the delivery, chosen from the size of
+the derived set — `FeedPublisher` has no `rescope` method at all, as a module function
+rather than a `private` one, because TS `private` is compile-time only and a guard
+asserting its absence would have had to be written against a type a cast defeats.
+
+**Watermarks are free, structurally.** D13.4 says watermark-only frames must not demote a
+replica. A watermark never enters the bounded send queue: it sits in a per-connection
+coalescing slot where a run collapses to one certified range and the next visible frame
+absorbs it by extending downward. A 500-frame suppressed firehose against a one-frame
+bound leaves the connection undemoted and at the head.
+
+**WHICH HALF SHIPPED — the qualifier that bounds every claim above.** The MECHANISM, not
+the mechanism plus a trustworthy principal. POD-1075 made a principal *expressible*
+(`UserAccount`, per-user `client_sessions`, grant edges as model types); it did not make
+one *distinguishable on a connection*. `packages/runtime/src/auth-store.ts` is still one
+shared password and `apps/server/src/gateway/client-principal.ts` still asserts
+`CLIENT_PRINCIPAL_GRADE === 'device'`, so two connections presenting that password are the
+same person as far as any server-side check can tell. POD-390's phrasing is the one to
+keep: *a column that CAN name a person is not an authenticator that DOES.*
+
+So the two shipped composition roots (`Ledger`, `WriteFunnel`) name
+`DeviceGradeUnscopedPolicy` — exported under a name that says what it is, held to a
+two-entry allowlist by `bun run audit:scoped-feed`, and deleted outright when per-user
+login lands, which is what forces every site to name a real policy. Wiring the grant-edge
+policy onto a device-grade transport would have produced a system that LOOKS scoped and
+whose slices are decided by a credential everyone shares — the worst of the two states,
+because it reads as privacy.
+
+**Conformance moved one property across the fixture line.** POD-306's `binding.test.ts`
+recorded that "the log, the clock and the visibility policy are the fixture's". The policy
+was the last thing the seven scoped gates were certifying on the kernel's behalf; the
+DECISION is now `GrantEdgeVisibilityPolicy` and the fixture keeps only the tables. The
+binding case that proves it is the one a stub cannot pass: the kernel refuses an entity
+kind the FIXTURE granted, because that kind carries no declared visibility class.
+
+**Unclassified is distinguishable from personal.** ADR 9 D4's default-closed backstop
+answers `personal` for both a deliberate classification and a missing one, which is a gate
+that cannot notice an entity class arriving unclassified. `VisibilityStatePort.classOf`
+returns `null` for an undeclared kind and the policy refuses it with its own reason. Both
+outcomes are invisible — that keeps the failure safe; they are separately observable —
+that lets a test, a gate and an operator tell a decision from an omission.
+
+**Verification.** Workspace typecheck `--force` (23/23, `Cached: 0 cached`), instrument
+probed with a `@ts-expect-error` that reported TS2578. `packages/sync` 574 passed;
+`apps/server` 3024 passed (the one worker-SIGILL file passes isolated); scripts lane 371
+passed with `loop-split-load` red, which is the host-load flake named in the fan-out
+brief. `check-boundaries` 0 new, `rearch-audit` 25 items / 186 sites baseline exact,
+`check-no-nul-bytes` ok, `audit:scoped-feed` probe + gate green. Three mutants applied one
+at a time, each verified to compile and to revert cleanly: dropping the watermark emission
+(killed by 5, including the running-object audit), removing the filter (killed by 11), and
+`evict` → `remove` (killed by 3).
+
+**Handed forward.** POD-308 owns the wire cutover — `evict` reaching the pre-cutover wire
+throws rather than degrading to `remove` (D14.5), in both composition roots, so the day
+someone wires a real policy without the cutover is a loud failure. D13.5's watermark
+CADENCE is a measured threshold and stays POD-337's; `Authority.watermark(principal)` is
+the operation it will call. Real share/unshare commands stay Phase 3's (POD-290).
 
 ### Phase 3 — Command registry as the universal write surface (POD-290) · exit gate POD-424
 

@@ -215,3 +215,13 @@ accommodate it:
 write-side authorization only; the feed is still unscoped. A filter without a watermark
 is a protocol break — every suppressed row without one is a permanent invisible gap that
 heal-loops forever — which is why the watermark and the filter must land together.
+
+> **UPDATE — POD-1077 landed the read side (2026-07-30).** The filter and the watermark
+> arrived together, and inseparably: `ScopedDelivery` (`packages/sync/src/authority/scoping.ts`)
+> carries the evaluated range `throughSeq` beside `changes`, so a filtered list cannot be
+> delivered without the range it was filtered over. `Authority.subscribe` and
+> `Authority.changesSince` both take a principal and have no unscoped overload; `evict` and
+> `rescope` are DERIVED from the visibility policy rather than nameable by a caller.
+> The bound on the claim is the AUTHENTICATOR, not the mechanism: `CLIENT_PRINCIPAL_GRADE`
+> is still `device`, so the shipped composition roots name `DeviceGradeUnscopedPolicy` and
+> say so. See that file's header and `bun run audit:scoped-feed`.
