@@ -26,7 +26,7 @@ import type { IncomingMessage } from 'node:http'
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
-import { safeSend, safeSendEncoded, warnDroppedFrame } from './ws-send'
+import { warnDroppedFrame } from './ws-send'
 
 /** How the main authority is resolved for one upgrade, plus its fallbacks. */
 export interface ClientAuthorityOptions {
@@ -79,10 +79,12 @@ export function wireClientSocket(
     ws.terminate()
     return undefined
   }
-  const limit = CLIENT_PLANE_LIVENESS.sendBufferLimitBytes
+  // The plane applies its own budget: this file never names a byte count, so it
+  // cannot name the daemon plane's (POD-391).
+  const sink = CLIENT_PLANE_LIVENESS.sink(ws)
   const id = registry.clientGateway.attachClient({
-    send: (msg) => safeSend(ws, msg, limit),
-    publication: { ...authority, sendPrepared: (bytes) => safeSendEncoded(ws, bytes, limit) },
+    send: sink.send,
+    publication: { ...authority, sendPrepared: sink.sendPrepared },
   })
   ws.on('message', (raw: import('ws').RawData) => {
     try {
