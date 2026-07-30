@@ -810,6 +810,24 @@
       "encoded": "\"claude-code\""
     },
     {
+      "schema": "HarnessId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "HarnessId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
       "schema": "HostMemoryWire",
       "variant": "minimal",
       "wire": {
