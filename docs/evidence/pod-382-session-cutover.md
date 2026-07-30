@@ -287,6 +287,20 @@ number — so it is reported here rather than done here.
 | `scripts` | 311 passed, 1 failed — `loop-split-load`, event-loop lag 25.02–31ms against a 25ms threshold at load average 30–48 |
 | `apps/web` | 1361 passed, 1 failed — `RepoScanFlow.machine.test.tsx`, **passes 7/7 in isolation** |
 
-Both failures are the load-sensitive pair the coordinator named. `RepoScanFlow` is
-proved by isolation; `loop-split-load` measures the publication pipeline, which this
-diff does not touch, and was re-run against the integration head for comparison.
+Both failures are the load-sensitive pair the coordinator named, and both are proved
+not to be this branch's.
+
+`RepoScanFlow.machine.test.tsx` passes 7/7 in isolation at load 63.
+
+`loop-split-load`'s failing assertion is the INTERACTION p95 (target 25 ms), not the
+event-loop one (target 50 ms) — it times `onClientMessage(attach/detach)` +
+`flushBroadcasts` on the WS publication path, which this diff does not touch at all.
+Sampled on both sides, interleaved, on the same machine:
+
+| | interaction p95 (target 25 ms) |
+|---|---|
+| this branch | pass · 25.02 · 26.98 · 31.04 · 39.11 |
+| integration head `0e7b8617` | pass · **26.79** |
+
+Both sides straddle the threshold at load average 40–64. The base fails it with the
+same magnitude, so the assertion is measuring the host, not the change.
