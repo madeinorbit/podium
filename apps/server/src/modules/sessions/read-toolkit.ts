@@ -12,7 +12,13 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type {
+  SessionMeta,
+  SessionReadResult,
+  SessionRecapResult,
+  SessionStatusResult,
+  TranscriptItem,
+} from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
@@ -28,54 +34,11 @@ export const READ_TURN_CAP = 50
 export const RECAP_ITEM_CAP = 400
 export const RECAP_CHAR_CAP = 12_000
 
-export interface SessionStatusResult {
-  sessionId: string
-  agentKind: string
-  status: string
-  phase: string
-  machine: string | null
-  model: string | null
-  effort: string | null
-  account: string | null
-  error: { class: string; retryable: boolean } | null
-  draft: boolean
-  nativeSubagentCount: number
-  issue: { seq: number; stage: string; title: string; todos: string[] } | null
-  /** Last ≤5 one-line commits on the session's branch (git -C <cwd> log). */
-  commits: string[]
-  /** Working-tree touched files (git status --porcelain), capped. */
-  files: string[]
-  /** Messages delivered to this session still awaiting its ack. */
-  unackedMessages: number
-}
-
-export interface SessionReadResult {
-  sessionId: string
-  items: {
-    role: string
-    text: string
-    toolName?: string
-    toolInput?: string
-    ts?: string
-  }[]
-  /** Cursor of the OLDEST item returned — pass as --cursor to page further back. */
-  cursor: string | null
-  hasMore: boolean
-  truncated: boolean
-}
-
-export interface SessionRecapResult {
-  sessionId: string
-  /** Deterministic Hermes-style recap of the window since the watermark. */
-  recap: string
-  /** Pass back as --since (also persisted per (reader, target)) — the next
-   *  call summarizes only what happened after this cursor. */
-  watermark: string | null
-  /** Items the recap covered; 0 = nothing new since the watermark. */
-  newItems: number
-  /** True when this call summarized a delta (a watermark was in effect). */
-  delta: boolean
-}
+/** The three read models now live in `@podium/model` so `apps/cli` can name
+ *  them too (POD-366, inventory §2.1 #22). Re-exported here because this module
+ *  is the server's read-toolkit entry point and its consumers import them from
+ *  it — the definition moved, the import surface did not. */
+export type { SessionReadResult, SessionRecapResult, SessionStatusResult }
 
 export interface SessionReadToolkitDeps {
   listSessions(): SessionMeta[]

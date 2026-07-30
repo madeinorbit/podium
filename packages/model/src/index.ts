@@ -61,6 +61,12 @@ export * from './annotations/ownership'
 // entity truth and must not be droppable at a boundary.
 export * from './provenance/envelope'
 
+// Read projections (ADR 4 R4) that more than one workspace must name. Home for
+// the shapes the CLI used to hand-copy because `apps/cli` cannot import
+// `apps/server` (POD-366). Distinct from the aggregates above by role, not by
+// accident — ADR 4 D1 keeps storage / live / wire / read models apart.
+export * from './projections/session-read'
+
 // Pure derivations over entity shapes.
 export * from './predicates/issue-stage'
 export * from './predicates/machine-selection'
