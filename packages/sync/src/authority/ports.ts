@@ -26,7 +26,9 @@ import type {
   ArbitrationRejection,
   ArbitrationRequest,
 } from './arbitration'
+import type { FeedPrincipal } from '../feed/visibility'
 import type { StagedChangeSpec, SequencedChange, StoredChangeRow } from './change-lifecycle'
+import type { ScopedDelivery } from './scoping'
 
 /**
  * The durable change log, as the Authority needs it.
@@ -72,8 +74,19 @@ export type TransactPort = <T>(fn: () => T) => T
  */
 export type AuthorityClock = () => number
 
-/** Fires after every durable append, never with an empty batch. */
-export type ChangeSubscriber = (changes: readonly SequencedChange[]) => void
+/**
+ * Fires after every durable append, for ONE principal, with the range that was
+ * evaluated (POD-1077).
+ *
+ * NOT `(changes) => void`. The parameter is a {@link ScopedDelivery}, which
+ * carries `throughSeq` beside `changes`, because Amendment 1 D13 requires the
+ * filter and the watermark to land together: a subscriber handed only a filtered
+ * list has no way to distinguish "nothing happened" from "everything in that
+ * range was suppressed for you", and the second one advances a cursor while the
+ * first must not. Making the range part of the delivery type is what stops that
+ * from being a rule somebody remembers.
+ */
+export type ChangeSubscriber = (delivery: ScopedDelivery) => void
 
 /**
  * THE AUTHORITY ROLE (ADR 1 D1, ADR 2 D10).
@@ -108,20 +121,37 @@ export interface AuthorityPort {
     rows: readonly { readonly id: string; readonly value: unknown }[],
   ): readonly SequencedChange[]
 
-  /** Catch-up read. `null` means "I cannot serve you a delta — re-bootstrap"
-   *  (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
-  changesSince(cursor: number | null): readonly SequencedChange[] | null
+  /**
+   * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —
+   * re-bootstrap" (bootstrap / compacted-past-cursor / future cursor / corrupt
+   * row).
+   *
+   * The principal is REQUIRED and there is no unscoped overload, which is the
+   * read-side half of D12.7 ("the replica never receives a row it may not see").
+   * An optional parameter would make the unscoped read the default, and the
+   * default is the one every new call site takes.
+   */
+  changesSince(cursor: number | null, principal: FeedPrincipal): ScopedDelivery | null
 
   /** The highest seq ever assigned. 0 before any change. */
   cursor(): number
 
   /**
-   * Subscribe to the ORDERED delta pipe. Returns an unsubscribe.
+   * Subscribe to the ORDERED delta pipe, AS ONE PRINCIPAL. Returns an
+   * unsubscribe.
    *
    * ONE pipe, in append order, always — see `authority.ts` on why a reentrant
-   * subscriber makes this a correctness property rather than a convenience.
+   * subscriber makes this a correctness property rather than a convenience. The
+   * pipe stays single-emitter under scoping: one global batch is evaluated once
+   * per subscribed principal, in the same drain, so N principals cannot observe
+   * two different orders of the same log.
+   *
+   * The principal comes FIRST because it is what the delivery is scoped to, and
+   * it is required for the same reason `changesSince`'s is: an unscoped
+   * subscription would be the read-side leak in a system whose feed is otherwise
+   * per-principal.
    */
-  subscribe(subscriber: ChangeSubscriber): () => void
+  subscribe(principal: FeedPrincipal, subscriber: ChangeSubscriber): () => void
 }
 
 /** One write, as the funnel takes it. */

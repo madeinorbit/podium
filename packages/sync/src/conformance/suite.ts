@@ -65,7 +65,10 @@ const ADAS_AGENT: ConformancePrincipal = {
   kind: 'agent',
   sessionId: 'ses_ada_agent',
   onBehalfOf: 'ada',
-  scope: new Set([keyOf('issue', 'ADA-1')]),
+  // A DELEGATED SCOPE, in the kernel's own vocabulary (POD-1077): `entities` with
+  // an explicit key set, so the `all` arm — which exists for a human's own
+  // connection — is not reachable from an agent by omission.
+  scope: { kind: 'entities', keys: new Set([keyOf('issue', 'ADA-1')]) },
 }
 
 export function describeSyncConformance(instantiation: SyncInstantiation): void {

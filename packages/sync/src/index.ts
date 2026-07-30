@@ -41,6 +41,29 @@ export * from './conformance/index'
  * replacement would have made this issue's diff the migration of every call site.
  */
 export * from './authority/index'
+// The per-principal visibility seam (POD-1077). Exported from the package barrel
+// because a composition root outside this package has to NAME the policy it is
+// wiring — `feed/visibility.ts` explains why the device-grade one is exported at
+// all, and `bun run audit:scoped-feed` holds its site list to the allowlist.
+export {
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+  DEVICE_GRADE_PRINCIPAL,
+  GrantEdgeVisibilityPolicy,
+  entityKey,
+  humanOf,
+  keyOfRef,
+  principalIdOf,
+  type DelegatedScope,
+  type EntityKey,
+  type EntityRef,
+  type FeedPrincipal,
+  type FeedVisibilityPolicy,
+  type VisibilityAnchorPort,
+  type VisibilityDecision,
+  type VisibilityReason,
+  type VisibilityStatePort,
+} from './feed/visibility'
 export * from './ledger'
 export * from './mirror'
 /**

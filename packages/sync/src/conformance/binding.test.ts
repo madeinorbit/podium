@@ -30,24 +30,38 @@
  * ---------------------------------------------------------------------------
  *
  * It does not make `ConformanceAuthority` the real `Authority`. It is not, and it
- * should not be: the seven scoped gates need a per-principal visibility policy
- * that POD-1077 has not built and that this fixture deliberately STUBS, and the
- * suite must not encode a policy Phase 3 has not decided. What this guard pins is
+ * should not be: this fixture holds the LOG and the CLOCK, and the suite must not
+ * encode product policy Phase 3 (POD-290) has not decided. What this guard pins is
  * narrower and is the part that was wrong: every property for which SHIPPED kernel
  * code now exists must be produced BY that code.
  *
+ * POD-1077 moved one more property across that line. The visibility POLICY used to
+ * be a stub inside the fixture — the last thing the seven scoped gates were
+ * certifying on the kernel's behalf — and the decision half now lives in
+ * `feed/visibility.ts`. The fixture keeps the TABLES (who was granted what, which
+ * kinds are classified), which is what a deployment's tables would hold anyway.
+ *
  * So the honest summary of the suite's standing, which is what a reader of a green
- * run needs: feed identity, the send queue and the demotion are the kernel's; the
- * log, the clock and the visibility policy are the fixture's; the Replica and the
- * Outbox were always real.
+ * run needs: feed identity, the send queue, the demotion and the visibility
+ * DECISION are the kernel's; the log, the clock and the visibility TABLES are the
+ * fixture's; the Replica and the Outbox were always real. What remains outside
+ * this suite entirely is the AUTHENTICATOR — `CLIENT_PRINCIPAL_GRADE` is still
+ * `device`, so a principal is expressible here and not yet distinguishable on a
+ * real connection.
  */
 
 import { describe, expect, it } from 'vitest'
-import { BoundedSendQueue, FeedIdentityRegistry, assertOpaqueEpoch } from '../feed'
+import {
+  BoundedSendQueue,
+  FeedIdentityRegistry,
+  GrantEdgeVisibilityPolicy,
+  assertOpaqueEpoch,
+} from '../feed'
 import { ConformanceAuthority, FIRST_EPOCH, humanOf } from './authority'
 import type { ConformancePrincipal } from './authority'
 
 const ADA: ConformancePrincipal = { kind: 'user', userId: 'ada' }
+const GRACE: ConformancePrincipal = { kind: 'user', userId: 'grace' }
 
 describe('the guard fires FIRST: the shipped modules are present and non-trivial', () => {
   it('the shipped feed modules import as real constructors, not as empty objects', () => {
@@ -149,6 +163,46 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     }
     expect(queue.isDemoted()).toBe(false)
     expect(queue.overflowCount()).toBe(0)
+  })
+})
+
+describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)', () => {
+  it('the fixture DELEGATES to GrantEdgeVisibilityPolicy rather than holding a predicate', () => {
+    const authority = new ConformanceAuthority()
+    expect(authority.policy.evaluator).toBeInstanceOf(GrantEdgeVisibilityPolicy)
+    // Identity, not plausibility: the answer the fixture publishes must come from
+    // the very evaluator the kernel ships, not from a matching predicate kept
+    // alongside it. A `canSee` that agreed by coincidence is exactly the fixture
+    // this whole file exists to catch.
+    authority.policy.grant('ada', 'issue', 'ADA-1')
+    expect(authority.policy.canSee(ADA, 'issue', 'ADA-1')).toBe(
+      authority.policy.evaluator.mayDeliver(ADA, { entity: 'issue', entityId: 'ADA-1' }),
+    )
+  })
+
+  it('the shipped policy can say NO to something the FIXTURE granted', () => {
+    // The strongest available evidence that the kernel is on the path: the fixture
+    // is subject to a rule it does not implement. A hand-rolled `grants.has(key)`
+    // would return true here — the grant is really in the table — and the kernel
+    // refuses anyway, because the entity kind carries no declared visibility class
+    // (ADR 9 D4). This is the assertion a stub cannot pass.
+    const authority = new ConformanceAuthority()
+    authority.policy.grant('ada', 'automation', 'AUT-1')
+
+    expect(authority.policy.canSee(ADA, 'automation', 'AUT-1')).toBe(false)
+    expect(
+      authority.policy.evaluator.decide(ADA, { entity: 'automation', entityId: 'AUT-1' }),
+    ).toEqual({ visible: false, reason: 'unclassified' })
+  })
+
+  it('and it says YES for a declared kind with a grant — the paired half', () => {
+    // Without this, the case above is equally consistent with an evaluator that
+    // refuses everything, which would make all seven scoped gates vacuous in the
+    // other direction.
+    const authority = new ConformanceAuthority()
+    authority.policy.grant('ada', 'issue', 'ADA-1')
+    expect(authority.policy.canSee(ADA, 'issue', 'ADA-1')).toBe(true)
+    expect(authority.policy.canSee(GRACE, 'issue', 'ADA-1')).toBe(false)
   })
 })
 

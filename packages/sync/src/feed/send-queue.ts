@@ -45,7 +45,12 @@
  * bound and a test that asserts a number it discovered by running the code.
  */
 
-import type { DeltaFrame, ResyncRequiredFrame, ServerFrame } from '../replica/types'
+import type {
+  DeltaFrame,
+  RescopeFrame,
+  ResyncRequiredFrame,
+  ServerFrame,
+} from '../replica/types'
 
 /** How big is this frame on the wire? Injected — see the file header. */
 export type FrameSizer = (frame: ServerFrame) => number
@@ -171,10 +176,34 @@ export class BoundedSendQueue {
     return this.demote(feedId, epoch, reason)
   }
 
+  /**
+   * Amendment 1 D14.4 — demote because the principal's RIGHTS changed.
+   *
+   * Same invalidation as {@link demoteNow} and a DIFFERENT frame kind, which is
+   * the decision rather than duplication: D14.4 requires the two to be
+   * distinguishable in telemetry, because `resync-required` means the authority
+   * shed load and `rescope` means an authorization event. Collapsing them would
+   * make a re-bootstrap storm after a policy change read as backpressure, and the
+   * operator would go tuning queue sizes.
+   *
+   * The queue-side effect is identical on purpose: the discarded frames are
+   * discarded for the same reason (the position is now meaningless), and the
+   * replica's response is the same rung 2. One recovery path, two causes.
+   */
+  rescopeNow(feedId: string, epoch: string, reason: string): RescopeFrame | null {
+    if (this.demoted) return null
+    this.invalidate()
+    return { kind: 'rescope', feedId, epoch, reason }
+  }
+
   private demote(feedId: string, epoch: string, reason: string): ResyncRequiredFrame {
+    this.invalidate()
+    return { kind: 'resync-required', feedId, epoch, reason }
+  }
+
+  private invalidate(): void {
     this.frames.length = 0
     this.bytes = 0
     this.demoted = true
-    return { kind: 'resync-required', feedId, epoch, reason }
   }
 }

@@ -8,7 +8,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OWNERSHIP_MATRIX, type MatrixRow } from '@podium/model'
 import { Authority } from './authority'
-import type { StagedChangeSpec } from './change-lifecycle'
+import type { ScopedChange, StagedChangeSpec } from './change-lifecycle'
+import {
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+  DEVICE_GRADE_PRINCIPAL,
+} from '../feed/visibility'
 import type { ChangeLogStore } from '../change-log'
 
 const rowWith = (rule: string): string => {
@@ -79,7 +84,39 @@ const upsert = (id: string, value: unknown): StagedChangeSpec => ({
 
 function build(now: () => number = () => 1000) {
   const mem = memoryStore()
-  return { mem, authority: new Authority({ store: mem.store, now, transact: mem.transact }) }
+  return {
+    mem,
+    authority: new Authority({
+      store: mem.store,
+      now,
+      transact: mem.transact,
+      // These cases are about the FUNNEL — order, arbitration, the ordered pipe.
+      // They stand for the one-principal deployment, so they name the policy that
+      // matches it rather than inventing a permissive fake: a fake here would be a
+      // second definition of "everyone", and the audited one is this.
+      visibility: new DeviceGradeUnscopedPolicy(),
+      anchors: new DeviceGradeNoAnchors(),
+    }),
+  }
+}
+
+/**
+ * Subscribe as the single principal these cases stand for, unwrapping the
+ * delivery to the rows.
+ *
+ * The unwrap is deliberate and narrow: `subscribe` now hands over a
+ * `ScopedDelivery` (rows plus the range they were evaluated over — see
+ * `scoping.ts`), and the cases below are about ORDER and ARBITRATION, which the
+ * rows alone express. The scoping properties have their own file
+ * (`authority.scoped.test.ts`), so neither suite is asserting the other's job.
+ */
+function subscribe(
+  authority: Authority,
+  fn: (changes: readonly ScopedChange[]) => void,
+): () => void {
+  return authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+    if (delivery.kind === 'batch') fn(delivery.changes)
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +127,7 @@ describe('authorize → arbitrate → write → append → broadcast', () => {
   it('runs the steps in that order', () => {
     const { mem, authority } = build()
     const trace: string[] = []
-    authority.subscribe(() => trace.push('broadcast'))
+    subscribe(authority, () => trace.push('broadcast'))
     authority.commit({
       authorize: () => trace.push('authorize'),
       arbitrate: { rowId: rowWith('exp-rev'), attempt: {} },
@@ -227,7 +264,7 @@ describe('the entity write and the change append share one span', () => {
   it('does not broadcast a change the span rolled back', () => {
     const { authority } = build()
     const seen: unknown[] = []
-    authority.subscribe((c) => seen.push(c))
+    subscribe(authority, (c) => seen.push(c))
     expect(() =>
       authority.commit({
         write: () => 'ok',
@@ -253,13 +290,13 @@ describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
     // same rows in the same order.
     const { authority } = build()
     let reentered = false
-    authority.subscribe(() => {
+    subscribe(authority, () => {
       if (reentered) return
       reentered = true
       authority.commit({ write: () => 'ok', changes: () => [upsert('s2', { b: 1 })] })
     })
     const bSaw: number[] = []
-    authority.subscribe((changes) => {
+    subscribe(authority, (changes) => {
       for (const c of changes) bSaw.push(c.seq)
     })
     authority.commit({ write: () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
@@ -271,10 +308,10 @@ describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
     // committed write look failed and must not silence the ones after it.
     const { authority } = build()
     const seen: number[] = []
-    authority.subscribe(() => {
+    subscribe(authority, () => {
       throw new Error('subscriber boom')
     })
-    authority.subscribe((changes) => seen.push(changes.length))
+    subscribe(authority, (changes) => seen.push(changes.length))
     const outcome = authority.commit({
       write: () => 'ok',
       changes: () => [upsert('s1', { a: 1 })],
@@ -286,7 +323,7 @@ describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
   it('never broadcasts an empty batch', () => {
     const { authority } = build()
     const batches: number[] = []
-    authority.subscribe((c) => batches.push(c.length))
+    subscribe(authority, (c) => batches.push(c.length))
     authority.commit({ write: () => 'ok', changes: () => [] })
     expect(batches).toEqual([])
   })
@@ -294,7 +331,7 @@ describe('the broadcast pipe delivers in APPEND order under reentrancy', () => {
   it('stops delivering after unsubscribe', () => {
     const { authority } = build()
     const seen: number[] = []
-    const off = authority.subscribe((c) => seen.push(c.length))
+    const off = subscribe(authority, (c) => seen.push(c.length))
     authority.commit({ write: () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
     off()
     authority.commit({ write: () => 'ok', changes: () => [upsert('s1', { a: 2 })] })
@@ -357,8 +394,10 @@ describe('dedup and the boot reconcile', () => {
     // it was already up to date.
     const { authority } = build()
     authority.capture([upsert('s1', { a: 1 })])
-    expect(authority.changesSince(null)).toBeNull()
-    expect(authority.changesSince(0)).toHaveLength(1)
+    expect(authority.changesSince(null, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+    const reply = authority.changesSince(0, DEVICE_GRADE_PRINCIPAL)
+    expect(reply?.kind).toBe('batch')
+    expect(reply?.kind === 'batch' && reply.changes).toHaveLength(1)
   })
 })
 

@@ -29,3 +29,22 @@ export {
   type FeedPublisherDeps,
   type FeedRetentionPort,
 } from './publisher'
+export {
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+  DEVICE_GRADE_PRINCIPAL,
+  GrantEdgeVisibilityPolicy,
+  entityKey,
+  humanOf,
+  keyOfRef,
+  principalIdOf,
+  type DelegatedScope,
+  type EntityKey,
+  type EntityRef,
+  type FeedPrincipal,
+  type FeedVisibilityPolicy,
+  type VisibilityAnchorPort,
+  type VisibilityDecision,
+  type VisibilityReason,
+  type VisibilityStatePort,
+} from './visibility'

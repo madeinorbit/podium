@@ -32,18 +32,42 @@
  *    downstream instead of asserting it against a fixture that never distinguished
  *    them in the first place.
  *
- * The policy is a STUB, and deliberately so: this suite exercises the MECHANISM.
- * Phase 3 (POD-290) owns real share/unshare commands and real policy, and a stub
- * here is what stops this suite from encoding a policy Phase 3 has not decided.
+ * ---------------------------------------------------------------------------
+ * THE POLICY IS NO LONGER A STUB (POD-1077)
+ * ---------------------------------------------------------------------------
+ *
+ * It used to be, and `binding.test.ts` recorded that honestly: *"the log, the
+ * clock and the visibility policy are the fixture's"*. The decision half has now
+ * moved into the kernel, so what is left here is the DATA — who was granted what,
+ * which kinds are classified, what a grant row moves — and every `canSee` runs
+ * through the shipped {@link GrantEdgeVisibilityPolicy}.
+ *
+ * That is the same re-homing POD-306 did for feed identity and the send queue,
+ * applied to the last property this fixture was certifying on the kernel's
+ * behalf. It matters for one specific reason: a fixture's own predicate cannot
+ * fail the way the product fails. With the shipped evaluator on the path, the
+ * seven scoped gates now break if the class rules break — an unclassified kind
+ * silently becoming visible, a secret riding a grant, an agent's scope widening
+ * to its human's — none of which a hand-rolled `grants.has(key)` could ever
+ * notice.
+ *
+ * What is still deliberately absent is PRODUCT POLICY: share/unshare commands
+ * are Phase 3's (POD-290), and this fixture's `grant`/`revoke` are test seams for
+ * moving the table, not the commands that will do it.
  */
 
-import type { MutationId } from '@podium/protocol'
+import type { VisibilityClass } from '@podium/model'
+import { MetadataEntityKind, type MutationId } from '@podium/protocol'
 import {
   BoundedSendQueue,
   FeedIdentityRegistry,
+  GrantEdgeVisibilityPolicy,
+  type EntityRef,
   type EpochBumpCause,
   type FeedIdentity,
   type FeedIdentityStore,
+  type FeedPrincipal,
+  type VisibilityStatePort,
 } from '../feed'
 import type { OutboxAttribution, UserRef } from '../outbox/records'
 import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
@@ -88,23 +112,19 @@ export type EntityKey = string
 export const keyOf = (entity: string, entityId: string): EntityKey => `${entity}:${entityId}`
 
 /**
- * A principal, as the authenticated TRANSPORT knows it (ADR 3 D7/D14).
+ * A principal, as the authenticated TRANSPORT knows it (ADR 3 D7/D14) — THE
+ * KERNEL'S TYPE, not a fixture's copy of it.
+ *
+ * It was a local union until POD-1077, which is the same "certifying the fixture"
+ * hazard one field down: a suite whose principal is its own shape can be scoped
+ * by rules the product does not have. Aliasing the shipped `FeedPrincipal` means
+ * the delegation arm the suite exercises is the one the kernel evaluates.
  *
  * An agent is `(actorSessionId, onBehalfOf, scope)` and never a copied capability
- * (readiness §3.1.3 A1). Its `scope` is what it was SPAWNED FOR (A2), which is why
- * it is a set here rather than a mirror of its human's grants: a fixture that
- * modelled an agent as simply holding everything its human holds could not fail
- * the A2 assertion, and half the delegation cases would be vacuous.
+ * (readiness §3.1.3 A1); its `scope` is what it was SPAWNED FOR (A2), and its
+ * human is a CEILING rather than the same set.
  */
-export type ConformancePrincipal =
-  | { readonly kind: 'user'; readonly userId: UserRef }
-  | {
-      readonly kind: 'agent'
-      readonly sessionId: string
-      readonly onBehalfOf: UserRef
-      /** A2 — the agent's own scope. Its human is a CEILING, not this set. */
-      readonly scope: ReadonlySet<EntityKey>
-    }
+export type ConformancePrincipal = FeedPrincipal
 
 /**
  * A stable identity string for one principal.
@@ -134,17 +154,51 @@ export const attributionOf = (principal: ConformancePrincipal): OutboxAttributio
       }
 
 /**
- * The stub visibility policy: a grant set per HUMAN.
+ * The visibility TABLES: a grant set per HUMAN, plus the declared classes.
  *
  * Grants are held per human and never per agent, which is A1 expressed as a data
  * shape rather than as a check somebody has to remember: an agent has no grants of
  * its own to go stale, so revoking the human transitively disables the agent with
  * no reaper to write and none to forget.
+ *
+ * The DECISION is not here (POD-1077). `canSee` delegates to the shipped
+ * {@link GrantEdgeVisibilityPolicy}, which owns the class rules, the
+ * default-closed refusal and the delegation intersection; this class owns only
+ * what a deployment's tables would own. `binding.test.ts` asserts the delegation
+ * by object identity, so it cannot quietly grow its own predicate again.
  */
-export class StubVisibilityPolicy {
+export class StubVisibilityPolicy implements VisibilityStatePort {
   private readonly grants = new Map<UserRef, Set<EntityKey>>()
   /** Every key the authority has ever created, visible or not. Backs the no-oracle case. */
   private readonly existing = new Set<EntityKey>()
+  /**
+   * The DECLARED class of each entity kind this fixture logs.
+   *
+   * Declared per kind rather than defaulted, because the kernel refuses an
+   * undeclared kind as `unclassified` — a refusal this fixture must be able to
+   * produce (and does, for any kind not in this map) rather than paper over.
+   */
+  private readonly classes = new Map<string, VisibilityClass>([
+    ['issue', 'personal'],
+    ['session', 'personal'],
+    ['conversation', 'personal'],
+  ])
+
+  /** The kernel's evaluator, over THIS fixture's tables. */
+  readonly evaluator = new GrantEdgeVisibilityPolicy(this)
+
+  classOf(entity: string): VisibilityClass | null {
+    return this.classes.get(entity) ?? null
+  }
+
+  mayRead(user: UserRef, ref: EntityRef): boolean {
+    return this.granted(user, keyOf(ref.entity, ref.entityId))
+  }
+
+  /** No `per-user-state` rows in this fixture's log, so nothing is keyed to a user. */
+  keyedUserOf(): UserRef | null {
+    return null
+  }
 
   /** Phase 3 owns the real command. This is the mechanism's test seam. */
   grant(user: UserRef, entity: string, entityId: string): void {
@@ -171,22 +225,40 @@ export class StubVisibilityPolicy {
   }
 
   /**
-   * Effective visibility, resolved LIVE over the whole chain (A1): the agent's own
-   * scope INTERSECTED with its human's CURRENT grants. Never a union, never the
-   * human's set alone.
+   * Effective visibility, resolved LIVE over the whole chain (A1) — BY THE SHIPPED
+   * EVALUATOR.
+   *
+   * The intersection with the agent's own scope, the class rules and the
+   * default-closed refusal all live in `feed/visibility.ts` now. What is left here
+   * is the call, and the narrowing of a log row's plain `string` entity to a kind
+   * the Authority can actually log: `parse` rather than a cast, so a fixture that
+   * invented a kind fails loudly instead of being silently classified.
    */
   canSee(principal: ConformancePrincipal, entity: string, entityId: string): boolean {
-    const key = keyOf(entity, entityId)
-    if (!this.granted(humanOf(principal), key)) return false
-    return principal.kind === 'user' || principal.scope.has(key)
+    return this.evaluator.mayDeliver(principal, {
+      entity: MetadataEntityKind.parse(entity),
+      entityId,
+    })
   }
 
   /** What the principal's slice IS, right now. Used by bootstrap and by the exact-slice bound. */
   visibleKeys(principal: ConformancePrincipal): readonly EntityKey[] {
     const human = this.grants.get(humanOf(principal)) ?? new Set<EntityKey>()
-    const keys = [...human]
-    return principal.kind === 'user' ? keys : keys.filter((key) => principal.scope.has(key))
+    // Filtered through the same evaluator as the live path, so the bootstrap
+    // slice and the delta slice cannot disagree — a second predicate here is
+    // exactly how a replica installs a snapshot its deltas then contradict.
+    return [...human].filter((key) => {
+      const [entity, entityId] = splitKey(key)
+      return this.canSee(principal, entity, entityId)
+    })
   }
+}
+
+/** `entity:entityId` back into its two halves. The id may contain no colon rule
+ *  is not assumed: only the FIRST separator splits. */
+function splitKey(key: EntityKey): [string, string] {
+  const at = key.indexOf(':')
+  return [key.slice(0, at), key.slice(at + 1)]
 }
 
 /**

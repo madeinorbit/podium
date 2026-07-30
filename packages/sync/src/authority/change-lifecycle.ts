@@ -33,6 +33,7 @@
 
 import {
   ChangeEventTimeField,
+  ChangeOpField,
   ChangePayloadField,
   ChangeProvenanceFields,
   ChangeSeqField,
@@ -91,3 +92,27 @@ export type StoredChangeRow = z.infer<typeof StoredChangeRow>
  */
 export const SequencedChange = StagedChangeSpec.extend({ seq: ChangeSeqField })
 export type SequencedChange = z.infer<typeof SequencedChange>
+
+/**
+ * PHASE 4 — the row AS ONE PRINCIPAL RECEIVES IT (POD-1077).
+ *
+ * The one difference from phase 3, and the reason it is a fourth phase rather
+ * than a widened third: the op vocabulary here is the FULL {@link ChangeOpField}
+ * (`upsert | remove | evict`), while a stored global row can only ever be
+ * `upsert | remove`.
+ *
+ * `evict` means "this left YOUR VIEW — it still exists" (Amendment 1 D14.1). It
+ * is per-principal by construction: it is DERIVED at the scoping boundary from
+ * the visibility policy, never appended to the global log, and never written by a
+ * caller. Keeping the phases separate is what makes that a compile-time fact —
+ * `SequencedChange` has nowhere to put an `evict`, so a global row carrying one
+ * does not typecheck, and the type of `Authority.capture` is the enforcement.
+ *
+ * The subset relation runs the safe way for the same reason
+ * `feed/publisher.ts:toEnvelope` needs no cast: `CHANGE_OPS` is built by
+ * EXTENDING `GLOBAL_CHANGE_OPS`, so every phase-3 row is a valid phase-4 row and
+ * the day someone adds a fourth global op is a type error rather than a silent
+ * widening.
+ */
+export const ScopedChange = SequencedChange.extend({ op: ChangeOpField })
+export type ScopedChange = z.infer<typeof ScopedChange>
