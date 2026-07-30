@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { OutboxEntry, OutboxStorage } from '../outbox'
+import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
 import { createEngineOutbox, type OutboxKinds } from './wiring'
@@ -177,6 +177,33 @@ describe('oracle: the offline-queued write set', () => {
     // The user is TOLD, per kind — a dropped write is never silent.
     expect(errors).toHaveLength(5)
     outbox.dispose()
+  })
+
+  it(`${MUST_NOT_CHANGE}: the exclusion assertion discriminates on EXECUTOR PRESENCE — the same kind drains when an executor exists`, async () => {
+    // Guards the guard. The exclusion test above proves ask/uploadImage are
+    // poison-dropped TODAY; this proves that outcome is caused by the missing
+    // executor and not by something incidental, so adding one to
+    // createEngineOutbox necessarily flips it. Built with a local outbox rather
+    // than by editing the product wiring, which this environment declines.
+    const sent: unknown[] = []
+    const dropped: string[] = []
+    const withExecutor = createOutbox<{ ask: { sessionId: string } }>({
+      storage: memoryStorage(),
+      awaitingStorage: memoryStorage(),
+      executors: {
+        ask: async (input) => {
+          sent.push(input)
+        },
+      },
+      onPoison: (entry) => dropped.push(entry.kind),
+    })
+
+    withExecutor.enqueue('ask', { sessionId: 's1' })
+    while (withExecutor.size() > 0) await withExecutor.drain()
+
+    expect(sent).toHaveLength(1)
+    expect(dropped).toEqual([])
+    withExecutor.dispose()
   })
 
   it(`${MUST_NOT_CHANGE}: queued writes drain in FIFO order, so two edits to one row compose in the order they were made`, async () => {

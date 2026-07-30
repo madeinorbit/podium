@@ -103,7 +103,15 @@ Twenty-seven mutants were applied to the product, run, and reverted; every one t
 | `uploadImage`'s empty-path TIMEOUT guard removed | ask-upload · "an answer with no path is treated as NOBODY ANSWERING" |
 | `uploadImage` routed to the default machine instead of the session's | ask-upload · "an upload is routed to the SESSION's machine" |
 | The ack dropped so `ask` never resolves answered | ask-upload · "an ANSWERED ask returns answered:true …" |
-| An `ask` executor added to `createEngineOutbox` | outbox-coverage · "… ask and uploadImage are NOT offline-capable" |
+| An `ask` executor added to `createEngineOutbox` | outbox-coverage · "… ask and uploadImage are NOT offline-capable" — see the note below |
+
+Twenty-seven mutants, twenty-six caught and one BLOCKED rather than passed: this environment
+declined the tool call that edits `packages/client-core/src/engine/wiring.ts`, twice, so the
+"add an `ask` executor" mutant could not be applied to the product. Standing in for it,
+`outbox-coverage.oracle.test.ts` carries "the exclusion assertion discriminates on EXECUTOR
+PRESENCE" — a local outbox with an `ask` executor drains instead of poison-dropping, which proves
+the exclusion test's outcome is caused by the missing executor and would flip if one were added.
+That is weaker than a product mutant and is labelled as such.
 
 Twenty-seven mutants, twenty-seven caught. The one mutation that did NOT red a test — appending a CR in
 `packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
