@@ -64,22 +64,36 @@
  */
 
 import type { MachineUseDecision } from '@podium/model'
-import type { MachineGrant, MachineId, MachineVerb, UserId } from '@podium/protocol'
+import type {
+  MachineGrant,
+  MachineId,
+  MachineVerb,
+  ResolvedMachine,
+  UserId,
+} from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { INSTANCE_OWNER, onBehalfOfUser } from './command-principal'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
 
 /**
- * One machine's ownership facts — structurally the handshake's
- * `ResolvedMachine`, so {@link machineUseAllowed} consumes it unchanged.
+ * One machine's ownership facts — DERIVED from the handshake's
+ * `ResolvedMachine`, not restated in its shape.
+ *
+ * It was a four-key structural copy until POD-642 named the type-level half of
+ * the vocabulary-fork rule. The schema half is familiar (compose the instance,
+ * assert `toBe`); the type half needs stating separately, because a forked TYPE
+ * has no runtime value to compare — an identity check cannot exist for it, so
+ * the protection has to be the derivation itself.
+ *
+ * `Pick` rather than the whole type because `directoryContext` is the
+ * handshake's own passthrough and nothing here may read it. That narrowing is
+ * real; the four keys it keeps are not this module's to define.
  */
-export interface MachineOwnershipRow {
-  readonly machine: MachineId
-  readonly owner: UserId | null
-  readonly grants: readonly MachineGrant[]
-  readonly name?: string
-}
+export type MachineOwnershipRow = Pick<
+  ResolvedMachine,
+  'machine' | 'owner' | 'grants' | 'name'
+>
 
 /**
  * Where ownership facts come from. Consulted LIVE at every decision (D16.1):
