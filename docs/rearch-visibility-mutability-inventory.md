@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **32 of 53 classes have mutable visibility.** This is the majority of
+1. **36 of 57 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -77,7 +77,11 @@ disappearance a scoped feed must be able to signal.
 | `repo-prefix` | Repo / prefix (`repos`, `repo_prefixes`) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: the whole per-machine fact set appears/disappears with one machine grant. |
 | `approval-requests` | Approval requests | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its subject entity. |
 | `automations-and-runs` | Automations / runs | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability. |
-| `workflows` | Workflows / revisions / bindings / runs / steps / events / execution_profiles | personal | `share` `unshare` `revoke` `grant-use` | PHASE 2 MUST HANDLE: two axes again — the definition’s grants, and machine `use` for run advance. |
+| `workflow-definitions` | Workflow definitions (`workflows`) | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability. |
+| `workflow-revisions` | Workflow revisions (`workflow_revisions`) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the definition, so a share on the definition makes every revision appear at once without any revision’s own version moving. |
+| `workflow-bindings` | Workflow bindings (`workflow_bindings`) | personal | `share` `unshare` `revoke` `reparent` | PHASE 2 MUST HANDLE: `bindings()` is a QUERY and was one of the three read-shaped operator branches POD-730 pinned — it returned every binding in the instance. A scoped feed must filter it per principal. |
+| `workflow-execution-profiles` | Execution profiles (`execution_profiles`) | personal | `share` `unshare` `revoke` `grant-use` `account-role-change` | PHASE 2 MUST HANDLE: two axes that move independently — the profile’s own grants, and `use` on the machine it pins. `profiles()` had NO gate at all and listed every profile, with its `accountId`, to any caller. |
+| `workflow-runs` | Workflow runs, run steps and run events (`workflow_runs` / `workflow_run_steps` / `workflow_events`) | personal | `share` `unshare` `revoke` `grant-use` `account-disable` | PHASE 2 MUST HANDLE: `runs()` and `runFor()` were the other two read-shaped operator branches — every run in the instance, and any run by id. And `account-disable` is load-bearing here rather than theoretical: runs are long-lived and UNATTENDED, so revoking a person must stop their in-flight runs advancing with no reaper to write. |
 | `messages-substrate` | Messages (`messages` substrate) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: addressing makes a row visible to a second principal at send time, which is a visibility change the addressee’s cursor never saw. |
 | `messaging-issue-topics` | Messaging issue topics | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the issue. |
 | `superagent-state` | Superagent threads / messages / queued inputs / pending turns | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: private by default, shareable by explicit grant. |
