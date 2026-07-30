@@ -1956,3 +1956,26 @@ must not be able to look like a run that measured everything.**
 Corollary for the same reason: `git add <nonexistent>` FAILS loudly (`pathspec did not match any
 files`), which is why the missing file was caught at all. Prefer commands that refuse over commands
 that shrug.
+
+### "Never rebaseline upward" forbids absorbing a REGRESSION — not widening a detector
+
+POD-314 found the ambiguity before it built anything, which is the right time to find it. Widening
+`router-triple-access` from `router.ts` to the whole transport surface RAISES the count by scope alone
+(~27 sites already sit in `modules/**/trpc.ts` from the earlier cutovers), and it read that as colliding
+with the standing rule.
+
+It does not. The rule forbids raising a baseline to absorb a regression YOUR change caused. It has never
+forbidden a detector's scope from widening — this run has done that twice, correctly:
+
+- POD-305 narrowed `isFrozenFile`: item went 7 → 18 in a commit changing NO product code, reason stated.
+- POD-301 ADDED three entity-id keys: 25 items / 186 sites → 28 / 237. Its words: *"the item count rose
+  because debt became measurable."*
+
+**A widening that raises the number is the point. What the rule forbids is the number moving for a
+reason the commit does not state.**
+
+**And the failure mode to protect against is subtler than either:** choosing the SCOPE that flatters the
+count. POD-314 proposed engineering the widened number to land at or below the current baseline; I told
+it not to. A detector whose boundary is picked for what it measures rather than what it means is not an
+instrument. If two scopes are both defensible and they disagree, report both rather than picking the
+kind one.
