@@ -287,37 +287,50 @@ export interface StoreView {
  */
 class InMemorySpan implements OwnedSyncSpan {
   private readonly participants: SyncSpanParticipant[] = []
-  private settled = false
+  /**
+   * Three states, not a boolean. A caller commits inside `try` and aborts in
+   * `catch`, so an abort that follows a VETOED commit is the normal error path and
+   * must be a no-op — the drafts were already discarded by the veto. A single
+   * `settled` flag could not tell that apart from the two shapes that ARE bugs, so
+   * it threw 'span already settled' from the catch and masked the store's real
+   * refusal, turning a clean abort into a confusing rethrow.
+   */
+  private state: 'open' | 'discarded' | 'published' = 'open'
 
   constructor(private readonly onPublished: () => void) {}
 
   join(participant: SyncSpanParticipant): void {
-    if (this.settled) throw new Error('cannot join a span that has already settled')
+    if (this.state !== 'open') throw new Error('cannot join a span that has already settled')
     if (!this.participants.includes(participant)) this.participants.push(participant)
   }
 
   commit(): void {
-    this.settle()
+    if (this.state !== 'open') throw new Error('span already settled')
     try {
       for (const participant of this.participants) participant.prepare?.()
     } catch (error) {
       // A veto aborts the WHOLE span. Nothing published, nothing retired.
-      for (const participant of this.participants) participant.discard?.()
+      this.discardAll()
       throw error
     }
+    this.state = 'published'
     for (const participant of this.participants) participant.publish()
     // ONE transaction for the whole span, not one per participant (D10 clause 5).
     this.onPublished()
   }
 
   abort(): void {
-    this.settle()
-    for (const participant of this.participants) participant.discard?.()
+    // Idempotent, so the `catch (…) { span.abort() }` idiom is always safe.
+    if (this.state === 'discarded') return
+    // Still loud for the one shape that is genuinely wrong: the drafts are already
+    // live in the store, so there is nothing this could undo.
+    if (this.state === 'published') throw new Error('cannot abort a span that already published')
+    this.discardAll()
   }
 
-  private settle(): void {
-    if (this.settled) throw new Error('span already settled')
-    this.settled = true
+  private discardAll(): void {
+    this.state = 'discarded'
+    for (const participant of this.participants) participant.discard?.()
   }
 }
 

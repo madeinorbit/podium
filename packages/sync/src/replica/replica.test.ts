@@ -1320,7 +1320,7 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(view.cache.readCursor()?.seq).toBe(2)
   })
 
-  it('a settled span cannot be joined, committed or aborted again', () => {
+  it('a PUBLISHED span cannot be joined, committed or aborted again', () => {
     const store = new InMemoryReplicaStore()
     const view = store.viewFor('me')
     const span = store.beginSpan()
@@ -1328,8 +1328,30 @@ describe('the optimistic-overlay reducer seam', () => {
     span.commit()
 
     expect(() => span.commit()).toThrow('span already settled')
-    expect(() => span.abort()).toThrow('span already settled')
+    // Loud on purpose: the drafts are live in the store, so there is nothing an
+    // abort could undo. This is the one re-settle that stays an error.
+    expect(() => span.abort()).toThrow('cannot abort a span that already published')
     expect(() => span.join({ publish: () => {} })).toThrow('already settled')
+  })
+
+  it('aborting a span whose commit was VETOED is a no-op, not a second failure', () => {
+    const store = new InMemoryReplicaStore()
+    const span = store.beginSpan()
+    // Write through and veto the SAME region: `viewFor` hands out a fresh region
+    // per principal, so vetoing one and writing the other vetoes nothing.
+    store.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
+    store.cache.failNextPrepare = 'durable write denied'
+
+    // The `commit() in try / abort() in catch` idiom is the ONLY way a caller can
+    // release a span on the error path, so the abort has to survive the veto. It
+    // used to throw 'span already settled' over the top, which is how the store's
+    // real refusal stopped reaching the caller.
+    expect(() => span.commit()).toThrow('durable write denied')
+    expect(() => span.abort()).not.toThrow()
+
+    // And the veto really did roll back: nothing published, no transaction counted.
+    expect(store.cache.readCursor()).toBeNull()
+    expect(store.transactions).toBe(0)
   })
 })
 
