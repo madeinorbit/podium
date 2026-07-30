@@ -122,7 +122,6 @@ function presencePrincipal(ctx: Context) {
   return soleHumanPrincipal(ctx.capability)
 }
 
-const PinKind = z.enum(['panel', 'worktree', 'repo'])
 const cloudRepoInput = z.object({
   provider: z.literal('github'),
   owner: z.string().min(1),

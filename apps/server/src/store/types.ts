@@ -3,10 +3,14 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { Geometry, IssueColorSlot } from '@podium/model'
+import type { Geometry, IssueColorSlot, PinKind as ModelPinKind } from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 
-export type PinKind = 'panel' | 'worktree' | 'repo'
+/** ALIASES @podium/model's PinKind (POD-380). The three literals had four
+ *  declarations — here, router.ts, the presence contract and the model family — and
+ *  a set of literals is exactly the kind of vocabulary that drifts silently when one
+ *  copy gains a member. L0 owns it; this is the name the server reads it by. */
+export type PinKind = ModelPinKind
 
 export interface PinState {
   panels: string[]

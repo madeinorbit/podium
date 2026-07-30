@@ -4950,6 +4950,50 @@
       "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
     },
     {
+      "schema": "PinKind",
+      "variant": "minimal",
+      "wire": "panel",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"panel\""
+    },
+    {
+      "schema": "PinKind",
+      "variant": "full",
+      "wire": "panel",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"panel\""
+    },
+    {
+      "schema": "PinState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "kind": "panel"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"kind\":\"panel\"}"
+    },
+    {
+      "schema": "PinState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "kind": "panel"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"kind\":\"panel\"}"
+    },
+    {
       "schema": "ProjectMemoryWire",
       "variant": "minimal",
       "wire": {
@@ -6966,6 +7010,32 @@
       "encoded": "{\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
     },
     {
+      "schema": "SessionSnoozeState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "snoozedUntil": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"snoozedUntil\":null}"
+    },
+    {
+      "schema": "SessionSnoozeState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "snoozedUntil": "snoozedUntil"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"snoozedUntil\":\"snoozedUntil\"}"
+    },
+    {
       "schema": "SessionStatus",
       "variant": "minimal",
       "wire": "starting",
@@ -7213,6 +7283,32 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"automation\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "TabOrderState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "sessionIds": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"sessionIds\":[]}"
+    },
+    {
+      "schema": "TabOrderState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "sessionIds": ["sessionIds[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"sessionIds\":[\"sessionIds[0]\"]}"
     },
     {
       "schema": "ThreadId",
