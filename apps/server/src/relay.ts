@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { LiveServerMessage } from '@podium/protocol'
+import { asSessionId } from '@podium/model'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import { formatIssueRef, isExposedOn, sessionCommandPlane, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
@@ -628,7 +629,12 @@ export class SessionRegistry {
         if (router === 'workflows') {
           return workflows.dispatch(
             {
-              actor: { kind: 'session', id: capability.actorSessionId ?? null },
+              // WorkflowActor is discriminated (POD-362): the operator arm carries
+              // `id: null` and only the session arm carries a SessionId, so the arm
+              // is CHOSEN here instead of a `?? null` collapsing both into one.
+              actor: capability.actorSessionId
+                ? ({ kind: 'session', id: capability.actorSessionId } as const)
+                : ({ kind: 'operator', id: null } as const),
               capability,
               ...(overrideScope ? { overrideScope: true } : {}),
             },
@@ -830,7 +836,9 @@ export class SessionRegistry {
               const raw = (input ?? {}) as Record<string, unknown>
               const actorSessionId = capability.actorSessionId
               const requestedId =
-                typeof raw.sessionId === 'string' && raw.sessionId ? raw.sessionId : undefined
+                typeof raw.sessionId === 'string' && raw.sessionId
+                  ? asSessionId(raw.sessionId)
+                  : undefined
               const sessionId = requestedId ?? actorSessionId
               if (!sessionId) {
                 throw new Error(

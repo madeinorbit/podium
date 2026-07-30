@@ -440,11 +440,11 @@ export interface MessageRow {
   threadId: string
   inReplyTo: string | null
   fromKind: MessageFromKind
-  fromSession: string | null
+  fromSession: SessionId | null
   /** Named system producer (for example `workflow` or `steward`). */
   fromName?: string | null
   /** Sender's issue at send time (agent senders). */
-  fromIssue: string | null
+  fromIssue: IssueId | null
   toKind: MessageToKind
   /** DELIBERATELY UNBRANDED (POD-362): which id space this holds is decided by
    *  `toKind` — an IssueId for 'issue', a SessionId for 'session', neither for

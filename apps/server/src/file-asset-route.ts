@@ -1,5 +1,5 @@
 // apps/server/src/file-asset-route.ts
-import type { SessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 
 export interface AssetReader {
@@ -27,7 +27,7 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
     const r = await registry.readAsset(
       sessionId
-        ? { sessionId, path }
+        ? { sessionId: asSessionId(sessionId), path }
         : { root: root as string, ...(machineId ? { machineId } : {}), path },
     )
     if (!r.ok || !r.dataBase64) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)

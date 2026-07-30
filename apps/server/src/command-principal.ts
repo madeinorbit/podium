@@ -87,7 +87,7 @@ export interface AgentCommandPrincipal {
   readonly agentSessionId: string
   readonly onBehalfOf: UserId
   readonly capability: Capability
-  readonly chain: readonly string[]
+  readonly chain: readonly SessionId[]
 }
 
 /**
@@ -176,7 +176,7 @@ export function resolvePrincipal(
   if (actorSessionId === undefined) {
     return { kind: 'user', user: INSTANCE_OWNER, capability }
   }
-  const chain: string[] = []
+  const chain: SessionId[] = []
   let cursor: SessionId | undefined = delegations.parentSessionOf(actorSessionId)
   while (cursor !== undefined && chain.length < MAX_CHAIN_DEPTH) {
     if (cursor === actorSessionId || chain.includes(cursor)) break
@@ -185,7 +185,7 @@ export function resolvePrincipal(
   }
   // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
-  const root = chain[chain.length - 1] ?? actorSessionId
+  const root: SessionId = chain[chain.length - 1] ?? actorSessionId
   const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? INSTANCE_OWNER
   return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
 }

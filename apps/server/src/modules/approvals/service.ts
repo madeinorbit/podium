@@ -1,4 +1,4 @@
-import type { IssueId, SessionId } from '@podium/model'
+import { asSessionId, type IssueId, type SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   ApprovalOp,
@@ -120,7 +120,9 @@ export class ApprovalService {
   request(input: unknown): { id: string; status: string; message: string } {
     const raw = (input ?? {}) as Record<string, unknown>
     const op = ApprovalOp.parse(raw.op)
-    const sessionId = String(raw.sessionId ?? '')
+    // DECODE EDGE: `input` is the untyped relay payload. The guard below refuses
+    // an empty value, so this brands a non-empty relay-supplied session id.
+    const sessionId = asSessionId(String(raw.sessionId ?? ''))
     const machineId = String(raw.machineId ?? '')
     if (!sessionId || !machineId) throw new Error('approval request lost its relay context')
     const dup = this.deps.store

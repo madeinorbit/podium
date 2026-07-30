@@ -4,7 +4,7 @@
  * message, with the delivery ledger as columns on the row.
  */
 
-import type { SessionId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -32,11 +32,11 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     threadId: r.thread_id as string,
     inReplyTo: (r.in_reply_to as string | null) ?? null,
     fromKind: r.from_kind as MessageRow['fromKind'],
-    fromSession: (r.from_session as string | null) ?? null,
+    fromSession: (r.from_session as SessionId | null) ?? null,
     ...(r.from_name !== null && r.from_name !== undefined
       ? { fromName: r.from_name as string }
       : {}),
-    fromIssue: (r.from_issue as string | null) ?? null,
+    fromIssue: (r.from_issue as IssueId | null) ?? null,
     toKind: r.to_kind as MessageRow['toKind'],
     toId: (r.to_id as string | null) ?? null,
     kind: r.kind as MessageRow['kind'],

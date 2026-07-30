@@ -21,7 +21,7 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING } from '@podium/commands'
-import type { IssueId, SessionId, SessionMeta } from '@podium/model'
+import { IssueIdField, type IssueId, type SessionId, SessionIdField, type SessionMeta } from '@podium/model'
 import { z } from 'zod'
 import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
@@ -47,7 +47,7 @@ const statusInput = z.object({ id: z.string() })
 // mechanism — it rides the send pipeline, so the clamp matrix, wake cooldown
 // and hop brake all apply unchanged (it costs a turn of the target's quota).
 const askInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   question: z.string().min(1).max(32_768),
   timeoutSeconds: z.number().min(0).max(300).optional(),
 })

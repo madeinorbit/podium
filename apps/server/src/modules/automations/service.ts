@@ -554,7 +554,7 @@ export class AutomationsService {
    * gets the turn through the durable outbox. The run id is the replay-safe outbox
    * mutation id.
    */
-  private spawn(automation: AutomationRow, runId: string): string {
+  private spawn(automation: AutomationRow, runId: string): SessionId {
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
         automation.targetSessionId ?? this.deps.store.lastSpawnedSessions().get(automation.id)

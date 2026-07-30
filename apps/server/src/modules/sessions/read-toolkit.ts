@@ -66,7 +66,12 @@ export interface SessionReadToolkitDeps {
  * carves MachineId's 'local' out to prevent. As a union the sentinel stays
  * visible and every consumer that cares must narrow.
  */
-export type ReaderRef = SessionId | 'operator'
+export type ReaderRef = SessionId | 'operator' | 'superagent' | `superagent:${string}`
+
+// The `superagent:` arm is NOT decoration: `superagent/tools.ts` passes
+// `superagent:${threadId}` (a THREAD id, a different brand) or the bare
+// 'superagent' string. The union found it — a `SessionId` reader type would have
+// needed a cast there and buried a third reader kind.
 
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}

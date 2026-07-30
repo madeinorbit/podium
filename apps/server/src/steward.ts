@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { IssueComment, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
@@ -196,7 +197,7 @@ export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
  */
 interface SessionParentSub {
   /** Single-line wake text: which child + terminal state. Backtick-free. */
-  nudge: (childSessionId: string, childLabel: string) => string
+  nudge: (childSessionId: SessionId, childLabel: string) => string
 }
 
 const SESSION_PARENT_NUDGE_TAIL = 'Your child session needs attention.'
@@ -222,11 +223,25 @@ export const SESSION_PARENT_SUBS: Record<string, SessionParentSub> = {
   },
 }
 
-/** Parse `session:<parentSessionId>` from a child's spawnedBy; else undefined. */
-export function sessionSpawnerParentId(spawnedBy: string | null | undefined): string | undefined {
+/**
+ * Parse `session:<parentSessionId>` from a child's spawnedBy; else undefined.
+ *
+ * The TAG stays a raw string and is NOT converted to a key helper: `spawnedBy` is
+ * one of the fields `packages/model/src/entities/session.ts` documents as
+ * deliberately unbranded, on evidence — POD-360 found six produced arms, exactly
+ * ONE consumer that parses it (this function) and SEVEN that rebuild the template
+ * literal to compare, five of them gating parent-session authorization. A brand
+ * would not fix that; changing the tag format silently would break the five.
+ *
+ * What POD-362 DOES do is brand what comes OUT: the extracted parent is a
+ * SessionId, so every caller downstream is typed.
+ */
+export function sessionSpawnerParentId(
+  spawnedBy: string | null | undefined,
+): SessionId | undefined {
   if (!spawnedBy || !spawnedBy.startsWith('session:')) return undefined
   const parentId = spawnedBy.slice('session:'.length)
-  return parentId.length > 0 ? parentId : undefined
+  return parentId.length > 0 ? asSessionId(parentId) : undefined
 }
 
 /**
@@ -469,7 +484,7 @@ export class StewardService {
           // key = sessionparentnudge:<group>:<childSessionId>; ids never contain ':'.
           const rest = key.slice('sessionparentnudge:'.length)
           const sep = rest.indexOf(':')
-          this.handleSessionParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
+          this.handleSessionParentNudge(asSessionId(rest.slice(sep + 1)), rest.slice(0, sep), batch)
         } else if (key.startsWith('parentnudge:')) {
           // key = parentnudge:<group>:<parentId>; ids never contain ':'.
           // ISSUE-parent edge (payload.parentId) — live/starting only, no wake.
@@ -478,7 +493,9 @@ export class StewardService {
           await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
         } else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
         else if (key.startsWith('ackfallback:')) {
-          this.handleAckFallback(key.slice('ackfallback:'.length), batch)
+          // FACT-KEY PARSE, not an adapter cast: the arbiter fact key is
+          // `ackfallback:<sessionId>` and the tail IS the session id (POD-362).
+          this.handleAckFallback(asSessionId(key.slice('ackfallback:'.length)), batch)
         }
       } catch (err) {
         deliveryFailed = true
@@ -529,9 +546,11 @@ export class StewardService {
    *   `sub:issue.needs_human:<issueId>`
    */
   private retireClearedConditions(events: StewardEvent[]): void {
-    const lastPhaseBySession = new Map<string, StewardEvent>()
+    const lastPhaseBySession = new Map<SessionId, StewardEvent>()
     for (const e of events) {
-      if (e.kind === 'session.phase') lastPhaseBySession.set(e.subject, e)
+      // `e.subject` is the event's subject id, untyped on StewardEvent; for a
+      // session.phase event it is the session's id (POD-362).
+      if (e.kind === 'session.phase') lastPhaseBySession.set(asSessionId(e.subject), e)
     }
     for (const [sessionId, e] of lastPhaseBySession) {
       const phase = (e.payload as { phase?: string } | null)?.phase
@@ -859,7 +878,7 @@ export class StewardService {
    * already live/starting, where that risk doesn't exist.
    */
   private handleSessionParentNudge(
-    childSessionId: string,
+    childSessionId: SessionId,
     group: string,
     batch: StewardEvent[],
   ): void {

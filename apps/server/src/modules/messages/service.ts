@@ -32,7 +32,14 @@ import {
   type MailSenderPrincipal,
   senderBrakeKey,
 } from '@podium/commands'
-import { asIssueId, type AgentPhase, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type AgentPhase,
+  type IssueId,
+  type IssueScope,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -154,7 +161,7 @@ export type MessageSender =
   | { kind: 'operator' }
   | { kind: 'superagent' }
   | { kind: 'system'; name?: string }
-  | { kind: 'agent'; issueId?: string; sessionId?: string }
+  | { kind: 'agent'; issueId?: IssueId; sessionId?: SessionId }
 
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
@@ -339,8 +346,10 @@ export function renderEnvelope(
  *  as an agent (enveloped, peer-clamped, cooldown-subject), never operator.
  *  Server-side only — the mailIdentity() pattern, structured. */
 export function senderFromCapability(capability: {
-  scope: { kind: string; rootId?: string }
-  actorSessionId?: string
+  // COMPOSED, was a restated `{ kind: string; rootId?: string }` (POD-362): the
+  // local shape re-erased the brands `IssueScope` carries.
+  scope: IssueScope
+  actorSessionId?: SessionId
 }): MessageSender {
   if (capability.scope.kind === 'all') return { kind: 'operator' }
   if (capability.scope.kind === 'subtree' && capability.scope.rootId) {
@@ -1813,7 +1822,7 @@ export class MessageDeliveryService {
    */
   readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
-    opts?: { consume?: string | null; limit?: number },
+    opts?: { consume?: SessionId | null; limit?: number },
   ): MessageRow[] {
     const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
     if (opts?.consume === undefined) return rows
