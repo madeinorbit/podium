@@ -27,7 +27,7 @@
  * R1 deliberately excludes some of what storage carries. Rather than inventing
  * values at the seam (which would put the multi-user model's defaults in a
  * mapper, where nobody would find them), the gap is NAMED here, in one place, as
- * {@link ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY} and {@link IssueStorageLocal} —
+ * {@link ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY} and `toStorage`'s second argument —
  * so the list is the handoff to the issues that own the columns, and a test pins
  * it rather than a comment claiming it.
  *
@@ -47,7 +47,7 @@
  *     `asked` itself IS composed, with that one member omitted; see
  *     {@link StoredAsked}.
  *
- *   **R3 columns R1 deliberately excludes** ({@link IssueStorageLocal}):
+ *   **R3 columns R1 deliberately excludes** (`toStorage`'s second argument):
  *   - `readAt`, `tuckedAt`, `pinned` — per-user state. POD-1076 moves them to
  *     `(userId, issueId)` rows and `aggregates/registry.test.ts` FAILS if one
  *     reappears on the aggregate, so they cannot simply be added back.
@@ -141,28 +141,12 @@ export const LegacyAsked = z.object({
 })
 export type LegacyAsked = z.infer<typeof LegacyAsked>
 
-/**
- * The R3-local members: real columns that R1 deliberately does not carry.
- *
- * Kept as a NAMED GROUP rather than folded into {@link StoredIssue}'s literal so
- * that "what the row has and the aggregate does not" is one readable list, and so
- * POD-1076 can delete the first three as a unit.
- */
-export const IssueStorageLocal = z.object({
-  /** Per-user state (POD-1076). Global today because the product is
-   *  single-operator; the aggregate refuses these by construction. */
-  readAt: z.string().nullable(),
-  tuckedAt: z.string().nullable(),
-  pinned: z.boolean(),
-  /** Derived on R1 (`IssueDerived.repoPath`, inventory D-1) and stored here as
-   *  the display/lookup attribute the repo registry maintains. */
-  repoPath: z.string(),
-})
-export type IssueStorageLocal = z.infer<typeof IssueStorageLocal>
+
 
 /**
  * THE IN-MEMORY ISSUE AS STORAGE CAN CARRY IT — the canonical aggregate minus
- * what has no column, plus what R1 excludes.
+ * what no column exists for. The R3-only members are NOT here; `toStorage` takes
+ * them as its second argument, as a `Pick` of the row.
  *
  * A COMPOSITION of `IssueAggregate`, not an eighteenth issue shape: every
  * retained key's schema is the same INSTANCE the thirteen field groups define,
@@ -181,7 +165,6 @@ export const StoredIssue = IssueAggregate.omit({
   // Re-added below, minus its `attribution` half.
   asked: true,
 })
-  .extend(IssueStorageLocal.shape)
   .extend({
     asked: StoredAsked.optional(),
     /** Present only for a pre-#53 row — see {@link LegacyAsked}. Mutually
@@ -293,12 +276,6 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- timestamps -------------------------------------------------------
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-
-    // --- IssueStorageLocal (per-user + derived; see the file header) -------
-    readAt: row.readAt ?? null,
-    tuckedAt: row.tuckedAt ?? null,
-    pinned: row.pinned,
-    repoPath: row.repoPath,
   }
 }
 
@@ -313,12 +290,30 @@ export function fromStorage(row: IssueRow): StoredIssue {
  * the two type-identical enums. `panel` is the one member that round-trips by
  * VALUE rather than by bytes (see the file header).
  */
-export function toStorage(issue: StoredIssue): IssueRow {
+export function toStorage(
+  issue: StoredIssue,
+  /**
+   * The R3-ONLY columns, spelled as a `Pick` of the row and deliberately NOT
+   * given a name of their own.
+   *
+   * `readAt`, `tuckedAt` and `pinned` are per-user state (POD-1076's to re-key
+   * onto `(userId, issueId)` rows) and `repoPath` is derived from the repo
+   * registry (inventory D-1). Neither belongs on R1 — the aggregate's
+   * `registry.test.ts` fails if one reappears there.
+   *
+   * Naming this shape was the first design here and it was WRONG, caught by
+   * `scripts/rearch-audit.ts`: `per-user-singletons` is a RATCHET with no
+   * registry escape, and a second declaration spelling those three keys grows
+   * POD-1076's debt while claiming to collapse POD-302's. A `Pick` in argument
+   * position keeps `IssueRow` as their ONE declaration.
+   */
+  storage: Pick<IssueRow, 'repoPath' | 'readAt' | 'tuckedAt' | 'pinned'>,
+): IssueRow {
   const asked = issue.asked ?? issue.askedLegacy
   return {
     // --- IssueIdentity ---------------------------------------------------
     id: issue.id,
-    repoPath: issue.repoPath,
+    repoPath: storage.repoPath,
     repoId: issue.repoId ?? null,
     seq: issue.seq,
 
@@ -400,10 +395,10 @@ export function toStorage(issue: StoredIssue): IssueRow {
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
 
-    // --- IssueStorageLocal ---------------------------------------------------
-    readAt: issue.readAt,
-    tuckedAt: issue.tuckedAt,
-    pinned: issue.pinned,
+    // --- R3's own, passed through untouched ---------------------------------
+    readAt: storage.readAt ?? null,
+    tuckedAt: storage.tuckedAt ?? null,
+    pinned: storage.pinned,
   }
 }
 

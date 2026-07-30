@@ -677,10 +677,48 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'It is where the JSON-encoded columns are still text, so it is the one shape in which ' +
       '`panel` and `blockedByNotes` are strings rather than structures.',
     composition: {
-      state: 'pending',
-      owner: 'POD-1141',
-      blocker:
-        'needs the one toStorage/fromStorage pair to own the JSON encodings; ' + CYCLE_BLOCKER,
+      state: 'declared-legitimate-restatement',
+      reason:
+        'R3 is the ENCODING, not the vocabulary — the same ADR 4 D6 verdict the `issues` DDL ' +
+        'above carries, and this is that DDL\'s typed mirror. The R1 side IS composed: ' +
+        '`StoredIssue` (apps/server/src/store/issue-storage.ts) is `IssueAggregate` minus the ' +
+        'five members no column exists for, and the ONE documented toStorage/fromStorage pair ' +
+        'ADR 4 §4.1 asks for maps between them per key. A per-key mapper is what a derivation ' +
+        'cannot buy: `origin` and `audience` are both \'human\' | \'agent\', so a structural ' +
+        'check cannot see them swapped (POD-1151).',
+      enforcedBy:
+        'apps/server/src/store/issue-storage.test.ts — schema-INSTANCE identity (`toBe`) per ' +
+        'composed member, a strict round trip over a fixture whose type-identical pairs hold ' +
+        'DIFFERENT values, and membership pins on both the omitted set and the case list. The ' +
+        'origin/audience swap mutant reddens a NAMED test.',
+    },
+    matrixRow: ROW.issueCore,
+    visibility: 'personal',
+  },
+  {
+    symbol: 'StoredIssue',
+    entity: 'issue',
+    site: 'apps/server/src/store/issue-storage.ts',
+    // Role vocabulary note: this is the R1 SIDE of the R3 seam, and there is no
+    // member for that. Filed under R3 because it exists only to serve the storage
+    // boundary — inventing a role is an ADR 4 amendment, not a registry edit.
+    role: 'R3',
+    purpose:
+      'The in-memory issue as far as storage can carry it — the R1 half of the one documented ' +
+      'toStorage/fromStorage pair (ADR 4 §4.1) that bridges `IssueAggregate` and `IssueRow`.',
+    distinctSemantics:
+      'It is `IssueAggregate` MINUS the five members no column exists for (`owner`, ' +
+      '`visibility`, `createdBy`, `lastLifecycleActor`, `labels`) and minus the `attribution` ' +
+      'half of the needs-human `asked` group — a real storage gap owned by POD-1075, named as ' +
+      'data rather than defaulted at the seam (ADR 9 D8 S5 forbids defaulting `onBehalfOf`). ' +
+      'It also carries `askedLegacy`, the shape holding the pre-#53 combinations `asked` ' +
+      'refuses BY DESIGN, so a question written without an asker is not silently dropped. It ' +
+      'does NOT carry `readAt`/`tuckedAt`/`pinned`/`repoPath`: those are R3-only and stay ' +
+      'declared once, on `IssueRow`.',
+    composition: {
+      state: 'composed',
+      from: '`IssueAggregate.omit(…)` — every retained key is the shared field-group INSTANCE, ' +
+        'asserted with `toBe` in apps/server/src/store/issue-storage.test.ts (POD-1151)',
     },
     matrixRow: ROW.issueCore,
     visibility: 'personal',

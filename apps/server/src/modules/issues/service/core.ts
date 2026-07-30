@@ -209,7 +209,7 @@ export abstract class IssueServiceCore {
     const asked = issue.asked ?? issue.askedLegacy
     return {
       id: issue.id,
-      repoPath: issue.repoPath,
+      repoPath: row.repoPath,
       ...(issue.repoId ? { repoId: issue.repoId } : {}),
       ...(prefix ? { prefix } : {}),
       displayRef,
@@ -239,7 +239,7 @@ export abstract class IssueServiceCore {
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
       priority: issue.priority,
       type: issue.type,
-      pinned: issue.pinned,
+      pinned: row.pinned,
       ...(issue.sortKey ? { sortKey: issue.sortKey } : {}),
       // A corrupt/unknown stored slot already degraded to "no colour" in
       // `fromStorage` [spec:SP-b4d1] — one tolerant decode, not two.
@@ -262,7 +262,7 @@ export abstract class IssueServiceCore {
       ...(issue.closedAt ? { closedAt: issue.closedAt } : {}),
       // Always on the wire (like readAt, not spread-when-truthy): the client
       // reads absence as "not tucked", and an untuck must be able to say so.
-      tuckedAt: issue.tuckedAt,
+      tuckedAt: row.tuckedAt ?? null,
       ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
       ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
@@ -277,7 +277,7 @@ export abstract class IssueServiceCore {
       createdAt: issue.createdAt,
       updatedAt: issue.updatedAt,
       archived: issue.archived,
-      readAt: issue.readAt,
+      readAt: row.readAt ?? null,
       ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
       unread: this.computeUnread(row, sessions),
       sessions,

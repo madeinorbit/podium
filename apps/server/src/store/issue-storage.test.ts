@@ -35,7 +35,6 @@ import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
   ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY,
-  IssueStorageLocal,
   StoredIssue,
   toStorage,
 } from './issue-storage'
@@ -175,6 +174,17 @@ const emptyRow = (): IssueRow => ({
   startedBySession: null,
 })
 
+/** The R3-only quartet, lifted off the row so a round trip can hand it back. */
+const storageOnly = (row: IssueRow): Parameters<typeof toStorage>[1] => ({
+  repoPath: row.repoPath,
+  readAt: row.readAt ?? null,
+  tuckedAt: row.tuckedAt ?? null,
+  pinned: row.pinned,
+})
+
+/** Decode then re-encode one row — the identity the pair must preserve. */
+const roundTrip = (row: IssueRow): IssueRow => toStorage(fromStorage(row), storageOnly(row))
+
 describe('StoredIssue members ARE the shared field-group instances', () => {
   const cases: Array<[string, unknown]> = [
     ['id', IssueIdentity.shape.id],
@@ -233,9 +243,8 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
   it('covers every composed member — the case list cannot silently shrink', () => {
     // Pin MEMBERSHIP, not a count: "46 passed" and "43 passed" read identically.
     const covered = new Set(cases.map(([k]) => k))
-    const local = new Set(Object.keys(IssueStorageLocal.shape))
     const unchecked = Object.keys(StoredIssue.shape)
-      .filter((k) => !covered.has(k) && !local.has(k) && !['asked', 'askedLegacy'].includes(k))
+      .filter((k) => !covered.has(k) && !['asked', 'askedLegacy'].includes(k))
       .sort()
     // What is left has no field group to be an instance OF: the two op-stream
     // documents (asserted by shape below) and the aggregate's own two timestamps.
@@ -279,13 +288,14 @@ describe('the storage gap is named, not invented', () => {
     ).toBe(false)
   })
 
-  it('carries the per-user and derived columns R1 refuses', () => {
-    expect(Object.keys(IssueStorageLocal.shape)).toEqual([
-      'readAt',
-      'tuckedAt',
-      'pinned',
-      'repoPath',
-    ])
+  it('keeps the per-user and derived columns OFF R1', () => {
+    // The audit's per-user-singletons item is a ratchet with no registry escape:
+    // re-declaring these here would grow POD-1076's debt while claiming to
+    // collapse POD-302's. `IssueStorageOnly` is a Pick of the row, so `IssueRow`
+    // stays their ONE declaration.
+    for (const k of ['readAt', 'tuckedAt', 'pinned', 'repoPath']) {
+      expect(Object.keys(StoredIssue.shape)).not.toContain(k)
+    }
   })
 })
 
@@ -293,11 +303,11 @@ describe('fromStorage / toStorage round-trip per key', () => {
   it('restores a fully populated row byte for byte', () => {
     // toStrictEqual, not toEqual: an undefined-valued key reads as ABSENT to
     // toEqual, so it cannot see the key-presence class this pair is full of.
-    expect(toStorage(fromStorage(fullRow()))).toStrictEqual(fullRow())
+    expect(roundTrip(fullRow())).toStrictEqual(fullRow())
   })
 
   it('restores an all-empty row byte for byte', () => {
-    expect(toStorage(fromStorage(emptyRow()))).toStrictEqual(emptyRow())
+    expect(roundTrip(emptyRow())).toStrictEqual(emptyRow())
   })
 
   it('round-trips intentOrigin and audience to their OWN columns', () => {
@@ -306,7 +316,7 @@ describe('fromStorage / toStorage round-trip per key', () => {
     const decoded = fromStorage(fullRow())
     expect(decoded.intentOrigin).toBe('agent')
     expect(decoded.audience).toBe('human')
-    const back = toStorage(decoded)
+    const back = toStorage(decoded, storageOnly(fullRow()))
     expect(back.origin).toBe('agent')
     expect(back.audience).toBe('human')
   })
@@ -329,7 +339,7 @@ describe('fromStorage / toStorage round-trip per key', () => {
     })
     const decoded = fromStorage(row)
     expect(decoded.panel?.todos).toHaveLength(1)
-    expect(toStorage(decoded).panel).toBe(row.panel)
+    expect(toStorage(decoded, storageOnly(row)).panel).toBe(row.panel)
   })
 
   it('degrades an unparseable panel to empty rather than throwing', () => {
@@ -350,7 +360,7 @@ describe('fromStorage / toStorage round-trip per key', () => {
     const row = fullRow()
     row.stage = 'some_future_stage'
     expect(fromStorage(row).stage).toBe('some_future_stage')
-    expect(toStorage(fromStorage(row)).stage).toBe('some_future_stage')
+    expect(roundTrip(row).stage).toBe('some_future_stage')
   })
 })
 
@@ -379,7 +389,7 @@ describe('the needs-human quartet', () => {
       options: ['main', 'develop'],
     })
     // And it survives the round trip rather than being deleted from the wire.
-    expect(toStorage(decoded).humanQuestion).toBe('which branch?')
+    expect(toStorage(decoded, storageOnly(row)).humanQuestion).toBe('which branch?')
   })
 
   it('emits neither shape when the whole quartet is empty', () => {
@@ -396,6 +406,6 @@ describe('the needs-human quartet', () => {
     const decoded = fromStorage(row)
     expect(decoded.asked).toBeUndefined()
     expect(decoded.askedLegacy).toEqual({ by: 'sess_9' })
-    expect(toStorage(decoded)).toStrictEqual(row)
+    expect(toStorage(decoded, storageOnly(row))).toStrictEqual(row)
   })
 })
