@@ -1,5 +1,5 @@
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
-import type { AuthorityPort, SequencedChange } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, type AuthorityPort, type ScopedChange } from '@podium/sync'
 import type { EventBus } from './bus'
 
 export interface WriteFunnelDeps {
@@ -68,8 +68,26 @@ export class WriteFunnel {
     // and delta clients' cursors advanced past N without ever healing the gap.
     // Enqueueing before the emit makes arrival order equal append order no
     // matter what a listener does.
-    deps.authority.subscribe((changes) => {
-      const wire = changes.map(toWireChange)
+    //
+    // THE PRINCIPAL, AND WHICH HALF OF SCOPING THIS SITE HAS (POD-1077). The
+    // Authority's feed is per-principal now (ADR 2 Am1 D12), and this subscription
+    // names `DEVICE_GRADE_PRINCIPAL` because that is what this transport can
+    // honestly authenticate: `auth-store.ts` is one shared password and
+    // `gateway/client-principal.ts` still asserts `CLIENT_PRINCIPAL_GRADE ===
+    // 'device'`, so two connections presenting it are indistinguishable AS PERSONS.
+    // The mechanism is built and this seam is the one that cannot yet use it —
+    // per-connection principals arrive with per-user login and POD-308's cutover.
+    deps.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+      // The `rescope` arm is unreachable for a principal with no grant edges, and
+      // the pre-cutover wire could not express it anyway. Handled rather than
+      // cast: "cannot happen" plus a cast is how a silently dropped batch ships.
+      if (delivery.kind !== 'batch') {
+        throw new Error(
+          `WriteFunnel: the Authority produced a '${delivery.kind}' delivery for the device-grade ` +
+            'principal, which the pre-cutover wire cannot express (POD-308 owns the new one).',
+        )
+      }
+      const wire = delivery.changes.map(toWireChange)
       this.queueDelta(wire)
       deps.bus.emit('oplog.appended', { changes: wire })
     })
@@ -122,8 +140,9 @@ export class WriteFunnel {
 
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
   changesSince(cursor: number | null): MetadataChange[] | null {
-    const changes = this.deps.authority.changesSince(cursor)
-    return changes === null ? null : changes.map(toWireChange)
+    const delivery = this.deps.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+    if (delivery === null || delivery.kind !== 'batch') return null
+    return delivery.changes.map(toWireChange)
   }
 
   cursor(): number {
@@ -175,7 +194,17 @@ export class WriteFunnel {
  * POD-308 owns reconciling the two at the cutover; until then this is the ONE
  * place in the server where they meet, so that rename is one deletion.
  */
-function toWireChange(change: SequencedChange): MetadataChange {
+function toWireChange(change: ScopedChange): MetadataChange {
+  // The pre-cutover wire has two ops; `evict` is the third (Amendment 1 D14.1)
+  // and POD-308 owns bringing the wire onto the scoped vocabulary. Refused rather
+  // than coerced into `remove`, which D14.5 makes normative: the replica would
+  // render a revoked share as a deletion and a later re-grant as a resurrection.
+  if (change.op === 'evict') {
+    throw new Error(
+      "WriteFunnel: an 'evict' row reached the pre-cutover wire, which cannot express it. " +
+        "'remove' is NOT a substitute (ADR 2 Am1 D14.5) — the wire cutover (POD-308) comes first.",
+    )
+  }
   const base = { seq: change.seq, id: change.entityId, op: change.op }
   return (
     change.op === 'upsert'
