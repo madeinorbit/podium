@@ -81,6 +81,8 @@ import {
   type OutboxAttribution,
   type OutboxCommand,
   type OutboxRecord,
+  revisionOf,
+  revisionOfValue,
   type UserRef,
 } from './records'
 import { applyOutboxTransition, nextOutboxState, type OutboxTransition } from './states'
@@ -228,8 +230,12 @@ class OutboxDraft {
       .map((id) => this.records.find((r) => r.mutationId === id))
       .filter((r): r is OutboxRecord => r !== undefined)
     const mutation: OutboxStoreMutation = {
-      ...(put.length > 0 ? { put } : {}),
-      ...(this.removed.size > 0 ? { remove: [...this.removed] } : {}),
+      // Written DIRECTLY rather than through conditional spreads: a key supplied
+      // inside a spread escapes excess-property checking, so a renamed or deleted
+      // port field would keep being emitted with nothing going red. An empty array
+      // is semantically identical to an absent one for both `put` and `remove`.
+      put,
+      remove: [...this.removed],
       // Built HERE rather than by the caller, so a mutation cannot be assembled
       // without its preconditions — the hole the reviewer asked to close.
       expect: this.expectations(),
@@ -429,9 +435,7 @@ export class Outbox {
         mutationId,
         command: request.command,
         input: request.input,
-        ...(request.expectedRevision === undefined
-          ? {}
-          : { expectedRevision: request.expectedRevision }),
+        ...revisionOf(request),
         partitionKey: request.partitionKey ?? `create:${mutationId}`,
         attribution: request.attribution,
         state: 'queued',
@@ -700,15 +704,13 @@ export class Outbox {
       // user's own action (invariant 1), and its work continues under the new id.
       return await this.reissue(record, satisfaction.mutationId as MutationId, {
         input: record.input,
-        ...(record.expectedRevision === undefined
-          ? {}
-          : { expectedRevision: record.expectedRevision }),
+        ...revisionOf(record),
       })
     }
     const patch: Partial<OutboxRecord> = {
-      ...('expectedRevision' in satisfaction
-        ? { expectedRevision: satisfaction.expectedRevision }
-        : {}),
+      ...revisionOfValue(
+        'expectedRevision' in satisfaction ? satisfaction.expectedRevision : undefined,
+      ),
       ...('confirmed' in satisfaction ? CONFIRMED : {}),
     }
     return await this.transition(record, 'user-retried', {
@@ -857,9 +859,7 @@ export class Outbox {
         mutationId,
         command: old.command,
         input: request.input,
-        ...(request.expectedRevision === undefined
-          ? {}
-          : { expectedRevision: request.expectedRevision }),
+        ...revisionOf(request),
         partitionKey: old.partitionKey,
         attribution: old.attribution,
         state: 'queued',
@@ -1131,7 +1131,7 @@ export const envelopeFor = (record: OutboxRecord): OutboxEnvelope => ({
   command: record.command.name,
   version: record.command.version,
   input: record.input,
-  ...(record.expectedRevision === undefined ? {} : { expectedRevision: record.expectedRevision }),
+  ...revisionOf(record),
   ...confirmationOf(record),
 })
 
@@ -1148,7 +1148,7 @@ export const toDeadLetterRecord = (record: OutboxRecord): DeadLetterRecord => {
     mutationId: record.mutationId,
     command: record.command,
     input: record.input,
-    ...(record.expectedRevision === undefined ? {} : { expectedRevision: record.expectedRevision }),
+    ...revisionOf(record),
     attribution: record.attribution,
     queuedAt: record.queuedAt,
     deadLetteredAt: record.deadLetteredAt ?? record.queuedAt,

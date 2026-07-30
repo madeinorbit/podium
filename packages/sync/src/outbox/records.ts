@@ -125,6 +125,33 @@ export const confirmationOf = (source: EnvelopeConfirmation): EnvelopeConfirmati
 export const CONFIRMED: EnvelopeConfirmation = { [CONFIRMATION_FIELD]: true }
 
 /**
+ * The expected-revision precondition (ADR 3 D13), carried the same way as the
+ * confirmation above: through a helper whose RETURN TYPE is the narrow type.
+ *
+ * Not a conditional spread at the call site, and the reason is a soundness hole
+ * rather than taste. TypeScript excess-property checking does not reach a key
+ * supplied INSIDE a conditional spread — `{ req, ...(cond ? { bogus: 1 } : {}) }`
+ * compiles clean, and `satisfies` does not rescue it — while a key written directly
+ * IS checked, and a type MISMATCH inside a spread still is. So a producer built from
+ * conditional spreads keeps emitting a field the model has renamed or deleted with
+ * nothing going red: exactly the drift this programme exists to delete. Verified in
+ * this module, not assumed (POD-279 fan-out, corrected rule).
+ *
+ * Inside this helper the literal is checked against the declared return type, and at
+ * the call site spreading a `RevisionPrecondition` cannot introduce a key that type
+ * does not have. Absent-vs-present still matters — an entry with no precondition
+ * must not serialise one — which is why this is a helper and not simply a required
+ * field.
+ */
+export type RevisionPrecondition = { readonly expectedRevision?: number }
+
+export const revisionOf = (source: RevisionPrecondition): RevisionPrecondition =>
+  source.expectedRevision === undefined ? {} : { expectedRevision: source.expectedRevision }
+
+export const revisionOfValue = (expectedRevision: number | undefined): RevisionPrecondition =>
+  expectedRevision === undefined ? {} : { expectedRevision }
+
+/**
  * One durable Outbox entry.
  *
  * `input` is the author's own intent, verbatim — it is what makes dead-letter
