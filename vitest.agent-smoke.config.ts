@@ -5,8 +5,8 @@ const agentSmokeTests = [
   '**/*.smoke.test.{ts,tsx}',
   'packages/agent-bridge/test/pty-behavior/claude-smoke.test.ts',
   'apps/daemon/src/codex-hooks.test.ts',
-  'packages/agent-bridge/src/opencode/cli.test.ts',
-  'packages/agent-bridge/src/cursor/cli.test.ts',
+  'packages/harness/src/opencode/cli.test.ts',
+  'packages/harness/src/cursor/cli.test.ts',
 ]
 
 /** Explicit, potentially networked/credentialed real-agent smoke scope. */

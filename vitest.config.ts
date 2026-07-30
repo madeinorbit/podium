@@ -31,6 +31,10 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: '@podium/harness',
+        replacement: fileURLToPath(new URL('./packages/harness/src/index.ts', import.meta.url)),
+      },
+      {
         find: '@podium/composer',
         replacement: fileURLToPath(new URL('./packages/composer/src/index.ts', import.meta.url)),
       },

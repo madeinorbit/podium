@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { claudeProjectSlug } from '@podium/agent-bridge'
+import { claudeProjectSlug } from '@podium/harness'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildSnapshotCommit,

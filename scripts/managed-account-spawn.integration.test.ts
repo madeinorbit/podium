@@ -28,7 +28,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand } from '@podium/agent-bridge'
+import { agentLaunchCommand } from '@podium/harness'
 import { type DaemonMessage, SpawnMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

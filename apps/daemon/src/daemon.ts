@@ -3,14 +3,8 @@ import { stat } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  type AgentSession,
-  agentLaunchCommand,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-} from '@podium/agent-bridge'
+import { type AgentSession, isAbducoAvailable, isTmuxAvailable, killAbducoSession, killTmuxServer } from '@podium/agent-bridge'
+import { agentLaunchCommand } from '@podium/harness'
 import {
   type ControlMessage,
   type DaemonHandshake,

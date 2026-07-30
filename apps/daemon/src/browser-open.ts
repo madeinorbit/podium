@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { get } from 'node:http'
-import type { BrowserOpenClassification } from '@podium/agent-bridge'
+import type { BrowserOpenClassification } from '@podium/harness'
 import type {
   BrowserOpenCallbackTarget,
   BrowserOpenIntent,

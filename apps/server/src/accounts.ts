@@ -9,7 +9,7 @@
 // Login/profile detection lives on each @podium/agent-bridge harness adapter so
 // the daemon inventory and this server-side AccountView use the same facts.
 import { homedir } from 'node:os'
-import { HARNESS_ADAPTERS } from '@podium/agent-bridge'
+import { HARNESS_ADAPTERS } from '@podium/harness'
 import type { HarnessAgent } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { z } from 'zod'

@@ -2,11 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import {
-  PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV,
-  PODIUM_CODEX_HOOK_SOCKET_ENV,
-  PODIUM_CODEX_HOOK_URL_ENV,
-} from '@podium/agent-bridge'
+import { PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV, PODIUM_CODEX_HOOK_URL_ENV } from '@podium/harness'
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).

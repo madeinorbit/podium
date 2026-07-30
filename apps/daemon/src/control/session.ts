@@ -1,19 +1,7 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
-import {
-  type AgentSession,
-  abducoHasSessionAsync,
-  agentStateProviderFor,
-  attachAbducoAgent,
-  attachTmuxAgent,
-  killAbducoSessionAsync,
-  killTmuxServerAsync,
-  type LaunchFile,
-  spawnAbducoAgent,
-  spawnAgent,
-  spawnTmuxAgent,
-  tmuxHasSessionAsync,
-} from '@podium/agent-bridge'
+import { type AgentSession, abducoHasSessionAsync, attachAbducoAgent, attachTmuxAgent, killAbducoSessionAsync, killTmuxServerAsync, spawnAbducoAgent, spawnAgent, spawnTmuxAgent, tmuxHasSessionAsync } from '@podium/agent-bridge'
+import { agentStateProviderFor, type LaunchFile } from '@podium/harness'
 import { AGENT_CAPABILITIES, type AgentKind } from '@podium/protocol'
 import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'

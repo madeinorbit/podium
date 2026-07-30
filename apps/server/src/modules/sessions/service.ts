@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { acceptAgentObservation } from '@podium/agent-bridge'
+import { acceptAgentObservation } from '@podium/harness'
 import { computePriorities, repoNameFromOrigin } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,

@@ -7,11 +7,7 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
-import {
-  type HarnessHeadless,
-  type HeadlessExecOptions,
-  harnessAdapterFor,
-} from '@podium/agent-bridge'
+import { type HarnessHeadless, type HeadlessExecOptions, harnessAdapterFor } from '@podium/harness'
 import type { HarnessAgent, HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 

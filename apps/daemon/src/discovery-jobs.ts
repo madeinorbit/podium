@@ -1,8 +1,4 @@
-import {
-  type ConversationDiscoveryCache,
-  scanAgentConversationsCached,
-  summarizePaths,
-} from '@podium/agent-bridge'
+import { type ConversationDiscoveryCache, scanAgentConversationsCached, summarizePaths } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {

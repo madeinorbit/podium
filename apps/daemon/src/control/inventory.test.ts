@@ -1,11 +1,18 @@
 import type { DaemonMessage, Inventory } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The handler builds inventory via @podium/agent-bridge, which shells out to real
-// CLIs. Mock it so the test exercises the daemon's report/cache/rebuild logic in
-// isolation without spawning anything.
+// The handler builds inventory via @podium/harness, which shells out to real CLIs.
+// Mock it so the test exercises the daemon's report/cache/rebuild logic in
+// isolation without spawning anything. The mock returns the MACHINE-KEYED shape
+// (POD-397): the probe hands back the machine its facts are about, and the handler
+// must send THAT id rather than reaching for ctx.machineId a second time.
 const buildInventory = vi.fn<() => Promise<Inventory>>()
-vi.mock('@podium/agent-bridge', () => ({ buildInventory: () => buildInventory() }))
+vi.mock('@podium/harness', () => ({
+  buildMachineInventory: async (opts: { machineId: string }) => ({
+    machineId: opts.machineId,
+    inventory: await buildInventory(),
+  }),
+}))
 
 import type { DaemonContext } from './context'
 import { inventoryHandlers, reportInventory, startInventoryRefresh } from './inventory'

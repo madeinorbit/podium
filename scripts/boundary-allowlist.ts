@@ -47,14 +47,14 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     file: 'apps/server/src/accounts.ts',
     count: 1,
     phase: 'POD-740',
-    note: 'Imports HARNESS_ADAPTERS from @podium/agent-bridge for login/profile detection. POD-740 extracts it to an allowed package (@podium/transcript or protocol).',
+    note: 'Imports AGENT_MANIFESTS from @podium/harness for login/profile detection (was HARNESS_ADAPTERS from @podium/agent-bridge before the POD-397 split; same single import, same rule, same count). POD-740 extracts it to an allowed package (@podium/transcript or protocol).',
   },
   {
     rule: 'agent-bridge-consumers',
     file: 'apps/server/src/relay.ts',
     count: 1,
     phase: 'POD-740',
-    note: 'Imports ISSUE_SYSTEM_POINTER/SPEC_SYSTEM_POINTER from @podium/agent-bridge. POD-740 moves those constants somewhere apps/server may legally reach.',
+    note: 'Imports ISSUE_SYSTEM_POINTER/SPEC_SYSTEM_POINTER from @podium/harness (was @podium/agent-bridge before the POD-397 split; same single import, same rule, same count). POD-740 moves those constants somewhere apps/server may legally reach.',
   },
 
   // -------------------------------------------------------------------------

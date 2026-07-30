@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ConversationDiscoveryCache } from '@podium/agent-bridge'
+import { ConversationDiscoveryCache } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from './discovery-jobs.js'
 

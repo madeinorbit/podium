@@ -1,4 +1,5 @@
-import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
+import type { AgentSession } from '@podium/agent-bridge'
+import type { agentLaunchCommand } from '@podium/harness'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { ConversationDeltaWire } from '../active-refresh'

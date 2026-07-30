@@ -1,4 +1,4 @@
-import type { AgentConversationSummary } from '@podium/agent-bridge'
+import type { AgentConversationSummary } from '@podium/harness'
 import { ConversationSummaryWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { summaryToWire } from './conversation-wire'

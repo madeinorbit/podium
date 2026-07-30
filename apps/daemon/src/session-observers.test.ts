@@ -1,17 +1,7 @@
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  type AgentStateEvent,
-  type AgentStateProvider,
-  acceptAgentObservation,
-  agentStateProviderFor,
-  captureClaudeTranscript,
-  claudeTranscriptSegmentId,
-  type HarnessObserveInput,
-  type HarnessObserverHost,
-  harnessAdapterFor,
-} from '@podium/agent-bridge'
+import { type AgentStateEvent, type AgentStateProvider, acceptAgentObservation, agentStateProviderFor, captureClaudeTranscript, claudeTranscriptSegmentId, type HarnessObserveInput, type HarnessObserverHost, harnessAdapterFor } from '@podium/harness'
 import type {
   AgentObservation,
   DaemonMessage,

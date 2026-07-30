@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/agent-bridge'
+import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type {
   AgentKind,
   ConversationSummaryWire,

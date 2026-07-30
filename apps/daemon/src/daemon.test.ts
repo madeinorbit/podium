@@ -4,17 +4,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  abducoHasSession,
-  agentStateProviderFor,
-  claudeProjectSlug,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-  reapAbducoTestSessions,
-  tmuxHasSession,
-} from '@podium/agent-bridge'
+import { abducoHasSession, isAbducoAvailable, isTmuxAvailable, killAbducoSession, killTmuxServer, reapAbducoTestSessions, tmuxHasSession } from '@podium/agent-bridge'
+import { agentStateProviderFor, claudeProjectSlug } from '@podium/harness'
 import type {
   ConversationDiagnosticWire,
   ConversationSummaryWire,

@@ -1,4 +1,4 @@
-import { resolveCursorBin, resolveOpencodeBin } from '@podium/agent-bridge'
+import { resolveCursorBin, resolveOpencodeBin } from '@podium/harness'
 import type { ControlMessage, HeadlessTurnEvent } from '@podium/protocol'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
 import {

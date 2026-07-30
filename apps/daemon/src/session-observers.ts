@@ -1,24 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
-import {
-  type AgentRuntimeState,
-  type AgentSession,
-  type AgentStateEvent,
-  type AgentStateProvider,
-  ClaudeCausalObserver,
-  captureClaudeTranscript,
-  claudePromptHookFingerprint,
-  claudeTranscriptSegmentId,
-  type HarnessAdapter,
-  type HarnessObservation,
-  type HarnessObservationLease,
-  type HarnessObserveInput,
-  type HarnessObserverHost,
-  type HarnessProviderRebind,
-  harnessAdapterFor,
-  initialAgentState,
-  parseClaudeTranscriptSegmentId,
-  reduceAgentState,
-} from '@podium/agent-bridge'
+import { type AgentSession } from '@podium/agent-bridge'
+import { type AgentRuntimeState, type AgentStateEvent, type AgentStateProvider, ClaudeCausalObserver, captureClaudeTranscript, claudePromptHookFingerprint, claudeTranscriptSegmentId, type HarnessAdapter, type HarnessObservation, type HarnessObservationLease, type HarnessObserveInput, type HarnessObserverHost, type HarnessProviderRebind, harnessAdapterFor, initialAgentState, parseClaudeTranscriptSegmentId, reduceAgentState } from '@podium/harness'
 import type {
   AgentKind,
   AgentObservation,
