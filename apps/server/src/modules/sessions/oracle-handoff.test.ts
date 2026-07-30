@@ -115,12 +115,12 @@ async function handoffFixture(
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const timeline: TimelineEvent[] = []
-  reg.modules.sessions.attachDaemon('m1', (msg) => {
+  reg.gateway.attachDaemon('m1', (msg) => {
     source.push(msg)
     timeline.push({ machine: 'm1', type: msg.type, msg })
     if (msg.type === 'repoOpRequest') {
       const ok = msg.args?.ref === 'main'
-      reg.modules.sessions.onDaemonMessageFrom('m1', {
+      reg.gateway.routeDaemonFrame('m1', {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok,
@@ -129,7 +129,7 @@ async function handoffFixture(
     }
     if (msg.type === 'handoffExportRequest') {
       opts.onExport?.()
-      reg.modules.sessions.onDaemonMessageFrom(
+      reg.gateway.routeDaemonFrame(
         'm1',
         opts.failExport
           ? {
@@ -166,7 +166,7 @@ async function handoffFixture(
       )
     }
     if (msg.type === 'handoffChunkReadRequest')
-      reg.modules.sessions.onDaemonMessageFrom('m1', {
+      reg.gateway.routeDaemonFrame('m1', {
         type: 'handoffChunkReadResult',
         requestId: msg.requestId,
         ok: true,
@@ -175,7 +175,7 @@ async function handoffFixture(
         eof: true,
       })
   })
-  reg.modules.sessions.attachDaemon('m2', (msg) => {
+  reg.gateway.attachDaemon('m2', (msg) => {
     target.push(msg)
     timeline.push({ machine: 'm2', type: msg.type, msg })
     if (msg.type === 'repoOpRequest') {
@@ -184,7 +184,7 @@ async function handoffFixture(
       // that shares no verified commit with the source.
       opts.onTargetProbe?.()
       const ok = opts.targetHasBase === false ? false : msg.args?.ref === SHA
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok,
@@ -192,14 +192,14 @@ async function handoffFixture(
       })
     }
     if (msg.type === 'handoffImportChunk')
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'handoffImportChunkResult',
         requestId: msg.requestId,
         ok: true,
         sizeBytes: msg.offset + Buffer.from(msg.data, 'base64').length,
       })
     if (msg.type === 'handoffImportRequest')
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'handoffImportResult',
         requestId: msg.requestId,
         ok: true,
@@ -447,7 +447,7 @@ describe('oracle: handoff success across two machines', () => {
     // Same operator, same eligible-in-every-other-way target: only reachability
     // differs from the passing case, so the different message is attributable to
     // reachability alone (§3.1.4 M5's visible-machine distinction).
-    f.reg.modules.sessions.detachDaemon('m2')
+    f.reg.gateway.detachDaemon('m2')
 
     expect(
       await messageOf(() =>
@@ -740,7 +740,7 @@ describe('oracle: duplicate dispatch', () => {
       }),
     )
     f.store.repos.addRepo('/third/repo', 'm3', 'git@github.com:example/repo.git')
-    f.reg.modules.sessions.attachDaemon('m3', () => {})
+    f.reg.gateway.attachDaemon('m3', () => {})
 
     const first = f.reg.modules.sessions.handoffSession({
       sessionId: f.sessionId,
@@ -844,7 +844,7 @@ describe('oracle: worktree reuse on the target', () => {
       conversationId: 'other-native-id',
       machineId: 'm2',
     })
-    f.reg.modules.sessions.onDaemonMessageFrom('m2', {
+    f.reg.gateway.routeDaemonFrame('m2', {
       type: 'agentExit',
       sessionId: peer.sessionId,
       code: 0,

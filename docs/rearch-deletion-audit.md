@@ -188,7 +188,7 @@ survives reformatting, and **still fires after the symbol is renamed**.
 | `representation-registry-rot` | new, **0** | The other direction of the loop: a registry entry whose site is missing or no longer declares the symbol. Without it the registry can rot into a list of retired names while everything else reports green. |
 | `per-user-singletons` | new, **8** | **Mapped to POD-1076, not POD-302.** `SessionDurableState.readAt`/`snoozedUntil`, `SessionRow.readAt`, `IssueRow.readAt`/`tuckedAt`/`pinned`, and `readAt` on both auto-archive observations. All **inherited** — 1.4 added none and blessed none (POD-367 §3.5) — and each is later a table migration PLUS a wire change PLUS a replica migration. A ratchet, deliberately not laundered into POD-302's zero. |
 | `capability-snapshots` | new, **0** | Regression guard for ADR 9 D5 A1. `owner`/`actor`/`onBehalfOf` are deliberately not matched: attribution must survive export, and forbidding it would forbid what the matrix requires. |
-| `instance-partitions` | new, **0** | Regression guard for ADR 1 D5 as fenced by Amendment 2. Multi-user is not multi-tenancy. |
+| `instance-partitions` | new, **0** | Regression guard for ADR 1 D5 as fenced by Amendment 2. Multi-user is not multi-tenancy. **POD-1168 widened it to a second syntax form** — a column on a drizzle-declared physical table, which is a call expression and so was never enumerated as a key. Still 0: the widening added no site, it added the place a partition would actually be introduced. |
 
 **One item was RE-PHASED, and it is recorded here because re-phasing an item is
 the other way to retire a guardrail.** `change-row-typings` (7 sites) moves from

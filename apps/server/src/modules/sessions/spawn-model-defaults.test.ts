@@ -36,7 +36,7 @@ function makeRegistry(store: SessionStore): {
   const registry = new SessionRegistry(store)
   registries.push(registry)
   const daemon: ControlMessage[] = []
-  registry.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
+  registry.gateway.attachDaemon('local', (message) => daemon.push(message))
   return { registry, daemon }
 }
 
@@ -67,7 +67,7 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     resume,
     conversationId: 'conversation-1',
   })
-  registry.modules.sessions.onDaemonMessageFrom('local', {
+  registry.gateway.routeDaemonFrame('local', {
     type: 'bind',
     sessionId,
     cmd: agentKind === 'codex' ? 'codex' : 'claude',

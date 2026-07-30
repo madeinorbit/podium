@@ -75,6 +75,15 @@ export const sessionHandoffContract: CommandContract<
   name: 'sessions.handoff',
   version: 1,
   input: sessionHandoffInput,
+  // PERSONAL — the class of what this command WRITES, which is a session's
+  // placement. Not `owned-compute`, even though `policy.resource` below is the
+  // machine: the two fields answer different questions, and conflating them was a
+  // mistake POD-382 made and reverted. What authorizes a handoff is compute
+  // ownership at both endpoints (`machineVerb: 'use'`, a code-execution boundary —
+  // readiness §3.1.4 M2); what it writes is the moved session, whose owner does not
+  // change and whose visibility is its owner's. Declaring `owned-compute` here would
+  // say a handoff writes machine state, which it does not.
+  visibility: 'personal',
   policy: {
     action: 'write',
     // A MEMBER may hand off, not only an admin: moving your own session between

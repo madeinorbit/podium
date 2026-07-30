@@ -8,12 +8,13 @@
  * second answer to "who is calling", which is the failure D7 exists to prevent.
  */
 
+import type { TransportTag } from '@podium/commands'
 import type { Capability } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
   canSeeMachine,
-  machineUseDecision,
   type MachineOwnershipIndex,
+  machineUseDecision,
   ownershipFromMachines,
 } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
@@ -31,18 +32,49 @@ export function sessionCommandCtx(
   modules: RegistryModules,
   capability: Capability,
   overrideScope?: boolean,
+  /**
+   * Which transport is asking. Load-bearing, not decoration: the mail port below
+   * runs ADR 3 D3's default-closed exposure check with it, so a transport that
+   * `mail.send` does not name cannot reach delivery through the chat path
+   * either. Defaults to the relay — the narrower of the two, so a caller that
+   * forgets to say gets the stricter answer rather than the looser one.
+   */
+  transport: TransportTag = 'relay',
 ): SessionCommandCtx {
   const sessions = modules.sessions
   const issues = modules.issues
   const principal = resolvePrincipal(capability, {
     parentSessionOf: (sessionId) => {
       const spawnedBy = sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy
-      return spawnedBy?.startsWith('session:') === true ? spawnedBy.slice('session:'.length) : undefined
+      return spawnedBy?.startsWith('session:') === true
+        ? spawnedBy.slice('session:'.length)
+        : undefined
     },
   })
   const deps: SessionCommandDeps = {
     sessions: () => sessions,
-    messages: () => modules.messages,
+    // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
+    //
+    // The capability is closed over HERE, at the composition root, so no handler
+    // takes a principal as an argument and none can invent one — the same rule
+    // the rest of this function follows. `immediate` is the delivery mode, set
+    // by the server: `mailSendInput` has no field for it, so a client cannot ask
+    // a send not to be confirmed. See MailDeliveryMode for why the chat path
+    // needs it (POD-379 pins `disposition: 'queued'`; blocking would say
+    // `accepted`).
+    //
+    // The non-null assertion is safe by the same argument the router's makes: a
+    // `undefined` here would mean `mail.send` does not name this transport, and
+    // both transports that build this context are in its exposure set.
+    mailSend: (input) =>
+      modules.messageGate.dispatch(
+        capability,
+        overrideScope,
+        'send',
+        input,
+        transport,
+        'immediate',
+      )!,
     createDraftIssue: (repoPath, agentKind, issueId) =>
       issues.createDraftFor(repoPath, agentKind, issueId),
     access: {
@@ -50,7 +82,12 @@ export function sessionCommandCtx(
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
+    rpc: () => modules.rpc,
     ownership: ownershipFromMachines(modules.machines),
+    // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
+    // one durable table have two in-flight maps, and a replay arriving on the other
+    // transport while the original is still running would apply twice.
+    mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal, overrideScope)
 }

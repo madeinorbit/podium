@@ -305,6 +305,24 @@ export type OptimisticReducer<In> = (args: {
 export interface CommandContractBase {
   /** Stable dotted wire name (`mail.send`). */
   readonly name: string
+  /**
+   * THE VISIBILITY CLASS OF WHAT THIS COMMAND WRITES (POD-382; ADR 9 D3/D4,
+   * readiness §3.1.1 rules 1 and 2).
+   *
+   * `policy` says whose authority a write answers to and which rows it may touch.
+   * This says which of ADR 9's five classes the state belongs to — the question a
+   * scoped feed and a share dialog both ask, and the one nothing on this contract
+   * could answer before.
+   *
+   * REQUIRED, like every other field here, and for the reason the file header
+   * gives: a missing visibility class must mean "personal and private" (ADR 9 D4),
+   * and that default is not reachable if the field can simply be absent. The
+   * semantic backstop still exists for anything constructed outside this type
+   * (`visibilityClassOf` in `@podium/model`, `commandVisibility` in
+   * `@podium/protocol`); this is the compile-time half, and neither substitutes
+   * for the other.
+   */
+  readonly visibility: VisibilityClass
   /** Positive integer, starts at 1; bumped on an incompatible schema change. */
   readonly version: number
   readonly policy: CommandPolicy
@@ -452,6 +470,27 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
     at('a command that creates entities must declare their owner (ADR 9 D5 A4)')
   }
   if (contract.ownership.note.trim() === '') at('ownership.note is required')
+  // ADR 9 D3/D6, ONE DIRECTION ONLY, and the asymmetry is the whole point.
+  //
+  // `visibility` classifies THE STATE THE COMMAND WRITES; `policy.resource` names
+  // what it authorizes AGAINST. For most of this fleet those differ on purpose: a
+  // spawn, a handoff and an agent-spawn all authorize against a MACHINE (`use`, a
+  // code-execution boundary — readiness §3.1.4 M2) while what they write is a
+  // SESSION, which is personal. So a `machine` resource does NOT imply
+  // `owned-compute` state, and the first draft of this lint asserted that it did —
+  // it fired on `mail.spawnAgent` and on `sessions.rename` inside another test's
+  // fixture, both of which were correctly classified. The machine side is already
+  // covered: `machineVerb` is required for a `machine` resource, checked above.
+  //
+  // What DOES hold is the converse: a command that writes owned-compute state — a
+  // machine row, a pairing, a fleet membership — must be authorized against the
+  // machine, because there is nothing else for its grants to hang on.
+  if (contract.visibility === 'owned-compute' && contract.policy.resource !== 'machine') {
+    at('visibility `owned-compute` must name the `machine` resource (ADR 9 D6)')
+  }
+  if (contract.visibility === 'secret' && contract.delivery.class !== 'online-sensitive') {
+    at('a `secret` visibility class forces `online-sensitive` (ADR 3 D4 rule 1)')
+  }
   if (contract.errorConsistency.note.trim() === '') at('errorConsistency.note is required')
   return errs
 }

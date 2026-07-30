@@ -40,9 +40,9 @@
  * anything is spelled out above and is checked exactly.
  */
 
+import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
-import type { SessionStore } from '../../store'
-import { PresenceRegistry, type PresencePrincipal } from './presence-registry'
+import type { PresencePrincipal, PresenceRegistry } from './presence-registry'
 import { renameOnTargetPath, type RenameServices } from './rename-target-path'
 
 /** Which path a rename should take. */
@@ -89,12 +89,22 @@ export const MIGRATED_COMMANDS: readonly string[] = ['sessions.rename']
  */
 export interface RenameDispatchDeps {
   sessions: RenameServices
-  store: SessionStore
-  now: () => number
+  /** THE composition root's mutation ledger — both envelopes share this one
+   *  instance, so a replay is seen once no matter which path served the original. */
+  mutations: MutationLedgerPort
   /** The target path's principal — the real one, chain already resolved. */
   principal: CommandPrincipal
   /** The legacy path's principal. Different type, deliberately: see rename-target-path.ts. */
   legacyPrincipal: PresencePrincipal
+  /**
+   * The legacy envelope, as a THUNK.
+   *
+   * Built by the caller rather than here because `PresenceRegistry` needs the
+   * session store and this module has no business reaching for it — and lazily
+   * because the target path is the default, so the rollback envelope must not be
+   * constructed on every rename just to be discarded.
+   */
+  legacyRegistry: () => PresenceRegistry
 }
 
 /**
@@ -103,15 +113,10 @@ export interface RenameDispatchDeps {
  * outcome to this transport would make a denial distinguishable from a not-found.
  */
 export function dispatchRename(deps: RenameDispatchDeps, input: unknown): void {
-  const { sessions, store, now } = deps
+  const { sessions, mutations } = deps
   if (renamePath() === 'legacy') {
-    new PresenceRegistry({ sessions: sessions as never, store, now }).execute(
-      'sessions.rename',
-      input,
-      deps.legacyPrincipal,
-      'trpc',
-    )
+    deps.legacyRegistry().execute('sessions.rename', input, deps.legacyPrincipal, 'trpc')
     return
   }
-  renameOnTargetPath({ sessions, store, now }, input, deps.principal, 'trpc')
+  renameOnTargetPath({ sessions, mutations }, input, deps.principal, 'trpc')
 }

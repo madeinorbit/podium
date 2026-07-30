@@ -694,8 +694,26 @@ zero divergence required.
 #### POD-351 as-built — the walking skeleton
 
 **What moved.** Exactly one command. `sessions.rename` runs on the target path in
-production config (`apps/server/src/router.ts`, `renameProc`); the other ten presence
-commands are untouched on `presenceProc`. The adapter
+production config; the other ten presence commands are untouched on the presence
+envelope.
+
+*Re-pointed after POD-382 landed the 3.2 cutover.* This issue originally joined the
+contract to its handler as a hand-written `renameProc` in `router.ts`. POD-382 then
+deleted the hand-written session surface entirely — every session mutation is now
+DERIVED from the contract tables by `modules/sessions/trpc.ts`, and
+`scripts/audit-session-commands.ts` fails the build if a `.mutation(` for a session
+appears in `router.ts` at all. So rename now arrives through that derived surface as
+its own manifest source, `walking-skeleton`, built by `renameProcedure()`. It stays
+in `TRPC_PRESENCE_NAMES` and keeps its presence contract — that contract is still
+what declares its exposure and policy, and the both-directions exposure cross-check
+must keep covering it — while the manifest records that a DIFFERENT envelope runs it.
+Declaring a fourth source rather than special-casing inside `presenceProcedure` is
+what keeps "which commands are on which envelope" readable in the manifest, so a
+second command migrating later is a row that changes rather than a condition somebody
+has to find. The contract and the reducer were unchanged by the move, which is the
+evidence that the port shapes were right.
+
+The adapter
 (`modules/sessions/rename-adapter.ts`) defaults to the target path — a legacy default
 would leave the target path with zero production callers — with
 `PODIUM_SESSION_RENAME_PATH=legacy` as the rollback, matched exactly so a typo cannot
@@ -707,7 +725,10 @@ hand-written rename procedure. LEGACY is therefore `PresenceRegistry` (POD-380's
 envelope, the protocol `CommandDef`, a `PresencePrincipal`, `undefined` on success);
 TARGET is `modules/sessions/rename-target-path.ts` (the `@podium/commands` ADR 3
 contract, the real `CommandPrincipal` with its delegation chain resolved live, the
-contract's accept/reject outcome union).
+contract's accept/reject outcome union). Both share the composition root's one
+`MutationLedger`, so a replay is seen once no matter which path served the original —
+idempotency is framework-owned on both sides, and the target path's ordering
+(authorize BEFORE the ledger is consulted) is what `rename-offline.test.ts` pins.
 
 **SHADOW COMPARISON — ZERO DIVERGENCE.** `modules/sessions/rename-shadow.test.ts`
 runs nine input cases plus the SP-eb60 arbitration branch and the not-found case

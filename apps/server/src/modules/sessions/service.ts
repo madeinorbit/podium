@@ -1,8 +1,16 @@
-import {
-  AgentKind,
-  asIssueId,
+import type {
+  ActorRef,
+  AgentRuntimeState,
+  AutomationRunWire,
+  AutomationWire,
+  Geometry,
+  IssueWire,
+  ResumeRef,
+  SessionMeta,
+  TranscriptItem,
+  WorkState,
 } from '@podium/model'
-import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import { AgentKind, asIssueId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -19,18 +27,20 @@ import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Ge
  * overloading `null`.
  */
 export type SessionWirePrincipal = ActorRef
+
+import type { MachinePrincipal } from '@podium/protocol'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  agentSupportsEffort,
+  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -48,7 +58,7 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import type { EntityChangeSpec } from '@podium/sync'
+import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 // OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
@@ -61,8 +71,8 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { ownershipFromMachines } from '../../machine-access'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -88,6 +98,9 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
+import { machineUseGateForCapability } from './handoff/access'
+import { HandoffCoordinator } from './handoff/coordinator'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import {
@@ -95,10 +108,8 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import { machineUseGateForCapability } from './handoff/access'
-import { HandoffCoordinator } from './handoff/coordinator'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -238,6 +249,18 @@ interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
+   * `MutationLedger`. Threaded through rather than constructed here — the service
+   * owns no dedup of its own since `withMutation` was deleted, and a
+   * service-built ledger would be a second in-flight map over one durable table.
+   *
+   * Optional so the ~40 test fixtures that build a bare service literal keep
+   * compiling; absent means a private ledger over the same store, which is
+   * behaviourally identical for the synchronous presence writes that reach it and
+   * is the only path that can be reached without the composition root.
+   */
+  mutations?: MutationLedgerPort
   /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
    *  fan-out tail; session deltas ride its ordered pipe via the ledger bridge. */
   funnel: WriteFunnel
@@ -265,13 +288,12 @@ interface SessionsServiceDeps {
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
-  /** Relayed agent op (modules/issues/relay-gate). */
-  runAgentRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>): void
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
-  /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
-  onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
+  /** Approval broker [spec:SP-edbb]: the attach snapshot. The daemon execution
+   *  OUTCOME no longer arrives here — `approvalExecResult` routes straight from
+   *  the gateway to the approvals port (POD-389). */
   approvalsPending(): ApprovalWire[]
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
@@ -413,6 +435,7 @@ export class SessionsService {
   constructor(private readonly deps: SessionsServiceDeps) {
     this.store = deps.store
     this.now = deps.now
+    this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
@@ -1051,20 +1074,20 @@ export class SessionsService {
     })
   }
 
-  attachDaemon(machineId: string, send: Send<ControlMessage>): void {
-    // Socket bookkeeping (set + machine-cache invalidation) lives in the machines
-    // module; the session orchestration around it stays here.
-    this.machines.attach(machineId, send)
-    // The local machine adopts every lingering `'__local__'` placeholder row/session/
-    // queue onto itself as it attaches. ensureLocalMachine already ran this at startup,
-    // but a session created in the gap between that and the daemon connecting (the boot
-    // race) is still attributed to `'__local__'` — adopting on attach reattributes it and
-    // carries its queued spawn over to this machine so it isn't dead-queued. Idempotent.
-    if (machineId === LOCAL_MACHINE_ID) this.machines.adoptPlaceholderRows(machineId)
-    // Flush control messages buffered while this machine was offline (e.g. a boot
-    // session's spawn produced before the local daemon ws connected). AFTER adoption,
-    // so messages carried over from the placeholder queue flush too.
-    this.machines.flushQueued(machineId)
+  /**
+   * A machine's daemon became reachable — the SESSION half of what `attachDaemon`
+   * used to do inline. The socket registration, the placeholder adoption, the
+   * queued-control flush, the machine broadcast and the `machine.connected` bus
+   * emit are the gateway's (`gateway/daemon-mux.ts`); everything below is session
+   * orchestration and stays here, in its original order.
+   *
+   * `principal` is the transport-resolved MACHINE principal (ADR 3 D7). Every
+   * write these steps make is a daemon-class observation attributed to that
+   * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
+   * class; `docs/multi-user-readiness.md` §3.1.6 S5).
+   */
+  onMachineAttached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
     // attempts parked while the daemon was away (single-flight + liveness wait make
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
@@ -1170,18 +1193,16 @@ export class SessionsService {
           }
         })
     }
-    this.machines.broadcastMachines()
-    this.bus.emit('machine.connected', { machineId })
   }
 
-  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
-    // A superseded socket's late close must not tear down the live registration, nor
-    // knock this machine's sessions back to 'reconnecting' behind the daemon's back.
-    if (!this.machines.detach(machineId, send)) return
-    // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
-    // module drops this machine's health sample + rebroadcasts BEFORE the session
-    // sweep below, exactly where the inline delete used to sit.
-    this.bus.emit('machine.disconnected', { machineId })
+  /**
+   * That machine's daemon went away — the SESSION half of `detachDaemon`. The
+   * superseded-socket guard, the `machine.disconnected` emit and the machine
+   * broadcast are the gateway's; this runs only once the gateway has decided the
+   * detach is real, in the same position it occupied before.
+   */
+  onMachineDetached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
     // restart/crash; durable masters survive in their own scopes). Drop only THIS
     // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
@@ -1202,7 +1223,6 @@ export class SessionsService {
       for (const session of changed) this.markVolatileSessionDirty(session.sessionId, ['status'])
       this.broadcastSessions()
     }
-    this.machines.broadcastMachines()
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
@@ -1923,7 +1943,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: string,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
@@ -2094,9 +2118,18 @@ export class SessionsService {
       sessions: this,
       store: this.store,
       now: () => this.now(),
+      mutations: this.mutations,
     })
     return this.presenceRegistry
   }
+
+  /**
+   * The framework's idempotency ledger — the composition root's instance when it
+   * supplied one, else a private one over the same durable table (see
+   * {@link SessionsServiceDeps.mutations}). Assigned in the constructor body, not
+   * as a field initializer: `this.store` is not set until then.
+   */
+  private readonly mutations: MutationLedgerPort
 
   /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
    *  send `setSessionDraft` are handled by that method's flag gate. */
@@ -2400,54 +2433,19 @@ export class SessionsService {
   }
 
   /**
-   * Idempotency wrapper (docs/spec/outbox-write-path.md §2.1): a mutation carrying
-   * an already-seen mutationId returns its recorded result WITHOUT re-running —
-   * what makes outbox replays and network retries safe. Check-run-record is one
-   * synchronous pass (no await), so replays can't interleave with the original.
+   * IDEMPOTENCY IS NOT THIS SERVICE'S ANYMORE (POD-382).
+   *
+   * `withMutation(mutationId, proc, fn)` lived here and every session write, plus
+   * the whole issue registry through an injected reference to it, wrapped itself in
+   * it. It is now `@podium/sync`'s `MutationLedger` — one implementation, called by
+   * the command envelopes (`PresenceRegistry.execute`, `dispatchSessionCommand`,
+   * `IssueCommandCtx.withMutation`) AFTER they authorize, never by a handler.
+   *
+   * Deliberately not re-exposed as a delegating method: a method here is a seam a
+   * new write can wrap itself in, which is exactly the per-proc shape POD-312 set
+   * out to delete. The service holds {@link SessionsService.mutations} privately
+   * for the presence envelope it builds and offers no public wrapper.
    */
-  /** Async mutations in flight, so a replay arriving before the original resolves
-   *  (e.g. both calls in one tRPC HTTP batch) joins the SAME promise instead of
-   *  re-running — the async analogue of the sync check-run-record pass. */
-  private readonly inFlightMutations = new Map<string, Promise<unknown>>()
-
-  withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T {
-    if (!mutationId) return fn()
-    const prior = this.store.sync.getAppliedMutation(mutationId)
-    if (prior !== undefined) return JSON.parse(prior) as T
-    const inFlight = this.inFlightMutations.get(mutationId)
-    if (inFlight !== undefined) return inFlight as T
-    const result = fn()
-    // An async proc (issues.create → createAndMaybeStart) must record its RESOLVED
-    // value: stringifying the pending Promise itself would durably record '{}' —
-    // poisoning every replay — and would mark a rejected mutation as applied.
-    if (result instanceof Promise) {
-      const tracked = result.then(
-        (value) => {
-          this.store.sync.recordAppliedMutation(
-            mutationId,
-            proc,
-            JSON.stringify(value ?? null),
-            this.now(),
-          )
-          this.inFlightMutations.delete(mutationId)
-          return value
-        },
-        (err) => {
-          this.inFlightMutations.delete(mutationId)
-          throw err
-        },
-      )
-      this.inFlightMutations.set(mutationId, tracked)
-      return tracked as T
-    }
-    this.store.sync.recordAppliedMutation(
-      mutationId,
-      proc,
-      JSON.stringify(result ?? null),
-      this.now(),
-    )
-    return result
-  }
 
   /**
    * The write funnel's session-metadata face: apply the field write, persist the
@@ -3174,7 +3172,8 @@ export class SessionsService {
       broadcastSessions: () => this.broadcastSessions(),
       onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onWorktreesChanged: (repoPath, machineId) => this.deps.onWorktreesChanged(repoPath, machineId),
+      onWorktreesChanged: (repoPath, machineId) =>
+        this.deps.onWorktreesChanged(repoPath, machineId),
       resumeSession: (resumeInput) => this.resumeSession(resumeInput),
       resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
       recordEvent: (event) => {
@@ -4388,21 +4387,26 @@ export class SessionsService {
     })
   }
 
-  // ---- ws data plane: daemon ----
-  /** Inbound daemon message, tagged with the machine it came from. Session-keyed
-   *  handlers (bind/agentFrame/agentExit/…) look up by sessionId and are machine-
-   *  agnostic; host-scoped ones (hostMetrics, conversation discovery) use machineId
-   *  to scope/tag their data; `*Result` replies settle in the RPC module. */
-  onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
+  // ---- the sessions FEATURE PORT for daemon frames (gateway/daemon-mux.ts) ----
+  /**
+   * One SESSION-OWNED daemon frame, attributed to the machine that sent it.
+   *
+   * This used to be `onDaemonMessageFrom` — a switch over the WHOLE daemon union,
+   * which made the sessions service the multiplexer for host metrics, repo scans,
+   * credential relays, approvals, the agent relay and every RPC reply. The mux is
+   * the gateway's now (POD-389); what remains is the session-keyed subset the
+   * routing table assigns to this port, and `SessionsDaemonFrame` makes that
+   * subset a compile-checked type rather than a comment.
+   *
+   * The frames are session-keyed and machine-agnostic in their LOOKUP, but the
+   * machine still matters: several cases refuse a frame from a machine that does
+   * not own the session (handoff leaves a stale daemon able to send late frames
+   * for a session id now hosted elsewhere), and every write they make is a
+   * daemon-class observation attributed to `principal`.
+   */
+  onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
+    const machineId = principal.machine
     switch (msg.type) {
-      case 'approvalExecResult': {
-        this.deps.onApprovalExecResult(msg)
-        return
-      }
-      case 'agentRelayRequest': {
-        this.deps.runAgentRelay(machineId, msg)
-        break
-      }
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
         // A daemon may only originate intents for sessions it owns. The bus is
@@ -4920,28 +4924,6 @@ export class SessionsService {
         this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
         break
       }
-      case 'scanResult': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        this.rpc.onScanResult(msg)
-        break
-      }
-      case 'conversationsChanged': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        break
-      }
-      case 'scanReposResult': {
-        this.rpc.onScanReposResult(msg)
-        break
-      }
-      case 'browseDirsResult': {
-        this.rpc.onBrowseDirsResult(msg)
-        break
-      }
-      case 'hostMetrics': {
-        const { type: _type, ...rest } = msg
-        this.hosts.onHostMetrics(machineId, rest)
-        break
-      }
       case 'sessionResumeRef': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
@@ -5091,102 +5073,6 @@ export class SessionsService {
             })
           }
         }
-        break
-      }
-      case 'handoffExportResult': {
-        this.rpc.onHandoffExportResult(msg)
-        break
-      }
-      case 'handoffChunkReadResult': {
-        this.rpc.onHandoffChunkReadResult(msg)
-        break
-      }
-      case 'handoffImportChunkResult': {
-        this.rpc.onHandoffImportChunkResult(msg)
-        break
-      }
-      case 'handoffImportResult': {
-        this.rpc.onHandoffImportResult(msg)
-        break
-      }
-      case 'workspaceExportResult': {
-        this.rpc.onWorkspaceExportResult(msg)
-        break
-      }
-      case 'workspaceImportResult': {
-        this.rpc.onWorkspaceImportResult(msg)
-        break
-      }
-      case 'workspaceCleanResult': {
-        this.rpc.onWorkspaceCleanResult(msg)
-        break
-      }
-      case 'repoOpResult': {
-        this.rpc.onRepoOpResult(msg)
-        break
-      }
-      case 'credentialExportResult': {
-        this.rpc.onCredentialExportResult(msg)
-        break
-      }
-      case 'credentialInstallResult': {
-        this.rpc.onCredentialInstallResult(msg)
-        break
-      }
-      case 'harnessExecResult': {
-        this.rpc.onHarnessExecResult(msg)
-        break
-      }
-      case 'headlessTurnEvent': {
-        this.headless.onTurnEvent(msg)
-        break
-      }
-      case 'headlessTurnResult': {
-        this.headless.onTurnResult(msg)
-        break
-      }
-      case 'headlessBindResult': {
-        this.headless.onBindResult(msg)
-        break
-      }
-      case 'usageResult': {
-        this.rpc.onUsageResult(msg)
-        break
-      }
-      case 'agentQuotaResult': {
-        this.rpc.onAgentQuotaResult(msg)
-        break
-      }
-      case 'transcriptReadResult': {
-        this.rpc.onTranscriptReadResult(msg)
-        break
-      }
-      case 'transcriptMirrorResult': {
-        this.conversations().onTranscriptMirrorResult(msg)
-        break
-      }
-      case 'imageUploadResult': {
-        this.rpc.onImageUploadResult(msg)
-        break
-      }
-      case 'memoryBreakdownResult': {
-        this.hosts.onMemoryBreakdownResult(msg)
-        break
-      }
-      case 'fileReadResult': {
-        this.rpc.onFileReadResult(msg)
-        break
-      }
-      case 'fileWriteResult': {
-        this.rpc.onFileWriteResult(msg)
-        break
-      }
-      case 'fileAssetResult': {
-        this.rpc.onFileAssetResult(msg)
-        break
-      }
-      case 'dirListResult': {
-        this.rpc.onDirListResult(msg)
         break
       }
     }

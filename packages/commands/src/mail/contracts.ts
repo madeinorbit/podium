@@ -1,8 +1,12 @@
 /**
- * THE agent-mail command contracts (POD-728, step 2 of the POD-640 mini-epic).
+ * THE agent-mail command contracts (POD-728 step 2, completed by POD-729 step 3
+ * of the POD-640 mini-epic).
  *
  * Five verticals: `send`, `reply`, `spawnAgent`, `awaitAgent`, `inboxConsume`,
- * plus the `ledger` query whose exposure class this pass had to reclassify.
+ * plus the `ledger` query whose exposure class POD-728 had to reclassify — and
+ * then the five POD-728 deliberately left behind (`show`, `dismiss`, `status`,
+ * `pendingReminders`, `ask`), classified at the bottom of this file so the
+ * hand-written arm of `MessageGate.dispatch` could be DELETED rather than halved.
  * Contracts only — every handler lives in `apps/server/src/modules/messages/
  * handlers` and is joined here-to-there at the composition root (ADR 3 D1
  * finding 1: a handler at L1 would drag L3 services into an L1 package).
@@ -38,7 +42,12 @@
 
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { z } from 'zod'
-import type { AttributionPolicy, CommandContract, DeliveryPolicy } from '../contract'
+import type {
+  AttributionPolicy,
+  CommandContract,
+  DeliveryPolicy,
+  ErrorConsistency,
+} from '../contract'
 
 // ---------------------------------------------------------------------------
 // Shared policy fragments
@@ -164,6 +173,7 @@ export const awaitAgentInput = z.object({
 export const mailSendContract: CommandContract<typeof mailSendInput> = {
   name: 'mail.send',
   version: 1,
+  visibility: 'personal',
   input: mailSendInput,
   policy: {
     action: 'write',
@@ -202,6 +212,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
 export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
   name: 'mail.reply',
   version: 1,
+  visibility: 'personal',
   input: mailReplyInput,
   policy: {
     action: 'write',
@@ -237,6 +248,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
 export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
   name: 'mail.spawnAgent',
   version: 1,
+  visibility: 'personal',
   input: spawnAgentInput,
   policy: {
     action: 'write',
@@ -316,6 +328,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
 export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
   name: 'mail.awaitAgent',
   version: 1,
+  visibility: 'personal',
   input: awaitAgentInput,
   policy: {
     action: 'write',
@@ -377,6 +390,7 @@ export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
 export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = {
   name: 'mail.inboxConsume',
   version: 1,
+  visibility: 'personal',
   input: mailInboxInput,
   policy: {
     action: 'write',
@@ -429,6 +443,7 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
 export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
   name: 'mail.ledger',
   version: 1,
+  visibility: 'personal',
   input: mailLedgerInput,
   policy: {
     action: 'read',
@@ -444,7 +459,16 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
       '`member` because a member may legitimately ATTEMPT the command; the grade decides which ROWS ' +
       "come back, which is exactly Amendment 1 D15's split between the role floor and the row gate.",
   },
-  exposure: ['trpc', 'cli', 'mcp'],
+  // `relay` INCLUDED, corrected in POD-729: the daemon relay's messages arm has
+  // always served `ledger` (agents reach it through the relay, not through
+  // tRPC), and POD-728's set omitted it. Harmless while the transports were
+  // hand-written and every proc fell through the same switch; the moment
+  // exposure became DEFAULT-CLOSED and load-bearing it silently removed a
+  // shipped agent surface, which is what the gate's own tests caught. Recorded
+  // rather than quietly patched, because "the classification was wrong" and
+  // "the surface should not exist" are different claims and only the first is
+  // true here.
+  exposure: ['trpc', 'cli', 'mcp', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation:
@@ -473,6 +497,211 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
   cli: { summary: 'The message delivery ledger' },
 }
 
+// ---------------------------------------------------------------------------
+// THE REMAINDER (POD-729) — the five procs POD-728 left hand-written
+// ---------------------------------------------------------------------------
+//
+// `show`, `dismiss`, `status`, `pendingReminders` and `ask` were the shipped
+// hand-written arm of `MessageGate.dispatch`'s switch. They are classified here
+// for the same reason the first six were: a surface that exists twice is the
+// intermediate state POD-279 exists to end, and the switch could not be DELETED
+// while five procs still needed it. `ask` is the one of the five that reaches
+// message DELIVERY, which is why leaving it behind would have left a live
+// send path that no contract policy governs.
+
+/** The oracle rule for the three commands addressed by MESSAGE id. One constant:
+ *  three surfaces answering "unknown message" three ways is how a projection
+ *  becomes an enumeration tool. */
+const MESSAGE_ID_ORACLE_RULE: ErrorConsistency = {
+  callerSuppliedTargetId: true,
+  invisibleFailsAs: 'nonexistent',
+  distinguishesUnauthorizedFromUnreachable: false,
+  note:
+    'The caller supplies a MESSAGE id. A row it may not view must be indistinguishable from a row ' +
+    "that does not exist, or the projection surfaces enumerate other principals' traffic one id at " +
+    'a time. Note what this does NOT yet hold: the shipped refusal for an existing-but-invisible ' +
+    'row is a distinct string from the unknown-id refusal, and POD-727 pinned both. Collapsing ' +
+    'them is a behaviour change to a pinned oracle and belongs to the issue that owns the ' +
+    'projection surfaces, not to this cutover — recorded here so the gap is in the contract rather ' +
+    'than only in a reviewer’s memory.',
+}
+
+export const mailShowInput = z.object({ id: z.string() })
+export const mailDismissInput = z.object({ id: z.string() })
+export const mailStatusInput = z.object({ id: z.string() })
+export const mailPendingRemindersInput = z.object({}).optional()
+export const mailAskInput = z.object({
+  sessionId: z.string(),
+  question: z.string().min(1).max(32_768),
+  timeoutSeconds: z.number().min(0).max(300).optional(),
+})
+
+export const mailShowContract: CommandContract<typeof mailShowInput> = {
+  name: 'mail.show',
+  version: 1,
+  visibility: 'personal',
+  input: mailShowInput,
+  policy: {
+    action: 'read',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'A pure projection of ONE row, gated by the same `mayView` arithmetic as the ledger: you may ' +
+      'read a message you sent or received, never a stranger’s. `resource: none` because the row is ' +
+      'not an owned entity — visibility follows sender-ship and recipient-ship, which is the ' +
+      'mailbox conversation model, not an issue-scope question.',
+  },
+  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'A query, so nothing is ever enqueued. Recorded rather than omitted: ADR 3 D3 rule 1 makes an ' +
+      'absent classification mean "served nowhere", and this command IS served.',
+    applyTimeReauthorization:
+      'Evaluated at read time against the effective principal; no accept-then-drain gap exists for a ' +
+      'read, so a revoked principal is refused on its next call with nothing to invalidate.',
+  },
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'A projection over one existing row.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: MESSAGE_ID_ORACLE_RULE,
+  cli: { positional: ['id'], summary: 'Show one message' },
+}
+
+export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
+  name: 'mail.dismiss',
+  version: 1,
+  visibility: 'personal',
+  input: mailDismissInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'RECIPIENT-SHIP IS THE AUTHORIZATION, and it is STRICTER than `show`. Dismiss is a durable ' +
+      'write that clears the row from a mailbox, so being able to SEE a message is not enough — the ' +
+      'sender may read what it sent (mayView) but may not dismiss it out of the recipient’s box. ' +
+      'That is why the shipped check is `isRecipient` and not `mayView`, and the difference is ' +
+      'recorded here so a future author does not "simplify" the two into one predicate.',
+  },
+  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  delivery: DURABLE_QUEUED_ONLINE,
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'Mutates an existing row; creates nothing.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: MESSAGE_ID_ORACLE_RULE,
+  cli: { positional: ['id'], summary: 'Dismiss a message from your inbox' },
+}
+
+export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
+  name: 'mail.status',
+  version: 1,
+  visibility: 'personal',
+  input: mailStatusInput,
+  policy: {
+    action: 'read',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'The sender-queryable lifecycle [POD-834 §04d]: "what happened to msg X" after a synchronous ' +
+      'send returned at queued. Same `mayView` gate as `show` — sender, recipient or admin — which ' +
+      'is what makes it answerable by the SENDER and not merely by the recipient. Deliberately NOT ' +
+      'operator-only: the question it answers is about your own traffic.',
+  },
+  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation: 'A query; nothing is enqueued. Stated rather than defaulted (D3 rule 1).',
+    applyTimeReauthorization: 'Evaluated at read time against the effective principal.',
+  },
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'A projection over one existing row.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: MESSAGE_ID_ORACLE_RULE,
+  cli: { positional: ['id'], summary: 'What happened to a message you sent' },
+}
+
+export const mailPendingRemindersContract: CommandContract<typeof mailPendingRemindersInput> = {
+  name: 'mail.pendingReminders',
+  version: 1,
+  visibility: 'personal',
+  input: mailPendingRemindersInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'A CONSUMING read of the CALLER’S OWN box, so `write` — returning a reminder marks it ' +
+      'reminded, which is the durable state that stops the stop-hook nagging twice for one message. ' +
+      'There is no caller-supplied target: the mailbox is `capability.actorSessionId`, so the ' +
+      'command is unaddressable by construction and a principal with no session gets an empty list ' +
+      'rather than a refusal.',
+  },
+  exposure: ['relay'],
+  delivery: DURABLE_QUEUED_ONLINE,
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'Marks existing rows reminded; creates nothing.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note:
+      'No target id on the wire at all — the mailbox comes from the capability. There is nothing ' +
+      'for a caller to probe, which is the strongest form of D20 compliance available.',
+  },
+  cli: { summary: 'The stop-hook’s unacked-message reminder' },
+}
+
+export const mailAskContract: CommandContract<typeof mailAskInput> = {
+  name: 'mail.ask',
+  version: 1,
+  visibility: 'personal',
+  input: mailAskInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'session',
+    confirmation: 'none',
+    rationale:
+      'THE SEANCE IS A MESSAGE, and classifying it as anything else is how it would acquire a second ' +
+      'policy. `podium session ask` sends a `kind:"question"` row at next-turn + wake and waits, ' +
+      'bounded, for the ack — so it rides the send pipeline and the clamp matrix, wake cooldown and ' +
+      'hop brake all apply unchanged. `write` on the target SESSION, via the same session-target ' +
+      'gate `mail.send` uses: a question costs a turn of the target’s quota, so it is a real act on ' +
+      'that session and never a read. No `--outside-scope` confirmation because the shipped gate ' +
+      'never asked for one and D20.1 ratifies rather than redesigns; the human ceiling still bounds ' +
+      'which sessions are addressable at all.',
+  },
+  // `sessions.ask` on tRPC and on the relay — the wire name stays under the
+  // sessions router (that is where the CLI calls it), and this contract is what
+  // that procedure dispatches. `exposure` records the transports, not the router.
+  exposure: ['trpc', 'cli', 'relay'],
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'Never enqueued, for `mail.awaitAgent`’s reason rather than `mail.send`’s: the command CONTAINS ' +
+      'a bounded wait, and a wait replayed later answers about a window that has already closed.',
+    applyTimeReauthorization:
+      'Live path only; no accept-then-drain gap. The question row itself is an ordinary message and ' +
+      'is re-authorized at delivery like any other (see mail.send).',
+  },
+  redaction: NO_SECRETS,
+  ownership: { creates: [], note: 'Sends a question row; creates no issue and no session.' },
+  attribution: MAIL_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A session id the principal may not see must fail as an unknown session id, exactly as it does ' +
+      'for a session-addressed mail.send — the two go through the same gate, so there is one answer.',
+  },
+  cli: { positional: ['sessionId'], summary: 'Ask a session a question and wait for the answer' },
+}
+
 /** The agent-mail contract table. POD-729 derives the transports from it and
  *  deletes the hand-written procs. */
 export const MAIL_CONTRACTS = [
@@ -482,6 +711,11 @@ export const MAIL_CONTRACTS = [
   awaitAgentContract,
   mailInboxConsumeContract,
   mailLedgerContract,
+  mailShowContract,
+  mailDismissContract,
+  mailStatusContract,
+  mailPendingRemindersContract,
+  mailAskContract,
 ] as const
 
 export type MailContractName = (typeof MAIL_CONTRACTS)[number]['name']

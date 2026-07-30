@@ -1,10 +1,16 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import type { LiveServerMessage } from '@podium/protocol'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
-import { formatIssueRef, isExposedOn, sessionCommandPlane, sessionTitleRule } from '@podium/protocol'
-import { Ledger } from '@podium/sync'
+import type { LiveServerMessage } from '@podium/protocol'
+import { DaemonMux } from './gateway/daemon-mux'
+import {
+  formatIssueRef,
+  isExposedOn,
+  sessionCommandPlane,
+  sessionTitleRule,
+} from '@podium/protocol'
+import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
@@ -30,6 +36,7 @@ import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
+import { mailPolicy } from './modules/messages/handlers/context'
 import {
   DELIVERY_RETRY_BACKSTOP_MS,
   MessageDeliveryService,
@@ -44,11 +51,11 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { type PerfRegistry, perf } from './modules/perf/registry'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
-import { sessionCommandCtx } from './modules/sessions/command-ctx'
-import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
@@ -147,6 +154,10 @@ export interface RegistryModules {
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
+  /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
+   *  module seam so a transport wires the framework's implementation rather than
+   *  reaching into a service for it. */
+  mutations: MutationLedger
 }
 
 /**
@@ -208,6 +219,13 @@ export class SessionRegistry {
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
+   * `routeDaemonFrame` live here, not on the sessions service: a daemon
+   * connection is a MACHINE principal whose frames belong to many features, and
+   * the sessions service is one of them.
+   */
+  readonly gateway: DaemonMux
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
   /** In-process issue command surface (≡ modules.issueCommands) — the registry
@@ -256,6 +274,20 @@ export class SessionRegistry {
     let issueSessionLifecycle!: IssueSessionLifecycle
     let workflows!: WorkflowService
     let automations!: AutomationsService
+    /**
+     * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
+     * honours a `mutationId` — the session presence class, the session command
+     * plane and the issue registry — dedupes through THIS object. It replaces
+     * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
+     * chance to forget (POD-379's idempotency oracle exists because of it) and
+     * which made the issue family reach the session service for a property that
+     * belongs to neither.
+     *
+     * Built here, at the composition root, ahead of every consumer: an envelope
+     * that constructed its own would be a second dedup cache, and two caches over
+     * one durable table is how a replay applies twice.
+     */
+    const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
@@ -378,7 +410,7 @@ export class SessionRegistry {
       isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
       forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
       upstreamIssueRepoPaths: () => upstreamIssues.repoPaths(),
-      withMutation: (mutationId, proc, fn) => sessionsSvc.withMutation(mutationId, proc, fn),
+      mutations,
       listSessions: () => sessionsSvc.listSessions(),
       repoPaths: () => this.store.repos.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
@@ -890,7 +922,7 @@ export class SessionRegistry {
               dispatchSessionCommand(
                 // `this.modules` is assigned later in this constructor; the
                 // closure only runs per request, long after.
-                sessionCommandCtx(this.modules, capability, overrideScope),
+                sessionCommandCtx(this.modules, capability, overrideScope, 'relay'),
                 proc,
                 input,
               ),
@@ -989,9 +1021,7 @@ export class SessionRegistry {
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.currentIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
-      runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
       onWorktreesChanged: broadcastWorktreesChanged,
-      onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
@@ -1080,7 +1110,17 @@ export class SessionRegistry {
     // stamped by each surface from its authenticated caller; issue-addressed
     // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
     // keep working until those readers migrate.
+    // ONE CEILING OBJECT, TWO HALVES (POD-729). `mailPolicy()` is the only
+    // producer: the delivery service gets its apply-time port and the gate gets
+    // its resolution-time ceiling, and MessageGate refuses at boot if they are
+    // not the same object. Today's ceiling is the single-user maximum, so this
+    // wiring changes no behaviour — what it changes is that the queued-send
+    // rejection path (ADR 3 D8 / Amendment 1 D16) is now LIVE end to end rather
+    // than only unit-tested against the handler, so POD-1075's real ceiling
+    // arrives at a composition root that already carries it.
+    const mail = mailPolicy()
     messagesSvc = new MessageDeliveryService({
+      authorizeAtApply: mail.authorizeAtApply,
       messages: this.store.messages,
       notificationFacts: this.store.notificationFacts,
       events: this.store.events,
@@ -1123,40 +1163,43 @@ export class SessionRegistry {
         }
       }
     })
-    messageGate = new MessageGate({
-      messages: () => messagesSvc,
-      issues: () => issues,
-      listSessions: () => sessionsSvc.listSessions(),
-      // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
-      // child is a FULL Podium session through the one spawn path; --new is the
-      // deliberate issue-create path (never automatic).
-      spawnSession: (o) =>
-        sessionsSvc.createSession({
-          cwd: o.cwd,
-          agentKind: o.agentKind as AgentKind,
-          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
-          ...(o.model !== undefined ? { model: o.model } : {}),
-          ...(o.effort !== undefined ? { effort: o.effort } : {}),
-          ...(o.issueId ? { issueId: o.issueId } : {}),
-          ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
-          ...(o.machineId ? { machineId: o.machineId } : {}),
-          // Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60].
-          ...(o.name ? { name: o.name } : {}),
-          ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
-          ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
-          ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
-        }),
-      resolveExecutionProfile: (input) => workflows.executionProfileForLaunch(input),
-      createIssue: (o) => issues.create({ ...o, startNow: false }),
-      appendEvent: (e) => this.store.events.appendEvent(e),
-      now: () => new Date(this.now()).toISOString(),
-      // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
-      // wake sticky when the parent observes the child settled, so a later
-      // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
-      retireNotificationFact: (factKey, target) => {
-        this.store.notificationFacts.retire(factKey, target, new Date(this.now()).toISOString())
+    messageGate = new MessageGate(
+      {
+        messages: () => messagesSvc,
+        issues: () => issues,
+        listSessions: () => sessionsSvc.listSessions(),
+        // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
+        // child is a FULL Podium session through the one spawn path; --new is the
+        // deliberate issue-create path (never automatic).
+        spawnSession: (o) =>
+          sessionsSvc.createSession({
+            cwd: o.cwd,
+            agentKind: o.agentKind as AgentKind,
+            ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+            ...(o.model !== undefined ? { model: o.model } : {}),
+            ...(o.effort !== undefined ? { effort: o.effort } : {}),
+            ...(o.issueId ? { issueId: o.issueId } : {}),
+            ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
+            ...(o.machineId ? { machineId: o.machineId } : {}),
+            // Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60].
+            ...(o.name ? { name: o.name } : {}),
+            ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
+            ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
+            ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
+          }),
+        resolveExecutionProfile: (input) => workflows.executionProfileForLaunch(input),
+        createIssue: (o) => issues.create({ ...o, startNow: false }),
+        appendEvent: (e) => this.store.events.appendEvent(e),
+        now: () => new Date(this.now()).toISOString(),
+        // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
+        // wake sticky when the parent observes the child settled, so a later
+        // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
+        retireNotificationFact: (factKey, target) => {
+          this.store.notificationFacts.retire(factKey, target, new Date(this.now()).toISOString())
+        },
       },
-    })
+      mail.gateOptions,
+    )
     readToolkit = new SessionReadToolkit({
       listSessions: () => sessionsSvc.listSessions(),
       issues: () => issues,
@@ -1335,7 +1378,26 @@ export class SessionRegistry {
       issueArtifacts,
       automations,
       perf,
+      mutations,
     }
+    // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
+    // over the feature ports, so no feature module owns another feature's
+    // traffic. `agentRelay` is its own port and receives exactly the two relay
+    // frames — the host-edge separation of ADR 7 D2 / ADR 5 D7 survives the fact
+    // that both surfaces arrive on the same socket.
+    this.gateway = new DaemonMux({
+      bus: this.bus,
+      ports: {
+        sessions: sessionsSvc,
+        machines,
+        hosts,
+        conversations: () => conversations,
+        rpc,
+        headless,
+        approvals: { onExecResult: (msg) => approvals.onExecResult(msg) },
+        agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
+      },
+    })
   }
 
   /**

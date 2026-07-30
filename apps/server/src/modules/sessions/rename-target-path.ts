@@ -66,7 +66,7 @@ import {
 import { type AuthTarget, authorize, SOLE_USER_ID, type UserId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { INSTANCE_OWNER, onBehalfOfUser } from '../../command-principal'
-import type { SessionStore } from '../../store'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionsService } from './service'
 
 /** The transports this command may arrive on. Checked against the CONTRACT's
@@ -85,8 +85,18 @@ export type RenameServices = Pick<
 
 export interface RenameTargetDeps {
   sessions: RenameServices
-  store: SessionStore
-  now: () => number
+  /**
+   * THE composition root's mutation ledger (POD-382), not a second dedup table.
+   *
+   * This path originally reached `store.sync.getAppliedMutation` /
+   * `recordAppliedMutation` directly. Integration landed one `MutationLedger`
+   * owning idempotency for every family, so reaching past it would have been a
+   * second implementation of the one thing framework idempotency exists to make
+   * unforgettable — and the two could disagree about whether a replay had been
+   * seen. The ORDER is unchanged and is what matters here: authorization runs
+   * BEFORE this is consulted.
+   */
+  mutations: MutationLedgerPort
 }
 
 /**
@@ -235,27 +245,17 @@ export function renameOnTargetPath(
   if (target === undefined) return DENIED
   if (!mayWrite(principal, target)) return DENIED
 
-  // 4. IDEMPOTENCY — framework-owned, after authorization so a revoked replay is
-  //    refused rather than served from the cache.
-  const mutationId = input.mutationId
-  if (mutationId) {
-    const prior = deps.store.sync.getAppliedMutation(mutationId)
-    if (prior !== undefined) {
-      return { outcome: 'replayed', result: JSON.parse(prior) as SessionRenameOutcome }
-    }
-  }
-
-  // 5. THE HANDLER.
-  const result = applyRename(deps, input, principal)
-  if (mutationId) {
-    deps.store.sync.recordAppliedMutation(
-      mutationId,
-      sessionRenameContract.name,
-      JSON.stringify(result),
-      deps.now(),
-    )
-  }
-  return { outcome: 'applied', result }
+  // 4. IDEMPOTENCY + 5. THE HANDLER — through the shared ledger, which dedupes and
+  //    records in one call. Reached only AFTER authorization, so a replay whose
+  //    grant was revoked is refused above rather than served from the cache
+  //    (ADR 3 D8). That ordering is the property `rename-offline.test.ts` pins and
+  //    a mutant reversing it kills.
+  const applied = deps.mutations.apply(input.mutationId, sessionRenameContract.name, () =>
+    applyRename(deps, input, principal),
+  )
+  return applied.outcome === 'replayed'
+    ? { outcome: 'replayed', result: applied.value }
+    : { outcome: 'applied', result: applied.value }
 }
 
 /**

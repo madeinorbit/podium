@@ -61,7 +61,7 @@ function revocableStack() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.modules.sessions.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon('local', () => {})
   const sessions = reg.modules.sessions
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
@@ -81,8 +81,7 @@ function revocableStack() {
         return Reflect.get(target, prop, receiver)
       },
     }) as unknown as RenameServices,
-    store,
-    now: () => 1,
+    mutations: reg.modules.mutations,
   }
 
   const nameNow = () =>

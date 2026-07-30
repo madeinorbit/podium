@@ -16,7 +16,7 @@ afterEach(() => {
 function makeRegistry(): SessionRegistry {
   const registry = new SessionRegistry()
   registries.push(registry)
-  registry.modules.sessions.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon('local', () => {})
   return registry
 }
 

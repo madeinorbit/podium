@@ -31,7 +31,7 @@ describe('searchAll', () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store)
     registries.push(registry)
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
 
     // Session named after the phrase.
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
@@ -135,7 +135,7 @@ describe('searchAll', () => {
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', () => {
     const { store, registry } = seed()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-tx' },
@@ -177,7 +177,7 @@ describe('search.query tRPC', () => {
   function caller() {
     const registry = new SessionRegistry()
     registries.push(registry)
-    registry.modules.sessions.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {

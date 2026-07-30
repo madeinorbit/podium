@@ -60,6 +60,22 @@ const mutationId = z.string().max(128).optional()
 const workState = WorkState
 const pinKind = PinKind
 
+/**
+ * VISIBILITY CLASS, DECLARED PER CONTRACT (POD-382; ADR 9 D3/D4).
+ *
+ * The two constants below are the two classes this table writes, named once so a
+ * reader sees the SPLIT the file header describes as data rather than as prose.
+ * They are declarations and not derivations from `policy.resource`: the audit
+ * (`scripts/audit-session-commands.ts`) checks the two AGREE, which is what makes
+ * a disagreement a build failure instead of an invisible re-classification.
+ *
+ * `PERSONAL` — private to the session's owner, shareable by grant (§3.1.1).
+ * `PER_USER` — one row per user, NEVER shared, non-grantable (§3.3, ADR 9 D3
+ * rule 4). There is no "share my read state" verb and there must not be one.
+ */
+const PERSONAL = 'personal' as const
+const PER_USER = 'per-user-state' as const
+
 // ---------------------------------------------------------------------------
 // Shared session state — owner-or-grant
 // ---------------------------------------------------------------------------
@@ -72,10 +88,13 @@ const pinKind = PinKind
  * writes an agent-sourced name, and a human acting through any transport writes a
  * human-sourced one.
  */
+const renameInput = z.object({ sessionId: z.string(), name: z.string().max(120), mutationId })
+
 const rename: CommandDef = {
-  input: z.object({ sessionId: z.string(), name: z.string().max(120), mutationId }),
+  input: renameInput,
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [], note: 'a session name is a label the owner chose to display' },
@@ -84,20 +103,30 @@ const rename: CommandDef = {
     'nameSource is resolved from the principal’s on-behalf-of human (§3.1.3 A3), not from the transport being the operator cookie. Relay exposure stays OFF: POD-379 pins that presence writes have no agent path, and that absence is reproduced here as an explicit exposure decision rather than inherited from an allowlist.',
 }
 
+const setArchivedInput = z.object({ sessionId: z.string(), archived: z.boolean(), mutationId })
+
 const setArchived: CommandDef = {
-  input: z.object({ sessionId: z.string(), archived: z.boolean(), mutationId }),
+  input: setArchivedInput,
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'field-LWW',
 }
 
+const setWorkStateInput = z.object({
+  sessionId: z.string(),
+  workState: workState.nullable(),
+  mutationId,
+})
+
 const setWorkState: CommandDef = {
-  input: z.object({ sessionId: z.string(), workState: workState.nullable(), mutationId }),
+  input: setWorkStateInput,
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
@@ -113,10 +142,17 @@ const setWorkState: CommandDef = {
  * while this writes the SESSION's `refIssueId` and mints its ref letter — a
  * different row, a different owner, and no issue command covers it.
  */
+const setIssueIdInput = z.object({
+  sessionId: z.string(),
+  issueId: z.string().nullable(),
+  mutationId,
+})
+
 const setIssueId: CommandDef = {
-  input: z.object({ sessionId: z.string(), issueId: z.string().nullable(), mutationId }),
+  input: setIssueIdInput,
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
   exposure: ['trpc'],
   offline: 'direct-only',
   redaction: { fields: [] },
@@ -131,10 +167,13 @@ const setIssueId: CommandDef = {
 
 /** Per-user read state. `policy.scope: 'self'` is what makes "one user setting
  *  another user's readAt" unrepresentable rather than merely unimplemented. */
+const markReadInput = z.object({ sessionId: z.string(), mutationId })
+
 const markRead: CommandDef = {
-  input: z.object({ sessionId: z.string(), mutationId }),
+  input: markReadInput,
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
+  visibility: PER_USER,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
@@ -143,30 +182,39 @@ const markRead: CommandDef = {
 
 const markUnread: CommandDef = { ...markRead }
 
+const snoozeSetInput = z.object({ sessionId: z.string(), until: z.string().nullable(), mutationId })
+
 const snoozeSet: CommandDef = {
-  input: z.object({ sessionId: z.string(), until: z.string().nullable(), mutationId }),
+  input: snoozeSetInput,
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
+  visibility: PER_USER,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'single-writer',
 }
+
+const snoozeClearInput = z.object({ sessionId: z.string(), mutationId })
 
 const snoozeClear: CommandDef = {
-  input: z.object({ sessionId: z.string(), mutationId }),
+  input: snoozeClearInput,
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
+  visibility: PER_USER,
   exposure: ['trpc'],
   offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'single-writer',
 }
 
+const pinSetInput = z.object({ kind: pinKind, id: z.string(), pinned: z.boolean(), mutationId })
+
 const pinSet: CommandDef = {
-  input: z.object({ kind: pinKind, id: z.string(), pinned: z.boolean(), mutationId }),
+  input: pinSetInput,
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
+  visibility: PER_USER,
   exposure: ['trpc'],
   offline: 'direct-only',
   redaction: { fields: [] },
@@ -175,10 +223,17 @@ const pinSet: CommandDef = {
     'direct-only: POD-379’s outbox oracle tags pins as a DELIBERATE offline exclusion (low offline value), must-not-change.',
 }
 
+const tabsSetOrderInput = z.object({
+  worktree: z.string(),
+  sessionIds: z.array(z.string()),
+  mutationId,
+})
+
 const tabsSetOrder: CommandDef = {
-  input: z.object({ worktree: z.string(), sessionIds: z.array(z.string()), mutationId }),
+  input: tabsSetOrderInput,
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
+  visibility: PER_USER,
   exposure: ['trpc'],
   offline: 'direct-only',
   redaction: { fields: [] },
@@ -242,20 +297,21 @@ const tabsSetOrder: CommandDef = {
  * session sharing ships, the draft must either move to `op-stream` or be gated to a
  * single writer, and a rejected stale revision IS that gate.
  */
+const sessionDraftInput = z.object({
+  sessionId: z.string(),
+  /** The `OpStreamDocument.revision` this edit was composed against. Absent ⇒
+   *  unconditional (today's behaviour); present ⇒ the Authority may reject. */
+  baseRevision: z.number().int().nonnegative().optional(),
+  /** ADDITIVE union — `splice` joins it when op-stream is built. */
+  edit: z.discriminatedUnion('kind', [z.object({ kind: z.literal('replace'), text: z.string() })]),
+  mutationId,
+})
+
 const sessionDraft: CommandDef = {
-  input: z.object({
-    sessionId: z.string(),
-    /** The `OpStreamDocument.revision` this edit was composed against. Absent ⇒
-     *  unconditional (today's behaviour); present ⇒ the Authority may reject. */
-    baseRevision: z.number().int().nonnegative().optional(),
-    /** ADDITIVE union — `splice` joins it when op-stream is built. */
-    edit: z.discriminatedUnion('kind', [
-      z.object({ kind: z.literal('replace'), text: z.string() }),
-    ]),
-    mutationId,
-  }),
+  input: sessionDraftInput,
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
+  visibility: PERSONAL,
   // `ws` — the draft's live path is the debounced WebSocket edit, not a tRPC call.
   exposure: ['ws'],
   offline: 'direct-only',
@@ -294,6 +350,37 @@ export const pinCommands = defineCommands('pins', { set: pinSet })
 
 /** `tabs.*` — per-user state; NOT offline-eligible. */
 export const tabCommands = defineCommands('tabs', { setOrder: tabsSetOrder })
+
+/**
+ * THE INPUT SCHEMAS AT THEIR PRECISE TYPES, keyed by dotted wire name.
+ *
+ * `CommandDef.input` is a widened `ZodTypeAny` — right for a heterogeneous table,
+ * and useless for a tRPC procedure: a router built on the widened field infers
+ * `any` for every client call site, so the web client silently stops type-checking
+ * its own arguments. POD-381's `sessionCommandPlaneInputs` exists for exactly this
+ * reason; this is the presence class's half of it, added by POD-382 when the router
+ * became a derivation over these tables.
+ *
+ * The defs above reference these same INSTANCES, and
+ * `session-commands.test.ts` asserts that identity with `toBe`: a schema swapped
+ * for a fresh `z.object({...})` with the same keys is byte-identical on the wire
+ * and passes every value assertion, so only instance identity sees the drift.
+ */
+export const sessionPresenceInputs = {
+  'sessions.rename': renameInput,
+  'sessions.setArchived': setArchivedInput,
+  'sessions.setWorkState': setWorkStateInput,
+  'sessions.setIssueId': setIssueIdInput,
+  'sessions.markRead': markReadInput,
+  // markUnread is `{ ...markRead }`, so it IS markRead's schema instance — the
+  // mirror-action pair shares one input by construction rather than by copy.
+  'sessions.markUnread': markReadInput,
+  'sessions.setDraft': sessionDraftInput,
+  'snoozes.set': snoozeSetInput,
+  'snoozes.clear': snoozeClearInput,
+  'pins.set': pinSetInput,
+  'tabs.setOrder': tabsSetOrderInput,
+} as const
 
 /**
  * THE canonical presence-class contract list, dotted wire names — one place a

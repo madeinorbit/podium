@@ -55,14 +55,24 @@ export {
   awaitAgentInput,
   MAIL_CONTRACTS,
   type MailContractName,
+  mailAskContract,
+  mailAskInput,
+  mailDismissContract,
+  mailDismissInput,
   mailInboxConsumeContract,
   mailInboxInput,
   mailLedgerContract,
   mailLedgerInput,
+  mailPendingRemindersContract,
+  mailPendingRemindersInput,
   mailReplyContract,
   mailReplyInput,
   mailSendContract,
   mailSendInput,
+  mailShowContract,
+  mailShowInput,
+  mailStatusContract,
+  mailStatusInput,
   spawnAgentContract,
   spawnAgentInput,
 } from './mail/contracts'
@@ -75,14 +85,6 @@ export {
   sessionRenameReducer,
 } from './sessions/rename'
 export {
-  EXPORTABLE_HARNESSES,
-  type SessionHandoffInput,
-  type SessionHandoffOutput,
-  sessionHandoffContract,
-  sessionHandoffInput,
-  sessionHandoffOutput,
-} from './sessions/handoff'
-export {
   deliversUnwrapped,
   exemptFromBrakes,
   isHumanPrincipal,
@@ -91,3 +93,11 @@ export {
   senderBrakeKey,
   senderLabel,
 } from './mail/principal'
+export {
+  EXPORTABLE_HARNESSES,
+  type SessionHandoffInput,
+  type SessionHandoffOutput,
+  sessionHandoffContract,
+  sessionHandoffInput,
+  sessionHandoffOutput,
+} from './sessions/handoff'

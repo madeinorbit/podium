@@ -38,8 +38,8 @@ function regWithTwoDaemons() {
   const reg = new SessionRegistry(store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
-  reg.modules.sessions.attachDaemon('m1', (msg) => m1Out.push(msg))
-  reg.modules.sessions.attachDaemon('m2', (msg) => m2Out.push(msg))
+  reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
+  reg.gateway.attachDaemon('m2', (msg) => m2Out.push(msg))
   return { reg, store, m1Out, m2Out }
 }
 
@@ -54,13 +54,13 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     const { reg, m1Out, m2Out } = regWithTwoDaemons()
     const p = reg.modules.rpc.agentQuotaAll()
 
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(m1Out, 'agentQuotaRequest'),
       hostname: 'podium-host',
       agents: [agent({ account: { email: 'lud@example.com', plan: 'max' } })],
     } as DaemonMessage)
-    reg.modules.sessions.onDaemonMessageFrom('m2', {
+    reg.gateway.routeDaemonFrame('m2', {
       type: 'agentQuotaResult',
       requestId: reqId(m2Out, 'agentQuotaRequest'),
       hostname: 'vmi',
@@ -88,10 +88,10 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     store.machines.upsertMachine({ id: 'm1', name: 'Solo', hostname: 'solo', tokenHash: 'x' })
     const reg = new SessionRegistry(store)
     const out: ControlMessage[] = []
-    reg.modules.sessions.attachDaemon('m1', (msg) => out.push(msg))
+    reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
     const p = reg.modules.rpc.agentQuotaAll()
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'agentQuotaResult',
       requestId: reqId(out, 'agentQuotaRequest'),
       hostname: 'solo',

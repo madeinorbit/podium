@@ -440,6 +440,7 @@
       "name": "@podium/e2e",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/agent-bridge": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",

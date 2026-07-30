@@ -28,6 +28,7 @@ import { MAIL_CONTRACTS } from './mail/contracts'
 const base: AnyCommandContract = {
   name: 'probe.command',
   version: 1,
+  visibility: 'personal',
   input: z.object({ x: z.string() }),
   policy: {
     action: 'write',
@@ -74,6 +75,16 @@ describe('classification totality — each negative is one mutation of the passi
       'a secret resource that is not online-sensitive',
       mutate({ policy: { ...base.policy, resource: 'secret' } }),
       /ADR 3 D4 rule 1/,
+    ],
+    [
+      // POD-382, and deliberately ONE-DIRECTIONAL: owned-compute STATE must
+      // authorize against the machine, while a machine RESOURCE says nothing about
+      // the class of what the command writes — a spawn authorizes against compute
+      // and writes a personal session. The two-directional version of this rule
+      // fired on `mail.spawnAgent`, which is correctly classified.
+      'owned-compute visibility without the machine resource',
+      mutate({ visibility: 'owned-compute' }),
+      /must name the `machine` resource/,
     ],
     [
       'a machine resource with no declared verb',

@@ -218,6 +218,16 @@ export const sessionRenameContract: CommandContract<
   SessionRenameOutcome
 > = {
   name: 'sessions.rename',
+  // PERSONAL (ADR 9 D3) — private to its owner, shareable by grant. What this
+  // command writes is a session's curated `name`, which is SHARED session state
+  // under single-writer arbitration.
+  //
+  // Explicitly NOT `per-user-state`, and the distinction is the one warning this
+  // contract carries for POD-311: `readAt`, snooze, pins, tab order and preferences
+  // are keyed (userId, entityId), never shared and non-grantable — POD-1076's
+  // family. Copying this contract for one of those would key a personal fact as a
+  // shared one and make one user's write visible as another's.
+  visibility: 'personal',
   version: 1,
   input: sessionRenameInput,
   policy: {

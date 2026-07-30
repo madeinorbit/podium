@@ -34,7 +34,7 @@ function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: Cont
   const reg = new SessionRegistry(store)
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
   return { reg, daemon }
 }
 

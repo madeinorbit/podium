@@ -48,25 +48,32 @@ export async function sendHandler(
   // surface waits for the trustworthy outcome — interrupt until delivered
   // (transcript-observed), next-turn until delivered within a budget then
   // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
-  // that provably vanished. Only THIS surface blocks; internal sends use send().
+  // that provably vanished.
+  //
+  // The session chat path (`sessions.sendText` / `resumeAndSend`) reaches this
+  // same handler in `immediate` mode: everything above this line — resolution
+  // under the ceiling, the target gate, the sender stamped from the capability —
+  // is what it came here FOR, and the blocking wait is the part that belongs to
+  // the CLI surface alone. See {@link MailDeliveryMode}.
   const { sleep, awaitPollMs } = deps
   const nowIso = deps.now
-  const r = await svc.sendAndConfirm(
-    senderFromCapability(caller.capability),
-    {
-      to,
-      body: input.body,
-      ...(input.urgency ? { urgency: input.urgency } : {}),
-      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
-      ...(input.expectResponse ? { expectsResponse: true } : {}),
-      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
-    },
-    {
-      ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
-      ...(sleep ? { sleep } : {}),
-      ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
-    },
-  )
+  const from = senderFromCapability(caller.capability)
+  const payload = {
+    to,
+    body: input.body,
+    ...(input.urgency ? { urgency: input.urgency } : {}),
+    ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+    ...(input.expectResponse ? { expectsResponse: true } : {}),
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+  }
+  const r =
+    ctx.deliveryMode === 'immediate'
+      ? svc.send(from, payload)
+      : await svc.sendAndConfirm(from, payload, {
+          ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
+          ...(sleep ? { sleep } : {}),
+          ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
+        })
   // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
   // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
   // `delivered`, so it must not still report `queued: true` alongside it.

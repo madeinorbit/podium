@@ -69,7 +69,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
 
     nodeStore = new SessionStore(':memory:')
     nodeRegistry = new SessionRegistry(nodeStore)
-    nodeRegistry.modules.sessions.attachDaemon('local', () => {})
+    nodeRegistry.gateway.attachDaemon('local', () => {})
     nodeRegistry.modules.sessions.setUpstreamOwnMachineIds([NODE_DAEMON_MACHINE_ID])
     // P7b write path: the forwarder shares the node store (durable outbox) and the
     // hub token; UpstreamSync's onConnected is its reconnect drain trigger.
@@ -135,7 +135,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       machineId: NODE_DAEMON_MACHINE_ID,
       hostname: 'the-node',
     })
-    hub.registry.modules.sessions.attachDaemon(NODE_DAEMON_MACHINE_ID, () => {})
+    hub.registry.gateway.attachDaemon(NODE_DAEMON_MACHINE_ID, () => {})
     const echo = hub.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/node/own',
@@ -143,7 +143,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     })
     // Detach the fake node daemon again so later unspecified creates don't route
     // to it (the hub would otherwise place them on the sole online machine).
-    hub.registry.modules.sessions.detachDaemon(NODE_DAEMON_MACHINE_ID)
+    hub.registry.gateway.detachDaemon(NODE_DAEMON_MACHINE_ID)
     const other = await trpc.sessions.create.mutate({ agentKind: 'shell', cwd: '/hub/repo-c' })
     // The later non-echo session arriving proves the echo one was seen and skipped.
     await until(() => nodeHubSessions().some((s) => s.sessionId === other.sessionId))

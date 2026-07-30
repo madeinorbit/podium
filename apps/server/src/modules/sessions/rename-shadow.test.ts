@@ -43,6 +43,7 @@
  */
 
 import { OPERATOR, SOLE_USER_ID } from '@podium/model'
+import { isExposedOn, presenceCommand } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -50,6 +51,7 @@ import { SessionStore } from '../../store'
 import { MIGRATED_COMMANDS, renamePath, RENAME_PATH_ENV } from './rename-adapter'
 import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
 import { renameOnTargetPath, type RenameServices, samePrincipal } from './rename-target-path'
+import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -61,8 +63,8 @@ function stack() {
   const store = new SessionStore(':memory:')
   const reg = new SessionRegistry(store)
   registries.push(reg)
-  reg.modules.sessions.attachDaemon('local', () => {})
-  return { store, sessions: reg.modules.sessions }
+  reg.gateway.attachDaemon('local', () => {})
+  return { store, sessions: reg.modules.sessions, mutations: reg.modules.mutations }
 }
 
 /** What both paths write, read back off the row. The shared observable truth. */
@@ -106,9 +108,9 @@ type Actor = 'human' | 'agent'
 
 /** Run one rename on the LEGACY path and report the verdict + resulting row. */
 function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
-  const { store, sessions } = stack()
+  const { store, sessions, mutations } = stack()
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-  const presence = new PresenceRegistry({ sessions, store, now: () => 1 })
+  const presence = new PresenceRegistry({ sessions, store, now: () => 1, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
 
   const result = presence.execute(
@@ -128,14 +130,14 @@ function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
         ? { kind: 'rejected', reason: value.reason ?? '' }
         : { kind: 'applied' }
 
-  return { verdict, row: observe(sessions, created.sessionId), sessions, store, created }
+  return { verdict, row: observe(sessions, created.sessionId), sessions, store, mutations, created }
 }
 
 /** Run the SAME rename on the TARGET path, on its own identically-seeded stack. */
 function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
-  const { store, sessions } = stack()
+  const { sessions, mutations } = stack()
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-  const deps = { sessions: sessions as RenameServices, store, now: () => 1 }
+  const deps = { sessions: sessions as RenameServices, mutations }
 
   const dispatch = renameOnTargetPath(
     deps,
@@ -151,7 +153,7 @@ function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
         ? { kind: 'applied' }
         : { kind: 'rejected', reason: dispatch.result.reason }
 
-  return { verdict, row: observe(sessions, created.sessionId), sessions, store, created, deps }
+  return { verdict, row: observe(sessions, created.sessionId), sessions, created, deps }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +201,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
       sessions: legacy.sessions,
       store: legacy.store,
       now: () => 1,
+      mutations: legacy.mutations,
     }).execute(
       'sessions.rename',
       { sessionId: legacy.created.sessionId, name: 'agent guess' },
@@ -234,8 +237,8 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     // The consistent-error rule (§3.1.5): invisible and nonexistent must be
     // indistinguishable, and both paths must produce the SAME indistinguishable
     // answer or the migration itself becomes the oracle.
-    const { store, sessions } = stack()
-    const presence = new PresenceRegistry({ sessions, store, now: () => 1 })
+    const { store, sessions, mutations } = stack()
+    const presence = new PresenceRegistry({ sessions, store, now: () => 1, mutations })
     const legacy = presence.execute(
       'sessions.rename',
       { sessionId: 'no-such-session', name: 'x' },
@@ -243,7 +246,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
       'trpc',
     )
     const target = renameOnTargetPath(
-      { sessions: sessions as RenameServices, store, now: () => 1 },
+      { sessions: sessions as RenameServices, mutations },
       { sessionId: 'no-such-session', name: 'x' },
       humanPrincipal,
       'trpc',
@@ -396,7 +399,7 @@ describe('the sole-human identity fork this skeleton surfaced', () => {
     // The ceiling doing its job — and the counterfactual for the bridge above. If
     // samePrincipal were a blanket true, this would pass authorization and the
     // delegation ceiling would be decorative.
-    const { store, sessions } = stack()
+    const { sessions, mutations } = stack()
     const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
@@ -407,7 +410,7 @@ describe('the sole-human identity fork this skeleton surfaced', () => {
     }
 
     const dispatch = renameOnTargetPath(
-      { sessions: sessions as RenameServices, store, now: () => 1 },
+      { sessions: sessions as RenameServices, mutations },
       { sessionId: created.sessionId, name: 'not yours' },
       strangersAgent,
       'trpc',
@@ -417,5 +420,62 @@ describe('the sole-human identity fork this skeleton surfaced', () => {
     // ceiling is what refuses, which is the intersection A1 requires.
     expect(dispatch.outcome).toBe('denied')
     expect(observe(sessions, created.sessionId).name).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// THE COMMAND IS ON THE DERIVED SURFACE, NOT BESIDE IT (POD-382 reconciliation)
+// ---------------------------------------------------------------------------
+
+/**
+ * After POD-382's 3.2 cutover there is no hand-written session procedure to be —
+ * `scripts/audit-session-commands.ts` fails the build if a `.mutation(` for a
+ * session appears in `router.ts` at all. These pin that rename arrives through the
+ * derived surface AND that it is the walking skeleton's envelope rather than the
+ * presence one, which is the whole point of the issue and the single fact most
+ * likely to be silently undone by a later edit to the manifest walk.
+ */
+describe('rename is served by the derived surface, on the target envelope', () => {
+  it('appears exactly once in the session-surface manifest, with source walking-skeleton', () => {
+    const rows = sessionSurfaceManifest().filter((e) => e.name === 'sessions.rename')
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.source).toBe('walking-skeleton')
+    expect(rows[0]?.router).toBe('sessions')
+    expect(rows[0]?.key).toBe('rename')
+  })
+
+  it('is the ONLY command on that envelope — its ten siblings stay on presence', () => {
+    // The counterfactual for the assertion above: `source` would also read
+    // 'walking-skeleton' for rename if the walk had put EVERY presence command on
+    // it. This is the "legacy path unchanged for all other commands" criterion,
+    // asserted against the thing that actually decides which builder runs.
+    const skeleton = sessionSurfaceManifest().filter((e) => e.source === 'walking-skeleton')
+    expect(skeleton.map((e) => e.name)).toEqual(['sessions.rename'])
+
+    const presence = sessionSurfaceManifest()
+      .filter((e) => e.source === 'presence')
+      .map((e) => e.name)
+    expect(presence).toEqual([
+      'sessions.setArchived',
+      'sessions.setWorkState',
+      'sessions.setIssueId',
+      'sessions.markRead',
+      'sessions.markUnread',
+      'snoozes.set',
+      'snoozes.clear',
+      'pins.set',
+      'tabs.setOrder',
+    ])
+  })
+
+  it('is still governed by its presence contract’s exposure declaration', () => {
+    // Moving the ENVELOPE must not move the DECLARATION. `presenceEntries()` throws
+    // at module load if a listed name's contract stops declaring `trpc`, and rename
+    // is still inside that walk — so this asserts the cross-check still covers it
+    // rather than that a constant was copied.
+    const contract = presenceCommand('sessions.rename')
+    expect(contract).toBeDefined()
+    expect(isExposedOn(contract as never, 'trpc')).toBe(true)
   })
 })
