@@ -465,6 +465,22 @@ lie about it.
 capture that retained only its last 12 lines, so grepping for the failing test names returned nothing
 — not "no match" but "the match was discarded". Re-run into a log this session controlled.
 
+**Prove the instrument can say YES before you believe it saying NO.** Three rules in this ledger turned
+out to be one rule: a red control beside every green assertion; a counterfactual in the fixture; and —
+the case that caught a test written *in this session* — a bound needs its **accepted** side asserted at
+the boundary, because "it refuses bad input" is satisfied by a parser that refuses everything. The
+auto-archive bound test asserted only the refused side, and the valid fixture did not rescue it: its
+`issueId` is 5 characters, so a bound wrongly tightened to `.max(6)` would have passed every case in the
+file. Now 256 and 64 exactly are asserted to PASS, and mutating `.max(256)`→`.max(6)` reds it (1 site,
+hash `0e1c6c7b`→`3ea308f7`). Generalised with POD-366.
+
+**The exactly-once assertion earned its keep immediately.** Attempting that mutant with the obvious
+pattern `issueId: z.string().min(1).max(256)` matched **twice** — both auto-archive observations carry
+an `issueId` — and the helper refused to run. Had it proceeded it would have mutated both schemas; had
+the assertion been *at-least-once*, the run would have gone green with **no mutation applied at all**
+and read as a survivor. That is the broadcast's false-green, reproduced live rather than taken on
+faith.
+
 **A red control beside every green assertion.** Three separate instrument failures in this run share
 one shape — a never-applied mutant reading as a survivor, a `grep` silenced by NUL bytes, and a
 five-case type probe whose green cases could equally mean "the check is absent" or "I mis-set up every
