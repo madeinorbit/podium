@@ -256,6 +256,11 @@ export class TerminalView {
     const canvas = canvases[0] as HTMLCanvasElement | undefined
     return {
       renderer: this.webgl ? 'webgl' : 'dom',
+      font: {
+        family: this.term.options.fontFamily,
+        size: this.term.options.fontSize,
+        lineHeight: this.term.options.lineHeight,
+      },
       grid: { cols: this.term.cols, rows: this.term.rows },
       host: this.host
         ? {

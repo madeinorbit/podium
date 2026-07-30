@@ -9,7 +9,7 @@ import {
   snoozeUntilTomorrow5am,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/protocol'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -53,6 +53,16 @@ export function SessionScreen() {
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
   const [view, setView] = useState<'chat' | 'native'>('chat')
+  // Expo Router keeps covered screens mounted. Feed that visibility into the
+  // same active/inactive contract as the desktop panel deck so a covered PTY
+  // cannot resize the session and returning to it runs reveal recovery.
+  const [screenFocused, setScreenFocused] = useState(true)
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true)
+      return () => setScreenFocused(false)
+    }, []),
+  )
   const [peekIssue, setPeekIssue] = useState<import('@podium/protocol').IssueWire | null>(null)
   const { readTranscript, subscribeTranscript } = client
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
@@ -140,6 +150,7 @@ export function SessionScreen() {
 
   const title = session ? sessionTitle(session) : 'Session'
   const issue = session?.issueId ? client.issueById(session.issueId) : undefined
+  const terminalActive = screenFocused && view === 'native'
   // The issue colour flows through the chrome; slate when the issue is uncoloured.
   const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
@@ -288,13 +299,14 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {view === 'native' ? (
-          <View style={styles.terminalWrap}>
-            <TerminalPane sessionId={sessionId} />
+        {Platform.OS === 'web' ? (
+          <View style={[styles.terminalWrap, view !== 'native' && styles.hidden]}>
+            <TerminalPane sessionId={sessionId} active={terminalActive} />
           </View>
-        ) : loaded && items.length === 0 && pendingTurns.length === 0 ? (
+        ) : null}
+        {view === 'chat' && loaded && items.length === 0 && pendingTurns.length === 0 ? (
           <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
-        ) : (
+        ) : view === 'chat' ? (
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
@@ -312,7 +324,7 @@ export function SessionScreen() {
               if (target) setPeekIssue(target)
             }}
           />
-        )}
+        ) : null}
         {(() => {
           const activity = chatActivity(session, false)
           if (!activity) return null
@@ -437,6 +449,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
     overflow: 'hidden',
     backgroundColor: color.bgSunken,
+  },
+  hidden: {
+    display: 'none',
   },
   offerWrap: {
     paddingHorizontal: space.sm + 2,
