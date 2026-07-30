@@ -1,3 +1,4 @@
+import { asRepoId, asSessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -89,8 +90,9 @@ describe('handoff package', () => {
   it('places Claude by new cwd slug and preserves Codex date path + filename', () => {
     const common = {
       format: 1 as const,
-      sessionId: 's',
-      repoId: 'r',
+      // POD-361-EDGE-CAST: fixture literal.
+      sessionId: asSessionId('s'),
+      repoId: asRepoId('r'),
       branch: 'b',
       headSha: 'a'.repeat(40),
       snapshotSha: null,

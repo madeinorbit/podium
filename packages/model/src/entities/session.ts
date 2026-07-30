@@ -317,7 +317,7 @@ export const SessionMeta = z.object({
    *  literal to compare, FIVE of them gating parent-session authorization: a
    *  tag-format change makes those five silently answer "not the parent" rather
    *  than failing. A brand still permits seven hand-built strings, so what this
-   *  field needs is a shared CONSTRUCTOR and PARSER (POD-1128, `discovered-from`
+   *  field needs is a shared CONSTRUCTOR and PARSER (POD-1133, `discovered-from`
    *  this issue) — and it is simultaneously an attribution site that gains an
    *  on-behalf-of value in POD-1075 (`docs/rearch-branded-id-flip.md` §4). */
   spawnedBy: z.string().optional(),

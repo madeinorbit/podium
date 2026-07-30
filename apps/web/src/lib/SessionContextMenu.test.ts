@@ -27,7 +27,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 describe('sessionMenuEligibility', () => {

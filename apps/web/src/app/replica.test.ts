@@ -94,7 +94,7 @@ function session(id: string, title = id): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  }
+  } as unknown as SessionMeta
 }
 
 function issue(id: string, title = id): IssueWire {
@@ -135,7 +135,7 @@ function issue(id: string, title = id): IssueWire {
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
-  }
+  } as unknown as IssueWire
 }
 
 function item(id: string, text = id): TranscriptItem {

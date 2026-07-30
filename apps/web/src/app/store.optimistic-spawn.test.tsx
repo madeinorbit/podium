@@ -85,7 +85,7 @@ function serverSession(id: string, over: Partial<SessionMetaInput> = {}): Sessio
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }

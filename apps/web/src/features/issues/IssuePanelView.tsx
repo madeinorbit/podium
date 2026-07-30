@@ -1,5 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueComment, IssueStage, IssueWire } from '@podium/model'
+import {
+  asIssueId,
+  type IssueComment,
+  type IssueStage,
+  type IssueWire,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
@@ -546,7 +551,7 @@ export function IssuePanelView({
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   {group.entries.map((entry) => {
-                    const target = issueById.get(entry.id)
+                    const target = issueById.get(asIssueId(entry.id)) // // POD-361-EDGE-CAST
                     return (
                       <button
                         data-pressable

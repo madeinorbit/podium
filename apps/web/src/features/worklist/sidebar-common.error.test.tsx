@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/model'
+import {
+  asSessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -18,7 +21,7 @@ afterEach(cleanup)
 describe('PanelRow error status', () => {
   it('shows a non-retryable provider error without a Continue action', () => {
     const session = {
-      sessionId: 'grok-limit',
+      sessionId: asSessionId('grok-limit'),
       agentKind: 'grok',
       cwd: '/repo',
       title: 'POD-966-A',

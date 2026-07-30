@@ -1,6 +1,12 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind, IssueColorSlot, IssueWire, SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type AgentKind,
+  type IssueColorSlot,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -1177,14 +1183,15 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   const { startDrag, settleDrag } = useRowDrag({
     allowedTargets: (sourceScope, movedId) => {
       if (sourceScope === 'pinned') {
-        const moved = issueById.get(movedId)
+        const moved = issueById.get(asIssueId(movedId)) // // POD-361-EDGE-CAST
         return moved ? [`group:${moved.repoId ?? moved.repoPath}`] : []
       }
       if (sourceScope.startsWith('group:')) return ['pinned']
       return [] // children scopes: strictly within the parent
     },
     onDrop: ({ sourceScope, targetScope, movedId, order }) => {
-      const patches = planReorderKeys(order, movedId, (id) => issueById.get(id)?.sortKey)
+      // // POD-361-EDGE-CAST
+      const patches = planReorderKeys(order, movedId, (id) => issueById.get(asIssueId(id))?.sortKey)
       const crossedPinned = sourceScope !== targetScope
       void applySortPatches(
         patches.map((p) => ({

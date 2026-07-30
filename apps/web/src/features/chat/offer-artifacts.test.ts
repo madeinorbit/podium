@@ -1,4 +1,9 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
+import {
+  asArtifactId,
+  type IssuePanelArtifact,
+  type IssueWire,
+  type SessionOffer,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
@@ -9,7 +14,7 @@ import { resolveOfferArtifacts } from './offer-artifacts'
 const art = (path: string, addedAt: string, artifactId?: string): IssuePanelArtifact => ({
   path,
   addedAt,
-  ...(artifactId ? { artifactId } : {}),
+  ...(artifactId ? { artifactId: asArtifactId(artifactId) } : {}), // // POD-361-EDGE-CAST
 })
 
 const issueWith = (artifacts: IssuePanelArtifact[]): IssueWire =>

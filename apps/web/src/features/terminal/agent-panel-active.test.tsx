@@ -134,7 +134,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     transcriptAvailable: true,
     resumable: true,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 let container: HTMLDivElement

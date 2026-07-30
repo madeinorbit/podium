@@ -38,7 +38,7 @@ function meta(over: Partial<SessionMetaInput> & { sessionId: string }): SessionM
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 describe('compareRecency', () => {

@@ -85,7 +85,7 @@
  *     parses it and SEVEN rebuild the template literal to compare, FIVE of them
  *     gating parent-session authorization. A brand does not fix that — it still
  *     permits seven hand-built strings — so it needs a shared constructor AND
- *     parser (POD-1128), not a type.
+ *     parser (POD-1133), not a type.
  *   - `MachineId`, at every field: see {@link machineIdBlockedOnPOD318}. The
  *     brand exists; POD-361 adopts it at ZERO fields, by ADR 1 Amendment 2
  *     D16.2's ordering constraint.

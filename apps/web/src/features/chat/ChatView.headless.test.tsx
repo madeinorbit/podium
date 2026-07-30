@@ -109,7 +109,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     unread: false,
     headless: true,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 let container: HTMLDivElement

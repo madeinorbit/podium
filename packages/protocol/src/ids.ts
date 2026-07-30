@@ -23,7 +23,7 @@
  * new key shapes) are reachable ONLY from `@podium/model`: they have no old path
  * to preserve, and shimming them would hand consumers a second import site to
  * unpick later. One of them would also have collided outright —
- * `planes/routing.ts` already exports a DIFFERENT `EntityRef` (see POD-1129).
+ * `planes/routing.ts` already exports a DIFFERENT `EntityRef` (see POD-1134).
  *
  * NOTHING new may be added here. A new brand or a new composite key belongs in
  * `packages/model/src/ids/` — the single-definition-site rule is the entire point

@@ -111,7 +111,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 function item(id: string, cursor: string, text: string): TranscriptItem {

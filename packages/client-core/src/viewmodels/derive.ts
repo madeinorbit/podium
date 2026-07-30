@@ -833,7 +833,7 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
       if (!pid || seen.has(pid)) break
       // POD-361-EDGE-CAST: `pid` comes out of the freeform `spawnedBy` tag, which POD-361
       // deliberately left unbranded (it needs a shared constructor+parser,
-      // POD-1128), so the lookup brands at the map boundary.
+      // POD-1133), so the lookup brands at the map boundary.
       const parent = byId.get(asSessionId(pid))
       if (!parent) break
       anchor = pid

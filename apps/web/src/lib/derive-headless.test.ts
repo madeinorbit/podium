@@ -31,7 +31,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 const normal = meta({ sessionId: 'n1' })

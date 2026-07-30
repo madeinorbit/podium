@@ -45,7 +45,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...over,
-  }
+  } as unknown as IssueWire
 }
 
 function square(): HTMLButtonElement {

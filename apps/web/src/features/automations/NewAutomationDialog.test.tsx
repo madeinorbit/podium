@@ -1,4 +1,8 @@
-import type { AutomationWire } from '@podium/model'
+import {
+  asAutomationId,
+  asSessionId,
+  type AutomationWire,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -25,7 +29,8 @@ vi.mock('@/app/store', () => {
 const { NewAutomationDialog } = await import('./NewAutomationDialog')
 
 const automation: AutomationWire = {
-  id: 'aut_1',
+  // POD-361-EDGE-CAST: fixture literals.
+  id: asAutomationId('aut_1'),
   name: 'Nightly sweep',
   enabled: false,
   repoPath: '/repos/podium',
@@ -76,7 +81,7 @@ describe('NewAutomationDialog edit mode', () => {
 
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({
-        id: 'aut_1',
+        id: asAutomationId('aut_1'),
         patch: {
           name: 'Nightly sweep',
           repoPath: '/repos/podium',
@@ -100,13 +105,13 @@ describe('NewAutomationDialog edit mode', () => {
     const runAt = '2099-07-17T02:00:00.000Z'
     const oneOff: AutomationWire = {
       ...automation,
-      id: 'aut_once',
+      id: asAutomationId('aut_once'),
       name: 'Overnight continuation',
       enabled: true,
       scheduleKind: 'once',
       cron: null,
       runAt,
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: asSessionId('sess_sleeping'),
       prompt: 'Continue overnight.',
       nextRunAt: runAt,
     }
@@ -135,14 +140,14 @@ describe('NewAutomationDialog edit mode', () => {
 
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({
-        id: 'aut_once',
+        id: asAutomationId('aut_once'),
         patch: {
           name: 'Overnight continuation',
           repoPath: '/repos/podium',
           scheduleKind: 'once',
           cron: null,
           runAt,
-          targetSessionId: 'sess_sleeping',
+          targetSessionId: asSessionId('sess_sleeping'),
           agentKind: 'codex',
           model: 'auto',
           effort: 'auto',
