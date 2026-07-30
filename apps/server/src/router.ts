@@ -39,6 +39,7 @@ import {
   type CloudRuntimeProvider,
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
+  toCloudAgentSourceSession,
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
@@ -296,13 +297,13 @@ export const appRouter = t.router({
           repo: input.repo ?? inferCloudRepoForSession(ctx, session),
           ...(session.issueId ? { issueId: session.issueId } : {}),
           purpose: 'move-session',
-          sourceSession: {
+          sourceSession: toCloudAgentSourceSession({
             sessionId: session.sessionId,
             agent,
-            resumeRef: session.resume.value,
+            resume: session.resume,
             cwd: session.cwd,
             ...(session.machineId ? { machineId: session.machineId } : {}),
-          },
+          }),
         })
 
         if (input.hibernateLocal) {

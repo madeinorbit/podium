@@ -968,4 +968,54 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect([...folded.keys()].sort()).toEqual(live.map((s) => s.sessionId).sort())
     expect(folded.get(a.sessionId)).toEqual(live.find((s) => s.sessionId === a.sessionId))
   })
+
+  /**
+   * AC4 of POD-366: the store/live -> wire mapping is ONE function. `sessionWire()`
+   * has always documented that "the committed payload and the legacy snapshot rows
+   * must agree byte-for-byte or the ledger's dedup and the clients' replicas would
+   * diverge" — but `listSessions()` restated its body character-for-character and
+   * NOTHING asserted the agreement. POD-366 made listSessions call the one mapper;
+   * this test is what makes that structural rather than a comment.
+   *
+   * Why it is here rather than a values check on one field: mutating the mapper's
+   * `machineName` stamp broke no test in the sessions or relay suites, so the
+   * invariant was genuinely uncovered. A surviving mutant is the reason this exists.
+   */
+  it('(i) listSessions and the broadcast payload come from the ONE wire mapper [POD-366]', () => {
+    const registry = makeRegistry()
+    const cursor = cursorOf(registry)
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      spawnedBy: 'user',
+    })
+    registry.modules.sessions.flushBroadcasts()
+
+    const listed = registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    expect(listed).toBeDefined()
+
+    const after = registry.modules.sessions.syncChangesSince(cursor)
+    expect(after.kind).toBe('delta')
+    if (after.kind !== 'delta') return
+    const broadcast = (
+      after.changes.find(
+        (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
+      ) as { value?: SessionMeta } | undefined
+    )?.value
+    expect(broadcast).toBeDefined()
+
+    // The whole payload, not a chosen field: a per-field assertion would go stale
+    // the moment the mapper gains a key, which is exactly the drift being deleted.
+    expect(listed).toEqual(broadcast)
+
+    // And pin the stamp the mapper owns, so mutating it inside sessionWire() is a
+    // kill rather than a survivor. Resolved against the session's OWN machineId:
+    // a freshly created session sits on the '__local__' placeholder until a real
+    // machine adopts it, not on LOCAL_MACHINE_ID — asserting the latter is what
+    // this test got wrong on its first run.
+    expect(listed?.machineName).toBe(
+      registry.modules.machines.machineName(listed?.machineId ?? ''),
+    )
+    expect(listed?.machineName).not.toBe(undefined)
+  })
 })

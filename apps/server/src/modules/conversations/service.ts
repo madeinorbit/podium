@@ -2,6 +2,7 @@ import {
   type AgentKind,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
+  type ResumeRef,
   type TranscriptItem,
 } from '@podium/model'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
@@ -46,11 +47,21 @@ export interface ConversationsDeps {
   ): Promise<T>
 }
 
-/** The session fields the lake-fallback transcript read needs. */
+/**
+ * The session fields the lake-fallback transcript read needs (inventory §2.1
+ * #17, ADR 4 R5 — a legitimate narrow port).
+ *
+ * `resume` is the shared {@link ResumeRef}, not a local `{ value: string }`.
+ * The inventory counted that narrowing as a THIRD incompatible `resume` shape
+ * (D-3), and §6.2's `SessionResume` says one encoding. Nothing was gained by
+ * narrowing: every caller passes a real session, which carries the full
+ * `{ kind, value }`, and this port only reads `.value` — so requiring the whole
+ * ref costs callers nothing and deletes a spelling (POD-366).
+ */
 export interface LakeReadSession {
   machineId: string
   agentKind: AgentKind
-  resume?: { value: string } | undefined
+  resume?: ResumeRef | undefined
 }
 
 /**

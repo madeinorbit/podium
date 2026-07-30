@@ -4,13 +4,7 @@
  * `btw_<sessionId>` thread and the marked delta a re-opened thread gets.
  */
 import type { HarnessAgent, TranscriptItem } from '@podium/model'
-
-export interface BtwSessionInfo {
-  sessionId: string
-  name?: string
-  agentKind?: string
-  cwd?: string
-}
+import type { ConciergeSessionInfo } from './concierge'
 
 /** One transcript item as a marked, length-bounded line (id + ts for awareness).
  *  Exported for the read-toolkit's tier-3 recap (#237) [spec:SP-34d7]. */
@@ -103,7 +97,10 @@ export function buildBtwRecap(items: TranscriptItem[]): string {
  * (oldest-first) before the user messages.
  */
 export function buildBtwSeed(opts: {
-  session: BtwSessionInfo
+  /** Inventory 2.1 #13, not a btw-local shape: the retired `BtwSessionInfo`
+   *  was a strict subset of this (`sessionId`/`name`/`agentKind`/`cwd`), so the
+   *  seed reads the same four keys off the wider port (POD-366, D-7). */
+  session: ConciergeSessionInfo
   summary?: string
   items: TranscriptItem[]
   maxChars?: number

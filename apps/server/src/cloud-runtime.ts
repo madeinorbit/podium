@@ -22,12 +22,61 @@ export interface CloudRepoRequest {
 export type CloudRuntimeSize = 'small' | 'medium' | 'large'
 export type CloudAgentKind = 'claude-code' | 'codex'
 
+/**
+ * The session half of an outbound `/v1/cloud-agents` body — an EXTERNAL EGRESS
+ * DTO, not one of our session representations.
+ *
+ * POD-366 deviation from `docs/rearch-field-schema-inventory.md`, recorded
+ * because the inventory asks for the opposite. §2.1 #16 marks this a drifted
+ * duplicate and §6.4 says its "renames deleted" (`agent`→`agentKind`,
+ * `resumeRef: string`→`resume: ResumeRef`, D-1/D-3). Those keys are NOT ours to
+ * rename: `createHostedCloudRuntimeProvider` JSON-stringifies the whole
+ * `CloudAgentRequest` and POSTs it to a third-party control plane, so `agent`
+ * and `resumeRef` are that service's spelling. Renaming them would send a body
+ * the remote cannot read, and nothing in this repo would notice — the default
+ * provider throws `CloudRuntimeUnavailableError` and the hosted one is only ever
+ * exercised through a mocked `fetch`.
+ *
+ * The inventory's own rule for this category is in the issue table, which
+ * excludes `LinearIssue` as "an external system's shape, deliberately not
+ * ours". Same category, same treatment.
+ *
+ * What POD-366 *does* owe here is §6.5's two rules: the field list must not be
+ * hand-restated at the call site, and each encoding difference must live in
+ * exactly one named mapper. {@link toCloudAgentSourceSession} is that mapper —
+ * it is the one place the two external spellings are written.
+ */
 export interface CloudAgentSourceSession {
   sessionId: string
   agent: CloudAgentKind
   resumeRef?: string | undefined
   cwd?: string | undefined
   machineId?: string | undefined
+}
+
+/**
+ * The one documented session → cloud-egress encoding (inventory §6.5 rule 2).
+ *
+ * Owns both external spellings and nothing else: `agentKind` is narrowed to the
+ * provider's two-value `CloudAgentKind` by the caller (not every harness has a
+ * cloud counterpart), and `resume` is flattened to `ResumeRef.value` because the
+ * remote takes a bare string. Callers pass a session-shaped value; they must not
+ * rebuild this object literal.
+ */
+export function toCloudAgentSourceSession(source: {
+  sessionId: string
+  agent: CloudAgentKind
+  resume?: { value?: string | undefined } | undefined
+  cwd?: string | undefined
+  machineId?: string | undefined
+}): CloudAgentSourceSession {
+  return {
+    sessionId: source.sessionId,
+    agent: source.agent,
+    ...(source.resume?.value ? { resumeRef: source.resume.value } : {}),
+    ...(source.cwd ? { cwd: source.cwd } : {}),
+    ...(source.machineId ? { machineId: source.machineId } : {}),
+  }
 }
 
 export interface CloudMachineRequest {

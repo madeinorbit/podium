@@ -1,4 +1,13 @@
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+// The tier-1/2/3 session read models. These were three hand-copies here
+// (`StatusWire`, `RecapWire`, `ReadWire` — inventory §2.1 #22) because
+// `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
+// they were missing (POD-366).
+import type {
+  SessionReadResult,
+  SessionRecapResult,
+  SessionStatusResult,
+} from '@podium/model'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
@@ -34,33 +43,6 @@ export interface SessionControlClient {
   }
 }
 
-/** Tier-1 status wire shape (modules/sessions/read-toolkit). */
-interface StatusWire {
-  sessionId: string
-  agentKind: string
-  status: string
-  phase: string
-  machine: string | null
-  model: string | null
-  effort: string | null
-  account: string | null
-  error: { class: string; retryable: boolean } | null
-  draft: boolean
-  nativeSubagentCount: number
-  issue: { seq: number; stage: string; title: string; todos: string[] } | null
-  commits: string[]
-  files: string[]
-  unackedMessages: number
-}
-
-/** Tier-3 recap wire shape (modules/sessions/read-toolkit). */
-interface RecapWire {
-  sessionId: string
-  recap: string
-  watermark: string | null
-  newItems: number
-  delta: boolean
-}
 
 /** Tier-4 seance wire shape (modules/messages/gate `ask`). */
 interface AskWire {
@@ -73,14 +55,8 @@ interface AskWire {
   snapshot: { sessionId: string; status: string; phase?: string; issueId?: string } | null
 }
 
-interface ReadWire {
-  items: { role: string; text: string; toolName?: string; toolInput?: string }[]
-  cursor: string | null
-  hasMore: boolean
-  truncated: boolean
-}
 
-function renderStatus(s: StatusWire): string {
+function renderStatus(s: SessionStatusResult): string {
   return [
     `${s.sessionId} (${s.agentKind}) ${s.status}/${s.phase}`,
     `placement: machine=${s.machine ?? 'unknown'} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} account=${s.account ?? 'default'}`,
@@ -104,7 +80,7 @@ function renderStatus(s: StatusWire): string {
     .join('\n')
 }
 
-function renderRead(r: ReadWire): string {
+function renderRead(r: SessionReadResult): string {
   const body = r.items
     .map((i) => {
       const head = i.toolName ? `${i.role} [${i.toolName}] ${i.toolInput ?? ''}`.trim() : i.role
@@ -120,7 +96,7 @@ function renderRead(r: ReadWire): string {
   return [body || '(no transcript items)', tail].filter(Boolean).join('\n')
 }
 
-function renderRecap(r: RecapWire): string {
+function renderRecap(r: SessionRecapResult): string {
   return [
     r.recap,
     r.watermark
@@ -297,7 +273,7 @@ export async function runSessionCli(
 
   // Read toolkit tiers 1–2 (#237) [spec:SP-34d7].
   if (command === 'status') {
-    const s = (await client.sessions.status.query({ ref: sessionId })) as StatusWire
+    const s = (await client.sessions.status.query({ ref: sessionId })) as SessionStatusResult
     return args.json === true ? JSON.stringify({ command, ok: true, data: s }) : renderStatus(s)
   }
   if (command === 'read') {
@@ -308,7 +284,7 @@ export async function runSessionCli(
       sessionId,
       ...(args.turns !== undefined ? { turns: Number(args.turns) } : {}),
       ...(typeof args.cursor === 'string' ? { cursor: args.cursor } : {}),
-    })) as ReadWire
+    })) as SessionReadResult
     return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRead(r)
   }
   // Tier 3 (#237) [spec:SP-34d7 read-toolkit]: delta-priced server-side recap.
@@ -316,7 +292,7 @@ export async function runSessionCli(
     const r = (await client.sessions.recap.query({
       sessionId,
       ...(typeof args.since === 'string' ? { since: args.since } : {}),
-    })) as RecapWire
+    })) as SessionRecapResult
     return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRecap(r)
   }
   // Tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance.

@@ -2,7 +2,23 @@ import {
   AgentKind,
   asIssueId,
 } from '@podium/model'
-import type { AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+
+/**
+ * WHO a session wire projection is being built for — the explicit argument
+ * `sessionWire()` takes so a future suppression rule has exactly one home
+ * (POD-366; policy is Phase 3 / POD-290).
+ *
+ * It is POD-365's `ActorRef` and NOT a new type, deliberately. ActorRef is
+ * already the closed discriminated union over ADR 9 D1's four principal kinds
+ * (user / agent / machine / system), and this issue's brief forbids introducing a
+ * parallel identity field ahead of POD-323. Reusing it also means a scoped
+ * projection can later distinguish "a human reading their own session" from "an
+ * agent reading on someone's behalf" without a second vocabulary — and, per
+ * `fields/README.md` rule 2, a redacted arm can be added to the union rather than
+ * overloading `null`.
+ */
+export type SessionWirePrincipal = ActorRef
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
@@ -667,11 +683,34 @@ export class SessionsService {
     this.publishSessionProjection(changes)
   }
 
-  /** The exact wire shape broadcasts carry for this session — toMeta() plus the
-   *  machineName stamp listSessions() applies. The committed payload and the
-   *  legacy snapshot rows must agree byte-for-byte or the ledger's dedup and
-   *  the clients' replicas would diverge. */
-  private sessionWire(session: Session): SessionMeta {
+  /**
+   * THE live-session -> wire mapping. One function, one hop (ADR 4 §4.1,
+   * inventory §6.5 rule 2) — `toMeta()` for the entity fields, the `machineName`
+   * stamp, and `stampRef()` for the derived `displayRef`.
+   *
+   * It was already documented as the single shape ("the committed payload and
+   * the legacy snapshot rows must agree byte-for-byte or the ledger's dedup and
+   * the clients' replicas would diverge") while `listSessions()` restated its
+   * body character-for-character. Two mappers for one hop, with a comment
+   * asserting they agree and nothing enforcing it, is the drift this issue
+   * exists to delete — so `listSessions()` now calls this instead (POD-366).
+   *
+   * PRINCIPAL SEAM, expressed and deliberately NOT implemented. Under the scoped
+   * feed (POD-1077, Phase 2) a session's wire projection may legitimately differ
+   * per reader — a field suppressed because the viewer may not see it, or a
+   * machine fact visible to the machine's owner but not to a session viewer
+   * (ADR 9 D3/D6). `packages/model/src/fields/README.md` rule 2 says leave room
+   * for that and do not build it, and POLICY belongs to Phase 3 (POD-290).
+   *
+   * So the parameter exists and is threaded from every caller, and the ONE place
+   * a suppression rule will ever go is this function body. What must not happen
+   * instead is ad-hoc filtering at the call sites: that is the same drift class
+   * arriving in a new guise, and it is why the argument is explicit rather than
+   * read off `this`. `undefined` means "no principal in scope" and today every
+   * caller passes it, because there is no policy to apply yet — a reader is not
+   * meant to infer from that that the seam is unused.
+   */
+  private sessionWire(session: Session, _forPrincipal?: SessionWirePrincipal): SessionMeta {
     return this.stampRef(session, {
       ...session.toMeta(),
       machineName: this.machines.machineName(session.machineId),
@@ -1163,9 +1202,12 @@ export class SessionsService {
   }
 
   // ---- tRPC control plane ----
-  listSessions(): SessionMeta[] {
+  listSessions(forPrincipal?: SessionWirePrincipal): SessionMeta[] {
+    // Was a character-for-character copy of sessionWire()'s body; now the one
+    // mapper, so the "must agree byte-for-byte" invariant in its doc comment is
+    // structural instead of hand-maintained (POD-366).
     const local: SessionMeta[] = [...this.sessions.values()].map((s) =>
-      this.stampRef(s, { ...s.toMeta(), machineName: this.machines.machineName(s.machineId) }),
+      this.sessionWire(s, forPrincipal),
     )
     if (this.upstreamSessions.size === 0) return local
     // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
