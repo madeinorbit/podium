@@ -16,6 +16,7 @@ import type { MutationId } from '@podium/protocol'
 import { InMemoryOutboxStore } from './outbox/test-doubles'
 import type { OutboxAttribution, OutboxCommand, OutboxRecord } from './outbox/records'
 import { InMemoryReplicaStore } from './replica/memory-store'
+import type { Cursor } from './replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncSpanParticipant } from './span'
 
 const CLOSE: OutboxCommand = { name: 'issues.close', version: 1, delivery: 'offline-eligible' }
@@ -33,6 +34,8 @@ const queued = (id: string): OutboxRecord => ({
 })
 
 const absent = (id: string) => ({ mutationId: id as MutationId, expect: 'absent' as const })
+
+const CURSOR: Cursor = { feedId: 'f1', epoch: 'e1', seq: 1 }
 
 const upsert = (entityId: string, seq: number) =>
   ({
@@ -105,7 +108,7 @@ describe('one span, both kernel halves — the commit two definitions made impos
     const replica = new InMemoryReplicaStore()
     const outbox = new InMemoryOutboxStore()
     const span = replica.beginSpan()
-    replica.cache.applyAtomic({ operations: [upsert('POD-1', 1)], cursor: { seq: 1 } }, span)
+    replica.cache.applyAtomic({ operations: [upsert('POD-1', 1)], cursor: CURSOR }, span)
     const outcome = await outbox.apply({ put: [queued('m1')], expect: [absent('m1')] }, span)
     expect(outcome.ok).toBe(true)
     return { replica, outbox, span }
