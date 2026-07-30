@@ -75,6 +75,10 @@ export * from './ids'
 // surface. `annotations/arbitration-direction.test.ts` fails when replica-side
 // code imports the arbitration reads — ADR 1 D1's direction, enforced.
 export * from './annotations/arbitration'
+// POD-643: the no-capability-snapshot audit (ADR 9 D5 A1). Exported because the
+// obligation is not handoff's alone — POD-368's audit runs it over every
+// retained representation.
+export * from './annotations/capability-snapshot'
 export * from './annotations/matrix'
 export * from './annotations/ownership'
 
