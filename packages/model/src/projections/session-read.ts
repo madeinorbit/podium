@@ -111,6 +111,91 @@ export interface IssueTreeSession {
   coordinator?: boolean
 }
 
+/**
+ * Drop keys whose value is `undefined`, so an optional field is ABSENT rather
+ * than present-and-undefined.
+ *
+ * This exists to let a mapper build one fully-spelled object literal (which
+ * TypeScript excess-property-checks) instead of assembling it from conditional
+ * spreads (which it does not — see {@link toIssueTreeSession}). Key presence is
+ * preserved exactly, which is what the `...(x ? { x } : {})` idiom was buying.
+ */
+function withoutUndefined<T extends object>(o: T): T {
+  const out = {} as Record<string, unknown>
+  for (const [k, v] of Object.entries(o)) if (v !== undefined) out[k] = v
+  return out as T
+}
+
+/**
+ * The ONE construction site for {@link IssueTreeSession} (inventory §6.5 rule 2:
+ * one documented mapper per hop; rule 1: no inline object literal building a
+ * session shape in a return position).
+ *
+ * WHY IT IS SHAPED LIKE THIS, and not as the conditional-spread literal it
+ * replaced. POD-366 mutation-tested the claim that the model definition
+ * constrains its producers, and the original producer
+ * (`...(label ? { label } : {})` inside a `const sessions: IssueTreeSession[]`)
+ * failed that test: TypeScript applies neither excess-property checking nor
+ * missing-property checking through a spread, so the annotation policed nothing.
+ *
+ * What this shape actually buys, stated exactly, because each clause was
+ * mutation-verified rather than assumed:
+ *  - A field the model REQUIRES but the mapper stops supplying is a compile
+ *    error (`TS2741`). Verified: renaming `status` on the definition reds this
+ *    file.
+ *  - A key the mapper writes that the model does NOT declare is a compile error,
+ *    via the `satisfies` clause. Verified: adding a `bogusExcessKey` reds this
+ *    file. Without `satisfies` it did not — the generic on
+ *    {@link withoutUndefined} widens the literal and excess keys survive
+ *    assignability.
+ *  - An OPTIONAL field renamed to another optional field is NOT caught here, and
+ *    cannot be: neither spelling is required, so nothing is missing. It is caught
+ *    at the READERS instead (`packages/issue-client` reds on `s.label`), which is
+ *    where an unused optional field actually matters.
+ *
+ * {@link withoutUndefined} then keeps the emitted key set identical to what the
+ * conditional spreads produced, so this is a compile-time change only.
+ *
+ * The two flattenings the shape depends on live here and nowhere else: `label`
+ * is the curated name falling back to a live title that is not just the harness
+ * name, and `phase` comes off the live agent state.
+ */
+export function toIssueTreeSession(src: {
+  sessionId: string
+  displayRef?: string | undefined
+  name?: string | undefined
+  title?: string | undefined
+  agentKind: string
+  model?: string | undefined
+  status: string
+  agentState?: { phase?: string | undefined } | undefined
+  coordinator?: boolean | undefined
+}): IssueTreeSession {
+  // `??` not `||`, matching the retired producer exactly: an empty `name` selects
+  // the empty string rather than falling through to `title`, and the key is then
+  // dropped below. Swapping in `||` here would start emitting a title-derived
+  // label where the old code emitted nothing.
+  const label = src.name ?? (src.title && src.title !== src.agentKind ? src.title : undefined)
+  // `|| undefined` on every optional key, so FALSY (not merely undefined) values
+  // are dropped. That is what `...(x ? { x } : {})` did, and an empty string is
+  // the case where the two differ — reproducing it keeps the emitted key set
+  // byte-identical. Pinned by session-read.test.ts.
+  //
+  // `satisfies` is load-bearing, not decoration: it is what makes an excess key
+  // a compile error. Dropping it silently re-opens the drift (see above).
+  const projected = {
+    sessionId: src.sessionId,
+    displayRef: src.displayRef || undefined,
+    label: label || undefined,
+    agentKind: src.agentKind,
+    model: src.model || undefined,
+    status: src.status,
+    phase: src.agentState?.phase || undefined,
+    coordinator: src.coordinator || undefined,
+  } satisfies IssueTreeSession
+  return withoutUndefined(projected)
+}
+
 /** Tier-2 transcript read model: a page of transcript items plus its cursor. */
 export interface SessionReadResult {
   sessionId: string

@@ -12,6 +12,7 @@ import {
   type LintFinding,
   type OrphanIssue,
   type SessionMeta,
+  toIssueTreeSession,
 } from '@podium/model'
 import {
   DELEGATION_RULE,
@@ -168,22 +169,16 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       }
       omitted += omittedChildren
       const members = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
-      const sessions: IssueTreeSession[] = members.map((s) => {
-        const label = s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
-        const phase = s.agentState?.phase
-        return {
-          sessionId: s.sessionId,
-          ...(s.displayRef ? { displayRef: s.displayRef } : {}),
-          ...(label ? { label } : {}),
-          agentKind: s.agentKind,
-          ...(s.model ? { model: s.model } : {}),
-          status: s.status,
-          ...(phase ? { phase } : {}),
+      // One named mapper owns this projection (inventory §6.5) — including the
+      // name/title -> label and agentState.phase -> phase flattenings.
+      const sessions: IssueTreeSession[] = members.map((s) =>
+        toIssueTreeSession({
+          ...s,
           ...(row.coordinatorSessionId && row.coordinatorSessionId === s.sessionId
             ? { coordinator: true }
             : {}),
-        }
-      })
+        }),
+      )
       return {
         id: row.id,
         seq: row.seq,
