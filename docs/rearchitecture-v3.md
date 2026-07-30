@@ -1563,6 +1563,71 @@ detector belongs to POD-314's cutover; POD-1180 already records the blind spot.
 `settings` is POD-352's. Growing this diff to cover them is the round-trip this run cannot
 afford; the census is what makes leaving them explicit rather than invisible.
 
+**POD-420 (3.7c) — the settings WRITE family, and the settings guard converted from ABSENT
+to DERIVED-SURFACE-EXACT.** The paragraph above about the guard's third claim ("no
+`*_CONTRACTS` table names a `settings.*` command") described the state until #352's
+children arrived. `SETTINGS_CONTRACTS` now names four, and the guard's contract half is an
+exact correspondence instead of an emptiness check: every `settings.*` contract declaring
+`trpc` must be served as a mutation, and every served `settings.*` procedure must be either
+a contract or one of three NAMED hand-written exceptions. **Both directions and no ratchet
+relief survive the conversion** — whole-map equality on names AND verbs — because the
+reasoning that made the guard worth having generalises past settings: an absorbed surface
+reads as progress on every ratchet. The conversion was mutation-verified against POD-386's
+own mutant (deleting `settings.telegramSetupStart`) plus its contract-side twin, and
+`describe('this guard can say NO')` plants both new defects — a settings write no contract
+names, and a contract the router does not serve.
+
+**ONE CONTRACT PER MATRIX ROW, which is the content of the split.** The blob's members sit
+on three rows with three visibility classes and two offline classes; `visibility` is
+required and single-valued, so a contract over the whole blob cannot be classified without
+lying about two thirds of what it writes. `settings.updatePersonal` (per-user-state,
+offline-eligible, member) · `settings.updateInstance` (deployment-substrate,
+offline-eligible, admin) · `settings.setSecret` / `settings.clearSecret` (secret,
+online-sensitive, admin, confirm, never outbox).
+
+**THE PREFERENCE PATCH IS ADDRESSED BY CLASSIFIED PATH, and the schema is the gate.** A
+blob-shaped partial can express a secret, so a preference command over one needs a
+handler-side detector — and a detector that misses one key fails open. Addressed by path,
+`{ 'apiKeys.openai': … }` is refused by `settings.updatePersonal`'s own input schema before
+a handler exists, by TWO independent mechanisms (the tier check and POD-418's may-enqueue
+backstop), which is ADR 9 D4 point 2's shape.
+
+**OFFLINE-ELIGIBILITY ARGUED PER TIER rather than copied from the row's column**, following
+POD-735's precedent for departing from a written column. The test is what the write does
+while queued and when replayed late: a preference is INERT (it arms nothing and executes
+nowhere), and `autoContinue.enabled` — the member that gave pause — is still inert as a
+write, because it is a boolean the loop reads when it next runs, not a command that starts
+one. That is the D18.3 line. The two tiers differ in their conflict story (single-writer
+`(userId)` vs the only surviving field-LWW group), so they carry two reconciliations rather
+than one shared cell, and a test asserts the texts are not the same object.
+
+**Exposure is `trpc` only, MEASURED.** `relay.ts` has no `settings` arm, there is no
+`podium settings` CLI verb and no settings MCP tool — POD-385's defect is declaring a
+transport nothing dispatches. The preference contracts are `offline-eligible` and still do
+not name `outbox`: the class says "may be queued", the exposure says "nothing queues it
+yet", and `audit:settings` pins that no client outbox executor names a settings command so
+the day one appears the decision is retaken deliberately.
+
+**The structural half: `settings.set` now REFUSES a secret change.** Derived from
+`SERVER_SECRET_KEYS`, so a secret added to the model becomes unwritable-by-blob on the same
+commit — not a detector over key names, which fails open on the one it misses. It compares
+VALUES, not mentions, because the shipped clients round-trip the whole blob including the
+secrets they were served. Two existing suites configured a Telegram token through the blob
+and now fail correctly; both were repointed at `setSecret`.
+
+**The fingerprint producer POD-418 specified and did not build.** `HMAC-SHA256(serverKey,
+domain ‖ key ‖ value)` truncated to 8 bytes, under a persistent 0600 key in the state dir
+(`readOrCreateDaemonSecret`'s race shape). Never a bare digest: a provider key is short and
+highly structured, so an unsalted digest of one is brute-forceable by anyone holding the
+projection. The two load-bearing assertions are claims about the OUTPUT — it must not equal
+the bare digest in any obvious spelling, and it must CHANGE when the server key changes —
+because "we used an HMAC" is a claim about source text a reviewer is already reading.
+
+**`audit:settings` is the ninth family gate**, paired with the running-object guard, with
+`--probe` fixtures for all five checks and a parser anchored on BRACE DEPTH rather than
+columns (POD-386's indentation defect and POD-301's line-split defect, both planted in the
+clean fixture as decoys).
+
 ### Phase 4 — Node decomposition (POD-291) · exit gate POD-425
 
 **Scope:** gateway + plane inventory implementation (POD-317 → 387–391), fleet service

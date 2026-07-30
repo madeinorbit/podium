@@ -68,6 +68,7 @@
     "audit:scoped-feed": "bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts",
     "audit:machine-grants": "bun scripts/audit-machine-grants.ts --probe && bun scripts/audit-machine-grants.ts",
     "audit:seam": "bun scripts/audit-federation-seam.ts --probe && bun scripts/audit-federation-seam.ts",
+    "audit:settings": "bun scripts/audit-settings-commands.ts --probe && bun scripts/audit-settings-commands.ts",
     "audit:wire-adapters": "bun scripts/audit-wire-adapters.ts --probe && bun scripts/audit-wire-adapters.ts",
     "audit:spec": "bun scripts/audit-spec-commands.ts --probe && bun scripts/audit-spec-commands.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",

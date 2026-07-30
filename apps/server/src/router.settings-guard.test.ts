@@ -1,42 +1,49 @@
 /**
- * THE SETTINGS GUARD, AGAINST THE RUNNING ROUTER (POD-386).
+ * THE SETTINGS GUARD, AGAINST THE RUNNING ROUTER (POD-386, converted by POD-420
+ * from ABSENT to DERIVED-SURFACE-EXACT).
  *
- * POD-313's own title carves settings out of phase 3.3 — "3.3 Migrate superagent
- * + machines/repos + specs mutations; dedupe send/sendTurn (settings via #352)".
- * So this issue's obligation for `settings` is not that it improves. It is that
- * it is UNTOUCHED, and that is a claim that fails in BOTH directions: a settings
- * write appearing is a scope leak, and a settings write DISAPPEARING is a
- * cutover that quietly absorbed somebody else's surface — which would read as
- * progress on every ratchet in the repo.
+ * POD-386 wrote this when settings was carved out of phase 3.3 — "settings via
+ * #352" — and its claim was that the surface was UNTOUCHED, including the claim
+ * that no `*_CONTRACTS` table in `@podium/commands` named a `settings.*`
+ * command. POD-420 is #352's command-contract child, so that last claim is now
+ * false BY DESIGN: `SETTINGS_CONTRACTS` names four.
+ *
+ * WHAT DID NOT CHANGE, AND MUST NOT: the guard still fails in BOTH DIRECTIONS
+ * with no ratchet relief. POD-386's reasoning generalises past settings and is
+ * the reason it is worth having — *a settings write DISAPPEARING is as much a
+ * failure as one appearing, because an absorbed surface reads as progress on
+ * every ratchet.* So the exact form below is a whole-map equality on names AND
+ * verbs, and the contract half is now an exact correspondence rather than an
+ * emptiness check:
+ *
+ *   · every `settings.*` contract declaring `trpc` MUST be served, as a mutation;
+ *   · every served `settings.*` procedure MUST be either a named hand-written
+ *     exception or a contract the table declares.
+ *
+ * The failure mode this conversion had to avoid is turning a check that cannot
+ * pass into one that cannot fail. `describe('this guard can say NO')` plants
+ * both defects — a settings write no contract names, and a contract naming a
+ * procedure the router does not serve — and requires the comparisons to fire.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS EXISTS ALONGSIDE THE SOURCE-TEXT CENSUS
+ * WHY THIS EXISTS ALONGSIDE THE SOURCE-TEXT AUDIT
  * ---------------------------------------------------------------------------
  *
- * `scripts/audit-router-mutations.ts` makes the same claim by reading
+ * `scripts/audit-settings-commands.ts` makes the same claims by reading
  * `router.ts` as TEXT. It resolves no modules, so it runs in a fresh checkout
- * and before anything is built — and it is blind to everything that is not
- * spelled in that one file. A `...settingsFamily` spread would satisfy it while
- * moving every settings write into a contract table.
+ * and before anything is built — and it is blind to everything not spelled in
+ * that one file. This one reads the OBJECT that will actually be served:
+ * `_def.procedures` is the dispatch table itself and `_def.type` is the verb
+ * tRPC enforces on the wire.
  *
- * This one reads the OBJECT that will actually be served: the built `appRouter`,
- * its procedure names and their tRPC types. Between them the two instruments
- * cover both failure directions — a hand-written write appearing in the source,
- * and the surface being re-derived from somewhere the source scan cannot see.
- *
- * ---------------------------------------------------------------------------
- * WHAT THE REFUSING ARM DEPENDS ON
- * ---------------------------------------------------------------------------
- *
- * Nothing environmental. `appRouter` is built at module load from the same
- * definition the server serves, `_def.procedures` is the dispatch table itself,
- * and `_def.type` is the verb tRPC will enforce on the wire. There is no server
- * to bind, no principal to be, and no fixture standing in for the product — so
- * there is no setup fact that could make the refusing arm unreachable. Delete a
- * settings procedure and the first test fails; migrate one into a contract table
- * and the third fails.
+ * WHAT THE REFUSING ARM DEPENDS ON: nothing environmental. `appRouter` is built
+ * at module load from the same definition the server serves — no server to bind,
+ * no principal to be, no fixture standing in for the product. Delete a settings
+ * procedure and the first test fails; add one no contract names and the third
+ * does.
  */
 
+import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { appRouter } from './router'
 
@@ -47,63 +54,87 @@ const procedures = (appRouter as unknown as { _def: { procedures: Record<string,
 
 const typeOf = (name: string): string | undefined => procedures[name]?._def?.type
 
-/** Exactly what `settings` served before phase 3.3 opened, verb included. The
- *  verb matters on its own: a write re-spelled as a query is still a change to
- *  this surface, and it is the one shape a name-only check would miss. */
-const SETTINGS_SURFACE: Record<string, 'query' | 'mutation'> = {
+/**
+ * The procedures `settings` serves that are NOT derived from a contract, with
+ * the reason each is still hand-written. Named individually, because "the rest"
+ * is how an unaccounted-for write hides.
+ *
+ *  - `get` is a READ. A `visibility` class describes what a command WRITES.
+ *  - `set` is the legacy blob write, still called by the sidebar, the
+ *    auto-continue dialog and the engine — and it now refuses a SECRET change,
+ *    which is what makes the contracted pair the only way to write material.
+ *  - the two telegram procedures are a stateful pairing ceremony over a
+ *    third-party API, not a settings write with a payload.
+ */
+const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
   'settings.get': 'query',
   'settings.set': 'mutation',
   'settings.telegramSetupStart': 'mutation',
   'settings.telegramSetupPoll': 'mutation',
 }
 
-describe('the settings surface is UNTOUCHED by phase 3.3', () => {
-  it('serves exactly the procedures it served before, with the same verbs', () => {
-    const served = Object.fromEntries(
-      Object.keys(procedures)
-        .filter((n) => n.startsWith('settings.'))
-        .map((n) => [n, typeOf(n)]),
-    )
-    // `toEqual` over the whole map and not four `toBeDefined()` calls: an extra
-    // settings procedure has to fail this, and a per-name assertion cannot see one.
-    expect(served).toEqual(SETTINGS_SURFACE)
+/** The contracted half, DERIVED from the table — so a fifth contract must appear
+ *  in the router without anyone editing this file, and a deleted one fails. */
+const DERIVED: Record<string, 'mutation'> = Object.fromEntries(
+  SETTINGS_COMMAND_NAMES.map((name) => [name, 'mutation' as const]),
+)
+
+const EXPECTED_SURFACE: Record<string, string> = { ...HAND_WRITTEN, ...DERIVED }
+
+const servedSettings = (): Record<string, string | undefined> =>
+  Object.fromEntries(
+    Object.keys(procedures)
+      .filter((n) => n.startsWith('settings.'))
+      .map((n) => [n, typeOf(n)]),
+  )
+
+describe('the settings surface is EXACTLY its contracts plus its named exceptions', () => {
+  it('serves exactly that map, with the same verbs', () => {
+    // `toEqual` over the whole map and not one assertion per name: an EXTRA
+    // settings procedure has to fail this, and a per-name assertion cannot see
+    // one. This is also the direction that fails when a write DISAPPEARS.
+    expect(servedSettings()).toEqual(EXPECTED_SURFACE)
   })
 
-  it('still serves its three writes as MUTATIONS — a removal fails as hard as an addition', () => {
-    for (const [name, verb] of Object.entries(SETTINGS_SURFACE)) {
+  it('still serves every hand-written write as a MUTATION — a removal fails as hard as an addition', () => {
+    for (const [name, verb] of Object.entries(HAND_WRITTEN)) {
       if (verb !== 'mutation') continue
       expect(typeOf(name), `${name} is no longer served as a mutation`).toBe('mutation')
     }
   })
 
-  it('is not derived from any contract table — no command in @podium/commands names it', async () => {
-    // The check the source-text census structurally cannot make: a
-    // `...settingsFamily` spread would leave router.ts textually clean while
-    // moving the whole surface. Read off the package's own tables, so a settings
-    // tenant added later is found here rather than in a review.
-    const commands = (await import('@podium/commands')) as unknown as Record<string, unknown>
-    const named: string[] = []
-    for (const [exportName, value] of Object.entries(commands)) {
-      if (!value || typeof value !== 'object') continue
-      if (!/_CONTRACTS$/.test(exportName)) continue
-      for (const contract of Object.values(value as Record<string, unknown>)) {
-        const name = (contract as { name?: unknown } | null)?.name
-        if (typeof name === 'string' && name.startsWith('settings.')) {
-          named.push(`${exportName}.${name}`)
-        }
-      }
+  it('every contract declaring trpc IS served, as a mutation', () => {
+    // The direction POD-385's defect lives in: a contract naming a transport no
+    // dispatcher reads. Derived from the table, so it cannot be satisfied by an
+    // empty one — the next test proves the table is not empty.
+    for (const name of SETTINGS_COMMAND_NAMES) {
+      const contract = SETTINGS_CONTRACTS[name]
+      if (!contract.exposure.includes('trpc')) continue
+      expect(typeOf(name), `${name} declares trpc exposure but nothing serves it`).toBe('mutation')
     }
-    expect(named).toEqual([])
+  })
+
+  it('every served settings procedure is a contract or a NAMED exception', () => {
+    for (const name of Object.keys(servedSettings())) {
+      const accounted = name in HAND_WRITTEN || name in DERIVED
+      expect(accounted, `${name} is served by nothing that accounts for it`).toBe(true)
+    }
+  })
+
+  it('no settings command is exposed on the outbox — the class refusal, at the table', () => {
+    for (const name of SETTINGS_COMMAND_NAMES) {
+      expect(SETTINGS_CONTRACTS[name].exposure).not.toContain('outbox')
+    }
   })
 })
 
-describe('this guard can say YES', () => {
+describe('this guard can say NO', () => {
   /**
-   * The guard is three absence/equality claims, which is exactly what a broken
-   * reader reports. These do not mutate the product — they run the same
-   * comparisons the tests above run, against a table that CONTAINS the defect,
-   * and require them to fail. Without this the whole file would stay green
-   * against a `procedures` accessor that returned `{}`.
+   * Every claim above is an equality or an absence, which is exactly what a
+   * broken reader reports. These do not mutate the product — they run the same
+   * comparisons against tables that CONTAIN the defect and require them to fail.
+   * Without this file the whole guard would stay green against a `procedures`
+   * accessor that returned `{}` and a contract table with nothing in it.
    */
   it('the accessor reads a real dispatch table, not an empty object', () => {
     expect(Object.keys(procedures).length).toBeGreaterThan(50)
@@ -111,51 +142,53 @@ describe('this guard can say YES', () => {
     expect(typeOf('settings.nonexistent')).toBeUndefined()
   })
 
-  it('the equality check notices an ADDED settings procedure', () => {
-    const withExtra = { ...SETTINGS_SURFACE, 'settings.smuggled': 'mutation' }
-    expect(withExtra).not.toEqual(SETTINGS_SURFACE)
+  it('the contract table is NOT empty — the derived half has content', () => {
+    // Without this, "every contract declaring trpc is served" passes perfectly
+    // against a table naming nothing, which is the emptiness POD-732 named.
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(4)
+    expect(Object.keys(DERIVED).sort()).toEqual([
+      'settings.clearSecret',
+      'settings.setSecret',
+      'settings.updateInstance',
+      'settings.updatePersonal',
+    ])
   })
 
-  it('the equality check notices a REMOVED one', () => {
-    const { 'settings.set': _removed, ...withoutSet } = SETTINGS_SURFACE
-    expect(withoutSet).not.toEqual(SETTINGS_SURFACE)
+  it('the equality check notices a settings write NO CONTRACT NAMES', () => {
+    const smuggled = { ...servedSettings(), 'settings.smuggled': 'mutation' }
+    expect(smuggled).not.toEqual(EXPECTED_SURFACE)
+    expect('settings.smuggled' in HAND_WRITTEN || 'settings.smuggled' in DERIVED).toBe(false)
+  })
+
+  it('the correspondence notices a CONTRACT the router does not serve', () => {
+    // The second planted defect: a table naming a command with no procedure.
+    const phantom = { ...DERIVED, 'settings.phantom': 'mutation' as const }
+    for (const name of Object.keys(phantom)) {
+      if (name !== 'settings.phantom') continue
+      expect(typeOf(name)).toBeUndefined()
+    }
+    expect({ ...HAND_WRITTEN, ...phantom }).not.toEqual(EXPECTED_SURFACE)
+  })
+
+  it('the equality check notices a REMOVED procedure — POD-386s mutant', () => {
+    // POD-386 mutation-verified its guard by deleting settings.telegramSetupStart.
+    // The converted form must survive the same mutant: removing any member of
+    // the expected map breaks the whole-map equality.
+    const { 'settings.telegramSetupStart': _gone, ...without } = EXPECTED_SURFACE
+    expect(without).not.toEqual(EXPECTED_SURFACE)
+    const { 'settings.setSecret': _alsoGone, ...withoutContract } = EXPECTED_SURFACE
+    expect(withoutContract).not.toEqual(EXPECTED_SURFACE)
   })
 
   it('the equality check notices a write RE-SPELLED as a query', () => {
-    expect({ ...SETTINGS_SURFACE, 'settings.set': 'query' }).not.toEqual(SETTINGS_SURFACE)
+    expect({ ...EXPECTED_SURFACE, 'settings.set': 'query' }).not.toEqual(EXPECTED_SURFACE)
+    expect({ ...EXPECTED_SURFACE, 'settings.setSecret': 'query' }).not.toEqual(EXPECTED_SURFACE)
   })
 
-  it('the contract scan finds a settings-named contract when one exists', async () => {
-    // The same walk the third test runs, over a table that DOES name one. If this
-    // finds nothing, that test's empty result means "the walk is broken", not
-    // "settings is unmigrated".
-    const fixture = { FAKE_CONTRACTS: { set: { name: 'settings.set' } } }
-    const named: string[] = []
-    for (const [exportName, value] of Object.entries(fixture)) {
-      if (!/_CONTRACTS$/.test(exportName)) continue
-      for (const contract of Object.values(value)) {
-        if (typeof contract.name === 'string' && contract.name.startsWith('settings.')) {
-          named.push(`${exportName}.${contract.name}`)
-        }
-      }
-    }
-    expect(named).toEqual(['FAKE_CONTRACTS.settings.set'])
-  })
-
-  it('the contract scan actually reaches the shipped tables', async () => {
-    // …and the walk must be reading REAL tables, or the empty settings result is
-    // vacuous. Every migrated family must be visible to it.
-    const commands = (await import('@podium/commands')) as unknown as Record<string, unknown>
-    const names: string[] = []
-    for (const [exportName, value] of Object.entries(commands)) {
-      if (!value || typeof value !== 'object' || !/_CONTRACTS$/.test(exportName)) continue
-      for (const contract of Object.values(value as Record<string, unknown>)) {
-        const name = (contract as { name?: unknown } | null)?.name
-        if (typeof name === 'string') names.push(name)
-      }
-    }
-    expect(names).toContain('specs.create')
-    expect(names).toContain('machines.rename')
-    expect(names.length).toBeGreaterThan(20)
+  it('the contract scan reaches the SHIPPED tables, not a fixture', () => {
+    const commands = SETTINGS_CONTRACTS['settings.setSecret']
+    expect(commands.name).toBe('settings.setSecret')
+    expect(commands.visibility).toBe('secret')
+    expect(commands.delivery.class).toBe('online-sensitive')
   })
 })

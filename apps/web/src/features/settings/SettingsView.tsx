@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { SettingsWriteRefusal } from '@podium/commands'
 import type { HostMetricsWire } from '@podium/model'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { ChevronLeft } from 'lucide-react'
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
+import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
@@ -204,6 +206,10 @@ export function SettingsView(): JSX.Element {
   const [accounts, setAccounts] = useState<AccountView[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** What the last save could NOT write, and why — POD-420's surfaced refusal.
+   *  Distinct from `error`: a refusal is an outcome the save DECIDED, not a
+   *  request that failed, and the two read differently to a user. */
+  const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
   const [savedAt, setSavedAt] = useState(0)
   const [filter, setFilter] = useState('')
   const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
@@ -319,7 +325,22 @@ export function SettingsView(): JSX.Element {
     setError(null)
     setTelegramSetup({ status: 'starting' })
     try {
-      const saved = await trpc.settings.set.mutate(settings)
+      // The ceremony needs the token PERSISTED before it starts, and the token
+      // is a server-owned secret — so this saves through the command surface
+      // like every other write (POD-420). Offline it is refused here rather
+      // than by a Telegram API call that cannot succeed either.
+      const { saved, refusals } = await saveSettingsAsCommands(
+        trpc,
+        lastSaved ?? settings,
+        settings,
+      )
+      if (refusals.length > 0) {
+        setTelegramSetup({
+          status: 'failed',
+          message: refusalMessage(refusals) ?? 'The bot token could not be saved.',
+        })
+        return
+      }
       setSettings(saved)
       setLastSaved(saved)
       const setup = await trpc.settings.telegramSetupStart.mutate()
@@ -330,18 +351,37 @@ export function SettingsView(): JSX.Element {
     }
   }
 
+  /**
+   * SAVE IS NOW A PLAN, NOT A BLOB (POD-420).
+   *
+   * `saveSettingsAsCommands` asks the contract table which commands this edit
+   * requires — a personal-preference patch, an instance-preference patch, a
+   * secret replace, a secret clear — and issues those. The decision lives in
+   * `@podium/commands`; this component only renders the outcome.
+   *
+   * A partial save is a real outcome: offline, the preferences go through and
+   * the secret is refused, `refusals` names the field, and the refused input
+   * stays exactly as the user typed it rather than being reverted under them.
+   */
   const save = async () => {
     if (!settings) return
     setSaving(true)
     setError(null)
     try {
-      const saved = await trpc.settings.set.mutate(settings)
-      setSettings(saved)
+      const { saved, refusals } = await saveSettingsAsCommands(
+        trpc,
+        lastSaved ?? settings,
+        settings,
+      )
       setLastSaved(saved)
+      setRefusals(refusals)
+      if (refusals.length === 0) setSettings(saved)
       // Refresh feature gates so useFeature sees the saved experimental toggles
       // [spec:SP-f4b9].
       invalidateFeatures(trpc)
-      setSavedAt(Date.now())
+      // No "Saved ✓" flash over a refusal: something was not saved, and the bar
+      // must say so rather than showing both messages in sequence.
+      if (refusals.length === 0) setSavedAt(Date.now())
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -362,10 +402,13 @@ export function SettingsView(): JSX.Element {
     const id = window.setTimeout(() => forceTick((n) => n + 1), 1600)
     return () => window.clearTimeout(id)
   }, [savedFlash])
-  const showBar = BLOB_TABS.has(tab) && (dirty || saving || savedFlash || Boolean(error))
+  const refusalText = refusalMessage(refusals)
+  const showBar =
+    BLOB_TABS.has(tab) && (dirty || saving || savedFlash || Boolean(error) || Boolean(refusalText))
   const discard = () => {
     setSettings(lastSaved)
     setError(null)
+    setRefusals([])
   }
 
   const filterRef = useRef<HTMLInputElement | null>(null)
@@ -405,9 +448,7 @@ export function SettingsView(): JSX.Element {
       className="settings-overlay fixed inset-x-0 top-11 bottom-0 z-40 flex flex-col bg-background"
       aria-label="Settings"
     >
-      <header
-        className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5"
-      >
+      <header className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5">
         <Button
           type="button"
           variant="ghost"
@@ -536,10 +577,15 @@ export function SettingsView(): JSX.Element {
               <span
                 className={cn(
                   'min-w-0 flex-1 truncate text-[12px]',
-                  error ? 'text-destructive' : 'text-foreground',
+                  error || refusalText ? 'text-destructive' : 'text-foreground',
                 )}
+                // The refusal is the message a user acts on, so it is announced
+                // rather than left to be noticed in a bar they were not reading.
+                role={refusalText ? 'alert' : undefined}
+                data-settings-refusal={refusalText ? 'true' : undefined}
+                title={refusalText ?? undefined}
               >
-                {error ? error : dirty || saving ? 'Unsaved changes' : 'Saved ✓'}
+                {error ? error : (refusalText ?? (dirty || saving ? 'Unsaved changes' : 'Saved ✓'))}
               </span>
               {(dirty || error) && (
                 <Button type="button" variant="ghost" size="sm" onClick={discard}>

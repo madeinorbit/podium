@@ -133,13 +133,16 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           notifications: {
             web: true,
             ntfyTopic: 'isolated-restart-storm',
-            telegramBotToken: 'fixture-token',
             telegramChatId: 'fixture-chat',
           },
           experimental: { notifications: true },
           autoContinue: { enabled: true, promptDismissed: true },
         }),
       )
+      // The bot token is a server-owned secret and the blob write refuses one
+      // (POD-420): configuring it is `setSecret`'s job, which is the only path
+      // authorized to write credential material.
+      registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
       registry.clientGateway.attachClient((message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)

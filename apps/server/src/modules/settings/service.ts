@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { PodiumSettings } from '@podium/runtime'
+import { applySettingsPatch, readSettingsLeaf } from '@podium/commands'
+import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey } from '@podium/model'
+import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
+import { readOrCreateFingerprintKey, secretPresence } from './secret-fingerprint'
 
 const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
 
@@ -160,6 +163,12 @@ export interface SettingsServiceOptions {
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
+  /** The server-held MAC key the secret fingerprint is derived under. Injected so
+   *  a test can pin a fingerprint without touching the real state dir; defaults
+   *  to the persistent key beside `daemon.secret`. Read LAZILY (a thunk, not a
+   *  Buffer) so constructing a service never creates a key file as a side
+   *  effect — only a secret write does. */
+  fingerprintKey?: () => Buffer
 }
 
 /**
@@ -173,6 +182,7 @@ export class SettingsService {
   private readonly telegramSetup: TelegramSetupClient
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
+  private readonly fingerprintKey: () => Buffer
   // SWR cache of live per-agent model lists (grok/cursor/opencode). Query-driven:
   // nothing probes until a client asks via getModelCatalog().
   private readonly modelCatalog: ModelCatalog
@@ -185,6 +195,7 @@ export class SettingsService {
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
+    this.fingerprintKey = options.fingerprintKey ?? (() => readOrCreateFingerprintKey())
     this.modelCatalog = new ModelCatalog(options.modelProbe, {
       now: this.now,
       // Persist the catalog so the first picker-open after a restart/redeploy serves
@@ -198,13 +209,118 @@ export class SettingsService {
     return this.store.getSettings()
   }
 
+  /**
+   * THE BLOB WRITE MAY NOT CARRY A SECRET (POD-420, ADR 1 D6 / POD-352).
+   *
+   * `settings.set` is the legacy one-blob command, and the whole defect this
+   * issue exists to fix is that it answers for three matrix rows at once. Its
+   * secret third is now written by `settings.setSecret` / `settings.clearSecret`
+   * — online-sensitive, admin-grade, never queued — so a secret change arriving
+   * through the blob is refused rather than quietly honoured.
+   *
+   * The refusal is derived from `SERVER_SECRET_KEYS` (POD-418's closed
+   * vocabulary), so a secret ADDED to the model becomes unwritable-by-blob on
+   * the same commit. It is NOT a detector over key names or value shapes: a
+   * detector that misses one key fails open, and this one enumerates the
+   * classification instead.
+   *
+   * It compares VALUES rather than rejecting any payload that mentions a secret,
+   * because the shipped clients send the whole blob back including the secrets
+   * they were served — an unchanged secret must round-trip, or every preference
+   * save through the legacy command would fail. Only a CHANGE is refused, which
+   * is precisely the write that must go through the secret commands.
+   */
+  private assertNoSecretChange(previous: PodiumSettings, next: PodiumSettings): void {
+    const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
+      String(readSettingsLeaf(blob, key) ?? '')
+    const changed = SERVER_SECRET_KEYS.filter((key) => leaf(previous, key) !== leaf(next, key))
+    if (changed.length === 0) return
+    // Names the KEYS and never a value: the key vocabulary is public (the
+    // presence projection publishes all five), the material is not.
+    throw new Error(
+      `settings.set may not write server-owned secrets (${changed.join(', ')}) — ` +
+        'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
+    )
+  }
+
   setSettings(settings: PodiumSettings): PodiumSettings {
     const previous = this.store.getSettings()
+    this.assertNoSecretChange(previous, settings)
     this.store.setSettings(settings)
     // Synchronous bus fan-out: NotifyService replays blocked states to newly
     // configured external targets; the registry re-arms auto-continue.
     this.bus.emit('settings.changed', { previous, next: settings })
     return settings
+  }
+
+  // -------------------------------------------------------------------------
+  // The contracted write surface (POD-420)
+  // -------------------------------------------------------------------------
+
+  /**
+   * `settings.updatePersonal` / `settings.updateInstance` — a path-addressed
+   * preference patch.
+   *
+   * ONE METHOD FOR BOTH TIERS, and the tier gate is deliberately NOT here: it is
+   * each command's INPUT SCHEMA, which admits only paths its own tier
+   * classifies. Re-deciding it in the handler would be a second answer to the
+   * authorization question, and the two would drift — while a handler-side check
+   * could not refuse anything the schema had already let through anyway.
+   *
+   * `normalizeSettings` is what validates the VALUES. The patch is
+   * `Record<string, unknown>` by design (the contract decides addresses, the
+   * model decides value types), so this parse is where `hibernation.memoryPct =
+   * "abc"` is refused — by the model's own schema, not by a restatement of it.
+   */
+  updatePreferences(values: Readonly<Record<string, unknown>>): PodiumSettings {
+    const current = this.store.getSettings()
+    return this.setSettings(normalizeSettings(applySettingsPatch(current, values)))
+  }
+
+  /**
+   * `settings.setSecret` — replace one server-owned secret.
+   *
+   * It writes the store DIRECTLY rather than through {@link setSettings},
+   * because that method now refuses a secret change: this is the one path
+   * authorized to make one, and routing it through the refusal would mean either
+   * a bypass flag or a guard with an exception — both of which are how the guard
+   * eventually forgives the wrong caller.
+   *
+   * It still emits `settings.changed`, because every subscriber that reacts to a
+   * changed token (the notify service's replay, the messaging bridge) must react
+   * whichever command wrote it.
+   *
+   * The material lands in the LEGACY blob path (`apiKeys.openai`, …) because
+   * that is where secrets still live; POD-419 owns moving them into the keyed
+   * store. The RETURN carries no material: `secretPresence` names presence, an
+   * opaque fingerprint and a rotation time, and has no value key by construction.
+   */
+  setSecret(key: ServerSecretKey, value: string): SecretPresenceWire {
+    const previous = this.store.getSettings()
+    const next = normalizeSettings(applySettingsPatch(previous, { [key]: value }))
+    this.store.setSettings(next)
+    this.bus.emit('settings.changed', { previous, next })
+    // RECORDED GAP: the blob has nowhere to persist a per-secret rotation time,
+    // so this is the time of THIS write and a later read projection cannot
+    // recover it. POD-419's keyed store is where `updatedAt` becomes durable;
+    // returning the write time is truthful about what just happened and is the
+    // only honest non-null answer available here.
+    return secretPresence(key, value, this.fingerprintKey(), new Date(this.now()).toISOString())
+  }
+
+  /**
+   * `settings.clearSecret` — remove one server-owned secret.
+   *
+   * `''` is today's blob spelling of "not configured" (the ambiguity POD-418
+   * removed at the model and POD-419 removes at rest), so clearing writes it and
+   * the presence projection reports `present: false` with both nullables null.
+   */
+  clearSecret(key: ServerSecretKey): SecretPresenceWire {
+    const previous = this.store.getSettings()
+    const next = normalizeSettings(applySettingsPatch(previous, { [key]: '' }))
+    this.store.setSettings(next)
+    this.bus.emit('settings.changed', { previous, next })
+    return secretPresence(key, '', this.fingerprintKey())
   }
 
   /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
