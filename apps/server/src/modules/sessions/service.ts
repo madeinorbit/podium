@@ -22,7 +22,8 @@ export type SessionWirePrincipal = ActorRef
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
-import { computePriorities, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
+import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -2034,6 +2035,24 @@ export class SessionsService {
 
   private draftSyncEnabled(): boolean {
     return this.draftSyncEnabledCached
+  }
+
+  /**
+   * The presence-class command envelope, built lazily (POD-380).
+   *
+   * Lazy because the registry takes `this`: constructing it in the constructor
+   * would hand out a half-initialised service. The import is safe in this direction
+   * — presence-registry imports `SessionsService` as a TYPE only, so there is no
+   * runtime cycle.
+   */
+  private presenceRegistry: PresenceRegistry | undefined
+  private presenceEnvelope(): PresenceRegistry {
+    this.presenceRegistry ??= new PresenceRegistry({
+      sessions: this,
+      store: this.store,
+      now: () => this.now(),
+    })
+    return this.presenceRegistry
   }
 
   /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
@@ -4368,9 +4387,28 @@ export class SessionsService {
         this.reprioritizePreparedSessionPublications()
         break
       case 'setSessionDraft':
-        this.setSessionDraft(msg, id)
+        // MIGRATED (POD-380): the legacy unconditional whole-body draft write is the
+        // WebSocket surface this issue's brief names, so it now runs through the
+        // `sessions.setDraft` contract's envelope (exposure 'ws', policy
+        // owner-or-grant, redaction on `edit`) instead of calling the service
+        // directly. The WIRE message is untouched — the envelope adapts it to the
+        // contract's `edit` union, which is what lets a splice op join later without
+        // a wire change.
+        this.presenceEnvelope().execute(
+          'sessions.setDraft',
+          { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
+          soleHumanWsPrincipal(OPERATOR, id),
+          'ws',
+        )
         break
       case 'draftEdit':
+        // DELIBERATELY NOT migrated. `draftEdit` is Draft Sync v2 (POD-859), which
+        // already arbitrates by server-assigned `rev` plus a soft edit lease — it is
+        // the op-stream precursor, not the unconditional write. Routing it through a
+        // contract that models the unconditional write would DOWNGRADE it. The
+        // convergence point is named on both sides: the contract's `baseRevision` IS
+        // this message's `baseRev`, so whoever builds the op-stream class unifies
+        // them rather than reconciling two numbering schemes.
         this.handleDraftEdit(msg, id)
         break
       case 'sessionOpenUrlCallback':

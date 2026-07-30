@@ -83,6 +83,16 @@ export interface PresencePrincipal {
   onBehalfOf?: string
   /** True when the human is acting directly — decides `nameSource` (see below). */
   humanDirect: boolean
+  /**
+   * The DEVICE half of §3.2's `(user, device, capability)` principal: the attached
+   * client this call arrived on, when there is one.
+   *
+   * Load-bearing for the composer draft, not bookkeeping: a draft edit fans out to
+   * every OTHER attached client and deliberately does NOT echo to its author
+   * (POD-379 pins both). Without the author's client id the handler cannot suppress
+   * that echo, and the author's own composer would fight its own keystrokes.
+   */
+  clientId?: string
 }
 
 /**
@@ -99,6 +109,18 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
     onBehalfOf: SOLE_USER_ID,
     humanDirect: capabilityAttribution(capability).actor === null,
   }
+}
+
+/**
+ * The principal for a WebSocket client message. Same sole human as the tRPC seam
+ * (both are the one shared password today) but carrying the attached client's id,
+ * which the draft handler needs.
+ */
+export function soleHumanWsPrincipal(
+  capability: Capability,
+  clientId: string,
+): PresencePrincipal {
+  return { ...soleHumanPrincipal(capability), clientId }
 }
 
 /** What a refused presence write returns: nothing. See the §3.1.5 note above. */
@@ -291,7 +313,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.setDraft': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
+    handler: (input, principal, deps) => {
       const edit = input.edit as { kind: 'replace'; text: string }
       // The op-stream RESERVATION's one enforced rule (see the contract): a stale
       // baseRevision is REJECTED rather than applied, so a second writer's text is
@@ -304,7 +326,11 @@ const REGISTRATIONS: Record<string, Registration> = {
           return { ok: false, reason: 'stale-revision', revision: current }
         }
       }
-      deps.sessions.setSessionDraft({ sessionId: str(input.sessionId), text: edit.text })
+      // `clientId` is what suppresses the echo to the author (see PresencePrincipal).
+      deps.sessions.setSessionDraft(
+        { sessionId: str(input.sessionId), text: edit.text },
+        principal.clientId,
+      )
       return undefined
     },
   },
