@@ -896,6 +896,68 @@ upgrade-rehearsal runbook is committed into this section.
 (VPS + remote daemon + phone PWA), in-place DB upgrade, zero lost sessions, rollback
 drill tested once; `podium issue needs-human` set at the gate. `podium issue tree 289`.
 
+#### LEDGER ENTRY — POD-305 (2.1 Authority): in-place upgrade and its rollback
+
+**What the schema change is.** One drizzle migration,
+`20260730162954_change-provenance-envelope`: three NULLABLE columns added to
+`changes` (`origin_id`, `causation_id`, `mutation_id`) per ADR 2 D8. Nothing is
+dropped, nothing is rewritten, no table is rebuilt.
+
+**Ownership moved in the same issue, and moving it is NOT a migration.**
+`changes` and `applied_mutations` are now declared in
+`packages/sync/src/adapters/sqlite/schema.ts` instead of
+`apps/server/src/migrations/schema.ts`. `drizzle.config.ts` names an ARRAY of
+schema files with ONE `out` directory, so drizzle-kit unions them and **global
+migration ordering remains the drizzle journal** — folder-timestamp order plus
+the snapshot `prevId` DAG. Verified rather than assumed: `generate` emitted only
+the three `ALTER TABLE ADD COLUMN`s, i.e. the ownership move produced no DDL at
+all. This supersedes §5's "app migration orchestrator owns global ordering" row
+for these tables: there is no orchestrator, there is the journal.
+
+A second `out` directory for the kernel's tables was considered and REJECTED —
+two journals have no defined order between them, so a migration in one that
+depends on a table created in the other is correct on the machine that authored
+it and a boot failure everywhere else.
+
+**Forward path.** Applied by the normal boot path: `store.ts` →
+`runDrizzleMigrations`, inside drizzle's single boot transaction. A partial
+apply is therefore not a reachable state.
+
+**ROLLBACK: restore the automatic pre-migration backup.** drizzle has no down
+migrations, and this issue adds none. The procedure is `backup.ts`'s
+pre-migration copy (with the free-space preflight, f07d2683):
+
+1. Stop the server.
+2. Restore the pre-migration backup over `podium.db`.
+3. Start the OLDER build.
+
+The downgrade guard already refuses a newer DB against an older build, so
+starting an old build against an un-restored database fails loudly instead of
+silently mis-reading it.
+
+**Why a hand-rolled reverse migration is NOT offered.** `ALTER TABLE DROP
+COLUMN` on `changes` is available in modern SQLite, but the three columns are
+additive and NULLABLE: an older build never selects them, so leaving them in
+place is harmless and the only reason to drop them would be cosmetic. Offering a
+reverse step that touches the change log to achieve nothing is strictly more
+risk than not offering one.
+
+**Seq continuity is the property under test, and it is pinned.**
+`apps/server/src/migrations/change-provenance-upgrade.test.ts` upgrades a REAL
+database in place and asserts what the NEXT append is given, not merely that the
+migration succeeded. A restarted `seq` is silent on both sides — every replica
+cursor would sit above the new head, `changesSince` would return nothing, the
+client would look up to date forever, and nothing would heal, because a future
+cursor is not a gap. One case covers a head-PRUNED log, which a naive `MAX(seq)`
+check would pass while the product broke: pruning deletes the oldest rows, so
+`MAX(seq)` is unmoved while a rebuild would reset `sqlite_sequence` BELOW the
+highest seq ever assigned, and two changes would then share one position.
+
+Mutation-verified: appending `UPDATE sqlite_sequence SET seq = 0` to the
+migration fails the three seq assertions and PASSES the row-preservation and
+NULL-column ones, so the test fails when seq restarts rather than only when the
+migration errors.
+
 ### Phase 3 — Command registry as the universal write surface (POD-290) · exit gate POD-424
 
 **Scope:** L1/L3 split + framework (POD-311), session mutations (POD-312 → 379–382 +
