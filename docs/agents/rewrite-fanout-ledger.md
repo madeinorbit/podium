@@ -1857,3 +1857,45 @@ Its A-schema-flip figure reads 1798 before AND after the branded-id sweep and ca
 classifier is NAME-based, so `sessionId: SessionId` — already branded — still counts as a site
 (measured: `api.ts` has six branded `sessionId` members, all six counted). The gate doc says the sweep
 deliberately over-reports. **The audit item is the `POD-361-EDGE-CAST` marker count, which is now 0.**
+
+### Local absence claims do not compose into a global one
+
+POD-386's insight, and the reason there are now ELEVEN gates rather than seven. Each family audit
+proves "no hand-written write in MY router". Said seven times, that is still perfectly true of a
+`router.ts` that grew a brand-new router full of them.
+
+So `audit:router-mutations` is the repo-wide half: it censuses every top-level `t.router(` literal,
+ratchets the total, and names every remaining key with its owning issue — **so a DECREASE has to say
+WHICH key vanished.** Pair every per-family absence gate with a population-level one, or the sum of
+locally-clean surfaces is not a clean surface.
+
+**Its settings guard generalises further, and the reasoning applies to every ratchet here:** it
+enforces the settings surface in BOTH directions with no ratchet relief, because *a settings write
+DISAPPEARING is as much a failure as one appearing* — **an absorbed surface reads as progress on every
+ratchet.** It backed that with the check a source scan structurally cannot make: whole-map equality on
+names AND verbs against the RUNNING appRouter, plus that no `*_CONTRACTS` table names a `settings.*`
+command — because a `...settingsFamily` spread would leave `router.ts` textually clean while migrating
+everything.
+
+### An anchor that rides on formatting is an instrument that reports the formatting
+
+POD-386 found the per-family audits anchor the procedure key on a FIXED INDENTATION — correct only
+because those routers happen to be flat. Applied file-wide, it named the last field of an inline
+`z.object` as the procedure (`conversations.setMeta` recorded as `conversations.summary`), and the
+drift check then fired on four untouched routers. Fixed by choosing the key by nesting DEPTH, with the
+shape pinned in the probe fixture.
+
+Worth re-reading the seven per-family audits against this: they are correct today by accident of
+formatting, not by construction.
+
+### Contracts with no dispatcher: declaring a transport nothing serves
+
+POD-385 declared three spec contracts with `exposure: [trpc, relay, cli]` and repointed the input
+table at their schema instances — and nothing derived the tRPC arm. A contract naming a transport that
+no dispatcher reads. Its own evidence was about the contracts and the matrix row, so it looked
+complete; **I merged and closed it without catching this.** POD-386 measured the router before
+planning and found it.
+
+**A contract table with no dispatcher is mechanism without coverage.** POD-383 stated the same rule
+from the other side when it derived its own router arm rather than leaving one for its successor. When
+a family issue declares exposure, check that something SERVES it before closing.
