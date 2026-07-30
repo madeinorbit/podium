@@ -14,6 +14,7 @@ import type {
   SyncSpan,
   SyncUnitOfWork,
 } from './ports'
+import { SyncCommitConflict } from './ports'
 import type { AuthorityRefusal } from './reasons'
 import {
   CONFIRMATION_FIELD,
@@ -1860,31 +1861,112 @@ describe('review round 4 — the same races on the CONFIGURED unit-of-work path'
     expect(reopened.outbox.all()).toEqual([])
   })
 
-  it('rolls back an EARLIER enrolled write when a later one fails in the same span', async () => {
+  it('publishes nothing when a staged precondition goes stale before commit', async () => {
+    // The late-failure path that survives staging: span A stages a retirement, then
+    // ANOTHER writer commits something that invalidates one of A's preconditions
+    // before A commits. A must publish nothing at all.
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
     const { outbox } = await harness(() => applied, { store, clock, unitOfWork: uow })
-    const first = await outbox.enqueue(close('POD-1'))
+    const target = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
-    const durableBefore = store.durable()
+    const before = JSON.stringify(store.durable())
 
     await expect(
       uow.transact(async (span) => {
-        await outbox.retireApplied(first.mutationId, span)
-        // A second enrolled write whose precondition cannot hold.
+        await outbox.retireApplied(target.mutationId, span)
+        // A second writer moves the same record while the span is open, so the
+        // staged expectation (applied) no longer holds at commit.
+        const outside = await store.apply({
+          put: [{ ...(store.durable()[0] as OutboxRecord), state: 'cancelled' }],
+          expect: [{ mutationId: target.mutationId, expect: 'applied' }],
+        })
+        expect(outside.ok).toBe(true)
+      }),
+    ).rejects.toThrow(SyncCommitConflict)
+
+    // The outside commit survived, and the aborted span left no trace.
+    expect(store.durable().map((r) => [r.mutationId, r.state])).toEqual([
+      [target.mutationId, 'cancelled'],
+    ])
+    expect(before).not.toEqual(JSON.stringify(store.durable()))
+  })
+
+  it("an aborted span cannot delete another transaction's committed value", async () => {
+    // Reviewer's overlapping-key probe. Under the old keyed undo: span A staged a put
+    // for `shared`, transaction B replaced `shared` and committed, A then hit a late
+    // conflict and its undo restored the prior value — DELETING B's committed work.
+    // B had also read A's uncommitted write, a dirty read. Staging closes both: A's
+    // write is invisible until it publishes, and it never publishes.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox } = await harness(() => unreachable, { store, clock })
+    const shared: OutboxRecord = {
+      mutationId: 'shared' as MutationId,
+      command: CLOSE,
+      input: { by: 'A' },
+      partitionKey: 'p',
+      attribution: ADA,
+      state: 'queued',
+      queuedAt: 0,
+      attempts: 0,
+    }
+    void outbox
+
+    await expect(
+      uow.transact(async (span) => {
+        const staged = await store.apply(
+          { put: [shared], expect: [{ mutationId: shared.mutationId, expect: 'absent' }] },
+          span,
+        )
+        expect(staged.ok).toBe(true)
+        // B commits its own value for the SAME key. It must not see A's staged write
+        // — so `absent` still holds for it, which is the no-dirty-read assertion.
+        const b = await store.apply({
+          put: [{ ...shared, input: { by: 'B' } }],
+          expect: [{ mutationId: shared.mutationId, expect: 'absent' }],
+        })
+        expect(b.ok).toBe(true)
+        // A now hits a genuine conflict: the key it expected absent exists.
+        throw new Error('A fails after B committed')
+      }),
+    ).rejects.toThrow(/A fails after B committed/)
+
+    // B's committed value survives A's abort, unchanged.
+    expect(store.durable()).toHaveLength(1)
+    expect(store.durable()[0]?.input).toEqual({ by: 'B' })
+  })
+
+  it('an aborted removal restores record ORDER byte for byte', async () => {
+    // Reviewer's exact-rollback probe. Under the old keyed undo, restoring a removed
+    // record by push turned [first, second] into [second, first] — an aborted
+    // transaction silently reordering durable records, which D12's FIFO depends on.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox } = await harness(() => applied, { store, clock })
+    const first = await outbox.enqueue(close('POD-1'))
+    const second = await outbox.enqueue(close('POD-2'))
+    const before = JSON.stringify(store.durable())
+    expect(store.durable().map((r) => r.mutationId)).toEqual([first.mutationId, second.mutationId])
+
+    await expect(
+      uow.transact(async (span) => {
         await store.apply(
           {
-            remove: ['ghost' as MutationId],
-            expect: [{ mutationId: 'ghost' as MutationId, expect: 'queued' }],
+            remove: [first.mutationId],
+            expect: [{ mutationId: first.mutationId, expect: 'queued' }],
           },
           span,
         )
+        throw new Error('abort after staging the removal')
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/abort after staging/)
 
-    expect(store.durable()).toEqual(durableBefore)
-    expect(outbox.all().map((r) => r.mutationId)).toEqual([first.mutationId])
+    // Byte for byte, order included.
+    expect(JSON.stringify(store.durable())).toBe(before)
   })
 
   it('refuses a mutation that touches a key with no precondition', async () => {
@@ -1924,5 +2006,80 @@ describe('review round 4 — the same races on the CONFIGURED unit-of-work path'
     ).rejects.toThrow(OutboxInvariantError)
     expect(store.durable()).toEqual([])
     expect(outbox.all()).toEqual([])
+  })
+})
+
+describe('review round 5 — store-level transaction isolation', () => {
+  it('serializes commits, so two concurrent spans on DISJOINT keys both survive', async () => {
+    // The commit lock had no test, and a mutant that removed it passed: the double's
+    // commit was synchronous end to end, so nothing could interleave. `slowCommits`
+    // models the gap a real IndexedDB or SQLite transaction has between computing a
+    // post-state and publishing it — and with that gap, two unserialized commits each
+    // publish from the same base and the second silently drops the first's key.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const one = await harness(() => unreachable, { store, clock, idPrefix: 'one-' })
+    const two = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'two-',
+    })
+    store.slowCommits = true
+    const uowOne = new InMemoryUnitOfWork()
+    const uowTwo = new InMemoryUnitOfWork()
+
+    await Promise.all([
+      uowOne.transact(async (span) => {
+        await store.apply(
+          {
+            put: [
+              {
+                mutationId: 'one-key' as MutationId,
+                command: CLOSE,
+                input: {},
+                partitionKey: 'p1',
+                attribution: ADA,
+                state: 'queued',
+                queuedAt: 0,
+                attempts: 0,
+              },
+            ],
+            expect: [{ mutationId: 'one-key' as MutationId, expect: 'absent' }],
+          },
+          span,
+        )
+      }),
+      uowTwo.transact(async (span) => {
+        await store.apply(
+          {
+            put: [
+              {
+                mutationId: 'two-key' as MutationId,
+                command: CLOSE,
+                input: {},
+                partitionKey: 'p2',
+                attribution: GRACE,
+                state: 'queued',
+                queuedAt: 0,
+                attempts: 0,
+              },
+            ],
+            expect: [{ mutationId: 'two-key' as MutationId, expect: 'absent' }],
+          },
+          span,
+        )
+      }),
+    ])
+
+    // Neither commit dropped the other's key.
+    expect(
+      store
+        .durable()
+        .map((r) => r.mutationId)
+        .sort(),
+    ).toEqual(['one-key', 'two-key'])
+    void one
+    void two
   })
 })

@@ -80,6 +80,7 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | Several retirements in one span | three retirements, one publication, all three durable; an aborted multi-retirement span rolls every one back and emits nothing; an id already retired in the span cannot be resurrected |
 | The batch shape POD-369 submits | two provenance matches commit as **exactly one** enrolled write with entity + cursor present; abort preserves both entries, the OLD entity/cursor and emits no observation; a second batch extends the span draft (bootstrap across two buffered frames); a bad id fails the whole batch before staging |
 | Shared span, two principals | both stage keyed mutations in ONE span and both survive; a cross-principal key write is refused with `OutboxInvariantError` |
+| Store-level isolation | an aborted span cannot delete another transaction's committed value (overlapping key, no dirty read); an aborted removal restores record order byte for byte; a staged precondition that goes stale before commit publishes nothing; two concurrent spans on disjoint keys both survive, with the double modelling a real adapter's async commit gap so the per-store commit lock is actually exercised |
 | Concurrent writers on the CONFIGURED unit-of-work path | the same two races with a separate transaction per tab: the id collision re-stages through a typed commit conflict and fails with `duplicate mutationId` rather than a generic error, and discard-versus-drain still settles both successfully; a late precondition failure leaves nothing of the transaction behind (durable, memory, events, and a cold rehydrate); an earlier enrolled write is rolled back when a later one fails |
 | Concurrent writers (deterministic, barrier-driven) | two instances racing the same explicit `mutationId`: exactly one fulfils, the loser is refused and emits no local-ack; discard-versus-drain across two tabs: the user's decision is durable, the contested entry is never submitted, and BOTH calls still settle successfully; two different ids racing both land; a permanent conflict surfaces after five attempts instead of spinning |
 
@@ -155,13 +156,24 @@ recognise it too. Both shapes mean "another writer won" and both re-stage. A com
 arriving through the CALLER's own ambient span is not ours to retry, so it propagates: their
 transaction is already dead and retrying our part alone would be meaningless.
 
-**The adapter must be atomic across enrolled writes**, staging or validating against a
-transaction-local view and publishing only once every write succeeds, or undoing on failure. And the
-undo must be KEYED, not a whole-store snapshot restore: with two transactions against one store,
-restoring a snapshot deletes rows the other transaction committed in the meantime. That was a real
-bug in this package's own in-memory unit of work, found by the reviewer's probe — a rollback that
-clobbers a concurrent commit is the same defect the keyed-delta design exists to prevent, one level
-down.
+**The adapter must be ISOLATED, not merely undoable.** An aborted transaction must never have
+touched the store at all: enrolled mutations are STAGED, validated against a transaction-local view
+(a span reads its own writes and nobody else's), re-validated against current truth at commit, and
+published only when every one of them passes — with commits serialized per physical store.
+
+This took three attempts in this package's own in-memory unit of work, and the two dead ends are
+worth recording because both looked correct:
+
+1. *Apply eagerly, restore a whole-store snapshot on abort.* Restoring a snapshot deletes rows
+   another transaction committed in the meantime — the same clobbering the keyed-delta design exists
+   to prevent, reintroduced one level down in the rollback path.
+2. *Apply eagerly, undo per key.* Fixes disjoint keys and still fails on overlapping ones two ways:
+   another transaction can read this span's uncommitted write (a dirty read) and then have its own
+   committed value deleted by this span's rollback; and restoring a removed record by push changes
+   durable record ORDER, which D12's FIFO depends on.
+
+Both dead ends share a shape: they let the abort path be responsible for undoing damage the write
+path had already done. Isolation removes the damage instead of undoing it.
 
 **Preconditions are required and complete by construction.** `expect` is not optional on
 `OutboxStoreMutation`, and the kernel builds it inside `delta()` from the same sets it builds

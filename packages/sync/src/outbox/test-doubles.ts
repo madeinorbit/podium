@@ -32,10 +32,53 @@ export class InMemoryOutboxStore implements OutboxStorePort {
   /** Flip to make `read` reject: ADR 2 D7's "genuinely unreadable" store, the
    *  one case where user work is lost and the loss must be loud. */
   failRead: unknown | undefined
-  /** Flip to make `write` reject — ADR 6 D4.4's quota denial, which must not
+  /** Flip to make a write reject — ADR 6 D4.4's quota denial, which must not
    *  partially apply. */
   failWrite: unknown | undefined
   writes = 0
+  /**
+   * `delayNextWrites` makes writes resolve OUT OF ORDER — the probe that caught the
+   * original serialization bug, where two concurrent enqueues ended with memory
+   * holding [m1, m2] while durable storage held only [m1].
+   */
+  delayNextWrites = 0
+
+  /**
+   * Held applies, for DETERMINISTIC two-writer races. `holdNextApplies(2)` parks the
+   * next two applies at their start — after both callers have read and staged, which
+   * is precisely the interleaving a sleep-based test would only sometimes hit — and
+   * the returned function releases them.
+   */
+  private readonly waiters: (() => void)[] = []
+  private holds = 0
+  /**
+   * TRANSACTION-LOCAL staging, one entry per span: the mutations that span has
+   * enrolled, in order, and nothing else.
+   *
+   * This replaces an earlier keyed-undo design that mutated the shared store eagerly
+   * and restored prior values on abort. Keyed undo fixed snapshot clobbering across
+   * DISJOINT keys and still failed two ways on overlapping ones: another
+   * transaction could read this span's uncommitted write (a dirty read) and then
+   * have its own committed value deleted by this span's rollback; and restoring a
+   * removed record by push changed durable ORDER, which D12's FIFO depends on.
+   *
+   * The only fix that closes both is isolation: an aborted transaction must never
+   * have touched the store at all. So enrolled mutations are staged here, validated
+   * against a transaction-local view, and published only when every one of them
+   * validates again under a store-wide commit lock.
+   */
+  private readonly staged = new WeakMap<SyncSpan, OutboxStoreMutation[]>()
+  /** Serializes commits for this physical store, so two spans cannot interleave
+   *  validate-and-publish. */
+  private commitLock: Promise<unknown> = Promise.resolve()
+  /**
+   * Model a real adapter's ASYNCHRONOUS transaction by yielding between computing
+   * the post-state and publishing it. Without this the double's commit is
+   * synchronous end to end, which hides whether the commit lock does anything — a
+   * real IndexedDB or SQLite transaction has that gap, so a test that needs the lock
+   * to matter turns this on.
+   */
+  slowCommits = false
 
   constructor(initial: readonly OutboxRecord[] = []) {
     this.snapshot = JSON.stringify(initial)
@@ -43,35 +86,8 @@ export class InMemoryOutboxStore implements OutboxStorePort {
 
   async read(): Promise<readonly OutboxRecord[]> {
     if (this.failRead !== undefined) throw this.failRead
-    return JSON.parse(this.snapshot) as OutboxRecord[]
+    return this.parse()
   }
-
-  /**
-   * `delayNextWrites` makes the store resolve writes OUT OF ORDER — the probe that
-   * caught the original serialization bug, where two concurrent enqueues ended
-   * with memory holding [m1, m2] while durable storage held only [m1].
-   */
-  delayNextWrites = 0
-
-  /**
-   * Held applies, for DETERMINISTIC two-writer races. `holdNextApplies(2)` parks the
-   * next two applies at their start — after both callers have read and staged, which
-   * is precisely the interleaving that a sleep-based test would only sometimes hit —
-   * and the returned function releases them.
-   */
-  private readonly waiters: (() => void)[] = []
-  private holds = 0
-  /**
-   * Per-transaction KEYED undo: for every key a span touched, the value that key
-   * held before the span first touched it (`undefined` = it was absent).
-   *
-   * Deliberately not a whole-store snapshot. A snapshot-restore rollback is wrong
-   * whenever two transactions run against one store: restoring it would delete
-   * rows another transaction committed in the meantime, which is precisely the
-   * clobbering the keyed-delta design exists to prevent. The rollback has to be
-   * keyed for the same reason the writes are.
-   */
-  private readonly spanUndo = new WeakMap<SyncSpan, Map<MutationId, OutboxRecord | undefined>>()
 
   holdNextApplies(n: number): () => void {
     this.holds = n
@@ -83,28 +99,27 @@ export class InMemoryOutboxStore implements OutboxStorePort {
   }
 
   /**
-   * Record-level apply with ATOMIC precondition checking — the version-check
-   * pattern ADR 6 D4.6 asks adapters for.
+   * Record-level apply with ATOMIC precondition checking — the version-check pattern
+   * ADR 6 D4.6 asks adapters for.
    *
-   * `expect` is evaluated against the state the store holds AT APPLY TIME, in the
-   * same step as the write, so two instances that read the same base cannot both
-   * win: the loser gets `{ ok: false, conflicts }` and nothing of its mutation
-   * lands. The ORDER contract a real adapter owes also holds: a first `put`
-   * appends, a replacing `put` keeps its position, `remove` deletes by id, and
-   * anything unmentioned is UNTOUCHED.
+   * Without a span the check and the write happen together under the commit lock.
+   * With one, the mutation is STAGED and validated against a transaction-local view
+   * (live records plus this span's own pending mutations, so a span reads its own
+   * writes and nobody else's), then re-validated and published at commit.
+   *
+   * The ORDER contract a real adapter owes holds throughout: a first `put` appends, a
+   * replacing `put` keeps its position, `remove` deletes by id, and anything the
+   * mutation does not mention is untouched.
    */
   async apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<OutboxApplyResult> {
     if (this.failWrite !== undefined) throw this.failWrite
-    // An adapter obligation, asserted here so the in-memory instantiation holds
-    // callers to it: every key the mutation touches must carry a precondition. A
-    // mutation that omits one is an unconditional apply wearing a typed coat.
     const declared = new Set(mutation.expect.map((e) => e.mutationId))
-    const touched = [
+    const undeclared = [
       ...(mutation.put ?? []).map((r) => r.mutationId),
       ...(mutation.remove ?? []),
     ].filter((id) => !declared.has(id))
-    if (touched.length > 0) {
-      throw new Error(`mutation touches ${touched.join(', ')} with no precondition`)
+    if (undeclared.length > 0) {
+      throw new Error(`mutation touches ${undeclared.join(', ')} with no precondition`)
     }
     if (this.holds > 0) {
       this.holds -= 1
@@ -112,87 +127,52 @@ export class InMemoryOutboxStore implements OutboxStorePort {
     }
     if (this.delayNextWrites > 0) {
       this.delayNextWrites -= 1
-      // Yield twice, so a caller that does not serialize will interleave.
       await Promise.resolve()
       await Promise.resolve()
     }
-    const conflicts = (): readonly MutationId[] =>
-      (mutation.expect ?? [])
-        .filter(({ mutationId, expect }) => {
-          const held = this.parse().find((r) => r.mutationId === mutationId)
-          return expect === 'absent' ? held !== undefined : held?.state !== expect
-        })
-        .map((e) => e.mutationId)
-    const commit = (): OutboxApplyResult => {
-      const stale = conflicts()
+    if (!span) {
+      return await this.serialize(() => {
+        const records = this.parse()
+        const stale = conflictsOf(mutation, records)
+        if (stale.length > 0) return { ok: false, conflicts: stale }
+        this.publish(applyTo(records, mutation))
+        return { ok: true }
+      })
+    }
+    const pending = this.staged.get(span)
+    if (pending) {
+      // Validate against what this span will have produced so far: its own writes
+      // are visible to it, and only to it.
+      const view = pending.reduce(applyTo, this.parse())
+      const stale = conflictsOf(mutation, view)
       if (stale.length > 0) return { ok: false, conflicts: stale }
-      const records = this.parse()
-      for (const id of mutation.remove ?? []) {
-        const idx = records.findIndex((r) => r.mutationId === id)
-        if (idx !== -1) records.splice(idx, 1)
-      }
-      for (const record of mutation.put ?? []) {
-        const idx = records.findIndex((r) => r.mutationId === record.mutationId)
-        if (idx === -1) records.push(record)
-        else records[idx] = record
-      }
-      this.snapshot = JSON.stringify(records)
-      this.writes += 1
+      pending.push(mutation)
       return { ok: true }
     }
-    // Enroll in the span when one is supplied: the change — and its precondition
-    // check — lands with the entity rows and the cursor advance, or not at all
-    // (ADR 2 D10). A precondition that fails at commit ABORTS the span, because by
-    // then there is no caller left to hand a conflict back to.
-    const enlistable = span as
-      | (SyncSpan & { enlist?: (w: () => Promise<void>, undo?: () => void) => void })
-      | undefined
-    if (enlistable?.enlist) {
-      const key = span as SyncSpan
-      let undo = this.spanUndo.get(key)
-      if (!undo) {
-        undo = new Map()
-        this.spanUndo.set(key, undo)
-      }
-      const priors = undo
-      enlistable.enlist(
-        async () => {
-          // Record each touched key's prior value FIRST — at the moment the write
-          // actually lands, so it reflects what other transactions have committed
-          // by then — then apply.
-          const held = this.parse()
-          for (const id of [
-            ...(mutation.put ?? []).map((r) => r.mutationId),
-            ...(mutation.remove ?? []),
-          ]) {
-            if (!priors.has(id))
-              priors.set(
-                id,
-                held.find((r) => r.mutationId === id),
-              )
-          }
-          const outcome = commit()
-          if (!outcome.ok) {
-            // TYPED, not generic: a commit-time conflict is an ordinary
-            // concurrent-writer outcome that participants resolve by re-staging.
-            throw new SyncCommitConflict([...outcome.conflicts])
-          }
-        },
-        () => {
-          const records = this.parse()
-          for (const [id, prior] of priors) {
-            const idx = records.findIndex((r) => r.mutationId === id)
-            if (prior === undefined) {
-              if (idx !== -1) records.splice(idx, 1)
-            } else if (idx === -1) records.push(prior)
-            else records[idx] = prior
-          }
-          this.snapshot = JSON.stringify(records)
-        },
-      )
-      return { ok: true }
-    }
-    return commit()
+    const view = this.parse()
+    const stale = conflictsOf(mutation, view)
+    if (stale.length > 0) return { ok: false, conflicts: stale }
+    const mutations: OutboxStoreMutation[] = [mutation]
+    this.staged.set(span, mutations)
+    const enlistable = span as SyncSpan & { enlist?: (w: () => Promise<void>) => void }
+    enlistable.enlist?.(async () => {
+      this.staged.delete(span)
+      await this.serialize(async () => {
+        // Re-validate every staged mutation against CURRENT truth: another span may
+        // have committed while this one was open. Nothing is written until all of
+        // them pass, so an abort leaves the store byte-identical — including record
+        // ORDER, which a restore-by-push undo could not promise.
+        let next = this.parse()
+        for (const staged of mutations) {
+          const conflicts = conflictsOf(staged, next)
+          if (conflicts.length > 0) throw new SyncCommitConflict([...conflicts])
+          next = applyTo(next, staged)
+        }
+        if (this.slowCommits) await Promise.resolve()
+        this.publish(next)
+      })
+    })
+    return { ok: true }
   }
 
   /** Seed durable state directly — for crash simulations that need the store to
@@ -201,14 +181,59 @@ export class InMemoryOutboxStore implements OutboxStorePort {
     this.snapshot = JSON.stringify(records)
   }
 
+  /** What a cold start would find — i.e. what actually survived. */
+  durable(): readonly OutboxRecord[] {
+    return this.parse()
+  }
+
+  private publish(records: readonly OutboxRecord[]): void {
+    this.snapshot = JSON.stringify(records)
+    this.writes += 1
+  }
+
   private parse(): OutboxRecord[] {
     return JSON.parse(this.snapshot) as OutboxRecord[]
   }
 
-  /** What a cold start would find — i.e. what actually survived. */
-  durable(): readonly OutboxRecord[] {
-    return JSON.parse(this.snapshot) as OutboxRecord[]
+  /** One commit at a time per physical store. */
+  private async serialize<T>(work: () => T | Promise<T>): Promise<T> {
+    const run = this.commitLock.then(work, work)
+    this.commitLock = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await run
   }
+}
+
+/** Which of a mutation's preconditions do not hold against `records`. */
+const conflictsOf = (
+  mutation: OutboxStoreMutation,
+  records: readonly OutboxRecord[],
+): readonly MutationId[] =>
+  mutation.expect
+    .filter(({ mutationId, expect }) => {
+      const held = records.find((r) => r.mutationId === mutationId)
+      return expect === 'absent' ? held !== undefined : held?.state !== expect
+    })
+    .map((e) => e.mutationId)
+
+/** Apply one record-level mutation, preserving insertion order. */
+const applyTo = (
+  records: readonly OutboxRecord[],
+  mutation: OutboxStoreMutation,
+): OutboxRecord[] => {
+  const next = [...records]
+  for (const id of mutation.remove ?? []) {
+    const idx = next.findIndex((r) => r.mutationId === id)
+    if (idx !== -1) next.splice(idx, 1)
+  }
+  for (const record of mutation.put ?? []) {
+    const idx = next.findIndex((r) => r.mutationId === record.mutationId)
+    if (idx === -1) next.push(record)
+    else next[idx] = record
+  }
+  return next
 }
 
 /**
@@ -254,7 +279,6 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
 class InMemorySpan implements SyncSpan {
   private readonly commits: (() => void)[] = []
   private readonly writes: (() => Promise<void>)[] = []
-  private readonly undos: (() => void)[] = []
 
   onCommit(adopt: () => void): void {
     this.commits.push(adopt)
@@ -262,36 +286,27 @@ class InMemorySpan implements SyncSpan {
 
   /**
    * Adapters enroll their durable work here; it lands only if the span commits.
-   * `undo` restores the participant store's PRE-SPAN state and is what makes this a
-   * real unit of work: applying enrolled writes in sequence with no way to undo one
-   * already applied is a partially committed transaction, which ADR 2 D10 forbids.
+   * There is no undo hook, and there must not be one: a participant store stages
+   * its mutations and publishes them only after all of them validate, so an aborted
+   * span never wrote anything to un-write. Rollback by restoring prior values is
+   * what let one span's abort delete another span's committed row.
    */
-  enlist(write: () => Promise<void>, undo?: () => void): void {
+  enlist(write: () => Promise<void>): void {
     this.writes.push(write)
-    if (undo) this.undos.push(undo)
   }
 
   async commit(): Promise<void> {
-    const applied: number[] = []
-    try {
-      for (let i = 0; i < this.writes.length; i++) {
-        await (this.writes[i] as () => Promise<void>)()
-        applied.push(i)
-      }
-    } catch (error) {
-      // A LATE failure — a precondition that could only be checked here — must not
-      // leave earlier enrolled writes applied.
-      for (const undo of [...this.undos].reverse()) undo()
-      throw error
-    }
+    // Each enrolled publisher validates ALL of its store's staged mutations and
+    // publishes them in one step, so a failure anywhere leaves that store untouched.
+    for (const write of this.writes) await write()
     // Registration order after the durable commit.
     for (const effect of this.commits) effect()
   }
 
   async abort(): Promise<void> {
-    // Nothing to do: no enrolled write was applied, and no participant adopted
-    // anything, because adoption only happens in `commit()`. Dropping the span is
-    // the whole rollback.
+    // Dropping the span IS the whole rollback: nothing was published, because
+    // participants stage until commit, and nothing was adopted, because adoption
+    // only happens in `commit()`.
     this.writes.length = 0
     this.commits.length = 0
   }
