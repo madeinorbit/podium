@@ -56,6 +56,7 @@ import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
+import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
 
@@ -90,6 +91,10 @@ export class SessionStore {
   /** User accounts (POD-1075's table, POD-1079's first reader) — the instance
    *  role a command contract's `roleFloor` is compared against. */
   readonly users: UsersRepository
+  /** `(chatId -> UserId)` bindings (POD-1080, ADR 3 Amendment 1 D22) — the ONLY
+   *  thing an inbound Telegram message may be resolved against. An unbound chat
+   *  gets no principal and is refused; it never falls back to an operator. */
+  readonly telegramBindings: TelegramBindingsRepository
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
@@ -156,6 +161,7 @@ export class SessionStore {
     this.machines = new MachinesRepository(this.db)
     this.grants = new GrantsRepository(this.db)
     this.users = new UsersRepository(this.db)
+    this.telegramBindings = new TelegramBindingsRepository(this.db)
     this.events = new EventsRepository(this.db)
     this.notificationFacts = new NotificationFactsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
