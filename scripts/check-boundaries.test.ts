@@ -199,10 +199,25 @@ describe('checkFile rules', () => {
     ).toEqual([])
   })
 
-  it('keeps protocol a leaf package', () => {
+  it('keeps @podium/model the true leaf', () => {
+    const m = checkFile('packages/model/src/index.ts', `import { z } from '@podium/runtime'`)
+    expect(m).toHaveLength(1)
+    expect(m[0].rule).toBe('leaf-package')
+  })
+
+  it('lets protocol import model and nothing else (POD-300)', () => {
+    // Protocol stopped being a leaf when its entity schemas moved to L0 model:
+    // it holds only frames now and imports those schemas. That ONE edge is
+    // allowed; every other workspace import is still a violation.
+    expect(
+      checkFile(
+        'packages/protocol/src/messages/issues.ts',
+        `import { IssueWire } from '@podium/model'`,
+      ),
+    ).toEqual([])
     const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
     expect(p).toHaveLength(1)
-    expect(p[0].rule).toBe('leaf-package')
+    expect(p[0].rule).toBe('restricted-package-deps')
   })
 
   it('restricts @podium/runtime to the protocol/domain leaves', () => {

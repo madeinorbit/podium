@@ -173,10 +173,15 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // workspace package at all, which is what makes it the one definition site.
   // Absorbed the deleted `packages/domain` wholesale, and owns that package's
   // features plus the one clock representation (`Instant` + edge adapters).
+  // POD-300 added `entity-schemas`: every replicated-entity zod schema — the
+  // session, issue, conversation, transcript and handoff aggregates and the
+  // per-machine fact group — moved here out of `packages/protocol`, which now
+  // holds only frames and imports these.
   'packages/model': {
     layer: 0,
     platform: 'browser-safe',
     features: [
+      'entity-schemas',
       'entity-predicates',
       'issue-stage',
       'issue-authz',
