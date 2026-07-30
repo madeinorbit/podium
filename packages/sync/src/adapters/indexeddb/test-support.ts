@@ -27,6 +27,7 @@
  */
 
 import { IDBFactory } from 'fake-indexeddb'
+import { ALL_STORES, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION, upgradeSchema } from './schema'
 import type {
   IdbDatabaseLike,
   IdbFactoryLike,
@@ -38,6 +39,47 @@ import type {
 
 /** A brand-new, empty IndexedDB origin. One per test; nothing is shared. */
 export const freshFactory = (): IdbFactoryLike => new IDBFactory() as unknown as IdbFactoryLike
+
+/**
+ * Every durable row, read through a CONNECTION OF ITS OWN.
+ *
+ * Deliberately not `IndexedDbSyncStore`'s read path. An assertion about what
+ * survived a crash, made through the object that was supposed to have died, is the
+ * fixture certifying itself; this opens its own connection and reads the object
+ * stores directly, so the adapter's mirror cannot answer for the engine.
+ */
+export async function readDurable(
+  factory: IdbFactoryLike,
+  databaseName: string = REPLICA_DB_NAME,
+): Promise<Record<string, unknown[]>> {
+  const db = await new Promise<IdbDatabaseLike>((resolve, reject) => {
+    const request = factory.open(databaseName, REPLICA_SCHEMA_VERSION)
+    request.onupgradeneeded = () => {
+      upgradeSchema(request.result)
+    }
+    request.onsuccess = () => {
+      resolve(request.result)
+    }
+    request.onerror = () => {
+      reject(request.error ?? new Error('open failed'))
+    }
+  })
+  const tx = db.transaction([...ALL_STORES], 'readonly')
+  const out: Record<string, unknown[]> = {}
+  for (const name of ALL_STORES) {
+    out[name] = await new Promise<unknown[]>((resolve, reject) => {
+      const request = tx.objectStore(name).getAll()
+      request.onsuccess = () => {
+        resolve(request.result)
+      }
+      request.onerror = () => {
+        reject(request.error ?? new Error('getAll failed'))
+      }
+    })
+  }
+  db.close()
+  return out
+}
 
 /** What a browser reports when the origin's quota is exhausted. */
 export class QuotaExceededDomError extends Error {
@@ -54,6 +96,17 @@ export class QuotaExceededDomError extends Error {
 export interface WriteFault {
   /** Deny the request at this index. `0` denies the first write of the transaction. */
   readonly at: number
+  /**
+   * `deny` refuses the request AT `at` — the quota shape, where the engine says no
+   * to a write and takes the transaction down with it.
+   *
+   * `after` lets the request at `at` through and THEN kills the transaction, which
+   * is the power-loss shape: every request was issued and accepted, and the commit
+   * never happened. Both are boundaries a crash can land on and they are not the
+   * same instant — `after: last` is the only way to reach "all writes in flight,
+   * nothing committed", which no `deny` index can express.
+   */
+  readonly mode?: 'deny' | 'after'
   /** Defaults to a quota denial; a crash test passes something else to prove the
    *  adapter's quota branch is chosen by the ERROR and not by the injection point. */
   readonly error?: Error
@@ -146,7 +199,7 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
   let writeIndex = 0
   let injected: Error | undefined
   const wrapper: IdbTransactionLike = {
-    objectStore: (name) => wrapObjectStore(tx.objectStore(name), () => deny()),
+    objectStore: (name) => wrapObjectStore(tx.objectStore(name), () => deny(), () => killAfter()),
     abort: () => {
       tx.abort()
     },
@@ -173,6 +226,7 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
     writeIndex += 1
     factory.writesIssued += 1
     if (fault === undefined || index !== fault.at) return undefined
+    if ((fault.mode ?? 'deny') === 'after') return undefined
     injected = fault.error ?? new QuotaExceededDomError()
     factory.denials += 1
     // The REAL transaction is aborted, so everything already issued into it is
@@ -182,23 +236,37 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
     return injected
   }
 
+  /** Power loss with every request already in flight: kill AFTER `at` was issued. */
+  function killAfter(): void {
+    if (fault === undefined || fault.mode !== 'after') return
+    if (writeIndex - 1 !== fault.at) return
+    injected = fault.error ?? new Error('power loss before commit')
+    factory.denials += 1
+    tx.abort()
+  }
+
   return wrapper
 }
 
 function wrapObjectStore(
   store: IdbObjectStoreLike,
   deny: () => Error | undefined,
+  killAfter: () => void,
 ): IdbObjectStoreLike {
   return {
     put: (value, key) => {
       const error = deny()
       if (error !== undefined) throw error
-      return store.put(value, key)
+      const request = store.put(value, key)
+      killAfter()
+      return request
     },
     delete: (key) => {
       const error = deny()
       if (error !== undefined) throw error
-      return store.delete(key)
+      const request = store.delete(key)
+      killAfter()
+      return request
     },
     get: (key) => store.get(key) as IdbRequestLike<unknown>,
     getAll: () => store.getAll(),
