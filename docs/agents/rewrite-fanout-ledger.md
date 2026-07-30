@@ -1494,3 +1494,25 @@ window inherits whatever you were about to reject. Resetting integration does NO
   `scripts/audit-session-commands.ts` now failing the build if any session `.mutation(` appears in
   `router.ts`. The fix was a re-point onto the derived surface — and the contract and reducer needed NO
   changes, which is the first demonstration in this run that the port shapes actually hold.
+
+### Testing the MERGE tells you about the merge, not about the BASE
+
+POD-351 proved a base was red the right way once and the wrong way once, an hour apart, with the same
+instrument — the difference is worth keeping.
+
+**Right:** it checked out the base SHA **detached, in a clean throwaway worktree**, with none of its own
+commits present, ran the in-package typecheck, and got 15 errors. Sound: that measured the base.
+
+**Wrong:** it later merged integration INTO its branch, ran the same typecheck on its branch, got the same
+15 errors, and reported them as "still failing at 5919b2f0". Integration had zero of those errors —
+`git ls-tree -r --name-only HEAD -- packages/commands/src/workflows/` returns **0 files** there, so those
+files cannot fail there. What it measured was its own tree, which carries a ghost copy of another issue's
+work absorbed from a merge that was later reset away.
+
+**The rule: merging a base into your tree and testing the result tells you about the RESULT. Only a
+detached checkout of the base tells you about the base.** Same command, same instrument, different subject
+— and the failure is invisible, because the numbers are identical either way when your tree happens to
+contain the defect.
+
+The corollary for anyone claiming NOT MINE: name the SHA you measured and say how you obtained a tree at
+it. "I merged it and it still fails" is not a not-mine proof.
