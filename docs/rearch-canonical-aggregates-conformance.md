@@ -147,6 +147,7 @@ flagged everything, or nothing, could not produce it.
 | Delete the missing-matrix-row branch from `classificationViolations` | **killed** — "FAILS a fixture aggregate whose class was never declared on the matrix" reds (1 failed / 21) |
 | Drop `Ownership.shape` from `SessionAggregate` and restore `readAt` as a singleton | **killed** — 5 red, including "Session carries no per-user singleton" and "Session composes the Ownership group" (5 failed / 21) |
 | Smuggle a frozen grant set onto `SessionAggregate` under the innocent key `ctx` | **killed by the key-set pin only** — 1 red of 24; the name matcher passes, which is the point (§4.1) |
+| Grow `SESSION_IMMUTABLE_AFTER_CREATE` to swallow `status` / `lastActiveAt` / … — the well-typed nonsense its `satisfies` clause permits | **killed** — 1 red of 27: "leaves a NON-EMPTY mutable complement" (§8.1) |
 
 ### 4.1 No serializable capability — and a correction about how that is checked
 
@@ -281,7 +282,45 @@ also checked before its colour was believed.
 
 ---
 
-## 8. What this issue deliberately did NOT do
+## 8. One zero-caller export, judged rather than hidden
+
+`SESSION_IMMUTABLE_AFTER_CREATE` (`aggregates/session.ts`) **has no consumer today**. The fan-out
+protocol §7 says a new API with zero callers counts as *stopped short*, so it is named here rather
+than left for a reviewer to discover.
+
+### 8.1 Why it is not the thing that rule targets — verified, not asserted
+
+§7 targets **mechanism pretending to be a feature**: a flag nothing sets, a conformance suite that
+skips the failure path. This is a *derived constant whose derivation is compile-time pinned to its
+source*. POD-366 mutation-tested that binding rather than trusting it: `refDraft` → `refDraftTYPO`
+in the array makes `packages/model` exit 1 with **TS2820**, so the
+`satisfies readonly (keyof SessionAggregate)[]` clause genuinely binds. It cannot go stale while it
+waits.
+
+**Different is not exempt**, and POD-366 named the remaining gap precisely: the clause cannot check
+that the list *means* anything — a constant naming every key would typecheck and assert that a
+session is frozen at birth. Three assertions close it (runtime key membership; a non-empty mutable
+complement containing `status` and `lastActiveAt` by name; and the fields whose mutability would be
+a correctness bug held explicitly). **Mutant D** grows the constant to swallow the mutable fields:
+exactly one test reds.
+
+### 8.2 Why it was kept rather than deleted
+
+POD-366's call, recorded because the reasoning is the substantive part: *it is not four lines of
+code, it is four lines of judgement* about which session fields are immutable after create — made
+while the whole aggregate and every field group were freshly read. Deleted and reconstructed later
+by someone with less context, the likely failure is a list that is subtly wrong (`spawnedBy` or
+`createdBy` quietly becoming mutable), which is the class of error nobody notices because nothing
+fails.
+
+Its named consumer is POD-366's `SessionDurableState` work, reported outstanding for a stated
+reason: `SessionInit` is unbranded and mostly optional as a *constructor* input while
+`SessionAggregate` is branded and required, so the Pick changes brandedness and optionality at
+every construction site. In POD-366's words, *"it is size, not uncertainty."*
+
+---
+
+## 9. What this issue deliberately did NOT do
 
 | Not done | Owner |
 |---|---|
