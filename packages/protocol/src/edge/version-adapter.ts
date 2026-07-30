@@ -65,15 +65,24 @@ export interface WireAdapterExpiry {
  * declaring itself permanent, which is the exact mistake this whole file is
  * shaped to prevent, and it is refused at registration rather than reviewed.
  */
-export interface WireVersionAdapter<TFrame, TOut> {
+export interface WireVersionAdapter<TFrame, TOut, TPeer = void> {
   readonly version: number
   readonly expiry: WireAdapterExpiry | null
   /** Human-facing name; appears in telemetry and in the audit's findings. */
   readonly name: string
-  /** Translate ONE canonical frame into zero or more frames of this version.
-   *  Zero is legal: a version may have no way to express a frame, and dropping
-   *  it explicitly here is visible, whereas a silent `undefined` is not. */
-  translate(frame: TFrame): readonly TOut[]
+  /**
+   * Translate ONE canonical frame into zero or more frames of this version.
+   *
+   * Zero is legal: a version may have no way to express a frame, and dropping it
+   * explicitly here is visible, whereas a silent `undefined` is not.
+   *
+   * `peer` is OPAQUE to this layer and defaults to nothing. An older wire may
+   * need to know something about the connection to translate at all — v1, for
+   * instance, serves two different frame shapes depending on a capability the
+   * peer announced — and that fact belongs to the adapter, not here. Typing it
+   * as a generic keeps L1 from learning what a connection is.
+   */
+  translate(frame: TFrame, peer: TPeer): readonly TOut[]
 }
 
 export class WireVersionError extends Error {
@@ -106,8 +115,8 @@ export const isUpgradeRequired = (value: unknown): value is UpgradeRequired =>
  * `min: 1`, accepts a v1 peer's hello, and then has nothing to serve it —
  * indistinguishable, from the peer's side, from a broken deploy.
  */
-export class WireVersionAdapterRegistry<TFrame, TOut> {
-  private readonly adapters = new Map<number, WireVersionAdapter<TFrame, TOut>>()
+export class WireVersionAdapterRegistry<TFrame, TOut, TPeer = void> {
+  private readonly adapters = new Map<number, WireVersionAdapter<TFrame, TOut, TPeer>>()
 
   constructor(
     private readonly window: {
@@ -117,7 +126,7 @@ export class WireVersionAdapterRegistry<TFrame, TOut> {
     } = { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION, versions: SUPPORTED_WIRE_VERSIONS },
   ) {}
 
-  register(adapter: WireVersionAdapter<TFrame, TOut>): this {
+  register(adapter: WireVersionAdapter<TFrame, TOut, TPeer>): this {
     if (this.adapters.has(adapter.version)) {
       throw new WireVersionError(
         `two adapters registered for wire version ${adapter.version} ('${
@@ -174,14 +183,14 @@ export class WireVersionAdapterRegistry<TFrame, TOut> {
 
   /** Adapters whose expiry condition has ARRIVED, given a support floor. The
    *  audit's input; also usable as a boot assertion. */
-  expired(min: number = this.window.min): readonly WireVersionAdapter<TFrame, TOut>[] {
+  expired(min: number = this.window.min): readonly WireVersionAdapter<TFrame, TOut, TPeer>[] {
     return [...this.adapters.values()].filter(
       (adapter) => adapter.expiry !== null && min >= adapter.expiry.expiresWhenMinSupportedReaches,
     )
   }
 
   /** Resolve the translator for a peer's agreed version, or the 426 backstop. */
-  resolve(version: number): WireVersionAdapter<TFrame, TOut> | UpgradeRequired {
+  resolve(version: number): WireVersionAdapter<TFrame, TOut, TPeer> | UpgradeRequired {
     const adapter = this.adapters.get(version)
     if (adapter !== undefined) return adapter
     return upgradeRequired(version, { wire: this.window.wire, min: this.window.min })

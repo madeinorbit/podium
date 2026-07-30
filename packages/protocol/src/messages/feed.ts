@@ -62,6 +62,7 @@ import {
 } from '@podium/model'
 import { z } from 'zod'
 import { FeedEpochField, ScopedChangeOp } from '../planes/scoped-feed'
+import { changeRowArm } from './change-row'
 import { MetadataEntityKind } from './sync'
 
 /**
@@ -80,13 +81,7 @@ import { MetadataEntityKind } from './sync'
  * where the range rules are enforced too.
  */
 const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
-  z.object({
-    seq: ChangeSeqField,
-    entity,
-    entityId: ChangeEntityIdField,
-    op: ScopedChangeOp,
-    value: value.optional(),
-  })
+  changeRowArm('entityId', entity, ScopedChangeOp, value)
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
@@ -275,7 +270,9 @@ export function validateFeedFrame(frame: {
   fromSeq: number
   seq: number
   minAvailableSeq: number
-  changes: readonly { seq: number; op: string; value?: unknown }[]
+  /** Derived from the arm shape, not restated: a second declaration of what a
+   *  change row is would be invisible to every golden fixture. */
+  changes: readonly Omit<UnknownFeedChange, 'entity' | 'entityId'>[]
   last?: boolean
 }): FeedFrameViolation[] {
   const violations: FeedFrameViolation[] = []

@@ -11,6 +11,7 @@ import {
   SessionMeta,
 } from '@podium/model'
 import { z } from 'zod'
+import { changeRowArm } from './change-row'
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -45,13 +46,7 @@ export type MetadataChangeOp = z.infer<typeof MetadataChangeOp>
  * a drop-this-change.
  */
 const metadataChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
-  z.object({
-    seq: ChangeSeqField,
-    entity,
-    id: ChangeEntityIdField,
-    op: MetadataChangeOp,
-    value: value.optional(),
-  })
+  changeRowArm('id', entity, MetadataChangeOp, value)
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),

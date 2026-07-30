@@ -422,6 +422,29 @@ export const CHECKS: AuditCheck[] = [
     collect: (ctx) => grep(ctx, { roots: ['apps/server/src'], pattern: /\bpublishComputed\b/ }),
   },
   {
+    /**
+     * The CONCRETE N-1 wire adapter (POD-308) — a scheduled deletion, tracked
+     * here for the reason POD-1077's placeholder is: temporary code that keeps
+     * everything working survives by default, because nothing ever forces the
+     * conversation about removing it.
+     *
+     * This item is EXPECTED to be non-zero for one rollout window and must reach
+     * 0 by Phase 7. `scripts/audit-wire-adapters.ts` owns the condition (the
+     * support floor reaching 2) and the allowlist; this counts the sites, so the
+     * ratchet shows the cost of the window growing if anyone adds a dependency
+     * on it.
+     */
+    id: 'legacy-wire-v1-adapter',
+    title: 'Concrete pre-cutover (wire v1) translation adapter',
+    phase: 'POD-308',
+    unit: 'declaration or reference to the expiring LegacyWireV1Adapter',
+    collect: (ctx) =>
+      grep(ctx, {
+        roots: ['apps', 'packages'],
+        pattern: /\bLegacyWireV1Adapter\b|\bLEGACY_WIRE_V1_EXPIRY\b/,
+      }),
+  },
+  {
     id: 'upstream-sync-forwarder',
     title: 'UpstreamSync / UpstreamForwarder',
     phase: 'POD-309',
