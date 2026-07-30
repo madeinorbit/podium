@@ -1098,3 +1098,42 @@ Load average **28.7 on 8 cores** with six agents, memory fine at 11/23GB, and **
 every worktree for 15 minutes** — they were all CPU-bound in vitest simultaneously, not stalled. I ran
 only the cheap gates that pass, because by the run's own rule a lane under that load yields noise rather
 than evidence. Ten concurrent implementers is not achievable here; six is.
+
+### The forked-enum defect, found for the fifth time — and the first time in the agent's own test
+
+POD-380's wire regeneration exposed a defect in its own work: its presence contracts declared their **own
+`z.enum`** for `workState` and `pinKind` beside the model's, and its test compared **accepted values**
+rather than instance identity. Enum membership is compile-time, so a forked copy parses, encodes and
+passes all 1261 golden cases identically.
+
+Fifth surface for this class in this run — POD-643 on the manifest, POD-368 on `IssueRefHead`, POD-1141
+on `IssueWire.title`, POD-1151 on `StoredIssue`, now here — and the **first where the agent caught it in
+its own test rather than in the product**. The same fix removed the *third and fourth* copies of
+`PinKind`: three literals had four declarations. The epic's thesis reproduced in miniature, then closed.
+
+> Regenerating a golden corpus is not a chore to get past — read the diff. POD-380 verified 96 insertions
+> with ZERO removed or modified lines (`grep -c '^-[^-]'` == 0) and found a real defect on the way.
+
+### Two agents both bank a ratchet: measure the merge, do not pick a number
+
+POD-380 and POD-381 independently reduced `router-triple-access` and each banked it — base 134, POD-380
+to **114**, POD-381 to **121**. The merged tree contains *both* sets of deletions, so neither number is
+correct and the true count is at most 114.
+
+> When two branches both bank the same ratchet, the conflict resolution is to RE-MEASURE on the merged
+> tree, never to pick a side. Taking the larger banked win silently un-banks the other's work; taking the
+> smaller asserts a number nobody measured.
+
+### Coordinator correction: I never tried the direct channel on the wedged session
+
+I mailed POD-362 twice with `mail send --urgency interrupt` and concluded it was unreachable. I never
+tried **`podium session send <id> --text`**, which submits a real user turn — mail lands at a stop hook or
+on the next turn, which is exactly the wrong channel for a session that is not taking turns. When I
+finally used it (after stopping), it worked immediately.
+
+> Match the channel to the failure. `--urgency interrupt` on mail *sounds* like the strongest nudge and
+> cannot reach a session that is not turning.
+
+POD-1159 has been corrected on the issue rather than edited away: the recovery command exists and works,
+and most of my "CLI archaeology" was self-inflicted. What remains genuinely wrong is discoverability —
+and that `stop` + `issue start` still do not compose for a restart.
