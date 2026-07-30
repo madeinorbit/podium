@@ -4,6 +4,7 @@
  * "what to show" derivations — everything IssuePage renders but none of the
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
+import { type UserId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core'
 import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -237,7 +238,7 @@ export const UNASSIGNED = '__unassigned__'
 export function assigneeOptionsOf(issues: IssueWire[]): PropertyOption[] {
   return [
     { value: UNASSIGNED, label: 'Unassigned' },
-    ...[...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a))]
+    ...[...new Set(issues.map((i) => i.assignee).filter((a): a is UserId => !!a))]
       .sort()
       .map((a) => ({ value: a, label: a })),
   ]

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -33,15 +34,15 @@ describe('switch-trace collector [POD-701]', () => {
   })
 
   it('quiesces a chat switch at chat:first-paint and reports mode/meta/marks', () => {
-    beginSwitch({ sessionId: 's1', issueId: 'i1' })
-    expect(isSwitchTraced('s1')).toBe(true)
-    expect(isSwitchTraced('other')).toBe(false)
+    beginSwitch({ sessionId: asSessionId('s1'), issueId: 'i1' })
+    expect(isSwitchTraced(asSessionId('s1'))).toBe(true)
+    expect(isSwitchTraced(asSessionId('other'))).toBe(false)
 
-    markSwitch('s1', 'viewstate:sent')
-    markSwitch('s1', 'transcript:read-start')
-    markSwitch('s1', 'transcript:read-end', { items: 42 })
+    markSwitch(asSessionId('s1'), 'viewstate:sent')
+    markSwitch(asSessionId('s1'), 'transcript:read-start')
+    markSwitch(asSessionId('s1'), 'transcript:read-end', { items: 42 })
     expect(reported).toHaveLength(0) // read-end alone doesn't quiesce
-    markSwitch('s1', 'chat:first-paint', { paintedRows: 7 })
+    markSwitch(asSessionId('s1'), 'chat:first-paint', { paintedRows: 7 })
 
     expect(reported).toHaveLength(1)
     const t = nth(0)
@@ -59,18 +60,18 @@ describe('switch-trace collector [POD-701]', () => {
     for (const m of t.marks) expect(m.atMs).toBeGreaterThanOrEqual(0)
     expect(t.totalMs).toBe(Math.max(...t.marks.map((m) => m.atMs)))
     expect(t.meta).toEqual({ items: 42, paintedRows: 7 })
-    expect(isSwitchTraced('s1')).toBe(false)
+    expect(isSwitchTraced(asSessionId('s1'))).toBe(false)
     expect(getRecentSwitchTraces()).toHaveLength(1)
   })
 
   it('quiesces a native switch at term:ready and flags cold via panel:mount', () => {
-    beginSwitch({ sessionId: 's2' })
-    markSwitch('s2', 'panel:mount')
-    markSwitch('s2', 'panel:active')
-    markSwitch('s2', 'term:mount')
-    markSwitch('s2', 'term:connection:attached')
+    beginSwitch({ sessionId: asSessionId('s2') })
+    markSwitch(asSessionId('s2'), 'panel:mount')
+    markSwitch(asSessionId('s2'), 'panel:active')
+    markSwitch(asSessionId('s2'), 'term:mount')
+    markSwitch(asSessionId('s2'), 'term:connection:attached')
     expect(reported).toHaveLength(0)
-    markSwitch('s2', 'term:ready')
+    markSwitch(asSessionId('s2'), 'term:ready')
 
     expect(reported).toHaveLength(1)
     const t = nth(0)
@@ -81,67 +82,67 @@ describe('switch-trace collector [POD-701]', () => {
   })
 
   it('waits for BOTH sentinels when chat and terminal both showed activity', () => {
-    beginSwitch({ sessionId: 's3' })
-    markSwitch('s3', 'term:mount')
-    markSwitch('s3', 'transcript:read-start')
-    markSwitch('s3', 'chat:first-paint')
+    beginSwitch({ sessionId: asSessionId('s3') })
+    markSwitch(asSessionId('s3'), 'term:mount')
+    markSwitch(asSessionId('s3'), 'transcript:read-start')
+    markSwitch(asSessionId('s3'), 'chat:first-paint')
     expect(reported).toHaveLength(0) // term activity seen → term:ready still owed
-    markSwitch('s3', 'term:ready')
+    markSwitch(asSessionId('s3'), 'term:ready')
     expect(reported).toHaveLength(1)
     expect(nth(0).mode).toBe('chat') // chat painted wins over term ready
   })
 
   it('ignores marks for other sessions and marks with no active trace', () => {
-    markSwitch('nobody', 'chat:first-paint') // no active trace — must not throw
-    beginSwitch({ sessionId: 's4' })
-    markSwitch('other', 'chat:first-paint')
-    markSwitch('other', 'term:ready')
+    markSwitch(asSessionId('nobody'), 'chat:first-paint') // no active trace — must not throw
+    beginSwitch({ sessionId: asSessionId('s4') })
+    markSwitch(asSessionId('other'), 'chat:first-paint')
+    markSwitch(asSessionId('other'), 'term:ready')
     expect(reported).toHaveLength(0)
-    expect(isSwitchTraced('s4')).toBe(true)
+    expect(isSwitchTraced(asSessionId('s4'))).toBe(true)
   })
 
   it('replaces an in-flight trace, finalizing the old one as timedOut', () => {
-    beginSwitch({ sessionId: 'old' })
-    markSwitch('old', 'viewstate:sent')
-    beginSwitch({ sessionId: 'new' })
+    beginSwitch({ sessionId: asSessionId('old') })
+    markSwitch(asSessionId('old'), 'viewstate:sent')
+    beginSwitch({ sessionId: asSessionId('new') })
 
     expect(reported).toHaveLength(1)
     expect(nth(0).sessionId).toBe('old')
     expect(nth(0).timedOut).toBe(true)
     expect(nth(0).mode).toBe('unknown')
-    expect(isSwitchTraced('new')).toBe(true)
+    expect(isSwitchTraced(asSessionId('new'))).toBe(true)
 
-    markSwitch('new', 'chat:first-paint')
+    markSwitch(asSessionId('new'), 'chat:first-paint')
     expect(reported).toHaveLength(2)
     expect(nth(1).timedOut).toBe(false)
   })
 
   it('finalizes a never-quiescing trace via the 10s timeout', () => {
-    beginSwitch({ sessionId: 's5' })
-    markSwitch('s5', 'viewstate:sent')
+    beginSwitch({ sessionId: asSessionId('s5') })
+    markSwitch(asSessionId('s5'), 'viewstate:sent')
     vi.advanceTimersByTime(9_999)
     expect(reported).toHaveLength(0)
     vi.advanceTimersByTime(1)
     expect(reported).toHaveLength(1)
     expect(nth(0).timedOut).toBe(true)
     expect(nth(0).mode).toBe('unknown')
-    expect(isSwitchTraced('s5')).toBe(false)
+    expect(isSwitchTraced(asSessionId('s5'))).toBe(false)
   })
 
   it('records the once-only sentinels a single time per trace', () => {
-    beginSwitch({ sessionId: 's6' })
-    markSwitch('s6', 'term:mount') // keep the trace open past first paint
-    markSwitch('s6', 'chat:first-paint')
-    markSwitch('s6', 'chat:first-paint')
-    markSwitch('s6', 'term:ready')
+    beginSwitch({ sessionId: asSessionId('s6') })
+    markSwitch(asSessionId('s6'), 'term:mount') // keep the trace open past first paint
+    markSwitch(asSessionId('s6'), 'chat:first-paint')
+    markSwitch(asSessionId('s6'), 'chat:first-paint')
+    markSwitch(asSessionId('s6'), 'term:ready')
     const names = nth(0).marks.map((m) => m.name)
     expect(names.filter((n) => n === 'chat:first-paint')).toHaveLength(1)
   })
 
   it('bounds the recent ring at 50 traces', () => {
     for (let i = 0; i < 55; i++) {
-      beginSwitch({ sessionId: `s${i}` })
-      markSwitch(`s${i}`, 'chat:first-paint')
+      beginSwitch({ sessionId: asSessionId(`s${i}`) })
+      markSwitch(asSessionId(`s${i}`), 'chat:first-paint')
     }
     const ring = getRecentSwitchTraces()
     expect(ring).toHaveLength(50)
@@ -150,8 +151,8 @@ describe('switch-trace collector [POD-701]', () => {
   })
 
   it('exposes the introspection global', () => {
-    beginSwitch({ sessionId: 's7' })
-    markSwitch('s7', 'term:ready')
+    beginSwitch({ sessionId: asSessionId('s7') })
+    markSwitch(asSessionId('s7'), 'term:ready')
     expect(globalThis.__podiumSwitchTraces?.recent()).toHaveLength(1)
   })
 
@@ -159,8 +160,8 @@ describe('switch-trace collector [POD-701]', () => {
     setSwitchTraceReporter(() => {
       throw new Error('boom')
     })
-    beginSwitch({ sessionId: 's8' })
-    expect(() => markSwitch('s8', 'chat:first-paint')).not.toThrow()
+    beginSwitch({ sessionId: asSessionId('s8') })
+    expect(() => markSwitch(asSessionId('s8'), 'chat:first-paint')).not.toThrow()
     expect(getRecentSwitchTraces()).toHaveLength(1)
   })
 })

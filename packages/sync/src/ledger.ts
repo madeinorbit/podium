@@ -1,19 +1,42 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { Authority } from './authority/authority'
+import type {
+  StagedChangeSpec as KernelChangeSpec,
+  SequencedChange,
+} from './authority/change-lifecycle'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
-  CHANGE_PRUNE_EVERY,
-  ChangeBaseline,
   type ChangeLogStore,
-  detectionKey,
   pruneChangeLog,
-  readChangesSince,
 } from './change-log'
 
 /**
- * Ledger — the durable metadata change log at the WRITE seam [spec:SP-3fe2]
- * (#253, P2a of the rebuild; the log's SINGLE writer since P2f #258 deleted
- * the legacy broadcast-seam MetadataOplog).
+ * Ledger — now a FACADE over the Authority role (POD-305).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A FACADE AND NOT A SECOND IMPLEMENTATION
+ * ---------------------------------------------------------------------------
+ *
+ * POD-305 moved the write seam into `./authority`, where it is joined with the
+ * funnel's authorize step and its ordered broadcast pipe. Two implementations of
+ * "commit the entity write and the change append together" is precisely the
+ * intermediate state this programme exists to stop creating — the two would
+ * dedup differently the first time one was fixed — so there is ONE, and this
+ * class delegates to it.
+ *
+ * What survives here is the OLD VOCABULARY, and only that: this spec spells the
+ * target-id key `id` while the kernel and the model spell it `entityId`. Every
+ * server call site passes `id`, so renaming it would have made this issue's diff
+ * the migration of every call site in `apps/server` — the large surprise diff the
+ * fan-out protocol names as the most common cause of a review round-trip. The
+ * rename lands with POD-306/POD-308, which are already touching those sites.
+ *
+ * Callers of NEW code should use `Authority` directly. This exists so the cutover
+ * is incremental rather than a flag day.
+ *
+ * ---------------------------------------------------------------------------
+ * The original contract, unchanged and still true of the implementation:
  *
  * Where the old oplog sat at the BROADCAST seam and inferred changes by
  * diffing full entity lists at fan-out time, the Ledger captures changes at
@@ -55,16 +78,12 @@ export interface EntityChangeSpec {
 }
 
 /**
- * Composite overlay/map key for (entity, id). The separator is a real NUL at
- * runtime (it cannot occur in an entity name or id, so keys never collide) but
- * is written as an ESCAPE on purpose. A literal NUL BYTE in the source makes
- * `file`, grep and friends classify the whole module as binary, and plain grep
- * then reports NOTHING and exits 1 rather than erroring — the fail-open shape
- * fixed here and in scripts/architecture-manifest.ts (POD-296). [POD-758]
+ * The composite overlay key. RE-EXPORTED from the Authority rather than declared
+ * twice: two implementations of one key function is one edit away from two
+ * different separators, and the failure mode is silent key collision between the
+ * baseline and whatever reads it.
  */
-export function entityOverlayKey(entity: string, id: string): string {
-  return `${entity}\u0000${id}`
-}
+export { entityOverlayKey } from './authority/authority'
 
 export interface LedgerDeps {
   repo: ChangeLogStore
@@ -121,93 +140,106 @@ interface StagedRow {
 }
 
 export class Ledger {
-  private readonly baseline = new ChangeBaseline()
-  private appendsSincePrune = 0
+  /**
+   * THE implementation, and the composition root's seam onto it.
+   *
+   * PUBLIC so the server can hand the SAME instance to its write funnel. Two
+   * Authority instances over one store would be a real bug and a quiet one:
+   * each keeps its own dedup baseline, so a change committed through one would
+   * look novel to the other and be appended twice, and each keeps its own
+   * ordered broadcast queue, so the append-order guarantee would hold within
+   * each and between neither.
+   */
+  readonly authority: Authority
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
   private readonly shutdown = new AbortController()
   private pruneFlight: Promise<void> | undefined
   private pruneRerunRequested = false
 
   constructor(private readonly deps: LedgerDeps) {
-    this.baseline.seed(deps.repo)
+    this.authority = new Authority({
+      store: deps.repo,
+      now: deps.now,
+      transact: deps.transact,
+    })
+    // One subscription, translating the kernel's vocabulary into this facade's.
+    // Registered in the CONSTRUCTOR rather than lazily on first listener: the
+    // Authority delivers batches in append order through one queue, and joining
+    // that queue late would put this facade's listeners behind changes they were
+    // registered before.
+    this.authority.subscribe((changes) => {
+      const wire = changes.map(toWireChange)
+      for (const listener of this.listeners) {
+        try {
+          listener(wire)
+        } catch (err) {
+          console.error('[ledger] onAppended listener threw', err)
+        }
+      }
+    })
   }
 
   /**
-   * THE write seam: runs `write()` and the change append inside ONE
-   * `transact()` span. `changes(result)` declares what changed; dedup drops
-   * no-op upserts (and removes of ids not in the baseline). Returns the write
-   * result plus the appended wire rows (empty if fully deduped). A throw from
-   * `write`, `changes`, or the append rolls everything back and leaves the
-   * in-memory baseline untouched.
+   * THE write seam: runs `write()` and the change append inside ONE `transact()`
+   * span. `changes(result)` declares what changed; dedup drops no-op upserts (and
+   * removes of ids not in the baseline). Returns the write result plus the
+   * appended wire rows (empty if fully deduped). A throw from `write`, `changes`,
+   * or the append rolls everything back and leaves the baseline untouched.
+   *
+   * No `authorize` and no `arbitrate` parameter, deliberately: this facade is the
+   * pre-POD-305 contract, and adding the new steps to it would let a call site
+   * take half the funnel. A caller that wants them uses `Authority` directly.
    */
   commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
     result: T
     changes: MetadataChange[]
   } {
-    const { result, rows, seqs } = this.deps.transact(() => {
-      const result = op.write()
-      // An async write() would smuggle a Promise past transact()'s thenable
-      // check (it's wrapped in this object, not returned directly): the change
-      // row would commit now while the entity write ran later, OUTSIDE the
-      // transaction — exactly the torn state commit() exists to prevent.
-      if (isThenable(result)) {
-        throw new TypeError(
-          'Ledger.commit: write() returned a thenable — the entity write must be ' +
-            'synchronous so it commits atomically with the change append.',
-        )
-      }
-      const rows = this.stage(op.changes(result))
-      const seqs = rows.length > 0 ? this.deps.repo.appendChanges(rows, this.deps.now()) : []
-      return { result, rows, seqs }
+    const outcome = this.authority.commit({
+      write: op.write,
+      changes: (result: T) => op.changes(result).map(toKernelSpec),
     })
-    return { result, changes: this.finalize(rows, seqs) }
+    // Unreachable while this facade passes no `arbitrate`: with no arbitration
+    // request there is no verdict, so `commit` cannot reject. Asserted rather
+    // than assumed, because "cannot happen" plus a cast is how a silently
+    // dropped write ships.
+    if (outcome.outcome !== 'committed') {
+      throw new Error(
+        `Ledger.commit: the Authority rejected a write this facade never asked it to arbitrate ` +
+          `(${outcome.reason}). That is a kernel invariant break, not a caller error.`,
+      )
+    }
+    return { result: outcome.result, changes: outcome.changes.map(toWireChange) }
   }
 
   /**
-   * Capture an explicitly owned mutation that has no durable entity-row write
-   * to bind to (for example volatile session view state or an upstream mirror).
-   * The caller supplies the exact upserts/removes; this never diffs a full list.
-   * Ledger seq remains the only durable/client-visible ordering primitive while
-   * service-local generations merely schedule projection work. [spec:SP-c29e]
+   * Capture an explicitly owned mutation with no durable entity-row write to bind
+   * to (volatile session view state, an upstream mirror). The caller supplies the
+   * exact upserts/removes; this never diffs a full list.
    */
   capture(specs: EntityChangeSpec[]): MetadataChange[] {
-    const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.deps.repo.appendChanges(staged, this.deps.now()) : []
-    return this.finalize(staged, seqs)
+    return this.authority.capture(specs.map(toKernelSpec)).map(toWireChange)
   }
 
   /**
    * Boot-only reconciliation: `rows` is the FULL truth for one entity kind.
-   * Diffs against the baseline INCLUDING removes — the only surviving
-   * full-list diff path — so changes made while the server was down land in
-   * the log before the first client reads it. The append is atomic on its own
-   * (no ambient entity write to bind to), so no transact span is opened.
+   * Diffs against the baseline INCLUDING removes — the only surviving full-list
+   * diff path — so changes made while the server was down land in the log before
+   * the first client reads it.
    */
   reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): MetadataChange[] {
-    const specs: EntityChangeSpec[] = rows.map((r) => ({
-      entity,
-      id: r.id,
-      op: 'upsert',
-      value: r.value,
-    }))
-    const listed = new Set(rows.map((r) => r.id))
-    for (const id of this.baseline.ids(entity)) {
-      if (!listed.has(id)) specs.push({ entity, id, op: 'remove' })
-    }
-    const staged = this.stage(specs)
-    const seqs = staged.length > 0 ? this.deps.repo.appendChanges(staged, this.deps.now()) : []
-    return this.finalize(staged, seqs)
+    return this.authority.reconcile(entity, rows).map(toWireChange)
   }
 
   /** Catch-up read for `sync.changesSince` — null means "fall back to a
    *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
   changesSince(cursor: number | null): MetadataChange[] | null {
-    return readChangesSince(this.deps.repo, cursor)
+    const changes = this.authority.changesSince(cursor)
+    return changes === null ? null : changes.map(toWireChange)
   }
 
   /** Current cursor — the highest seq ever assigned (0 before any change). */
   cursor(): number {
-    return this.deps.repo.maxChangeSeq()
+    return this.authority.cursor()
   }
 
   /** Cancel maintenance between bounded units during server shutdown. */
@@ -216,92 +248,14 @@ export class Ledger {
     this.shutdown.abort()
   }
 
-  /** Fires after commit/capture/reconcile with the appended changes (never with an
-   *  empty batch). Per-listener try/catch so a listener throw can't break the
+  /** Fires after commit/capture/reconcile with the appended changes (never with
+   *  an empty batch). Per-listener try/catch so a listener throw can't break the
    *  committer. Returns an unsubscribe. */
   onAppended(listener: (changes: MetadataChange[]) => void): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
-  }
-
-  /**
-   * Dedup declared specs against the baseline, in order, tracking a
-   * batch-local overlay so several specs for the same (entity, id) in one
-   * batch compare against the batch's own staged state (e.g. first-sight
-   * upsert followed by remove stages both, not just the upsert).
-   */
-  private stage(specs: EntityChangeSpec[]): StagedRow[] {
-    const rows: StagedRow[] = []
-    type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
-    const overlay = new Map<string, Overlay>()
-    for (const spec of specs) {
-      const key = entityOverlayKey(spec.entity, spec.id)
-      const prior = overlay.get(key)
-      if (spec.op === 'upsert') {
-        const json = JSON.stringify(spec.value)
-        const changed = prior
-          ? prior.op === 'remove' ||
-            detectionKey(spec.entity, prior.value, prior.json) !==
-              detectionKey(spec.entity, spec.value, json)
-          : this.baseline.upsertChanged(spec.entity, spec.id, spec.value, json)
-        if (!changed) continue
-        rows.push({
-          entity: spec.entity,
-          entityId: spec.id,
-          op: 'upsert',
-          payload: json,
-          value: spec.value,
-        })
-        overlay.set(key, { op: 'upsert', json, value: spec.value })
-      } else {
-        const present = prior ? prior.op === 'upsert' : this.baseline.has(spec.entity, spec.id)
-        if (!present) continue // remove of an id the log never recorded — no-op
-        rows.push({ entity: spec.entity, entityId: spec.id, op: 'remove', payload: null })
-        overlay.set(key, { op: 'remove' })
-      }
-    }
-    return rows
-  }
-
-  /** Post-transact tail: fold the staged rows into the baseline (only now —
-   *  the durable append has committed), build the wire rows, notify listeners,
-   *  and only THEN attempt retention. Prune runs last and guarded: the commit
-   *  is already durable, so a prune failure must degrade to a logged error —
-   *  it must never make a committed write look failed to the caller or hide
-   *  its changes from listeners. */
-  private finalize(rows: StagedRow[], seqs: number[]): MetadataChange[] {
-    if (rows.length === 0) return []
-    for (const row of rows) {
-      if (row.op === 'upsert') {
-        this.baseline.applyUpsert(row.entity, row.entityId, row.value, row.payload as string)
-      } else {
-        this.baseline.applyRemove(row.entity, row.entityId)
-      }
-    }
-    const changes = rows.map((row, i) => {
-      const base = { seq: seqs[i] as number, id: row.entityId, op: row.op }
-      return (
-        row.op === 'upsert'
-          ? { ...base, entity: row.entity, value: row.value }
-          : { ...base, entity: row.entity }
-      ) as MetadataChange
-    })
-    for (const listener of this.listeners) {
-      try {
-        listener(changes)
-      } catch (err) {
-        console.error('[ledger] onAppended listener threw', err)
-      }
-    }
-    // Cadence prune RETIRED [POD-925]: ongoing change-log retention is owned by
-    // the fenced janitor surface. Boot readiness prune (prepareLedgerBoot) stays.
-    // Keep the counter so tests that inspect append batching remain meaningful.
-    if (++this.appendsSincePrune >= CHANGE_PRUNE_EVERY) {
-      this.appendsSincePrune = 0
-    }
-    return changes
   }
 
   /**
@@ -352,4 +306,21 @@ export class Ledger {
     } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
     if (failed) throw failure
   }
+}
+
+/** This facade's `id` spelling → the kernel's `entityId`. The ONE place the two
+ *  vocabularies meet, so the rename POD-306/POD-308 finish is one deletion. */
+function toKernelSpec(spec: EntityChangeSpec): KernelChangeSpec {
+  const base = { entity: spec.entity, entityId: spec.id, op: spec.op }
+  return spec.op === 'upsert' ? { ...base, value: spec.value } : base
+}
+
+/** The kernel's sequenced change → the pre-cutover wire row. */
+function toWireChange(change: SequencedChange): MetadataChange {
+  const base = { seq: change.seq, id: change.entityId, op: change.op }
+  return (
+    change.op === 'upsert'
+      ? { ...base, entity: change.entity, value: change.value }
+      : { ...base, entity: change.entity }
+  ) as MetadataChange
 }

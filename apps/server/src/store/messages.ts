@@ -4,6 +4,7 @@
  * message, with the delivery ledger as columns on the row.
  */
 
+import type { IssueId, SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -31,11 +32,11 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     threadId: r.thread_id as string,
     inReplyTo: (r.in_reply_to as string | null) ?? null,
     fromKind: r.from_kind as MessageRow['fromKind'],
-    fromSession: (r.from_session as string | null) ?? null,
+    fromSession: (r.from_session as SessionId | null) ?? null,
     ...(r.from_name !== null && r.from_name !== undefined
       ? { fromName: r.from_name as string }
       : {}),
-    fromIssue: (r.from_issue as string | null) ?? null,
+    fromIssue: (r.from_issue as IssueId | null) ?? null,
     toKind: r.to_kind as MessageRow['toKind'],
     toId: (r.to_id as string | null) ?? null,
     kind: r.kind as MessageRow['kind'],
@@ -46,7 +47,8 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     createdAt: r.created_at as string,
     status: r.status as MessageStatus,
     deliveredAt: (r.delivered_at as string | null) ?? null,
-    deliveredTo: (r.delivered_to as string | null) ?? null,
+    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+    deliveredTo: (r.delivered_to as SessionId | null) ?? null,
     readAt: (r.read_at as string | null) ?? null,
     injectedAt: (r.injected_at as string | null) ?? null,
     deadLetteredAt: (r.dead_lettered_at as string | null) ?? null,
@@ -134,7 +136,7 @@ export class MessagesRepository {
   }
 
   /** Exact, unbounded safety projection of work still pending for one session. */
-  pendingForSessionProof(sessionId: string, now: string): MessageRow[] {
+  pendingForSessionProof(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages
@@ -286,7 +288,7 @@ export class MessagesRepository {
    *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
    *  transcript echo. A queued row that was injected but never echoed within the
    *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
-  markInjected(id: string, deliveredTo: string | null, injectedAt: string): boolean {
+  markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
     const r = this.db
       .prepare(
         `UPDATE messages SET injected_at = ?, delivered_to = ?
@@ -421,7 +423,7 @@ export class MessagesRepository {
    *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
    *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
    *  both read this set (#237) [spec:SP-34d7 acks]. */
-  listDeliveredUnacked(sessionId: string, now: string): MessageRow[] {
+  listDeliveredUnacked(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         // The agent has it either way — pushed (delivered) or pulled (read).
@@ -445,7 +447,7 @@ export class MessagesRepository {
    *  settle notice is a `notification` row whose `in_reply_to` is the original, so
    *  "already notified" == such a row exists. No column needed; the notice itself is
    *  the marker. This is why the notice fires at most ONCE per requested response. */
-  listSettleNotifiable(sessionId: string, now: string): MessageRow[] {
+  listSettleNotifiable(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages m

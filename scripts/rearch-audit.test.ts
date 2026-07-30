@@ -348,15 +348,30 @@ describe('inventory checks', () => {
     expect(countOf(two, 'send-turn-duplicate')).toBe(1)
   })
 
-  it('change-row-typings counts a schema + its inferred type once', () => {
+  // REDEFINED at POD-305: the item counts hand-restated change-row FIELD LISTS,
+  // not exported names. The old assertion here was that a schema and its
+  // inferred type counted once — a fact about the NAME-counting detector, which
+  // reported the same number whether the field lists below were written out or
+  // composed away. See scripts/change-row-audit.test.ts for the detector's own
+  // suite, which plants every spelling of a restatement.
+  it('change-row-typings counts restated field lists, not exported names', () => {
     const ctx = ctxOf({
       'packages/protocol/src/messages/sync.ts': [
-        `export const MetadataChange = z.discriminatedUnion('entity', [])`,
-        `export type MetadataChange = z.infer<typeof MetadataChange>`,
-        `export const UnknownMetadataChange = z.object({})`,
+        `export const A = z.object({ seq: z.number(), entity: z.literal('x'), id: z.string(), op: MetadataChangeOp })`,
+        `export const B = z.object({ seq: z.number(), entity: z.literal('y'), id: z.string(), op: MetadataChangeOp })`,
       ].join('\n'),
     })
     expect(countOf(ctx, 'change-row-typings')).toBe(2)
+  })
+
+  it('change-row-typings does NOT count a construction site', () => {
+    // The counterfactual that keeps the ratchet closable: a caller BUILDING a
+    // change spec is a use of the shared type, and there are supposed to be many.
+    const ctx = ctxOf({
+      'apps/server/src/modules/issues/service/crud.ts':
+        `const spec = { entity: 'issue', id: row.id, op: 'upsert', value: wire }`,
+    })
+    expect(countOf(ctx, 'change-row-typings')).toBe(0)
   })
 
   it('static-systemd-units counts unit files only', () => {

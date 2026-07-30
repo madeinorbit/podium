@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import type { HarnessAgent, ResumeRef, TranscriptItem } from '@podium/model'
+import type { HarnessAgent, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentCapabilities,
   AgentInstruction,
@@ -80,7 +80,7 @@ export interface HarnessLaunchOptions {
   cwd: string
   /** Stable Podium row identity for this interactive launch. Harnesses may use
    *  it only as runtime correlation metadata; it is not a native resume id. */
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
   /** Model override from settings; absent (or 'auto') = the CLI's own default. */
@@ -252,7 +252,7 @@ export interface HarnessObserveInput {
   /** Daemon-owned shared cadence for transcript and native-state stat polls. */
   statTick?: StatTick
   /** Stable Podium row identity whose native session this observer must find. */
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** The known harness conversation id (resume / reattach / headless bind);
    *  absent on a fresh spawn — the observer discovers the session the CLI
    *  creates. */

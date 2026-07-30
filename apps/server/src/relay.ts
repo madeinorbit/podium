@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
+import { asSessionId } from '@podium/model'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
@@ -16,7 +17,7 @@ import {
 import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
-import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
+import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -405,7 +406,10 @@ export class SessionRegistry {
     // clients through.
     const funnel = new WriteFunnel({
       bus: this.bus,
-      ledger,
+      // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
+      // two over one store would each keep their own dedup baseline and their
+      // own ordered broadcast queue.
+      authority: ledger.authority,
       fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
       sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     })
@@ -556,7 +560,11 @@ export class SessionRegistry {
       now: () => this.now(),
       resolveRepoId: (repoPath) => this.store.repos.resolveRepoIdForPath(repoPath),
       sessionAlive: (sessionId) => {
-        const s = liveSessions().get(sessionId)
+        // `sessionId` is a LockSessionKey: it may be one of the two lock sentinels,
+        // which are NOT session ids. The lookup is expected to MISS for those —
+        // that miss is how the unknown-relay sentinel gets pruned from a queue
+        // (see LockSessionKey's note). So the map is probed as a plain key.
+        const s = (liveSessions() as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
       // Grant/steal notifications ride agent mail; best-effort by contract
@@ -705,7 +713,12 @@ export class SessionRegistry {
           return dispatchWorkflowRpc(
             workflows,
             {
-              actor: { kind: 'session', id: capability.actorSessionId ?? null },
+              // WorkflowActor is discriminated (POD-362): the operator arm carries
+              // `id: null` and only the session arm carries a SessionId, so the arm
+              // is CHOSEN here instead of a `?? null` collapsing both into one.
+              actor: capability.actorSessionId
+                ? ({ kind: 'session', id: capability.actorSessionId } as const)
+                : ({ kind: 'operator', id: null } as const),
               capability,
               ...(overrideScope ? { overrideScope: true } : {}),
             },
@@ -907,7 +920,9 @@ export class SessionRegistry {
               const raw = (input ?? {}) as Record<string, unknown>
               const actorSessionId = capability.actorSessionId
               const requestedId =
-                typeof raw.sessionId === 'string' && raw.sessionId ? raw.sessionId : undefined
+                typeof raw.sessionId === 'string' && raw.sessionId
+                  ? asSessionId(raw.sessionId)
+                  : undefined
               const sessionId = requestedId ?? actorSessionId
               if (!sessionId) {
                 throw new Error(
@@ -1202,7 +1217,10 @@ export class SessionRegistry {
       for (const change of changes) {
         if (change.entity === 'session') {
           messagesSvc.onSessionEligibilityChanged(
-            change.id,
+            // `EntityChangeSpec.id` is polymorphic by `entity` (an issue id for
+            // 'issue', a session id here), so the brand is recovered inside the
+            // discriminated branch — the same rule as MessageRow's `toId`.
+            asSessionId(change.id),
             change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
           )
         } else if (change.entity === 'issue') {

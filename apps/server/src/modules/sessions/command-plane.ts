@@ -31,7 +31,7 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueId, SessionId } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
 import { sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/protocol'
 import type { MutationLedgerPort } from '@podium/sync'
@@ -123,8 +123,8 @@ export interface SessionCommandDeps {
   createDraftIssue(
     repoPath: string,
     agentKind: AgentKind | undefined,
-    issueId?: string,
-  ): { id: string }
+    issueId?: IssueId,
+  ): { id: IssueId }
   /** The daemon control leg for `uploadImage`. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -189,7 +189,7 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(sessionId: string, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
+  target(sessionId: SessionId, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -288,9 +288,9 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
-type SendInput = { sessionId: string; text: string; mutationId?: string }
-type TargetInput = { sessionId: string }
-type AnswerInput = { sessionId: string; choices: { optionIndices: number[] }[] }
+type SendInput = { sessionId: SessionId; text: string; mutationId?: string }
+type TargetInput = { sessionId: SessionId }
+type AnswerInput = { sessionId: SessionId; choices: { optionIndices: number[] }[] }
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an
@@ -480,7 +480,7 @@ export const SESSION_COMMAND_HANDLERS = {
    * visibility is real. The relay arm keeps its self-stop resolution and its throw;
    * see the contract.
    */
-  stop: (ctx: SessionCommandCtx, input: { sessionId: string; force?: boolean }) => {
+  stop: (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
     if (!ctx.target(input.sessionId, 'sessions.stop')) {
       return Promise.resolve({ ok: false, reason: 'unknown session' })
     }
@@ -504,7 +504,7 @@ export const SESSION_COMMAND_HANDLERS = {
    */
   uploadImage: async (
     ctx: SessionCommandCtx,
-    input: { sessionId: string; filename: string; mimeType: string; dataBase64: string },
+    input: { sessionId: SessionId; filename: string; mimeType: string; dataBase64: string },
   ) => {
     const row = ctx.sessions.listSessions().find((s) => s.sessionId === input.sessionId)
     if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)

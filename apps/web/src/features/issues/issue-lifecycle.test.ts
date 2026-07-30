@@ -1,14 +1,11 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { issueCloseConcerns } from './issue-lifecycle'
 
 const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
-    sessionId: 's',
+    sessionId: asSessionId('s'),
     agentKind: 'codex',
     title: 'Agent',
     cwd: '/r/wt',
@@ -35,11 +32,11 @@ describe('issue close concerns', () => {
       childDoneCount: 1,
       sessions: [
         session({
-          sessionId: 'waiting',
+          sessionId: asSessionId('waiting'),
           offer: { message: 'Choose a direction', actions: [], createdAt: 'now' },
         }),
         session({
-          sessionId: 'working',
+          sessionId: asSessionId('working'),
           agentState: {
             phase: 'working',
             since: 'now',

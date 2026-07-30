@@ -1,5 +1,5 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
@@ -29,7 +29,7 @@ const INITIAL_LIMIT = 1000
 const PAGE_LIMIT = 400
 
 export interface UseTranscriptWindowOptions {
-  sessionId: string
+  sessionId: SessionId
   hub: Store['hub']
   trpc: Store['trpc']
   replica: Store['replica']

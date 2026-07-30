@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -88,7 +85,7 @@ const { HANDOVER_ARRIVED_HOLD_MS, formatHandoverElapsed } = await import('./Hand
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -129,7 +126,7 @@ afterEach(() => {
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(<AgentPanel sessionId="s1" active />)
+    root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
   })
   await act(async () => {
     await Promise.resolve()

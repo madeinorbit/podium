@@ -18,6 +18,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/terminal-client": "workspace:*"
   },
   "devDependencies": {

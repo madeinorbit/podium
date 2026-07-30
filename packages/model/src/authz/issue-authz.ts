@@ -43,7 +43,7 @@
  */
 
 import { assertUnreachable } from '../exhaustive'
-import type { UserId } from '../ids/brands'
+import type { IssueId, SessionId, UserId } from '../ids/brands'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
 
@@ -70,7 +70,7 @@ const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
 export type IssueScope =
   | { kind: 'all' }
   | { kind: 'none' }
-  | { kind: 'subtree'; rootId: string }
+  | { kind: 'subtree'; rootId: IssueId }
   /**
    * OWNER-OR-GRANT (POD-380, docs/multi-user-readiness.md §3.1.1 personal class).
    * The principal writes what it OWNS plus what has been explicitly GRANTED to it.
@@ -79,7 +79,7 @@ export type IssueScope =
    * human's CURRENT rights, so the identity a grant is matched against is always
    * the human at the root of the delegation chain.
    */
-  | { kind: 'owned'; userId: string }
+  | { kind: 'owned'; userId: UserId }
   /**
    * SELF (§3.3 per-user state). The principal writes only rows keyed to its own
    * `userId`. Deliberately NOT a narrow `owned`: per-user state is NON-GRANTABLE
@@ -87,7 +87,7 @@ export type IssueScope =
    * a grant list must have no way to widen it. Keeping them separate members is
    * what makes that unrepresentable rather than merely unimplemented.
    */
-  | { kind: 'self'; userId: string }
+  | { kind: 'self'; userId: UserId }
 
 /**
  * What a decision is ABOUT. `kind` is optional so the ~4 shipped call sites that
@@ -119,8 +119,20 @@ export interface Capability {
   scope: IssueScope
   /** The session behind this call, when the caller is an agent (relay path).
    *  Undefined for the operator/web. Threaded onto close/unblock events so the
-   *  steward can skip nudging the very session that caused them (#116). */
-  actorSessionId?: string
+   *  steward can skip nudging the very session that caused them (#116).
+   *
+   *  BRANDED `SessionId` BY POD-362, adjudicated against the producers rather
+   *  than the name. The one LIVE producer is `sessions/service.ts`'s
+   *  `capabilityForSession(sessionId)`, whose argument keys `this.sessions`; every
+   *  consumer treats it as a podium session (`command-principal.ts` walks it
+   *  through `delegations.parentSessionOf`, `issues/registry.ts` stamps it as the
+   *  `startedBySession` column, the `session:` provenance keys). `ids/brands.ts`
+   *  additionally describes this field as carrying an `AgentIdentityId` "on the
+   *  relay path" — that path is `gateway/principal-capability.ts`, which has NO
+   *  caller outside its own test. The disagreement is real and is filed as
+   *  POD-1164; it is a one-field decision when that seam is wired, not a reason
+   *  to leave the live path unbranded. */
+  actorSessionId?: SessionId
   /** ATTRIBUTION, HUMAN HALF — ADR 3 Amendment 1 D17: every write records an ACTOR
    *  and an ON-BEHALF-OF, both stamped from the authenticated transport and never
    *  read from a payload. `actorSessionId` is the existing actor half for an agent;
@@ -157,9 +169,10 @@ export interface Capability {
    *  this?" and "which person was it for?" are two questions ([spec:SP-eb60]
    *  nameSource, humanQuestionAskedBy).
    *
-   *  `actorSessionId` above stays unbranded for a different and simpler reason:
-   *  it holds an agent SESSION id, so branding it `UserId` would name the wrong
-   *  id space. */
+   *  `actorSessionId` above IS branded, and with the right brand: POD-362 typed
+   *  it `SessionId` after adjudicating it against its producers. The contrast is
+   *  the point — that field had one id space and got the brand naming it; this
+   *  one has three and can be given none of them honestly. */
   actorUser?: string
   onBehalfOf?: UserId
 }

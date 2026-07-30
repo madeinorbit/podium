@@ -46,6 +46,8 @@ async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
  * session in it are untouched (temp index, no checkout, no kill).
  */
 export async function exportWorkspaceSnapshot(input: {
+  /** A per-request transfer correlation id — NOT a session id. It reaches
+   *  `buildSnapshotCommit` as its `snapshotTag` (POD-362). */
   fetchId: string
   cwd: string
   baseShas: string[]

@@ -1,3 +1,4 @@
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- Daemon <-> server: file/directory ops on a session's host ----
@@ -54,7 +55,7 @@ export type DirListRequestMessage = z.infer<typeof DirListRequestMessage>
 export const ImageUploadRequestMessage = z.object({
   type: z.literal('imageUploadRequest'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** Original filename — informational only; the daemon derives the path from mime + id. */
   filename: z.string(),
   mimeType: z.string(),

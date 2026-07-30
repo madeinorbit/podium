@@ -3,7 +3,7 @@
  * derivable, enforced here rather than in review.
  */
 
-import { AgentKind, ResumeRef } from '@podium/model'
+import { AgentKind, ResumeRef, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { commandExposure, isExposedOn } from './commands'
 import {
@@ -119,15 +119,15 @@ describe('the command-plane table', () => {
     expect(create.safeParse({ cwd: '/p' }).success).toBe(true)
     // A non-uuid client id must be refused before it can reach the durable-label
     // path — POD-379 pins that refusal.
-    expect(create.safeParse({ cwd: '/p', sessionId: '../../evil' }).success).toBe(false)
+    expect(create.safeParse({ cwd: '/p', sessionId: asSessionId('../../evil') }).success).toBe(false)
     const send = sessionCommandPlane.defs.sendText.input
-    expect(send.safeParse({ sessionId: 's', text: '' }).success).toBe(false)
-    expect(send.safeParse({ sessionId: 's', text: 'x'.repeat(32_769) }).success).toBe(false)
+    expect(send.safeParse({ sessionId: asSessionId('s'), text: '' }).success).toBe(false)
+    expect(send.safeParse({ sessionId: asSessionId('s'), text: 'x'.repeat(32_769) }).success).toBe(false)
   })
 
   it('answerAskUserQuestion cannot express a payload-supplied answerer at all', () => {
     const parsed = sessionCommandPlane.defs.answerAskUserQuestion.input.parse({
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       choices: [{ optionIndices: [1] }],
       humanQuestionAskedBy: 'someone-else',
       askedBy: 'someone-else',
@@ -135,6 +135,6 @@ describe('the command-plane table', () => {
 
     // Stripped by the schema, so there is no field for a handler to trust and
     // none for a later edit to start trusting (ADR 3 D7.1).
-    expect(parsed).toEqual({ sessionId: 's', choices: [{ optionIndices: [1] }] })
+    expect(parsed).toEqual({ sessionId: asSessionId('s'), choices: [{ optionIndices: [1] }] })
   })
 })

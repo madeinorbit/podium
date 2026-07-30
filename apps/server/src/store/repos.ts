@@ -7,6 +7,7 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
+import type { RepoId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
@@ -23,7 +24,7 @@ export class ReposRepository {
   constructor(
     private readonly db: SqlDatabase,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
-    private readonly assignRepoIdToIssuesUnder: (repoId: string, repoPath: string) => void,
+    private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
   ) {}
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
@@ -36,7 +37,7 @@ export class ReposRepository {
     machineId: string
     path: string
     originUrl: string | null
-    repoId: string | null
+    repoId: RepoId | null
     prefix: string | null
   }[] {
     const rows = (
@@ -59,7 +60,8 @@ export class ReposRepository {
       ).map((r) => [r.repo_id, r.prefix]),
     )
     return rows.map((r) => {
-      const repoId = (r.repo_id as string | null) ?? null
+      // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
+      const repoId = (r.repo_id as RepoId | null) ?? null
       return {
         machineId: r.machine_id as string,
         path: r.path as string,
@@ -94,7 +96,7 @@ export class ReposRepository {
   }
 
   /** The prefix chosen for the logical repo `repoId` (or null). */
-  prefixForRepoId(repoId: string): string | null {
+  prefixForRepoId(repoId: RepoId): string | null {
     const row = this.db
       .prepare('SELECT prefix FROM repo_prefixes WHERE repo_id = ?')
       .get(repoId) as { prefix: string } | undefined
@@ -107,7 +109,7 @@ export class ReposRepository {
   }
 
   /** The registered repo owning `prefix` (its repoId + a representative path). */
-  repoForPrefix(prefix: string): { repoId: string; path: string } | null {
+  repoForPrefix(prefix: string): { repoId: RepoId; path: string } | null {
     const row = this.db
       .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
       .get(prefix) as { repo_id: string } | undefined
@@ -115,12 +117,13 @@ export class ReposRepository {
     const pathRow = this.db
       .prepare('SELECT path FROM repos WHERE repo_id = ? LIMIT 1')
       .get(row.repo_id) as { path: string } | undefined
-    return { repoId: row.repo_id, path: pathRow?.path ?? '' }
+    // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
+    return { repoId: row.repo_id as RepoId, path: pathRow?.path ?? '' }
   }
 
   /** Ensure the logical repo `repoId` has a prefix; derive+persist one if not.
    *  Idempotent. Returns the effective prefix. */
-  ensurePrefixForRepoId(repoId: string, repoName: string): string {
+  ensurePrefixForRepoId(repoId: RepoId, repoName: string): string {
     const existing = this.prefixForRepoId(repoId)
     if (existing) return existing
     const prefix = this.derivePrefixFor(repoName)
@@ -162,7 +165,7 @@ export class ReposRepository {
    * (mirrors allocateSessionLetter) so concurrent callers can't mint the same
    * ordinal.
    */
-  nextDraftSeq(repoId: string): number {
+  nextDraftSeq(repoId: RepoId): number {
     return transaction(this.db, () => {
       const row = this.db
         .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
@@ -183,7 +186,8 @@ export class ReposRepository {
   backfillPrefixes(): void {
     const rows = this.db
       .prepare('SELECT path, repo_name, repo_id FROM repos ORDER BY rowid ASC')
-      .all() as { path: string; repo_name: string | null; repo_id: string | null }[]
+      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
+      .all() as { path: string; repo_name: string | null; repo_id: RepoId | null }[]
     for (const r of rows) {
       const repoId = r.repo_id ?? this.resolveRepoIdForPath(r.path)
       this.ensurePrefixForRepoId(repoId, r.repo_name ?? r.path.split('/').pop() ?? 'REPO')
@@ -232,7 +236,8 @@ export class ReposRepository {
     const normalizedPath = normalizeRepoPath(path)
     const rows = this.db
       .prepare('SELECT path, repo_id FROM repos WHERE machine_id = ?')
-      .all(machineId) as { path: string; repo_id: string | null }[]
+      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
+      .all(machineId) as { path: string; repo_id: RepoId | null }[]
     const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
     if (!row) return
 
@@ -282,7 +287,7 @@ export class ReposRepository {
 
   /** repo_id for an issue's repoPath: the longest registered repo root that contains
    *  it (any machine), else the deterministic '__local__' path-fallback. */
-  resolveRepoIdForPath(repoPath: string): string {
+  resolveRepoIdForPath(repoPath: string): RepoId {
     const normalizedRepoPath = normalizeRepoPath(repoPath)
     const match = this.listRepos()
       .map((r) => ({ ...r, path: normalizeRepoPath(r.path) }))

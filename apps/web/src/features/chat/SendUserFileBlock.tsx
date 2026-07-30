@@ -1,5 +1,5 @@
 import { isImagePath } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { FileText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -24,10 +24,10 @@ export function SendUserFileBlock({
   item: TranscriptItem
   cls: string
   index: number
-  sessionId: string
+  sessionId: SessionId
   cwd: string
   httpOrigin: string
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
   onOpenImage: (src: string) => void
 }): JSX.Element {
   const paths = item.toolPaths ?? []

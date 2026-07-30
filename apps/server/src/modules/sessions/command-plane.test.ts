@@ -12,7 +12,7 @@
  * context the router builds, from the same composition root.
  */
 
-import { asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -47,12 +47,12 @@ const human = (id: UserId): CommandPrincipal => ({
 const agentFor = (
   sessionId: string,
   onBehalfOf: UserId,
-  chain: string[] = [],
+  chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
-  agentSessionId: sessionId,
+  agentSessionId: asSessionId(sessionId),
   onBehalfOf,
-  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: sessionId },
+  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
   chain,
 })
 
@@ -336,7 +336,7 @@ describe('delegation, resolved live at every apply', () => {
       // human gate.
       new Map([['parent', ['a']]]),
     )
-    const child = agentFor('child', FIRST_ADMIN_USER_ID, ['parent'])
+    const child = agentFor('child', FIRST_ADMIN_USER_ID, [asSessionId('parent')])
 
     // The human may spawn on 'b'...
     await expect(
@@ -438,7 +438,7 @@ describe('attribution and ownership come from the principal', () => {
     })) as { sessionId: string }
     o.reg.gateway.routeDaemonFrame('box', {
       type: 'bind',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       cmd: 'claude',
       cwd: '/p',
       agentKind: 'claude-code',

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type {
@@ -50,7 +51,8 @@ export class ObservationCheckpointsRepository {
       }
     }
     return {
-      sessionId: r.session_id as string,
+      // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
+    sessionId: r.session_id as SessionId,
       provider: provider.data,
       providerSessionId: (r.provider_session_id as string | null) ?? null,
       bindingVersion: Number(r.binding_version),
@@ -60,7 +62,7 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  private read(sessionId: string): ObservationLeaseRecord | null {
+  private read(sessionId: SessionId): ObservationLeaseRecord | null {
     const row = this.db
       .prepare(
         `SELECT session_id, provider, provider_session_id, binding_version,
@@ -71,7 +73,7 @@ export class ObservationCheckpointsRepository {
     return row ? this.mapRow(row) : null
   }
 
-  private readRebindReceipt(sessionId: string): {
+  private readRebindReceipt(sessionId: SessionId): {
     provider: ObservationLeaseRecord['provider']
     fromProviderSessionId: string | null
     fromBindingVersion: number
@@ -115,7 +117,7 @@ export class ObservationCheckpointsRepository {
       .filter((row): row is ObservationLeaseRecord => row !== null)
   }
 
-  get(sessionId: string): ObservationLeaseRecord | null {
+  get(sessionId: SessionId): ObservationLeaseRecord | null {
     return this.read(sessionId)
   }
 
@@ -124,7 +126,7 @@ export class ObservationCheckpointsRepository {
    * identity is never replaced by a conflicting resume hint.
    */
   advanceGeneration(
-    sessionId: string,
+    sessionId: SessionId,
     provider: ObservationLeaseRecord['provider'],
     providerSessionId: string | null,
   ): ObservationLeaseRecord {
@@ -162,7 +164,7 @@ export class ObservationCheckpointsRepository {
    * lease without advancing again, including after process restart. [spec:SP-cdb2]
    */
   rebindExact(input: {
-    sessionId: string
+    sessionId: SessionId
     provider: ObservationLeaseRecord['provider']
     providerSessionId: string | null
     bindingVersion: number
@@ -307,7 +309,7 @@ export class ObservationCheckpointsRepository {
     }
   }
 
-  getTerminalCandidate(sessionId: string): TerminalCandidateRecord | null {
+  getTerminalCandidate(sessionId: SessionId): TerminalCandidateRecord | null {
     const row = this.db
       .prepare(
         `SELECT proof_json, confirmed_at, consumed_at, updated_at
@@ -433,11 +435,11 @@ export class ObservationCheckpointsRepository {
     return Number(result.changes) === 1
   }
 
-  cancelTerminalCandidate(sessionId: string): void {
+  cancelTerminalCandidate(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM session_terminal_candidates WHERE session_id = ?').run(sessionId)
   }
 
-  purge(sessionId: string): void {
+  purge(sessionId: SessionId): void {
     this.db
       .prepare('DELETE FROM session_observation_checkpoints WHERE session_id = ?')
       .run(sessionId)

@@ -4,6 +4,7 @@
  * being pure metadata, and attachDaemon reaps legacy archived-but-live rows.
  */
 
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -24,7 +25,7 @@ function makeRegistry(): { reg: SessionRegistry; daemon: ControlMessage[] } {
 
 function bindLive(
   reg: SessionRegistry,
-  sessionId: string,
+  sessionId: SessionId,
   cwd: string,
   opts: { resume?: boolean } = {},
 ): void {
@@ -45,7 +46,7 @@ function bindLive(
   }
 }
 
-function meta(reg: SessionRegistry, sessionId: string) {
+function meta(reg: SessionRegistry, sessionId: SessionId) {
   return reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
 }
 

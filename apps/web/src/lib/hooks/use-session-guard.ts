@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { useCallback } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -17,10 +18,10 @@ import { useConfirm } from './use-confirm'
  */
 export function useSessionGuard(): {
   /** Close (kill) a session, prompting first if it's still working. */
-  guardedKill: (sessionId: string) => Promise<void>
+  guardedKill: (sessionId: SessionId) => Promise<void>
   /** Archive/unarchive a session, prompting first only when archiving a
    *  working session (unarchive is never destructive). */
-  guardedArchive: (sessionId: string, archived: boolean) => Promise<void>
+  guardedArchive: (sessionId: SessionId, archived: boolean) => Promise<void>
 } {
   const { sessions, killSession, archiveSession } = useStoreSelector(
     (s) => ({ sessions: s.sessions, killSession: s.killSession, archiveSession: s.archiveSession }),
@@ -29,7 +30,7 @@ export function useSessionGuard(): {
   const confirm = useConfirm()
 
   const isWorking = useCallback(
-    (sessionId: string): boolean => {
+    (sessionId: SessionId): boolean => {
       const session = sessions.find((s) => s.sessionId === sessionId)
       return session ? isSessionWorking(session) : false
     },
@@ -37,7 +38,7 @@ export function useSessionGuard(): {
   )
 
   const guardedKill = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: SessionId) => {
       if (isWorking(sessionId)) {
         const ok = await confirm({
           title: 'Close this session?',
@@ -52,7 +53,7 @@ export function useSessionGuard(): {
   )
 
   const guardedArchive = useCallback(
-    async (sessionId: string, archived: boolean) => {
+    async (sessionId: SessionId, archived: boolean) => {
       if (archived && isWorking(sessionId)) {
         const ok = await confirm({
           title: 'Archive this session?',

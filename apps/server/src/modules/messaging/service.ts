@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, IssueWire, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, IssueId, IssueWire, SessionId, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
@@ -35,7 +35,7 @@ export interface SuperagentTurnPort {
   }): Promise<{ threadId: string; podiumSessionId: string }>
   interruptTurn(input: { threadId: string }): void
   restartThread(input: { threadId: string }): void
-  startBtwTurn(input: { sessionId: string }): { threadId: string; isNew: boolean }
+  startBtwTurn(input: { sessionId: SessionId }): { threadId: string; isNew: boolean }
   ensureConciergeThread(input: { repoPath: string }): { threadId: string; isNew: boolean }
 }
 
@@ -49,12 +49,14 @@ export interface MessagingTopicsPort {
 
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
 export interface TopicRecapPort {
-  getSuperagentThread(threadId: string): {
-    podiumSessionId?: string | null
-    originSessionId?: string | null
-  } | undefined
+  getSuperagentThread(threadId: string):
+    | {
+        podiumSessionId?: SessionId | null
+        originSessionId?: SessionId | null
+      }
+    | undefined
   readTranscript(input: {
-    sessionId: string
+    sessionId: SessionId
     direction: 'before' | 'after'
     limit: number
   }): Promise<{ items: TranscriptItem[] }>
@@ -69,7 +71,7 @@ export interface MessagingDeps {
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
-  sessionIssueId?: (sessionId: string) => string | null
+  sessionIssueId?: (sessionId: SessionId) => IssueId | null
   /** Bound-thread transcript for entry recaps [spec:SP-62c3]. */
   topicRecap?: TopicRecapPort
   /** Clock for inactivity gating (tests inject a fixed/advanceable now). */
@@ -243,7 +245,7 @@ export class MessagingService implements TelegramNoticePort {
    * otherwise the main chat. Without `sessionId`, thread into the last inbound
    * forum topic (subscription / legacy callers).
    */
-  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: string }): void {
+  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): void {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
     if (!botToken || !chatId) return
@@ -265,7 +267,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   /** Resolve the forum topic for an outbound notice. */
-  private noticeThreadRef(chatId: string, sessionId?: string): string | undefined {
+  private noticeThreadRef(chatId: string, sessionId?: SessionId): string | undefined {
     if (sessionId) {
       const issueId = this.deps.sessionIssueId?.(sessionId)
       if (!issueId) return undefined
@@ -423,12 +425,12 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
-  private onSessionStateChanged(sessionId: string, next: AgentRuntimeState): void {
+  private onSessionStateChanged(sessionId: SessionId, next: AgentRuntimeState): void {
     if (next.phase === 'working') this.startAmbientTyping(sessionId)
     else this.stopAmbientTyping(sessionId)
   }
 
-  private startAmbientTyping(sessionId: string): void {
+  private startAmbientTyping(sessionId: SessionId): void {
     if (this.ambientTypingBySession.has(sessionId)) return
     if (!this.adapter) return
     const chatId = this.deps.getSettings().notifications.telegramChatId.trim()
@@ -446,7 +448,7 @@ export class MessagingService implements TelegramNoticePort {
     this.ambientTypingBySession.set(sessionId, conversationKey(source))
   }
 
-  private stopAmbientTyping(sessionId: string): void {
+  private stopAmbientTyping(sessionId: SessionId): void {
     const key = this.ambientTypingBySession.get(sessionId)
     if (!key) return
     this.ambientTypingBySession.delete(sessionId)
@@ -669,6 +671,6 @@ function turnTypingOwner(threadId: string): string {
   return `turn:${threadId}`
 }
 
-function ambientTypingOwner(sessionId: string): string {
+function ambientTypingOwner(sessionId: SessionId): string {
   return `session:${sessionId}`
 }

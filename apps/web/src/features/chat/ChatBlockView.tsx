@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
@@ -21,9 +22,9 @@ import { ToolBlock } from './ToolBlock'
  *  block, so refs behave identically everywhere. */
 function handleChatMdClick(
   e: ReactMouseEvent,
-  sessionId: string,
+  sessionId: SessionId,
   cwd: string,
-  openFile: (sessionId: string, path: string) => void,
+  openFile: (sessionId: SessionId, path: string) => void,
 ): void {
   if (handleCodeCopyClick(e)) return
   const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
@@ -77,9 +78,9 @@ function MessageEnvelopeRow({
   envelope: ParsedEnvelope
   className: string
   blockIndex?: number
-  sessionId: string
+  sessionId: SessionId
   cwd: string
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const html = useMemo(() => renderMarkdown(envelope.body), [envelope.body])
   return (
@@ -175,9 +176,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   index: number
   highlighted: boolean
   dimmed: boolean
-  sessionId: string
+  sessionId: SessionId
   cwd: string
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
   httpOrigin: string
   /** Open a full-screen image preview (lightbox) for the given asset URL. */
   onOpenImage: (src: string) => void

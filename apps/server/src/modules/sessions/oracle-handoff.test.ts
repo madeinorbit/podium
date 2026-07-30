@@ -1,7 +1,4 @@
-import {
-  asSessionId,
-  type RepoId,
-} from '@podium/model'
+import { asSessionId, type RepoId, type SessionId } from '@podium/model'
 /**
  * ORACLE — session handoff across two machines (POD-379 for POD-642).
  *
@@ -58,7 +55,7 @@ interface HandoffFixture {
   at(machine: FixtureMachine, type: ControlMessage['type']): number
   /** How many `machine:type` events happened. */
   count(machine: FixtureMachine, type: ControlMessage['type']): number
-  sessionId: string
+  sessionId: SessionId
 }
 
 const built: SessionRegistry[] = []
@@ -146,8 +143,7 @@ async function handoffFixture(
               sizeBytes: 3,
               manifest: {
                 format: 1,
-                // // POD-361-EDGE-CAST: the daemon frame's ids are plain strings.
-                sessionId: asSessionId(msg.sessionId),
+                sessionId: msg.sessionId,
                 agentKind: 'claude-code',
                 resume: { kind: 'claude-session', value: 'native-id' },
                 transcriptFilename: 'native-id.jsonl',
@@ -630,7 +626,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         capability: {
           role: 'admin',
           scope: { kind: 'all' },
-          actorSessionId: 'sess-agent-7',
+          actorSessionId: asSessionId('sess-agent-7'),
           onBehalfOf: asUserId('alice'),
         },
       },

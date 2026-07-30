@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { parseControlMessage, parseDaemonMessage } from './codec.js'
 import {
@@ -62,7 +63,7 @@ describe('causal observation wire compatibility', () => {
       parseControlMessage(
         JSON.stringify({
           type: 'spawn',
-          sessionId: 'podium-1',
+          sessionId: asSessionId('podium-1'),
           agentKind: 'codex',
           cwd: '/repo',
           geometry: { cols: 80, rows: 24 },
@@ -73,7 +74,7 @@ describe('causal observation wire compatibility', () => {
       parseControlMessage(
         JSON.stringify({
           type: 'reattach',
-          sessionId: 'podium-1',
+          sessionId: asSessionId('podium-1'),
           durableLabel: 'podium-podium-1',
           agentKind: 'codex',
           cwd: '/repo',
@@ -86,7 +87,7 @@ describe('causal observation wire compatibility', () => {
   it('round-trips exact rebind requests and acknowledgements', () => {
     const request = AgentObservationRebindMessage.parse({
       type: 'agentObservationRebind',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       providerSessionId: 'thread-1',
       observerGeneration: 7,
@@ -98,7 +99,7 @@ describe('causal observation wire compatibility', () => {
     expect(parseDaemonMessage(JSON.stringify(request))).toEqual(request)
     const ack = AgentObservationRebindAckMessage.parse({
       type: 'agentObservationRebindAck',
-      sessionId: 'podium-1',
+      sessionId: asSessionId('podium-1'),
       provider: 'codex',
       rebindId: 'rebind-1',
       priorObserverGeneration: 7,

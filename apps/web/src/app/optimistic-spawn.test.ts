@@ -1,4 +1,4 @@
-import { IssueWire, SessionMeta } from '@podium/model'
+import { IssueWire, SessionMeta, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   mergeOptimistic,
@@ -9,7 +9,7 @@ import {
 
 describe('optimisticStartingSession', () => {
   const base = {
-    sessionId: 'sess-1',
+    sessionId: asSessionId('sess-1'),
     issueId: 'iss_1',
     agentKind: 'claude-code' as const,
     cwd: '/home/u/my-proj',

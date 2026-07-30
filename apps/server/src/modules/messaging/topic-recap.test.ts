@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import {
@@ -18,7 +19,7 @@ describe('transcriptSessionIdForThread', () => {
   it('prefers the superagent podium session', () => {
     expect(
       transcriptSessionIdForThread(
-        { podiumSessionId: 'pod', originSessionId: 'origin' },
+        { podiumSessionId: asSessionId('pod'), originSessionId: asSessionId('origin') },
         'btw_origin',
       ),
     ).toBe('pod')
@@ -26,7 +27,7 @@ describe('transcriptSessionIdForThread', () => {
 
   it('falls back to origin for btw threads without a podium session yet', () => {
     expect(
-      transcriptSessionIdForThread({ originSessionId: 'sess_1' }, 'btw_sess_1'),
+      transcriptSessionIdForThread({ originSessionId: asSessionId('sess_1') }, 'btw_sess_1'),
     ).toBe('sess_1')
   })
 

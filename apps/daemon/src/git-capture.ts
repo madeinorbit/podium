@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { execFile } from 'node:child_process'
 import { hookEventName, hookString } from './hook-payload'
 
@@ -16,14 +17,14 @@ import { hookEventName, hookString } from './hook-payload'
 
 export interface SessionGitActivityOut {
   type: 'sessionGitActivity'
-  sessionId: string
+  sessionId: SessionId
   commits?: string[]
   touched?: string[]
 }
 
 export interface GitCapture {
-  onHookPayload(sessionId: string, fields: Record<string, unknown> | null): void
-  clearSession(sessionId: string): void
+  onHookPayload(sessionId: SessionId, fields: Record<string, unknown> | null): void
+  clearSession(sessionId: SessionId): void
 }
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
@@ -56,13 +57,13 @@ export function createGitCapture(opts: {
   // Sessions whose baseline registration was already sent.
   const registered = new Set<string>()
 
-  const enqueue = (sessionId: string, step: () => Promise<void>): void => {
+  const enqueue = (sessionId: SessionId, step: () => Promise<void>): void => {
     const tail = chains.get(sessionId) ?? Promise.resolve()
     const next = tail.then(step).catch(() => {})
     chains.set(sessionId, next)
   }
 
-  const register = (sessionId: string, cwd: string): void => {
+  const register = (sessionId: SessionId, cwd: string): void => {
     if (registered.has(sessionId)) return
     registered.add(sessionId)
     enqueue(sessionId, async () => {

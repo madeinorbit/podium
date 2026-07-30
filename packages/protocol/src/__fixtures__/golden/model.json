@@ -791,6 +791,178 @@
       "encoded": "{\"id\":\"id\",\"name\":\"name\",\"enabled\":true,\"repoPath\":\"repoPath\",\"scheduleKind\":\"cron\",\"cron\":\"cron\",\"runAt\":\"runAt\",\"targetSessionId\":\"targetSessionId\",\"agentKind\":\"agentKind\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"sessionMode\":\"fresh\",\"nextRunAt\":\"nextRunAt\",\"lastRunAt\":\"lastRunAt\",\"createdAt\":\"createdAt\"}"
     },
     {
+      "schema": "ChangeCursorSeqField",
+      "variant": "minimal",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeCursorSeqField",
+      "variant": "full",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeEntityIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ChangeEntityIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ChangeEventTimeField",
+      "variant": "minimal",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeEventTimeField",
+      "variant": "full",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeOpField",
+      "variant": "minimal",
+      "wire": "upsert",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"upsert\""
+    },
+    {
+      "schema": "ChangeOpField",
+      "variant": "full",
+      "wire": "upsert",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"upsert\""
+    },
+    {
+      "schema": "ChangePayloadField",
+      "variant": "minimal",
+      "wire": null,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "null"
+    },
+    {
+      "schema": "ChangePayloadField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "ChangeProvenanceFields",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "ChangeProvenanceFields",
+      "variant": "full",
+      "wire": {
+        "originId": "originId",
+        "causationId": "causationId",
+        "mutationId": "mutationId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
+    },
+    {
+      "schema": "ChangeRevisionField",
+      "variant": "minimal",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeRevisionField",
+      "variant": "full",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeSeqField",
+      "variant": "minimal",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeSeqField",
+      "variant": "full",
+      "wire": 1,
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "1"
+    },
+    {
+      "schema": "ChangeTargetFields",
+      "variant": "minimal",
+      "wire": {
+        "entity": "entity",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"entity\":\"entity\",\"entityId\":\"entityId\"}"
+    },
+    {
+      "schema": "ChangeTargetFields",
+      "variant": "full",
+      "wire": {
+        "entity": "entity",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"entity\":\"entity\",\"entityId\":\"entityId\"}"
+    },
+    {
       "schema": "ClientSessionAggregate",
       "variant": "minimal",
       "wire": {
@@ -1338,6 +1510,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"path\":\"path\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"locked\":true,\"prunable\":true}"
+    },
+    {
+      "schema": "GlobalChangeOpField",
+      "variant": "minimal",
+      "wire": "upsert",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"upsert\""
+    },
+    {
+      "schema": "GlobalChangeOpField",
+      "variant": "full",
+      "wire": "upsert",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"upsert\""
     },
     {
       "schema": "GrantEdge",

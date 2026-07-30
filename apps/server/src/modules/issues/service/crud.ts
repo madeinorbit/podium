@@ -8,8 +8,11 @@ import {
   normalizeClosedPatch,
   sortKeyBetween,
   type ArtifactId,
+  type IssueId,
   type IssueWire,
+  type SessionId,
   type SessionMeta,
+  type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -106,8 +109,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
           path: op.path,
           ...(op.title ? { title: op.title } : {}),
           addedAt: this.now(),
-          // POD-361-EDGE-CAST (POD-362 owns): `op` is untyped command input.
-          ...(op.artifactId ? { artifactId: op.artifactId as ArtifactId } : {}),
+          ...(op.artifactId ? { artifactId: op.artifactId } : {}),
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
         }
@@ -310,10 +312,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       ...(input.linear?.url != null ? { linearUrl: input.linear.url } : {}),
       blockedByNotes: [],
       priority: input.priority ?? 2,
-      // POD-361-EDGE-CAST class: `CreateIssueInput.type`/`.stage` are the row's
-      // unvalidated text (the DDL CHECK is the constraint). Validating here would
-      // turn a create the tracker accepts today into a throw — a decoder/encoder
-      // change, not this issue's.
+      // NOT AN ID CAST — this site carried an edge-cast marker that POD-362 read and
+      // removed: `type`/`stage` are ENUM-ish text, not entity ids, so no brand applies.
+      // They stay unvalidated here because the DDL CHECK is the constraint and
+      // validating at this seam would turn a create the tracker accepts today into
+      // a throw — a decoder/encoder change, and not this issue's.
       type: (input.type || 'task') as StoredIssue['type'],
       ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
       // Keyed into the scope it will LAND in: the parent's children when this
@@ -554,8 +557,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Permanently purge an automatically-created empty draft. User-facing deletion
    *  must go through IssueSessionLifecycle and never reaches this method. */
-  purgeEmptyDraft(id: string): void {
-    id = this.resolveRef(id)
+  purgeEmptyDraft(ref: string): void {
+    const id = this.resolveRef(ref)
     this.rowOrThrow(id)
     this.deps.ledger.commit({
       write: () => this.deps.store.issues.deleteIssue(id),
@@ -599,12 +602,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   }
 
   addComment(id: string, author: string, body: string): IssueWire {
-    id = this.resolveRef(id)
-    const row = this.rowOrThrow(id)
+    const issueId = this.resolveRef(id)
+    const row = this.rowOrThrow(issueId)
     return this.persistWith(row, () =>
       this.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
-        issueId: id,
+        issueId,
         author,
         body,
         createdAt: this.now(),
@@ -619,7 +622,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const seen = new Set<string>()
     const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
     while (pending.length) {
-      const current = pending.shift() as { id: string; path: string[] }
+      const current = pending.shift() as { id: IssueId; path: IssueId[] }
       if (current.id === targetId) return current.path
       if (seen.has(current.id)) continue
       seen.add(current.id)
@@ -646,13 +649,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return null
   }
 
-  addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
+  addDep(fromRef: string, toRef: string, type = 'blocks'): IssueWire {
     // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it.
     // Reject the type here so an arbitrary-type caller can't reintroduce
     // parent-child rows into issue_deps.
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
-    fromId = this.resolveRef(fromId)
-    toId = this.resolveRef(toId)
+    const fromId = this.resolveRef(fromRef)
+    const toId = this.resolveRef(toRef)
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
@@ -669,13 +672,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  removeDep(fromId: string, toId: string, type?: string): IssueWire {
+  removeDep(fromRef: string, toRef: string, type?: string): IssueWire {
     // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it,
     // and no parent-child rows exist in issue_deps for the bulk path to guard.
     if (type === 'parent-child')
       throw new Error('parent-child is managed by reparent, not removeDep')
-    fromId = this.resolveRef(fromId)
-    toId = this.resolveRef(toId)
+    const fromId = this.resolveRef(fromRef)
+    const toId = this.resolveRef(toRef)
     const row = this.rowOrThrow(fromId)
     const wire = this.persistWith(row, () =>
       this.deps.store.issues.removeIssueDep(fromId, toId, type),
@@ -712,7 +715,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     /** Structured question metadata (issue #53): suggested answers for the Tray's
      *  answer chips + the asking session. askedAt is stamped here (now()) — a
      *  re-flag replaces the WHOLE pending question, metadata included. */
-    meta?: { options?: string[]; askedBy?: string },
+    meta?: { options?: string[]; askedBy?: SessionId },
   ): IssueWire {
     const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
@@ -753,7 +756,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** The single cycle-checked reparent path. issues.parent_id is the ONLY
    *  parent storage (#164). Dependency edges do not participate: hierarchy
    *  cycles and scheduling cycles are separate invariants. */
-  private setParent(row: IssueRow, newParentId: string | null): void {
+  private setParent(row: IssueRow, newParentId: IssueId | null): void {
     if (newParentId === row.parentId) return
     if (newParentId) {
       this.rowOrThrow(newParentId)
@@ -804,7 +807,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
   }
 
-  claim(id: string, assignee: string): IssueWire {
+  claim(id: string, assignee: UserId): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
   }
 
@@ -812,27 +815,27 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
    *  Dangling-tolerant: we do not validate the session still exists — if it is
    *  later deleted, actionable mail falls back to selectMailNudgeSession. */
-  setCoordinator(id: string, sessionId: string | null): IssueWire {
+  setCoordinator(id: string, sessionId: SessionId | null): IssueWire {
     return this.update(id, { coordinatorSessionId: sessionId })
   }
 
-  close(id: string, reason = 'done', opts?: { actorSessionId?: string }): IssueWire {
+  close(id: string, reason = 'done', opts?: { actorSessionId?: SessionId }): IssueWire {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
     return this.update(id, { stage: 'done', closedReason: reason }, opts)
   }
 
-  supersede(oldId: string, newId: string): IssueWire {
-    oldId = this.resolveRef(oldId)
-    newId = this.resolveRef(newId)
+  supersede(oldRef: string, newRef: string): IssueWire {
+    const oldId = this.resolveRef(oldRef)
+    const newId = this.resolveRef(newRef)
     this.rowOrThrow(newId)
     this.addDep(oldId, newId, 'supersedes')
     return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
   }
 
-  duplicate(id: string, canonicalId: string): IssueWire {
-    id = this.resolveRef(id)
-    canonicalId = this.resolveRef(canonicalId)
+  duplicate(ref: string, canonicalRef: string): IssueWire {
+    const id = this.resolveRef(ref)
+    const canonicalId = this.resolveRef(canonicalRef)
     this.rowOrThrow(canonicalId)
     this.addDep(id, canonicalId, 'related')
     return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })

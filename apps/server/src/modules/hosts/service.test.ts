@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { HostMetricsWire } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +9,7 @@ import { type HostSessionView, type HostsDeps, HostsService } from './service'
 const NOW = new Date('2026-07-17T12:00:00.000Z').getTime()
 const HOUR = 60 * 60_000
 
-function session(sessionId: string, overrides: Partial<HostSessionView> = {}): HostSessionView {
+function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {}): HostSessionView {
   return {
     sessionId,
     machineId: 'local',
@@ -89,14 +91,14 @@ describe('idle-session cap', () => {
 
   it('converges below the cap without memory pressure, oldest effective idle first', () => {
     const sessions = [
-      session('old-activity-recent-input', {
+      session(asSessionId('old-activity-recent-input'), {
         lastActiveAt: new Date(NOW - 3 * HOUR).toISOString(),
         lastInputAtMs: NOW - 40 * 60_000,
       }),
-      session('old-effective-idle', {
+      session(asSessionId('old-effective-idle'), {
         lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
       }),
-      session('newest', {
+      session(asSessionId('newest'), {
         lastActiveAt: new Date(NOW - HOUR).toISOString(),
       }),
     ]
@@ -108,7 +110,7 @@ describe('idle-session cap', () => {
   })
 
   it('allows zero and re-evaluates after every successful hibernation', () => {
-    const sessions = [session('one'), session('two'), session('three')]
+    const sessions = [session(asSessionId('one')), session(asSessionId('two')), session(asSessionId('three'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -118,7 +120,7 @@ describe('idle-session cap', () => {
   })
 
   it('uses a separate conservative burst and refill budget per machine', () => {
-    const sessions = Array.from({ length: 6 }, (_, index) => session(`s${index}`))
+    const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -133,7 +135,7 @@ describe('idle-session cap', () => {
   })
 
   it('keeps memory pressure independent of the count target and its limiter', () => {
-    const sessions = Array.from({ length: 6 }, (_, index) => session(`s${index}`))
+    const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -145,7 +147,7 @@ describe('idle-session cap', () => {
   })
 
   it('hibernates for memory pressure even when the idle count is below its target', () => {
-    const sessions = [session('one'), session('two')]
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 10 })
 
     service.onHostMetrics('local', sample(90))
@@ -154,7 +156,7 @@ describe('idle-session cap', () => {
   })
 
   it('refuses legacy or unfenced sessions without a terminal proof', () => {
-    const sessions = [session('legacy'), session('proven')]
+    const sessions = [session(asSessionId('legacy')), session(asSessionId('proven'))]
     const { service, parked } = harness({
       sessions,
       maxIdleSessions: 1,
@@ -169,7 +171,7 @@ describe('idle-session cap', () => {
 
   it('logs a mixed-version terminal rejected solely for missing proof once', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const sessions = [session('legacy')]
+    const sessions = [session(asSessionId('legacy'))]
     const { service } = harness({
       sessions,
       maxIdleSessions: null,
@@ -186,7 +188,7 @@ describe('idle-session cap', () => {
   })
 
   it('runs count pressure even when the memory sample cannot produce a percentage', () => {
-    const sessions = [session('one'), session('two')]
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 1 })
     const invalidMemory = sample(10)
     invalidMemory.memory.totalBytes = 0
@@ -198,7 +200,7 @@ describe('idle-session cap', () => {
   })
   it('retries memory pressure after a race without spending the cooldown', () => {
     const failures = new Set(['raced'])
-    const sessions = [session('raced'), session('next'), session('later')]
+    const sessions = [session(asSessionId('raced')), session(asSessionId('next')), session(asSessionId('later'))]
     const { service, parked } = harness({
       sessions,
       maxIdleSessions: null,
@@ -215,8 +217,8 @@ describe('idle-session cap', () => {
 
   it('keeps count-pressure burst budgets independent per machine', () => {
     const sessions = [
-      ...Array.from({ length: 5 }, (_, index) => session(`a${index}`, { machineId: 'a' })),
-      ...Array.from({ length: 5 }, (_, index) => session(`b${index}`, { machineId: 'b' })),
+      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`a${index}`), { machineId: 'a' })),
+      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`b${index}`), { machineId: 'b' })),
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
@@ -228,7 +230,7 @@ describe('idle-session cap', () => {
   })
 
   it('tries another eligible candidate after a hibernation race', () => {
-    const sessions = [session('raced'), session('next')]
+    const sessions = [session(asSessionId('raced')), session(asSessionId('next'))]
     const { service, parked } = harness({
       sessions,
       maxIdleSessions: 1,
@@ -243,10 +245,10 @@ describe('idle-session cap', () => {
   it('reports the remaining overage when protected sessions prevent convergence', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const sessions = [
-      session('parkable'),
-      session('no-resume', { resume: undefined }),
-      session('recent', { lastActiveAt: new Date(NOW - 5 * 60_000).toISOString() }),
-      session('question', {
+      session(asSessionId('parkable')),
+      session(asSessionId('no-resume'), { resume: undefined }),
+      session(asSessionId('recent'), { lastActiveAt: new Date(NOW - 5 * 60_000).toISOString() }),
+      session(asSessionId('question'), {
         agentState: {
           phase: 'needs_user',
           since: new Date(NOW - HOUR).toISOString(),
@@ -264,7 +266,7 @@ describe('idle-session cap', () => {
   })
 
   it('disables both memory and count pressure when hibernation is disabled', () => {
-    const sessions = [session('one'), session('two')]
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0, enabled: false })
 
     service.onHostMetrics('local', sample(90))
@@ -273,7 +275,7 @@ describe('idle-session cap', () => {
   })
 
   it('leaves count pressure off when the target is unlimited', () => {
-    const sessions = [session('one'), session('two')]
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
     const { service, parked } = harness({ sessions, maxIdleSessions: null })
 
     service.onHostMetrics('local', sample(10))

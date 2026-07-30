@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -14,7 +15,7 @@ import { SessionStore } from './store'
 //   3. the broadcast pipeline coalesces a bind burst into ~2 runs, not one per bind.
 describe('bind-storm regression', () => {
   const G = { cols: 80, rows: 24 }
-  const bind = (sessionId: string, cwd: string) =>
+  const bind = (sessionId: SessionId, cwd: string) =>
     ({ type: 'bind', sessionId, cmd: 'sh', cwd, agentKind: 'shell', geometry: G }) as const
 
   function makeStorm(opts: { sessions: number; issues: number }) {
@@ -27,7 +28,7 @@ describe('bind-storm regression', () => {
     for (let i = 0; i < opts.issues; i++) {
       registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
-    const bound: { sessionId: string; cwd: string; machineId: string }[] = []
+    const bound: { sessionId: SessionId; cwd: string; machineId: string }[] = []
     for (let i = 0; i < opts.sessions; i++) {
       const machineId = i % 2 ? 'm2' : 'm1'
       const cwd = `/repo/w${i}`

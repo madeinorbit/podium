@@ -1,9 +1,4 @@
-import {
-  ISSUE_STAGES,
-  type IssueSessionSummary,
-  type IssueStage,
-  type SessionMeta,
-} from '@podium/model'
+import { ISSUE_STAGES, type IssueSessionSummary, type IssueStage, type SessionId, type SessionMeta } from '@podium/model'
 
 export function slugifyBranch(seq: number, title: string): string {
   const slug = title
@@ -70,7 +65,7 @@ export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary 
  *  Shells never get nudged. */
 export function selectMailNudgeSession(
   sessions: SessionMeta[],
-): { sessionId: string; mode: 'send' | 'queue' } | null {
+): { sessionId: SessionId; mode: 'send' | 'queue' } | null {
   const live = sessions.filter((s) => s.agentKind !== 'shell' && s.status === 'live')
   if (live.length === 0) return null
   if (live.length === 1 && live[0]!.agentState?.phase === 'idle') {

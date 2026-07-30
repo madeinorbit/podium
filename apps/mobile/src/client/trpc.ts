@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   parseServerOrigin,
@@ -38,7 +39,7 @@ export interface SuperagentThread {
   originSessionId?: string
   repoPath?: string
   title?: string
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** The harness's own session id — present once the thread has a real session. */
   harnessSessionId?: string
   /** Query-backed running state, so a reload or late join mid-turn still knows a
@@ -60,12 +61,12 @@ export interface SuperagentThread {
 interface MobileTrpcExtras {
   sessions: {
     transcriptRead: QueryProcedure<
-      { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number },
+      { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number },
       TranscriptPage
     >
-    sendText: MutationProcedure<{ sessionId: string; text: string; mutationId?: string }>
+    sendText: MutationProcedure<{ sessionId: SessionId; text: string; mutationId?: string }>
     answerAskUserQuestion: MutationProcedure<{
-      sessionId: string
+      sessionId: SessionId
       choices: { optionIndices: number[] }[]
     }>
   }

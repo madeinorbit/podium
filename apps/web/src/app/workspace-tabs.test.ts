@@ -1,7 +1,4 @@
-import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+import { asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from './store'
 import { fileTabsForWorkspace } from './workspace-tabs'
@@ -12,7 +9,7 @@ const issue = (over: Partial<IssueWireInput>): IssueWire =>
 const tab = (over: Partial<FileTab>): FileTab =>
   ({
     id: 't',
-    scope: { kind: 'session', sessionId: 's' },
+    scope: { kind: 'session', sessionId: asSessionId('s') },
     path: 'p',
     worktreePath: '',
     ...over,

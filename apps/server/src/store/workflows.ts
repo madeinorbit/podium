@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
   ExecutionProfileWire,
@@ -20,16 +21,21 @@ import {
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { transaction } from '@podium/runtime/sqlite'
 
-export interface WorkflowActor {
-  kind: 'operator' | 'session'
-  id: string | null
-}
+/**
+ * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
+ * Every producer already obeys the correlation — router.ts emits
+ * `{ kind: 'operator', id: null }` and the three session producers emit a real
+ * session id — but the old shape let `{ kind: 'operator', id: <something> }` be
+ * built, so `id` could not carry `SessionId` without lying on the operator arm.
+ * As a union the brand is exact and the illegal pair is unrepresentable.
+ */
+export type WorkflowActor = { kind: 'operator'; id: null } | { kind: 'session'; id: SessionId }
 
 export interface WorkflowRunRow {
   id: string
   subjectKind: 'issue' | 'session'
   subjectId: string
-  coordinatorSessionId: string
+  coordinatorSessionId: SessionId
   revisionId: string
   status: WorkflowRunStatus
   supersedesRunId: string | null
@@ -115,7 +121,8 @@ function toRun(row: Raw): WorkflowRunRow {
     id: text(row.id),
     subjectKind: row.subject_kind as 'issue' | 'session',
     subjectId: text(row.subject_id),
-    coordinatorSessionId: text(row.coordinator_session_id),
+    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+    coordinatorSessionId: text(row.coordinator_session_id) as SessionId,
     revisionId: text(row.revision_id),
     status: row.status as WorkflowRunStatus,
     supersedesRunId: nullableText(row.supersedes_run_id),
@@ -419,7 +426,7 @@ export class WorkflowsRepository {
     return row ? toRun(row) : null
   }
 
-  findLiveRunForSession(sessionId: string): WorkflowRunRow | null {
+  findLiveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
     const row = this.db
       .prepare(
         `SELECT DISTINCT r.* FROM workflow_runs r
@@ -515,7 +522,7 @@ export class WorkflowsRepository {
       )
   }
 
-  assignStep(runId: string, stepId: string, sessionId: string | null): void {
+  assignStep(runId: string, stepId: string, sessionId: SessionId | null): void {
     this.db
       .prepare(
         `UPDATE workflow_run_steps SET assigned_session_id = ? WHERE run_id = ? AND step_id = ?`,

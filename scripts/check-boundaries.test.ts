@@ -747,3 +747,114 @@ describe('rule 9 — the Replica role is direction-locked (POD-369)', () => {
     ).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Rule 11 — the sync kernel has zero SQLite/Bun/DOM (POD-305)
+// ---------------------------------------------------------------------------
+
+describe('rule 11: sync kernel purity', () => {
+  // The instrument must say YES before its NO means anything. Each prohibited
+  // form is planted and required to fire; each permitted one is planted too,
+  // because a rule that fires on everything is as useless as one that fires on
+  // nothing — and the permitted cases are what stop the next person "fixing" a
+  // false positive by widening the rule.
+
+  it('fires on a SQLite import in kernel source', () => {
+    const v = checkFile(
+      'packages/sync/src/authority/authority.ts',
+      `import { transaction } from '@podium/runtime/sqlite'`,
+    )
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('fires on a bun: import in kernel source', () => {
+    const v = checkFile('packages/sync/src/ledger.ts', `import { Database } from 'bun:sqlite'`)
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('fires on drizzle-orm in kernel source', () => {
+    const v = checkFile('packages/sync/src/ledger.ts', `import { sql } from 'drizzle-orm'`)
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('fires on a DOM GLOBAL, which no import check can see', () => {
+    const v = checkFile(
+      'packages/sync/src/replica/memory-store.ts',
+      `export const save = (k: string) => localStorage.setItem(k, '1')`,
+    )
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('fires on kernel SOURCE importing the adapter', () => {
+    // Without this, the no-SQLite rule is bypassed by importing an adapter
+    // helper that re-exports the thing.
+    const v = checkFile(
+      'packages/sync/src/ledger.ts',
+      `import { SyncRepository } from './adapters/sqlite/sync-repository'`,
+    )
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('does NOT fire on a kernel TEST wiring the real adapter', () => {
+    // The most valuable test in the package is one that proves the port against
+    // real technology. It takes the wiring as a fixture, which is allowed.
+    const v = checkFile(
+      'packages/sync/src/ledger.test.ts',
+      `import { createTestTransact } from './adapters/sqlite/test-support'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+
+  it('DOES fire on a kernel test importing SQLite directly', () => {
+    // The counterfactual for the case above: tests are exempt from the
+    // adapter-import rule and NOT from the technology rule. A test is exactly
+    // where a database import first looks harmless.
+    const v = checkFile(
+      'packages/sync/src/ledger.test.ts',
+      `import { transaction } from '@podium/runtime/sqlite'`,
+    )
+    expect(v.map((x) => x.rule)).toContain('sync-kernel-purity')
+  })
+
+  it('does not fire inside the adapter itself', () => {
+    const v = checkFile(
+      'packages/sync/src/adapters/sqlite/sync-repository.ts',
+      `import { transaction } from '@podium/runtime/sqlite'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+
+  it('does not fire on the package barrel re-exporting the adapter', () => {
+    const v = checkFile(
+      'packages/sync/src/index.ts',
+      `export * from './adapters/sqlite/sync-repository'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+
+  it('does not fire on node:fs — the criterion is SQLite/Bun/DOM, not "no I/O"', () => {
+    // mirror.ts and upstream.ts legitimately touch files and are not kernel
+    // roles. A broader rule needed three exclusions to pass on the day it
+    // landed, and a rule that starts with exclusions gets widened by exclusion.
+    const v = checkFile('packages/sync/src/mirror.ts', `import { mkdirSync } from 'node:fs'`)
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+
+  it('does not fire on a COMMENT documenting the prohibition', () => {
+    // This package documents the rule at length. A lint that tripped on its own
+    // documentation would be removed within a week.
+    const v = checkFile(
+      'packages/sync/src/authority/ports.ts',
+      `/** Never reach localStorage or a bun:sqlite handle from here. */\nexport type X = string`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+
+  it('does not fire outside packages/sync', () => {
+    const v = checkFile(
+      'apps/server/src/store.ts',
+      `import { openDatabase } from '@podium/runtime/sqlite'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+})

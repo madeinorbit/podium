@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -13,12 +14,12 @@ describe('hook ingest', () => {
   })
 
   it('accepts a POST and hands the payload to the callback, replying 200 {}', async () => {
-    const got: { sessionId: string; payload: unknown }[] = []
+    const got: { sessionId: SessionId; payload: unknown }[] = []
     ingest = await startHookIngest({
       port: 0,
       onPayload: (sessionId, payload) => got.push({ sessionId, payload }),
     })
-    const res = await fetch(ingest.endpointFor('s1'), {
+    const res = await fetch(ingest.endpointFor(asSessionId('s1')), {
       method: 'POST',
       body: JSON.stringify({ hook_event_name: 'Stop' }),
     })
@@ -30,18 +31,18 @@ describe('hook ingest', () => {
 
   it('endpointFor embeds the session id and the actual port', async () => {
     ingest = await startHookIngest({ port: 0, onPayload: () => {} })
-    expect(ingest.endpointFor('abc-123')).toBe(`http://127.0.0.1:${ingest.port}/hooks/abc-123`)
+    expect(ingest.endpointFor(asSessionId('abc-123'))).toBe(`http://127.0.0.1:${ingest.port}/hooks/abc-123`)
   })
 
   it('rejects non-POST and unknown paths with 404, malformed JSON is acked but dropped', async () => {
     const got: unknown[] = []
     ingest = await startHookIngest({ port: 0, onPayload: (_sid, p) => got.push(p) })
-    expect((await fetch(ingest.endpointFor('s1'), { method: 'GET' })).status).toBe(404)
+    expect((await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'GET' })).status).toBe(404)
     expect(
       (await fetch(`http://127.0.0.1:${ingest.port}/other`, { method: 'POST', body: '{}' })).status,
     ).toBe(404)
     expect(
-      (await fetch(ingest.endpointFor('s1'), { method: 'POST', body: 'not json' })).status,
+      (await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'POST', body: 'not json' })).status,
     ).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([])
@@ -55,7 +56,7 @@ describe('hook ingest', () => {
     const filler = 'x'.repeat(HOOK_BODY_MAX_BYTES + 1 - '{"a":""}'.length)
     const body = `{"a":"${filler}"}`
     expect(Buffer.byteLength(body)).toBe(HOOK_BODY_MAX_BYTES + 1)
-    const res = await fetch(ingest.endpointFor('s1'), { method: 'POST', body })
+    const res = await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'POST', body })
     expect(res.status).toBe(413)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([])
@@ -67,7 +68,7 @@ describe('hook ingest', () => {
     const filler = 'x'.repeat(HOOK_BODY_MAX_BYTES - '{"a":""}'.length)
     const body = `{"a":"${filler}"}`
     expect(Buffer.byteLength(body)).toBe(HOOK_BODY_MAX_BYTES)
-    const res = await fetch(ingest.endpointFor('s1'), { method: 'POST', body })
+    const res = await fetch(ingest.endpointFor(asSessionId('s1')), { method: 'POST', body })
     expect(res.status).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([{ a: filler }])
@@ -83,7 +84,7 @@ describe('hook ingest', () => {
 
 function postSocket(
   socketPath: string,
-  sessionId: string,
+  sessionId: SessionId,
   body: unknown,
 ): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
@@ -116,14 +117,14 @@ describe('hook ingest Unix socket', () => {
     async () => {
       const root = await mkdtemp(join(tmpdir(), 'podium-hook-socket-'))
       const socketPath = join(root, 'ingest.sock')
-      const got: { sessionId: string; payload: unknown }[] = []
+      const got: { sessionId: SessionId; payload: unknown }[] = []
       const ing = await startHookIngest({
         port: 0,
         socketPath,
         onPayload: (sessionId, payload) => got.push({ sessionId, payload }),
       })
       try {
-        expect(await postSocket(socketPath, 'pane-a', { session_id: 'thread-a' })).toEqual({
+        expect(await postSocket(socketPath, asSessionId('pane-a'), { session_id: 'thread-a' })).toEqual({
           status: 200,
           text: '{}',
         })
@@ -146,7 +147,7 @@ describe('hook ingest Unix socket', () => {
         await expect(
           startHookIngest({ port: 0, socketPath, onPayload: () => {} }),
         ).rejects.toMatchObject({ code: 'EADDRINUSE' })
-        expect((await postSocket(socketPath, 'pane-a', {})).status).toBe(200)
+        expect((await postSocket(socketPath, asSessionId('pane-a'), {})).status).toBe(200)
       } finally {
         await first.close()
         await rm(root, { recursive: true, force: true })
@@ -174,7 +175,7 @@ describe('hook-ingest respondTo', () => {
         (p as any).hook_event_name === 'SessionStart' ? '{"x":1}' : null,
     })
     try {
-      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'SessionStart' })
+      const r = await post(ing.endpointFor(asSessionId('s1')), { hook_event_name: 'SessionStart' })
       expect(r.status).toBe(200)
       expect(r.text).toBe('{"x":1}')
       expect(seen).toHaveLength(1)
@@ -186,7 +187,7 @@ describe('hook-ingest respondTo', () => {
   it('falls back to {} when respondTo returns null', async () => {
     const ing = await startHookIngest({ port: 0, onPayload: () => {}, respondTo: async () => null })
     try {
-      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'Stop' })
+      const r = await post(ing.endpointFor(asSessionId('s1')), { hook_event_name: 'Stop' })
       expect(r.text).toBe('{}')
     } finally {
       await ing.close()
@@ -201,7 +202,7 @@ describe('hook-ingest respondTo', () => {
       respondTo: () => new Promise((r) => setTimeout(() => r('"late"'), 500)),
     })
     try {
-      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'SessionStart' })
+      const r = await post(ing.endpointFor(asSessionId('s1')), { hook_event_name: 'SessionStart' })
       expect(r.text).toBe('{}')
     } finally {
       await ing.close()
@@ -211,7 +212,7 @@ describe('hook-ingest respondTo', () => {
   it('with no respondTo, behaves exactly as before ({} ack)', async () => {
     const ing = await startHookIngest({ port: 0, onPayload: () => {} })
     try {
-      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'Stop' })
+      const r = await post(ing.endpointFor(asSessionId('s1')), { hook_event_name: 'Stop' })
       expect(r.text).toBe('{}')
     } finally {
       await ing.close()
@@ -230,7 +231,7 @@ describe('hook-ingest respondTo', () => {
     })
     try {
       const ac = new AbortController()
-      const inflight = fetch(ing.endpointFor('s1'), {
+      const inflight = fetch(ing.endpointFor(asSessionId('s1')), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ hook_event_name: 'SessionStart' }),
@@ -245,7 +246,7 @@ describe('hook-ingest respondTo', () => {
       await new Promise((r) => setTimeout(r, 250))
       // Process/server survived: a fresh request is served normally (times out
       // to the {} fallback since respondTo never resolves).
-      const r = await post(ing.endpointFor('s2'), { hook_event_name: 'SessionStart' })
+      const r = await post(ing.endpointFor(asSessionId('s2')), { hook_event_name: 'SessionStart' })
       expect(r.status).toBe(200)
       expect(r.text).toBe('{}')
     } finally {

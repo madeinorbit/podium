@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { HarnessAgent, type IssueWire } from '@podium/model'
+import { HarnessAgent, type IssueWire, type SessionId } from '@podium/model'
 import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
@@ -173,7 +173,7 @@ export class SuperagentService {
   private readonly dispatchedTurnIds = new Set<string>()
   private readonly preparingInputs = new Map<
     string,
-    Promise<{ threadId: string; podiumSessionId: string }>
+    Promise<{ threadId: string; podiumSessionId: SessionId }>
   >()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
@@ -372,7 +372,7 @@ export class SuperagentService {
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: UserFocusInput
-  }): Promise<{ threadId: string; podiumSessionId: string }> {
+  }): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -400,7 +400,7 @@ export class SuperagentService {
   private prepareQueuedInput(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp = false,
-  ): Promise<{ threadId: string; podiumSessionId: string }> {
+  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const existing = this.preparingInputs.get(queued.inputId)
     if (existing) return existing
     const preparing = this.prepareQueuedInputInner(queued, allowWithoutMcp).finally(() => {
@@ -413,7 +413,7 @@ export class SuperagentService {
   private async prepareQueuedInputInner(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp: boolean,
-  ): Promise<{ threadId: string; podiumSessionId: string }> {
+  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const { inputId, threadId, text, focus } = queued
     let thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
@@ -450,7 +450,7 @@ export class SuperagentService {
     const existingSession = boundSessionId
       ? this.listSessions().find((session) => session.sessionId === boundSessionId)
       : undefined
-    let sessionId: string
+    let sessionId: SessionId
     if (existingSession) {
       sessionId = existingSession.sessionId
     } else {
@@ -682,7 +682,7 @@ export class SuperagentService {
    * one writer at a time. sendTurn rejects while the terminal session is live;
    * the lock clears lazily once that session exits.
    */
-  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: string }> {
+  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -715,7 +715,7 @@ export class SuperagentService {
     repoPath: string
     text: string
     focus?: UserFocusInput
-  }): Promise<{ threadId: string; podiumSessionId: string; isNew: boolean }> {
+  }): Promise<{ threadId: string; podiumSessionId: SessionId; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
@@ -739,7 +739,7 @@ export class SuperagentService {
    * thread) or origin-transcript delta (re-open) is prepended to the user's
    * next sendTurn by composeContext, so the harness gets it exactly once.
    */
-  startBtwTurn({ sessionId }: { sessionId: string }): { threadId: string; isNew: boolean } {
+  startBtwTurn({ sessionId }: { sessionId: SessionId }): { threadId: string; isNew: boolean } {
     const threadId = `btw_${sessionId}`
     const existing = this.store.superagent.getSuperagentThread(threadId)
     if (existing?.kind === 'btw') return { threadId, isNew: false }
@@ -953,7 +953,7 @@ export class SuperagentService {
   }
 
   /** One live session, digested for a seed / focus block. */
-  private sessionInfo(sessionId: string): FocusSessionInfo | undefined {
+  private sessionInfo(sessionId: SessionId): FocusSessionInfo | undefined {
     const s = this.listSessions().find((x) => x.sessionId === sessionId)
     if (!s) return undefined
     const issue = s.issueId ? this.issueById(s.issueId) : undefined

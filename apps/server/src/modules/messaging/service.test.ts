@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
@@ -170,7 +171,7 @@ function liveIssue(overrides: Record<string, unknown> = {}) {
     draft: false,
     sessions: [
       {
-        sessionId: 'sess_1',
+        sessionId: asSessionId('sess_1'),
         agentKind: 'grok',
         title: 'work',
         cwd: '/p',
@@ -241,7 +242,7 @@ function makeHarness(
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
-  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: string }) => ({
+  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
     threadId: `btw_${sessionId}`,
     isNew: true,
   }))
@@ -531,7 +532,7 @@ describe('MessagingService', () => {
     function bindTopic(
       h: Harness,
       opts: { sessionId?: string; issueId?: string; threadRef?: string } = {},
-    ): { sessionId: string; issueId: string; threadRef: string } {
+    ): { sessionId: SessionId; issueId: string; threadRef: string } {
       const sessionId = opts.sessionId ?? 's_agent'
       const issueId = opts.issueId ?? 'iss_bound'
       const threadRef = opts.threadRef ?? '555'
@@ -542,12 +543,12 @@ describe('MessagingService', () => {
         superagentThreadId: `btw_${sessionId}`,
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
-      return { sessionId, issueId, threadRef }
+      return { sessionId: asSessionId(sessionId), issueId, threadRef }
     }
 
     it('sends typing into the bound topic when the session enters working', () => {
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -560,7 +561,7 @@ describe('MessagingService', () => {
 
     it('does not start ambient typing on compacting (only phase===working)', () => {
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -574,7 +575,7 @@ describe('MessagingService', () => {
     it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -594,7 +595,7 @@ describe('MessagingService', () => {
       (phase) => {
         vi.useFakeTimers()
         const h = makeHarness({
-          sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+          sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
         })
         const { sessionId } = bindTopic(h)
         h.bus.emit('session.stateChanged', {
@@ -616,7 +617,7 @@ describe('MessagingService', () => {
     it('stops ambient typing on session.exited', () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -633,10 +634,10 @@ describe('MessagingService', () => {
     it('does not indicate for sessions without a bound topic', () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: () => 'iss_unbound',
+        sessionIssueId: () => asIssueId('iss_unbound'),
       })
       h.bus.emit('session.stateChanged', {
-        sessionId: 's_unbound',
+        sessionId: asSessionId('s_unbound'),
         prev: undefined,
         next: agentState('working'),
       })
@@ -647,7 +648,7 @@ describe('MessagingService', () => {
     it('does not double-fire when superagent-turn typing already covers the topic', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.topics.upsert({
@@ -686,7 +687,7 @@ describe('MessagingService', () => {
     it('keeps a single refresh cadence when ambient starts before the turn', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {
@@ -828,7 +829,7 @@ describe('MessagingService', () => {
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
     expect(h.createForumTopic).toHaveBeenCalledWith('42', 'POD-9 Slash commands')
-    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: 'sess_1' })
+    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1') })
     expect(h.answerCallback).toHaveBeenCalledWith('cb1', 'Created topic')
     expect(h.sent[0]!.threadRef).toBe('9001')
     h.inbound('status in topic', { threadRef: '9001' })
@@ -846,7 +847,7 @@ describe('MessagingService', () => {
     await flush()
     expect(h.createForumTopic).toHaveBeenCalled()
     expect(h.readTranscript).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       direction: 'before',
       limit: 50,
     })
@@ -1024,7 +1025,7 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
     const h = makeHarness({
-      sessionIssueId: (sessionId) => (sessionId === 's_pod' ? 'iss_pod' : null),
+      sessionIssueId: (sessionId) => (sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null),
     })
     h.topics.upsert({
       issueId: 'iss_pod',
@@ -1037,7 +1038,7 @@ describe('MessagingService', () => {
     h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
-    }, { sessionId: 's_pod' })
+    }, { sessionId: asSessionId('s_pod') })
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1050,13 +1051,13 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId falls back to main chat when the issue has no bound topic', async () => {
     const h = makeHarness({
-      sessionIssueId: () => 'iss_unbound',
+      sessionIssueId: () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
     h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
-    }, { sessionId: 's1' })
+    }, { sessionId: asSessionId('s1') })
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1100,7 +1101,7 @@ describe('MessagingService', () => {
         sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
         interruptTurn: vi.fn(),
         restartThread: vi.fn(),
-        startBtwTurn: vi.fn(({ sessionId }: { sessionId: string }) => ({
+        startBtwTurn: vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
           threadId: `btw_${sessionId}`,
           isNew: true,
         })),

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -304,7 +305,7 @@ function settledHandle(result: DurableResult, turnId: string): HeadlessTurnHandl
  * retain detached output. */
 export function runDurableHeadlessTurn(
   turnId: string,
-  sessionId: string,
+  sessionId: SessionId,
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   bins: HarnessBins,

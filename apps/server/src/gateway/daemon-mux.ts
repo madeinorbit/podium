@@ -57,7 +57,7 @@ import {
   daemonPortsFor,
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
-import { LOCAL_MACHINE_ID } from '../local-machine'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
 
 /**

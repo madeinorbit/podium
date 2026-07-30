@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   dedupeSessionsByResume,
@@ -15,7 +12,7 @@ import { withoutShells } from './home'
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -34,8 +31,8 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
   } as unknown as SessionMeta
 }
 
-const normal = meta({ sessionId: 'n1' })
-const headless = meta({ sessionId: 'h1', headless: true })
+const normal = meta({ sessionId: asSessionId('n1') })
+const headless = meta({ sessionId: asSessionId('h1'), headless: true })
 
 describe('headless session exclusion (concierge unification)', () => {
   it('isHeadlessSession keys strictly off meta.headless === true', () => {
@@ -58,7 +55,7 @@ describe('headless session exclusion (concierge unification)', () => {
 
   it('partitionWorkItems skips headless sessions in every bucket', () => {
     const workingHeadless = meta({
-      sessionId: 'h2',
+      sessionId: asSessionId('h2'),
       headless: true,
       agentState: { phase: 'working' } as SessionMeta['agentState'],
     })
@@ -92,8 +89,8 @@ describe('headless session exclusion (concierge unification)', () => {
 
   it('dedupeSessionsByResume never collapses a headless session with its terminal twin', () => {
     const resume = { kind: 'claude-session', value: 'abc' } as SessionMeta['resume']
-    const h = meta({ sessionId: 'h1', headless: true, resume })
-    const pty = meta({ sessionId: 'p1', resume })
+    const h = meta({ sessionId: asSessionId('h1'), headless: true, resume })
+    const pty = meta({ sessionId: asSessionId('p1'), resume })
     expect(dedupeSessionsByResume([h, pty]).map((s) => s.sessionId)).toEqual(['h1', 'p1'])
   })
 })
@@ -102,14 +99,14 @@ describe('headless session exclusion (concierge unification)', () => {
 // exclusion, a sibling of the headless exclusion above.
 describe('withoutShells', () => {
   it('drops shell sessions from a command-center list', () => {
-    const agent = meta({ sessionId: 'ag', agentKind: 'claude-code' })
-    const shell = meta({ sessionId: 'sh', agentKind: 'shell' })
+    const agent = meta({ sessionId: asSessionId('ag'), agentKind: 'claude-code' })
+    const shell = meta({ sessionId: asSessionId('sh'), agentKind: 'shell' })
     expect(withoutShells([agent, shell]).map((s) => s.sessionId)).toEqual(['ag'])
   })
 
   it('keeps every non-shell agent kind', () => {
-    const claude = meta({ sessionId: 'c', agentKind: 'claude-code' })
-    const codex = meta({ sessionId: 'x', agentKind: 'codex' })
+    const claude = meta({ sessionId: asSessionId('c'), agentKind: 'claude-code' })
+    const codex = meta({ sessionId: asSessionId('x'), agentKind: 'codex' })
     expect(withoutShells([claude, codex]).map((s) => s.sessionId)).toEqual(['c', 'x'])
   })
 })

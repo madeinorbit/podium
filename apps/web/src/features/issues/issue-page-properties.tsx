@@ -7,13 +7,7 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import {
-  ISSUE_DEP_TYPES,
-  ISSUE_STAGES,
-  IssueType,
-  asIssueId,
-  type IssueWire,
-} from '@podium/model'
+import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, asIssueId, type IssueWire, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -207,7 +201,7 @@ export function IssueProperties({
 
   // [spec:SP-a1c0] (#411) Route through the central action — never roll per-feature
   // navigation (setPane+setView flips the URL then reverts off the workspace view).
-  const openSession = (session: { sessionId: string }): void => {
+  const openSession = (session: { sessionId: SessionId }): void => {
     navigateToSession(session.sessionId)
   }
   const primaryIsPr = mergeStyle === 'pr'

@@ -9,13 +9,8 @@
  * no DOM, no network.
  */
 
-import type {
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  SessionMeta,
-  SessionMetaInput,
-} from '@podium/model'
+import { asSessionId } from '@podium/model'
+import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -260,7 +255,7 @@ describe('session resurrection', () => {
     }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.getSnapshot().resurrectSession('sleeping')
+    await engine.getSnapshot().resurrectSession(asSessionId('sleeping'))
 
     expect(errors).toEqual(["Couldn't resume the session — worktree unavailable"])
   })
@@ -274,7 +269,7 @@ describe('session resurrection', () => {
     }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.getSnapshot().resurrectSession('sleeping')
+    await engine.getSnapshot().resurrectSession(asSessionId('sleeping'))
 
     expect(errors).toEqual(["Couldn't resume the session — server offline"])
   })
@@ -354,12 +349,12 @@ describe('snapshot stability (useSyncExternalStore contract)', () => {
     const a = engine.getSnapshot()
     expect(engine.getSnapshot()).toBe(a)
     // A real change produces a new snapshot …
-    a.setSessionDraft('s1', 'x')
+    a.setSessionDraft(asSessionId('s1'), 'x')
     const b = engine.getSnapshot()
     expect(b).not.toBe(a)
     expect(b.drafts).toEqual({ s1: 'x' })
     // … but re-writing the SAME value is a no-op that keeps identity.
-    b.setSessionDraft('s1', 'x')
+    b.setSessionDraft(asSessionId('s1'), 'x')
     expect(engine.getSnapshot()).toBe(b)
     // Action identities are stable across snapshots.
     expect(b.setSessionDraft).toBe(a.setSessionDraft)
@@ -439,7 +434,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle()
 
     // Enqueue paints instantly — the queued entry is the overlay.
-    void engine.getSnapshot().renameSession('s1', 'renamed')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
     expect(nameOf(engine, 's1')).toBe('renamed')
 
     // A heal snapshot WITHOUT the rename must not flash the stale value: the
@@ -475,7 +470,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession('s1', 'mine')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'mine')
     await settle() // resolves (default executor) → awaiting truth
     expect(engine.getSnapshot().outboxSize).toBe(0)
     expect(nameOf(engine, 's1')).toBe('mine')
@@ -500,9 +495,9 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession('s1', 'first')
-    void engine.getSnapshot().markSessionUnread('s1')
-    void engine.getSnapshot().renameSession('s1', 'second')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
+    void engine.getSnapshot().markSessionUnread(asSessionId('s1'))
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
     await settle()
     const row = engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
     // Later rename wins over the earlier one; the mark-unread composes with it.
@@ -524,7 +519,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession('s1', 'doomed')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'doomed')
     expect(nameOf(engine, 's1')).toBe('doomed') // painted while queued
     await settle()
     expect(nameOf(engine, 's1')).toBeUndefined() // poison drop → overlay gone
@@ -544,7 +539,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession('s1', 'renamed')
+    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
     await settle()
     expect(nameOf(first.engine, 's1')).toBe('renamed')
     first.engine.dispose()
@@ -602,7 +597,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession('s1', 'renamed')
+    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
     await settle()
     expect(first.engine.getSnapshot().outboxSize).toBe(0) // resolved
     expect(nameOf(first.engine, 's1')).toBe('renamed') // awaiting truth, painted
@@ -642,7 +637,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession('s1', 'mine')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'mine')
     expect(nameOf(engine, 's1')).toBe('mine')
     // A competing client's write lands while our mutation is still in flight —
     // the row is already "final" before our response arrives.
@@ -667,8 +662,8 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
     // Two rapid edits of the same field, both resolved before any echo.
-    void engine.getSnapshot().renameSession('s1', 'first')
-    void engine.getSnapshot().renameSession('s1', 'second')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
     await settle()
     expect(engine.getSnapshot().outboxSize).toBe(0)
     expect(engine.outbox.awaiting()).toHaveLength(2)
@@ -705,8 +700,8 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession('s1', 'first') // A
-    void engine.getSnapshot().renameSession('s1', 'second') // B (chained behind A)
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first') // A
+    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second') // B (chained behind A)
     // Negative flicker check: from the moment B is pending, 'first' (or the
     // pre-rename undefined) must never paint again until B retires.
     const painted: Array<string | undefined> = []
@@ -752,8 +747,8 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession('s1', 'first')
-    void first.engine.getSnapshot().renameSession('s1', 'second')
+    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
+    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
     await settle()
     resolvers[0]?.()
     await settle()
@@ -827,7 +822,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().archiveSession('s1', true)
+    void engine.getSnapshot().archiveSession(asSessionId('s1'), true)
     await settle()
     const row = (): SessionMeta | undefined =>
       engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
@@ -862,7 +857,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     const api = spawnApi()
     const holder: { engine?: ReturnType<typeof makeEngine>['engine'] } = {}
     api.sessions.create = {
-      mutate: vi.fn(async (input: { sessionId: string }) => {
+      mutate: vi.fn(async (input: { sessionId: SessionId }) => {
         // The broadcast minted the row server-side; only the response is lost.
         holder.engine?.replica.applyChanges('sessions', [session(input.sessionId, '/w')], [])
         throw new Error('transport lost')
@@ -939,7 +934,7 @@ describe('outbox drain on reconnect', () => {
     const { engine } = makeEngine({ api, hub })
     engine.start()
     await settle(40)
-    await engine.getSnapshot().renameSession('s1', 'renamed')
+    await engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
     await settle()
     expect(renameCalls).toBe(1)
     expect(engine.getSnapshot().outboxSize).toBe(1)
@@ -1098,7 +1093,7 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     await settle()
     engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
     await settle()
-    engine.getSnapshot().openFile('s1', 'notes.md')
+    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
     await settle()
     const st = engine.getSnapshot()
     expect(st.view).toBe('workspace')
@@ -1145,7 +1140,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
     await settle()
     engine.getSnapshot().setSelectedIssueId('iss_9')
-    engine.getSnapshot().openFile('s1', 'notes.md')
+    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
     await settle()
     const st = engine.getSnapshot()
     expect(st.fileTabs[0]?.issueId).toBe('iss_9')
@@ -1167,7 +1162,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     ])
     await settle()
     engine.getSnapshot().setSelectedIssueId('iss_other')
-    engine.getSnapshot().openFile('s1', 'notes.md')
+    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
     await settle()
     const st = engine.getSnapshot()
     expect(st.fileTabs[0]?.issueId).toBe('iss_own')
@@ -1256,7 +1251,7 @@ describe('eager mark-read-on-view (POD-272)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [active('s1')], [])
     await settle()
-    engine.getSnapshot().setPane('A', 's1')
+    engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
     // A message arrives while s1 IS the visible pane.
     engine.replica.applyChanges(
@@ -1281,7 +1276,7 @@ describe('eager mark-read-on-view (POD-272)', () => {
       [],
     )
     await settle()
-    engine.getSnapshot().setPane('A', 's1')
+    engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
     // Marking THIS open session unread flips the flag without new activity —
     // the trigger is activity, so nothing re-reads it.
@@ -1299,7 +1294,7 @@ describe('eager mark-read-on-view (POD-272)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [active('s1')], [])
     await settle()
-    engine.getSnapshot().setPane('A', 's1')
+    engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
     engine.replica.applyChanges(
       'sessions',

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AutoContinueController, type AutoContinueDeps } from './auto-continue'
@@ -15,7 +16,7 @@ const working = (): AgentRuntimeState => ({
 })
 
 function harness(initial: { live?: boolean; state?: AgentRuntimeState; enabled?: boolean } = {}) {
-  const sessionId = 's1'
+  const sessionId = asSessionId('s1')
   const sent: string[] = []
   let live = initial.live ?? true
   let state = initial.state

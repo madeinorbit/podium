@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -96,7 +97,7 @@ const { StoreProvider, useStore } = await import('./store')
 // A tiny consumer that publishes the store handlers onto a module-level ref so a
 // test can imperatively drive pane/focus state.
 let api: {
-  setPane: (p: 'A' | 'B', id: string | null) => void
+  setPane: (p: 'A' | 'B', id: SessionId | null) => void
   setFocusedPane: (p: 'A' | 'B') => void
   toggleSplit: () => void
 } | null = null
@@ -154,15 +155,15 @@ function last(): ViewStateCall {
 describe('store reports viewState', () => {
   it('reports the focused pane as paneA by default when only A is shown', () => {
     mount()
-    act(() => api?.setPane('A', 's1'))
+    act(() => api?.setPane('A', asSessionId('s1')))
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
   })
 
   it('split off: paneB is NOT visible and focus stays on A even if B is set', () => {
     mount()
     act(() => {
-      api?.setPane('A', 's1')
-      api?.setPane('B', 's2')
+      api?.setPane('A', asSessionId('s1'))
+      api?.setPane('B', asSessionId('s2'))
     })
     // split is false → only A is visible/focused.
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
@@ -171,8 +172,8 @@ describe('store reports viewState', () => {
   it('split on: both panes visible; focus follows focusedPane', () => {
     mount()
     act(() => {
-      api?.setPane('A', 's1')
-      api?.setPane('B', 's2')
+      api?.setPane('A', asSessionId('s1'))
+      api?.setPane('B', asSessionId('s2'))
       api?.toggleSplit() // split → true
       api?.setFocusedPane('A') // selecting B above focused it; pull focus back to A
     })
@@ -184,21 +185,21 @@ describe('store reports viewState', () => {
   it('selecting a pane focuses it (setPane drives focusedPane)', () => {
     mount()
     act(() => {
-      api?.setPane('A', 's1')
-      api?.setPane('B', 's2')
+      api?.setPane('A', asSessionId('s1'))
+      api?.setPane('B', asSessionId('s2'))
       api?.toggleSplit() // split on so paneB is visible + focusable
     })
     // The last selected pane was B → it holds focus.
     expect(last()).toEqual({ visible: ['s1', 's2'], focused: 's2' })
-    act(() => api?.setPane('A', 's3'))
+    act(() => api?.setPane('A', asSessionId('s3')))
     expect(last()).toEqual({ visible: ['s3', 's2'], focused: 's3' })
   })
 
   it('clamps focus to A when split turns off while focusedPane was B', () => {
     mount()
     act(() => {
-      api?.setPane('A', 's1')
-      api?.setPane('B', 's2')
+      api?.setPane('A', asSessionId('s1'))
+      api?.setPane('B', asSessionId('s2'))
       api?.toggleSplit() // split on
       api?.setFocusedPane('B') // focus B
     })
@@ -211,7 +212,7 @@ describe('store reports viewState', () => {
   it('drops nulls from visible (empty pane is not reported)', () => {
     mount()
     act(() => {
-      api?.setPane('A', 's1')
+      api?.setPane('A', asSessionId('s1'))
       api?.toggleSplit() // split on, paneB still null
     })
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
@@ -219,7 +220,7 @@ describe('store reports viewState', () => {
 
   it('hiding the tab clears view-state via the visibilitychange listener', () => {
     mount()
-    act(() => api?.setPane('A', 's1'))
+    act(() => api?.setPane('A', asSessionId('s1')))
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
     // Hide the tab and fire the event — the listener must re-report empty/null.
     Object.defineProperty(document, 'visibilityState', {

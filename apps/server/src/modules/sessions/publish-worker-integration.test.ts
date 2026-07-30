@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -707,7 +708,7 @@ describe('SessionsService publication worker integration', () => {
     const completedBefore = registry.modules.sessions.publicationMetrics().completedJobs
     listSessions.mockClear()
     registry.modules.sessions.renameSession({
-      sessionId: sessionIds[0] ?? '',
+      sessionId: asSessionId(sessionIds[0] ?? ''),
       name: 'one-projection',
     })
     registry.modules.sessions.flushBroadcasts()

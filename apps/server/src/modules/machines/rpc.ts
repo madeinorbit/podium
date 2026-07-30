@@ -1,17 +1,5 @@
 import { isAbsolute, join } from 'node:path'
-import type {
-  AgentKind,
-  AgentQuotaWire,
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
-  DirectoryListingWire,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  MachineQuotaWire,
-  ResumeRef,
-  TranscriptItem,
-  UsageBucketWire,
-} from '@podium/model'
+import type { AgentKind, AgentQuotaWire, ConversationDiagnosticWire, ConversationSummaryWire, DirectoryListingWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineQuotaWire, ResumeRef, SessionId, TranscriptItem, UsageBucketWire } from '@podium/model'
 import type {
   BrowseDirsResultMessage,
   ControlMessage,
@@ -92,7 +80,7 @@ interface DaemonRpcDeps {
   hasDaemon(machineId: string): boolean
   machineName(id: string): string
   onlineMachineIds(): string[]
-  getSession(sessionId: string): RpcSessionView | undefined
+  getSession(sessionId: SessionId): RpcSessionView | undefined
   /** Lake-fallback transcript read (modules/conversations) — lazy: the
    *  conversations service is constructed after this one.
    *
@@ -395,7 +383,7 @@ export class DaemonRpcService {
 
   handoffExport(
     input: {
-      sessionId: string
+      sessionId: SessionId
       cwd: string
       fallbackCwd?: string
       agentKind: 'claude-code' | 'codex'
@@ -436,7 +424,7 @@ export class DaemonRpcService {
   }
 
   handoffWriteChunk(
-    sessionId: string,
+    sessionId: SessionId,
     offset: number,
     data: Buffer,
     machineId: string,
@@ -458,7 +446,7 @@ export class DaemonRpcService {
   }
 
   handoffImport(
-    sessionId: string,
+    sessionId: SessionId,
     repoPath: string,
     worktreeName: string,
     machineId: string,
@@ -573,7 +561,7 @@ export class DaemonRpcService {
    * prompt — Claude Code reads images by path.
    */
   uploadImage(input: {
-    sessionId: string
+    sessionId: SessionId
     filename: string
     mimeType: string
     dataBase64: string
@@ -622,7 +610,7 @@ export class DaemonRpcService {
    * daemon answers.
    */
   async readTranscript(input: {
-    sessionId: string
+    sessionId: SessionId
     anchor?: string
     direction: 'before' | 'after'
     limit: number
@@ -694,7 +682,7 @@ export class DaemonRpcService {
   }
 
   readFile(
-    input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
+    input: { sessionId: SessionId; path: string } | { machineId?: string; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
@@ -733,7 +721,7 @@ export class DaemonRpcService {
 
   readAsset(
     input:
-      | { sessionId: string; path: string }
+      | { sessionId: SessionId; path: string }
       | {
           machineId?: string
           root: string
@@ -786,7 +774,7 @@ export class DaemonRpcService {
 
   writeFile(
     input:
-      | { sessionId: string; path: string; content: string; baseHash?: string }
+      | { sessionId: SessionId; path: string; content: string; baseHash?: string }
       | { machineId?: string; root: string; path: string; content: string; baseHash?: string },
   ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
     const build = (requestId: string, cwd: string) => ({

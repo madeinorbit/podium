@@ -1,3 +1,4 @@
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /** Instruction-first workflows. Markdown remains the primary contract; the
@@ -104,7 +105,7 @@ export const WorkflowRunStepWire = z.object({
   executionProfileId: z.string().nullable(),
   executionProfileSnapshot: ExecutionProfileWire.nullable(),
   status: WorkflowRunStepStatus,
-  assignedSessionId: z.string().nullable(),
+  assignedSessionId: SessionIdField.nullable(),
   attempt: z.number().int().positive(),
   summary: z.string(),
   evidence: WorkflowStepEvidence,
@@ -119,7 +120,7 @@ export const WorkflowRunWire = z.object({
   id: z.string(),
   subjectKind: z.enum(['issue', 'session']),
   subjectId: z.string(),
-  coordinatorSessionId: z.string(),
+  coordinatorSessionId: SessionIdField,
   revision: WorkflowRevisionWire,
   status: WorkflowRunStatus,
   supersedesRunId: z.string().nullable(),

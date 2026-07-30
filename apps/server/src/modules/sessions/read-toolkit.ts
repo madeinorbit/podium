@@ -12,13 +12,7 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import type {
-  SessionMeta,
-  SessionReadResult,
-  SessionRecapResult,
-  SessionStatusResult,
-  TranscriptItem,
-} from '@podium/model'
+import type { SessionId, SessionMeta, SessionReadResult, SessionRecapResult, SessionStatusResult, TranscriptItem } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
@@ -55,13 +49,29 @@ export interface SessionReadToolkitDeps {
   ): Promise<{ ok: boolean; output: string }>
   /** The uuid-cursor transcript window read (modules/machines/rpc.readTranscript). */
   readTranscript(input: {
-    sessionId: string
+    sessionId: SessionId
     anchor?: string
     direction: 'before' | 'after'
     limit: number
   }): Promise<{ items: TranscriptItem[]; hasMore: boolean }>
   now(): string
 }
+
+/**
+ * WHO is reading — a Podium session, or the operator (POD-362).
+ *
+ * NOT a bare `SessionId`: `router.ts` passes `capability.actorSessionId ??
+ * 'operator'`, and `'operator'` is a SENTINEL, not an id. Branding it would
+ * launder a non-id into the session space — the same mistake ADR 1 Am2 D16.2
+ * carves MachineId's 'local' out to prevent. As a union the sentinel stays
+ * visible and every consumer that cares must narrow.
+ */
+export type ReaderRef = SessionId | 'operator' | 'superagent' | `superagent:${string}`
+
+// The `superagent:` arm is NOT decoration: `superagent/tools.ts` passes
+// `superagent:${threadId}` (a THREAD id, a different brand) or the bare
+// 'superagent' string. The union found it — a `SessionId` reader type would have
+// needed a cast there and buried a third reader kind.
 
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
@@ -90,7 +100,7 @@ export class SessionReadToolkit {
       .at(0)
   }
 
-  async status(ref: string, reader: string): Promise<SessionStatusResult> {
+  async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
     const target = this.resolveTarget(ref)
     if (!target) throw new Error(`no session found for ${ref}`)
     this.logRead('session.status_read', target.sessionId, reader)
@@ -139,8 +149,8 @@ export class SessionReadToolkit {
   }
 
   async read(
-    input: { sessionId: string; turns?: number; cursor?: string },
-    reader: string,
+    input: { sessionId: SessionId; turns?: number; cursor?: string },
+    reader: ReaderRef,
   ): Promise<SessionReadResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
@@ -194,8 +204,8 @@ export class SessionReadToolkit {
    * a goal — the persisted mark still advances).
    */
   async recap(
-    input: { sessionId: string; since?: string },
-    reader: string,
+    input: { sessionId: SessionId; since?: string },
+    reader: ReaderRef,
   ): Promise<SessionRecapResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
@@ -251,7 +261,7 @@ export class SessionReadToolkit {
   }
 
   /** Event-log every cross-session read [spec:SP-34d7 read-toolkit authz]. */
-  private logRead(kind: string, sessionId: string, reader: string): void {
+  private logRead(kind: string, sessionId: SessionId, reader: ReaderRef): void {
     try {
       this.deps.events.appendEvent({
         ts: this.deps.now(),

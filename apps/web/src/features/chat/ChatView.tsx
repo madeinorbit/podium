@@ -1,7 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import {
   ArrowDownToLine,
@@ -106,7 +106,7 @@ export function ChatView({
   initialTurnRunning = false,
   initialPendingText,
 }: {
-  sessionId: string
+  sessionId: SessionId
   /** False when this panel is mounted but hidden (keep-mounted deck). On
    *  becoming active (true) the view snaps to the bottom if still pinned. */
   active?: boolean

@@ -1,5 +1,6 @@
+import { asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import type { GitRepositoryWire, SessionId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   conciergeLabel,
@@ -18,7 +19,7 @@ import {
 const repo = (path: string, worktrees: { path: string; branch?: string }[] = []) =>
   ({ path, kind: 'repository', worktrees }) as GitRepositoryWire
 
-const session = (sessionId: string, cwd: string) => ({ sessionId, cwd }) as SessionMeta
+const session = (sessionId: SessionId, cwd: string) => ({ sessionId, cwd }) as SessionMeta
 
 describe('conciergeThreadId', () => {
   it('matches the server encoding (Buffer base64url) including non-ASCII + URL-unsafe bytes', () => {
@@ -66,7 +67,7 @@ describe('resolveConciergeRepo', () => {
     const r = resolveConciergeRepo({
       repos,
       selectedWorktree: null,
-      sessions: [session('s1', '/src/beta')],
+      sessions: [session(asSessionId('s1'), '/src/beta')],
       paneA: 's1',
     })
     expect(r).toEqual({ kind: 'repo', repoPath: '/src/beta' })

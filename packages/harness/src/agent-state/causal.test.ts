@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState } from '@podium/model'
 import type {
   AgentObservation,
@@ -38,7 +39,7 @@ const cursor = (
   components: { file: offset },
 })
 const observation = (overrides: Partial<AgentObservation> = {}): AgentObservation => ({
-  podiumSessionId: 'podium-1',
+  podiumSessionId: asSessionId('podium-1'),
   provider: 'codex',
   providerSessionId: 'thread-1',
   bindingVersion: 1,

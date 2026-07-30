@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import type { AgentKind, Geometry, HarnessAgent, ResumeRef } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import type { AgentKind, Geometry, HarnessAgent, ResumeRef, SessionId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -12,7 +13,7 @@ import type {
 import { Session } from '../sessions/session'
 
 export interface HeadlessDeps {
-  getSession(sessionId: string): Session | undefined
+  getSession(sessionId: SessionId): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
   resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): string
@@ -62,8 +63,10 @@ export class HeadlessService {
     title?: string
     spawnedBy?: string
     machineId?: string
-  }): { sessionId: string } {
-    const sessionId = randomUUID()
+  }): { sessionId: SessionId } {
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = asSessionId(randomUUID())
     const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
     const session = new Session({
       sessionId,
@@ -92,7 +95,7 @@ export class HeadlessService {
    * terminal" escape hatch) reattaches to. Persisted + broadcast, mirroring how
    * PTY sessions learn their resume refs from the daemon.
    */
-  setHeadlessResume(sessionId: string, resume: ResumeRef): void {
+  setHeadlessResume(sessionId: SessionId, resume: ResumeRef): void {
     const session = this.deps.getSession(sessionId)
     if (!session?.headless) return
     session.resume = resume
@@ -102,7 +105,7 @@ export class HeadlessService {
 
   /** Fan a headless turn-activity event out to every connected client
    *  (turn-start/turn-end markers + the daemon's mid-turn progress events). */
-  broadcastHeadlessActivity(sessionId: string, event: HeadlessActivityEvent): void {
+  broadcastHeadlessActivity(sessionId: SessionId, event: HeadlessActivityEvent): void {
     const msg: LiveServerMessage = { type: 'headlessActivity', sessionId, event }
     for (const c of this.deps.clients()) c.send(msg)
   }
@@ -115,7 +118,7 @@ export class HeadlessService {
   headlessTurn(
     input: {
       turnId: string
-      sessionId: string
+      sessionId: SessionId
       threadId: string
       agent: HarnessAgent
       model?: string
@@ -191,14 +194,14 @@ export class HeadlessService {
 
   /** The server has durably committed the terminal result and no longer needs
    * the daemon's per-turn journal for restart replay. */
-  headlessTurnAck(sessionId: string, turnId: string): void {
+  headlessTurnAck(sessionId: SessionId, turnId: string): void {
     const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
     this.deps.toMachine(machineId, { type: 'headlessTurnAck', sessionId, turnId })
   }
 
   /** Interrupt a headless session's running turn (fire-and-forget; the turn's
    *  own headlessTurnResult reports the outcome). */
-  headlessInterrupt(sessionId: string): void {
+  headlessInterrupt(sessionId: SessionId): void {
     const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
     this.deps.toMachine(machineId, {
       type: 'headlessInterrupt',
@@ -210,7 +213,7 @@ export class HeadlessService {
   /** (Re)establish the daemon-side transcript observers/tails for a headless
    *  session — the reattach equivalent for sessions with no PTY. */
   headlessBind(input: {
-    sessionId: string
+    sessionId: SessionId
     agentKind: AgentKind
     cwd: string
     resumeValue: string

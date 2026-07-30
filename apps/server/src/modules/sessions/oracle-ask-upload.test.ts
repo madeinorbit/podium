@@ -16,6 +16,7 @@
  *    allowlist, and turns both daemon failure modes into TRPCErrors.
  */
 
+import { asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -67,7 +68,7 @@ function answerUploads(
 function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
   o.reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     cmd: 'claude',
     cwd,
     agentKind: 'claude-code',
@@ -75,7 +76,7 @@ function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = 
   })
   o.reg.gateway.routeDaemonFrame('local', {
     type: 'agentState',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
   })
 }

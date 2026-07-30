@@ -40,6 +40,7 @@
  * terminated), and on both of the client plane's outbound doors.
  */
 
+import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -146,7 +147,7 @@ describe('a daemon reattach storm', () => {
         for (const [i, sessionId] of sessionIds.entries()) {
           handle.registry.gateway.routeDaemonFrame(MACHINE, {
             type: 'bind',
-            sessionId,
+            sessionId: asSessionId(sessionId),
             cmd: 'sh',
             cwd: `/repo/w${i}`,
             agentKind: 'shell',

@@ -20,19 +20,8 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type {
-  AgentKind,
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  MachineWire,
-  SessionMeta,
-  WorkState,
-} from '@podium/model'
+import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
@@ -185,12 +174,12 @@ interface EngineState {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: string | null
-  paneA: string | null
-  paneB: string | null
+  paneA: SessionId | null
+  paneB: SessionId | null
   split: boolean
   focusedPane: 'A' | 'B'
   panelMode: Record<string, 'chat' | 'native'>
-  dockShells: Record<string, string>
+  dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
   autoContinuePromptSessionId: string | null
   drafts: Record<string, string>
@@ -199,6 +188,10 @@ interface EngineState {
   recentFiles: RecentFileEntry[]
   outboxSize: number
 }
+
+/** Narrow a raw route/persisted value into the session id space (POD-362). */
+const asSessionIdOrNull = (v: string | null | undefined): SessionId | null =>
+  v ? asSessionId(v) : null
 
 export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly replica: Replica
@@ -370,8 +363,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
       selectedWorktree: route.worktree ?? this.ui.get(WT_KEY),
       selectedIssueId: this.ui.get(ISSUE_SEL_KEY),
-      paneA: route.pane ?? this.ui.get(PANE_A_KEY),
-      paneB: this.ui.get(PANE_B_KEY),
+      // DECODE EDGE: the pane selection comes from the URL route or persisted UI
+      // state — both raw strings — so this is where it re-enters the id space.
+      paneA: asSessionIdOrNull(route.pane ?? this.ui.get(PANE_A_KEY)),
+      paneB: asSessionIdOrNull(this.ui.get(PANE_B_KEY)),
       split: this.ui.get(SPLIT_KEY) === '1',
       // Which pane has input focus. Not persisted — it resets to A on reload,
       // which is the right default (A is always the shown pane when split is off).
@@ -687,7 +682,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       if (canShow) patch.selectedWorktree = route.worktree
     }
     if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
-      patch.paneA = route.pane
+      patch.paneA = asSessionId(route.pane)
     }
     this.apply(patch)
     this.mirrorUrl()
@@ -779,7 +774,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       ? [
           ...new Set(
             [st.paneA, st.split ? st.paneB : null, st.dockVisibleSession].filter(
-              (x): x is string => x != null,
+              (x): x is SessionId => x != null,
             ),
           ),
         ]
@@ -837,7 +832,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** The guarded mark-read itself: only when this session is STILL the focused
    *  pane, still unread, and the tab is visible. */
-  private fireMarkSessionRead(sessionId: string): void {
+  private fireMarkSessionRead(sessionId: SessionId): void {
     const cur = this.state
     const curFocused = cur.split ? (cur.focusedPane === 'A' ? cur.paneA : cur.paneB) : cur.paneA
     const s = cur.sessions.find((x) => x.sessionId === sessionId)
@@ -1098,7 +1093,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
-  private adoptSessionDraft(sessionId: string, text: string): void {
+  private adoptSessionDraft(sessionId: SessionId, text: string): void {
     const d = this.state.drafts
     if (d[sessionId] === text) return
     this.apply({ drafts: { ...d, [sessionId]: text } })
@@ -1139,9 +1134,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private getUserFocus(): UserFocus {
     const st = this.state
-    const paneIds = [st.paneA, st.split ? st.paneB : null].filter((x): x is string => x != null)
+    const paneIds = [st.paneA, st.split ? st.paneB : null].filter((x): x is SessionId => x != null)
     const focusedId = st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
-    const isSession = (id: string): boolean => st.sessions.some((s) => s.sessionId === id)
+    const isSession = (id: SessionId): boolean => st.sessions.some((s) => s.sessionId === id)
     const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined
     return {
       view: st.view,
@@ -1165,7 +1160,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
       ...(this.state.peekIssueId ? { peekIssueId: null } : {}),
-      paneA: args.tabId,
+      paneA: asSessionId(args.tabId),
       focusedPane: 'A',
     })
     this.router.navigate({
@@ -1241,7 +1236,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
       setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),
       setDockTab: (tab: DockTab) => this.apply({ dockTab: tab }),
-      startBtw: async (sessionId: string) => {
+      startBtw: async (sessionId: SessionId) => {
         // Open the superagent dock on the session's btw thread immediately; the
         // server seeds it (and runs the orientation turn) in the background.
         this.apply({ superThreadId: `btw_${sessionId}`, superOpen: true })
@@ -1249,7 +1244,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         // Seeding + the orientation turn are done now — nudge the view to refetch.
         this.apply({ superRefreshKey: this.state.superRefreshKey + 1 })
       },
-      tldrSession: async (sessionId: string, answerText: string) => {
+      tldrSession: async (sessionId: SessionId, answerText: string) => {
         const threadId = `btw_${sessionId}`
         this.apply({ superThreadId: threadId, superOpen: true })
         // Ensure the thread is seeded with this session's context before we ask.
@@ -1265,7 +1260,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       setSelectedIssueId: (id: string | null) => this.apply({ selectedIssueId: id }),
       // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
       // proxy for input focus, and the terminal components don't expose a focus seam.
-      setPane: (pane: 'A' | 'B', id: string | null) =>
+      setPane: (pane: 'A' | 'B', id: SessionId | null) =>
         this.apply(
           pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane },
         ),
@@ -1282,9 +1277,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // 'workspace', so the navigation never landed. The router is the single URL
       // writer, so the surface switch goes through it with the pane in hand rather
       // than through setView (which would re-apply the CURRENT route's stale pane).
-      navigateToSession: (sessionId: string) => {
+      // `sessionIdOrRef`, NOT a `SessionId`: `resolveSessionIdentifier` accepts a
+      // human ref (`POD-13-A`) as well as an id — the same ref-vs-id boundary the
+      // server draws at `IssueService.resolveRef` (POD-362).
+      navigateToSession: (sessionIdOrRef: string) => {
         const st = this.state
-        const meta = resolveSessionIdentifier(sessionId, st.sessions)
+        const meta = resolveSessionIdentifier(sessionIdOrRef, st.sessions)
         if (!meta) return
         // The worktree that contains the session's cwd (deepest match wins — nested
         // worktrees); a session outside every known worktree keeps the selection.
@@ -1306,14 +1304,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           pane: meta.sessionId,
         })
       },
-      setPanelMode: (sessionId: string, mode: 'chat' | 'native') => {
+      setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => {
         const m = this.state.panelMode
         if (m[sessionId] === mode) return
         this.apply({ panelMode: { ...m, [sessionId]: mode } })
       },
-      setDockVisibleSession: (sessionId: string | null) =>
+      setDockVisibleSession: (sessionId: SessionId | null) =>
         this.apply({ dockVisibleSession: sessionId }),
-      setDockShell: (worktreePath: string, sessionId: string | null) => {
+      setDockShell: (worktreePath: string, sessionId: SessionId | null) => {
         const m = this.state.dockShells
         if ((m[worktreePath] ?? null) === sessionId) return
         const next = { ...m }
@@ -1321,13 +1319,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         else delete next[worktreePath]
         this.apply({ dockShells: next })
       },
-      setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => {
+      setPanelRenderMode: (sessionId: SessionId, mode: 'chat' | 'native') => {
         if (this.panelRenderModes[sessionId] === mode) return
         this.panelRenderModes = { ...this.panelRenderModes, [sessionId]: mode }
         this.reportViewState()
       },
       toggleSplit: () => this.apply({ split: !this.state.split }),
-      openFile: (sessionId: string, path: string) => {
+      openFile: (sessionId: SessionId, path: string) => {
         const scope: FileScope = { kind: 'session', sessionId }
         const id = tabIdFor(scope, path)
         const st = this.state
@@ -1500,10 +1498,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         target: SpawnTarget
         agentKind: AgentKind
         firstPrompt?: string
-      }): { sessionId: string; issueId: string } => {
+      }): { sessionId: SessionId; issueId: string } => {
         // Client-minted ids (server reuses them verbatim) so the optimistic rows
         // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
-        const sessionId = randomUUID()
+        // MINT SITE: the optimistic client-side session id.
+        const sessionId = asSessionId(randomUUID())
         const issueId = `iss_${randomUUID()}`
         const nowIso = new Date().toISOString()
         // Mirror the server's stable project identity and new-at-top sort key
@@ -1598,7 +1597,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         })
         return { sessionId, issueId }
       },
-      killSession: async (sessionId: string) => {
+      killSession: async (sessionId: SessionId) => {
         await api.sessions.kill.mutate({ sessionId }).catch(() => {})
         const st = this.state
         this.apply({
@@ -1616,7 +1615,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           ),
         })
       },
-      continueSession: async (sessionId: string) => {
+      continueSession: async (sessionId: SessionId) => {
         await api.sessions.continue.mutate({ sessionId }).catch(() => {})
         // After the manual nudge, offer to make it automatic — once, and only when
         // it isn't already on / hasn't already been answered.
@@ -1630,10 +1629,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       },
       closeAutoContinuePrompt: () => this.apply({ autoContinuePromptSessionId: null }),
-      hibernateSession: async (sessionId: string) => {
+      hibernateSession: async (sessionId: SessionId) => {
         await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
       },
-      resurrectSession: async (sessionId: string) => {
+      resurrectSession: async (sessionId: SessionId) => {
         try {
           const result = await api.sessions.resurrect.mutate({ sessionId })
           if (!result.ok) {
@@ -1645,7 +1644,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           )
         }
       },
-      resumeAndSend: async (sessionId: string, text: string) => {
+      resumeAndSend: async (sessionId: SessionId, text: string) => {
         // Outboxed: the wake+deliver is durably queued server-side once it lands,
         // and the outbox carries it there across offline gaps/reloads.
         this.outbox.enqueue('resumeAndSend', { sessionId, text })
@@ -1655,10 +1654,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // truth on the very next snapshot (the outbox notifies synchronously),
       // survives being authored offline (durable queue), and retires per the
       // rule in overlay.ts. The replica itself stays server truth only.
-      renameSession: async (sessionId: string, name: string) => {
+      renameSession: async (sessionId: SessionId, name: string) => {
         this.enqueueOverlayed('rename', { sessionId, name })
       },
-      archiveSession: async (sessionId: string, archived: boolean) => {
+      archiveSession: async (sessionId: SessionId, archived: boolean) => {
         // Archiving "files the work away": it also lands the session in the board's
         // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
         this.enqueueOverlayed('setArchived', { sessionId, archived })
@@ -1675,22 +1674,22 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           await api.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
         }
       },
-      setWorkState: async (sessionId: string, workState: WorkState | null) => {
+      setWorkState: async (sessionId: SessionId, workState: WorkState | null) => {
         this.enqueueOverlayed('setWorkState', { sessionId, workState })
       },
-      setSnooze: async (sessionId: string, until: string | null) => {
+      setSnooze: async (sessionId: SessionId, until: string | null) => {
         this.enqueueOverlayed('snoozeSet', { sessionId, until })
       },
-      clearSnooze: async (sessionId: string) => {
+      clearSnooze: async (sessionId: SessionId) => {
         this.enqueueOverlayed('snoozeClear', { sessionId })
       },
       // Mark a session / issue read (issue #124): the pending entry stamps
       // readAt (from its queuedAt) + clears unread until server truth covers
       // it. markSessionUnread (#138) is the email-style inverse.
-      markSessionRead: async (sessionId: string) => {
+      markSessionRead: async (sessionId: SessionId) => {
         this.enqueueOverlayed('sessionMarkRead', { sessionId })
       },
-      markSessionUnread: async (sessionId: string) => {
+      markSessionUnread: async (sessionId: SessionId) => {
         this.enqueueOverlayed('sessionMarkUnread', { sessionId })
       },
       markIssueRead: async (id: string) => {
@@ -1702,7 +1701,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       setIssueTucked: async (id: string, tucked: boolean) => {
         this.enqueueOverlayed('issueSetTucked', { id, tucked })
       },
-      setSessionDraft: (sessionId: string, text: string) => {
+      setSessionDraft: (sessionId: SessionId, text: string) => {
         this.adoptSessionDraft(sessionId, text)
         this.hub.sendSessionDraft(sessionId, text)
       },

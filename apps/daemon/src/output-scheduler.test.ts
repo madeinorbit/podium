@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, it, expect } from 'vitest'
 import { OutputScheduler } from './output-scheduler.js'
 
@@ -20,8 +21,8 @@ function harness() {
 describe('OutputScheduler', () => {
   it('P0/P1: frames within a tick flush as ONE batch on the immediate', () => {
     const h = harness()
-    h.s.setPriority('s', 0)
-    h.s.enqueue('s', 'a'); h.s.enqueue('s', 'b'); h.s.enqueue('s', 'c')
+    h.s.setPriority(asSessionId('s'), 0)
+    h.s.enqueue(asSessionId('s'), 'a'); h.s.enqueue(asSessionId('s'), 'b'); h.s.enqueue(asSessionId('s'), 'c')
     expect(h.flushed).toEqual([])      // nothing sent synchronously
     h.runImmediate()
     expect(h.flushed).toEqual([{ sid: 's', frames: ['a', 'b', 'c'] }])
@@ -29,8 +30,8 @@ describe('OutputScheduler', () => {
 
   it('P3: frames coalesce until the timer fires', () => {
     const h = harness()
-    h.s.setPriority('s', 3)
-    h.s.enqueue('s', 'a'); h.s.enqueue('s', 'b')
+    h.s.setPriority(asSessionId('s'), 3)
+    h.s.enqueue(asSessionId('s'), 'a'); h.s.enqueue(asSessionId('s'), 'b')
     expect(h.flushed).toEqual([])
     h.fireTimer()
     expect(h.flushed).toEqual([{ sid: 's', frames: ['a', 'b'] }])
@@ -38,31 +39,31 @@ describe('OutputScheduler', () => {
 
   it('P3: a size-cap burst flushes immediately', () => {
     const h = harness()           // coalesceMaxBytes=10
-    h.s.setPriority('s', 3)
-    h.s.enqueue('s', '12345'); h.s.enqueue('s', '67890') // 10 bytes → cap hit
+    h.s.setPriority(asSessionId('s'), 3)
+    h.s.enqueue(asSessionId('s'), '12345'); h.s.enqueue(asSessionId('s'), '67890') // 10 bytes → cap hit
     expect(h.flushed).toEqual([{ sid: 's', frames: ['12345', '67890'] }])
   })
 
   it('reports the current relay priority for focused-first reseed pacing', () => {
     const h = harness()
-    expect(h.s.priorityOf('s')).toBe(1)
-    h.s.setPriority('s', 0)
-    expect(h.s.priorityOf('s')).toBe(0)
+    expect(h.s.priorityOf(asSessionId('s'))).toBe(1)
+    h.s.setPriority(asSessionId('s'), 0)
+    expect(h.s.priorityOf(asSessionId('s'))).toBe(0)
   })
 
   it('promoting priority flushes pending right away', () => {
     const h = harness()
-    h.s.setPriority('s', 3)
-    h.s.enqueue('s', 'a')
-    h.s.setPriority('s', 0)       // promote
+    h.s.setPriority(asSessionId('s'), 3)
+    h.s.enqueue(asSessionId('s'), 'a')
+    h.s.setPriority(asSessionId('s'), 0)       // promote
     expect(h.flushed).toEqual([{ sid: 's', frames: ['a'] }])
   })
 
   it('remove flushes then drops state', () => {
     const h = harness()
-    h.s.setPriority('s', 3)
-    h.s.enqueue('s', 'a')
-    h.s.remove('s')
+    h.s.setPriority(asSessionId('s'), 3)
+    h.s.enqueue(asSessionId('s'), 'a')
+    h.s.remove(asSessionId('s'))
     expect(h.flushed).toEqual([{ sid: 's', frames: ['a'] }])
   })
 })

@@ -63,7 +63,7 @@ import {
   type SessionRenameOutcome,
   sessionRenameContract,
 } from '@podium/commands'
-import { type AuthTarget, authorize, type UserId } from '@podium/model'
+import { authorize, type AuthTarget, type SessionId, type UserId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { onBehalfOfUser } from '../../command-principal'
 import type { MutationLedgerPort } from '@podium/sync'
@@ -129,7 +129,7 @@ const DENIED: RenameDispatch = { outcome: 'denied' }
  * could pull apart, and it is what makes today's not-found behaviour and
  * tomorrow's invisible-session behaviour the same observable answer.
  */
-function ownedTarget(deps: RenameTargetDeps, sessionId: string): AuthTarget | undefined {
+function ownedTarget(deps: RenameTargetDeps, sessionId: SessionId): AuthTarget | undefined {
   const owner = deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
   return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }

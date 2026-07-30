@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMarkReadOnView } from './use-mark-read-on-view'
@@ -14,7 +11,7 @@ import { useMarkReadOnView } from './use-mark-read-on-view'
 
 function sess(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',

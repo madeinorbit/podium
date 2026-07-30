@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { DeckTab } from './panel-deck'
 import { closeWorkspaceTab } from './workspace-close'
@@ -8,7 +9,7 @@ describe('closeWorkspaceTab', () => {
     const active = {
       id: 'session-1',
       kind: 'session',
-      session: { sessionId: 'session-1' },
+      session: { sessionId: asSessionId('session-1') },
     } as DeckTab
 
     expect(closeWorkspaceTab(active, closeFileTab)).toBe(true)

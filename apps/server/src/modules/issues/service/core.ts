@@ -1,4 +1,5 @@
 import {
+  asIssueId,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -232,8 +233,14 @@ export abstract class IssueServiceCore {
       ...(issue.notesUpdatedAt ? { notesUpdatedAt: issue.notesUpdatedAt } : {}),
       ...(issue.suggestedStage ? { suggestedStage: issue.suggestedStage } : {}),
       ...(issue.suggestedReason ? { suggestedReason: issue.suggestedReason } : {}),
-      // POD-361-EDGE-CAST (POD-362 owns): `blockedByNotes` is LLM-authored prose
-      // (D-2's rename) that the wire still types as ids until POD-308.
+      // A MODEL MISBRAND, not a POD-362 adapter cast — and it is being reported,
+      // not absorbed. `IssueWire.blockedBy` is `z.array(IssueIdField)`, but the
+      // value is `blockedByNotes`: LLM-authored PROSE that `store/types.ts`
+      // documents as "often BRANCH names rather than issue ids" and explicitly NOT
+      // the dependency graph (real edges live in issue_deps). So the brand on the
+      // wire field asserts an id space this value is not in. POD-308 owns the wire
+      // rename; branding cannot fix a field whose CONTENT is not an id, and
+      // widening the wire here would be a wire change this issue must not make.
       blockedBy: issue.blockedByNotes as IssueId[],
       ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
@@ -266,8 +273,8 @@ export abstract class IssueServiceCore {
       ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
       ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
-      deps: deps as IssueDepWire[], // POD-361-EDGE-CAST
-      dependents: dependents as IssueDepWire[], // POD-361-EDGE-CAST
+      deps,
+      dependents,
       commentCount,
       ready,
       blocked,
@@ -373,9 +380,20 @@ export abstract class IssueServiceCore {
    *  Seq is unique per repo_id; when several repos share a bare seq the caller may
    *  pass `scopeRepoPath` to narrow to its own repo (so an agent's own `#N` resolves
    *  without the full id, #140). Still-ambiguous refs throw; unresolvable refs return
-   *  the input unchanged so the caller's normal unknown-issue error fires. */
-  resolveRef(ref: string, scopeRepoPath?: string): string {
-    if (ref.startsWith('iss_') || this.rows.has(ref)) return ref
+   *  the input unchanged so the caller's normal unknown-issue error fires.
+   *
+   *  THE ISSUE-ID PARSE BOUNDARY (POD-362). This is where a caller-supplied
+   *  STRING becomes a branded `IssueId`, which is why this service's public
+   *  methods keep taking `id: string`: their parameter is a REF (`POD-13`,
+   *  `repo#13`, a bare seq, or the internal id), and branding it would claim a
+   *  guarantee the caller cannot make. Everything downstream reads `row.id`,
+   *  which IS branded. The unresolvable case is branded too, deliberately: it is
+   *  handed straight to `rows.get()`, which misses, so the caller's unknown-issue
+   *  error fires carrying the text the user actually typed. The brand asserts
+   *  which id SPACE a value belongs to, never that the row exists — existence is
+   *  the throw's job, not the type's. */
+  resolveRef(ref: string, scopeRepoPath?: string): IssueId {
+    if (ref.startsWith('iss_') || this.rows.has(ref)) return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
@@ -410,10 +428,10 @@ export abstract class IssueServiceCore {
         const where = matches.map((r) => `${r.repoPath}#${r.seq} (${r.id})`).join(', ')
         throw new Error(`ambiguous issue ref ${ref} (matches ${where})`)
       }
-      return ref
+      return asIssueId(ref)
     }
     const m = /^#?(\d+)$/.exec(ref.trim())
-    if (!m) return ref
+    if (!m) return asIssueId(ref)
     const seq = Number(m[1])
     let matches = [...this.rows.values()].filter((r) => r.seq === seq)
     if (matches.length > 1 && scopeRepoPath) {
@@ -427,7 +445,7 @@ export abstract class IssueServiceCore {
         `ambiguous issue ref #${seq} (matches ${where}); qualify it as <repoPath>#${seq}`,
       )
     }
-    return ref
+    return asIssueId(ref)
   }
 
   allWire(sessionList?: SessionMeta[]): IssueWire[] {

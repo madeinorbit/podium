@@ -14,7 +14,7 @@
  */
 
 import { type ComposerDriver, composerDriverFor } from '@podium/composer'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, SessionId } from '@podium/model'
 import { Terminal } from '@xterm/headless'
 
 /** Coalesce a burst of PTY frames into a single scrape (~one animation frame). */
@@ -77,7 +77,7 @@ export function createHeadlessScreen(cols: number, rows: number): ScreenReader {
   }
 }
 
-export type NativeDraftPublisher = (sessionId: string, text: string) => void
+export type NativeDraftPublisher = (sessionId: SessionId, text: string) => void
 
 /** Draft-sync telemetry counters (design §7). Mutated in place by each session. */
 export interface ComposerSyncStats {
@@ -159,7 +159,7 @@ export class SessionComposerSync {
   private agentIdle = true
 
   constructor(
-    private readonly sessionId: string,
+    private readonly sessionId: SessionId,
     private readonly driver: ComposerDriver,
     private readonly screen: ScreenReader,
     private readonly publish: NativeDraftPublisher,
@@ -376,9 +376,9 @@ export class SessionComposerSync {
  */
 export interface ComposerEngineConfig {
   /** Write bytes to a session's PTY (enables injection; phase 4). Absent = read-only. */
-  writePty?: (sessionId: string, bytes: string) => void
+  writePty?: (sessionId: SessionId, bytes: string) => void
   /** A session self-demoted to read-only (repeated verify mismatch). Telemetry hook. */
-  onDemote?: (sessionId: string) => void
+  onDemote?: (sessionId: SessionId) => void
 }
 
 export class ComposerSyncEngine {
@@ -397,7 +397,7 @@ export class ComposerSyncEngine {
 
   /** Begin sync for a session. Returns false (no-op) when the harness has no
    *  composer driver. Idempotent per session. */
-  attach(sessionId: string, agentKind: AgentKind, cols: number, rows: number): boolean {
+  attach(sessionId: SessionId, agentKind: AgentKind, cols: number, rows: number): boolean {
     if (this.sessions.has(sessionId)) return true
     const driver = composerDriverFor(agentKind)
     if (!driver) return false
@@ -416,38 +416,38 @@ export class ComposerSyncEngine {
     return true
   }
 
-  onData(sessionId: string, data: Uint8Array | string): void {
+  onData(sessionId: SessionId, data: Uint8Array | string): void {
     this.sessions.get(sessionId)?.onData(data)
   }
 
-  onResize(sessionId: string, cols: number, rows: number): void {
+  onResize(sessionId: SessionId, cols: number, rows: number): void {
     this.sessions.get(sessionId)?.onResize(cols, rows)
   }
 
   /** A chat-originated draft target to drive into the native composer (phase 4). */
-  setTarget(sessionId: string, text: string | null): void {
+  setTarget(sessionId: SessionId, text: string | null): void {
     this.sessions.get(sessionId)?.setTarget(text)
   }
 
   /** The daemon saw a client→PTY input byte for this session (input-byte tap). */
-  onInputByte(sessionId: string): void {
+  onInputByte(sessionId: SessionId): void {
     this.sessions.get(sessionId)?.onInputByte()
   }
 
   /** Report a session's agent-idle state (from the daemon's agent-state tracker).
    *  The engine only scrapes/injects while idle (reviewer blocker 2). */
-  setIdle(sessionId: string, idle: boolean): void {
+  setIdle(sessionId: SessionId, idle: boolean): void {
     this.sessions.get(sessionId)?.setIdle(idle)
   }
 
-  detach(sessionId: string): void {
+  detach(sessionId: SessionId): void {
     const s = this.sessions.get(sessionId)
     if (!s) return
     s.dispose()
     this.sessions.delete(sessionId)
   }
 
-  has(sessionId: string): boolean {
+  has(sessionId: SessionId): boolean {
     return this.sessions.has(sessionId)
   }
 

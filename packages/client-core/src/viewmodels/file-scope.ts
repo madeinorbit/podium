@@ -1,5 +1,6 @@
+import type { SessionId } from '@podium/model'
 export type FileScope =
-  | { kind: 'session'; sessionId: string }
+  | { kind: 'session'; sessionId: SessionId }
   | { kind: 'worktree'; machineId?: string; root: string }
   /** A permanent issue-artifact snapshot ([spec:SP-0fc9] #441) — paths are
    *  relative to the artifact dir; served from the server-local store. */

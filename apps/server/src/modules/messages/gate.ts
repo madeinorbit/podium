@@ -21,7 +21,7 @@
  */
 
 import { type HumanCeiling, SINGLE_USER_CEILING, type TransportTag } from '@podium/commands'
-import type { SessionMeta } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta } from '@podium/model'
 import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
@@ -50,7 +50,7 @@ export interface MessageGateDeps {
     effort?: string
     accountId?: string
     forceUnknownModel?: boolean
-    issueId?: string
+    issueId?: IssueId
     spawnedBy?: string
     machineId?: string
     /** Curated child session name (spawner-prescribed) [spec:SP-4ef9][spec:SP-eb60]. */
@@ -59,7 +59,7 @@ export interface MessageGateDeps {
     workflowStepId?: string
     executionProfileId?: string
   }): {
-    sessionId: string
+    sessionId: SessionId
     agentId?: string
     harness?: string
     model?: string | null
@@ -83,7 +83,7 @@ export interface MessageGateDeps {
     repoPath: string
     title: string
     description?: string
-    parentId?: string
+    parentId?: IssueId
     origin: 'human' | 'agent'
   }): { id: string }
   /** Durable ledger for spawn events (best-effort). */

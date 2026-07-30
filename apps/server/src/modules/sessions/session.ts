@@ -1,11 +1,11 @@
 import {
-  asAccountId,
-  asConversationId,
-  asIssueId,
-  asSessionId,
+  type AccountId,
   type AgentKind,
   type AgentRuntimeState,
+  type ConversationId,
   type Geometry,
+  type IssueId,
+  type SessionId,
   type ResumeRef,
   type SessionMeta,
   type SessionOffer,
@@ -62,14 +62,14 @@ export interface ClientPublicationAuthority extends PublicationAuthority {
 import type { ClientConn } from '../../gateway/client-registry'
 
 export interface SessionInit {
-  sessionId: string
+  sessionId: SessionId
   agentKind: AgentKind
   cwd: string
   title: string
   /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
   model?: string
   effort?: string
-  accountId?: string
+  accountId?: AccountId
   origin: SessionOrigin
   createdAt: string
   geometry: Geometry
@@ -102,9 +102,9 @@ export interface SessionInit {
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
-  issueId?: string
+  issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
-  refIssueId?: string | null
+  refIssueId?: IssueId | null
   refLetter?: string | null
   refDraft?: number | null
   /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
@@ -159,8 +159,8 @@ export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handof
 
 export interface SessionDurableState {
   cwd: string
-  issueId: string | undefined
-  refIssueId: string | null
+  issueId: IssueId | undefined
+  refIssueId: IssueId | null
   refLetter: string | null
   refDraft: number | null
   machineId: string
@@ -188,7 +188,7 @@ export interface SessionDurableState {
   snoozedUntil: string | null | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
-  conversationPodiumId: string | undefined
+  conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
   offer: SessionOffer | undefined
   transcriptAvailable: boolean
@@ -205,7 +205,7 @@ export interface SessionDurableState {
 }
 
 export class Session {
-  readonly sessionId: string
+  readonly sessionId: SessionId
   readonly agentKind: AgentKind
   // Mutable: an agent can move into a worktree mid-session (EnterWorktree / cd),
   // reported via the hook payload's cwd; the relay restamps this so the sidebar
@@ -219,7 +219,7 @@ export class Session {
   /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
   readonly model: string | undefined
   readonly effort: string | undefined
-  readonly accountId: string | undefined
+  readonly accountId: AccountId | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -228,10 +228,10 @@ export class Session {
   readonly headless: boolean
   /** Explicit issue attachment (issue-as-workspace) — mutable: the agent can
    *  re-home itself (attach) and the user can move a session between issues. */
-  issueId: string | undefined
+  issueId: IssueId | undefined
   /** BIRTH issue for the permanent human-facing nice name (#474). Set once at
    *  naming time; never changes on re-attach. */
-  refIssueId: string | null
+  refIssueId: IssueId | null
   /** Column letter within refIssueId (`POD-13-A`). */
   refLetter: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
@@ -295,7 +295,7 @@ export class Session {
   /** Stable Podium conversation identity (conversation registry). Stamped by the
    *  registry when the linkage is learned (resume ref observed/rolled, boot
    *  lookup); transient here — the conversation_segments table is the truth. */
-  conversationPodiumId: string | undefined = undefined
+  conversationPodiumId: ConversationId | undefined = undefined
   /** Last-edit time of a non-empty unsent composer draft (undefined = no draft).
    *  Lives in its own `session_drafts` table (not toRow()); the registry seeds it
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
@@ -1112,14 +1112,11 @@ export class Session {
 
   toMeta(): SessionMeta {
     return {
-      // POD-361-EDGE-CAST (POD-362 owns): every id on the server's own runtime
-      // Session object is a plain string; branding THOSE fields is POD-362's
-      // change, so the wire projection brands at its boundary.
-      sessionId: asSessionId(this.sessionId),
+      sessionId: this.sessionId,
       agentKind: this.agentKind,
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
-      ...(this.accountId ? { accountId: asAccountId(this.accountId) } : {}),
+      ...(this.accountId ? { accountId: this.accountId } : {}),
       title: this.title,
       ...(this.name ? { name: this.name } : {}),
       ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),
@@ -1164,13 +1161,11 @@ export class Session {
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
-      ...(this.conversationPodiumId
-        ? { conversationPodiumId: asConversationId(this.conversationPodiumId) }
-        : {}),
+      ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       ...(this.headless ? { headless: true } : {}),
-      ...(this.issueId ? { issueId: asIssueId(this.issueId) } : {}),
-      ...(this.refIssueId ? { refIssueId: asIssueId(this.refIssueId) } : {}),
+      ...(this.issueId ? { issueId: this.issueId } : {}),
+      ...(this.refIssueId ? { refIssueId: this.refIssueId } : {}),
       ...(this.refLetter ? { refLetter: this.refLetter } : {}),
       ...(this.refDraft != null ? { refDraft: this.refDraft } : {}),
       ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),

@@ -1,5 +1,6 @@
 import {
   type AgentKind,
+  type ConversationId,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
   type ResumeRef,
@@ -198,7 +199,9 @@ export class ConversationsService {
     // Parents first, so a child's mint can point at its parent's identity. A
     // parent that is itself in this batch resolves in the first loop; one that
     // isn't (child-only rescan) is ensured on demand in the second.
-    const podiumIds = new Map<string, string>()
+    // Keyed by the NATIVE conversation id (a harness id, unbranded by decision);
+    // the VALUES are the minted ConversationIds (POD-362).
+    const podiumIds = new Map<string, ConversationId>()
     for (const c of conversations) {
       if (c.parentConversationId) continue
       podiumIds.set(
@@ -279,9 +282,7 @@ export class ConversationsService {
     // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
     // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
     this.triggerLakeSweep(machineId)
-    // POD-361-EDGE-CAST (POD-362 owns): `ensureConversationIdentity` returns a
-    // plain string; branding the store's mint site is POD-362's change.
-    return enriched as ConversationSummaryWire[]
+    return enriched
   }
 
   /** Legacy snapshot fan-out ONLY ([spec:SP-3fe2] #257): the changes were

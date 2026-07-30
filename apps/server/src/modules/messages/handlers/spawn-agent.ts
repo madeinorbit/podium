@@ -133,7 +133,12 @@ export function spawnAgentHandler(
     cwd,
     agentKind: harness,
     initialPrompt: input.prompt,
-    issueId,
+    // `issue.id` (branded), NOT the local `issueId`: that local may hold
+    // UNADDRESSABLE, a DELIBERATE non-id sentinel (see packages/commands'
+    // ceiling.ts). Branding it would launder the sentinel, the same mistake the
+    // MachineId carve-out exists to prevent. By here the row has been resolved
+    // and the throw above has fired, so the row's own id is the honest source.
+    issueId: issue.id,
     spawnedBy,
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),

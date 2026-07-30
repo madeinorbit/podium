@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -40,13 +41,13 @@ describe('SessionStore queued_messages', () => {
     const store = new SessionStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
     // (queued_at first, rowid as the tiebreaker).
-    expect(store.sync.enqueueMessage({ id: 'q-b', sessionId: 's1', text: 'b', queuedAt: 2000 })).toBe(
+    expect(store.sync.enqueueMessage({ id: 'q-b', sessionId: asSessionId('s1'), text: 'b', queuedAt: 2000 })).toBe(
       true,
     )
-    expect(store.sync.enqueueMessage({ id: 'q-c', sessionId: 's1', text: 'c', queuedAt: 2000 })).toBe(
+    expect(store.sync.enqueueMessage({ id: 'q-c', sessionId: asSessionId('s1'), text: 'c', queuedAt: 2000 })).toBe(
       true,
     )
-    expect(store.sync.enqueueMessage({ id: 'q-a', sessionId: 's1', text: 'a', queuedAt: 1000 })).toBe(
+    expect(store.sync.enqueueMessage({ id: 'q-a', sessionId: asSessionId('s1'), text: 'a', queuedAt: 1000 })).toBe(
       true,
     )
     expect(store.sync.listQueuedMessages('s1').map((m) => m.text)).toEqual(['a', 'b', 'c'])
@@ -56,10 +57,10 @@ describe('SessionStore queued_messages', () => {
     // The row id IS the mutationId, so a replayed enqueue must be a storage no-op.
     const store = new SessionStore(':memory:')
     expect(
-      store.sync.enqueueMessage({ id: 'mut-1', sessionId: 's1', text: 'once', queuedAt: 1000 }),
+      store.sync.enqueueMessage({ id: 'mut-1', sessionId: asSessionId('s1'), text: 'once', queuedAt: 1000 }),
     ).toBe(true)
     expect(
-      store.sync.enqueueMessage({ id: 'mut-1', sessionId: 's1', text: 'again', queuedAt: 2000 }),
+      store.sync.enqueueMessage({ id: 'mut-1', sessionId: asSessionId('s1'), text: 'again', queuedAt: 2000 }),
     ).toBe(false)
     const rows = store.sync.listQueuedMessages('s1')
     expect(rows).toHaveLength(1)
@@ -68,9 +69,9 @@ describe('SessionStore queued_messages', () => {
 
   it('queuedMessageCounts groups per session', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'a1', sessionId: 's-a', text: 'x', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'a2', sessionId: 's-a', text: 'y', queuedAt: 2000 })
-    store.sync.enqueueMessage({ id: 'b1', sessionId: 's-b', text: 'z', queuedAt: 3000 })
+    store.sync.enqueueMessage({ id: 'a1', sessionId: asSessionId('s-a'), text: 'x', queuedAt: 1000 })
+    store.sync.enqueueMessage({ id: 'a2', sessionId: asSessionId('s-a'), text: 'y', queuedAt: 2000 })
+    store.sync.enqueueMessage({ id: 'b1', sessionId: asSessionId('s-b'), text: 'z', queuedAt: 3000 })
     expect(store.sync.queuedMessageCounts()).toEqual(
       new Map([
         ['s-a', 2],
@@ -81,15 +82,15 @@ describe('SessionStore queued_messages', () => {
 
   it('deleteQueuedMessage removes exactly that row', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'keep', sessionId: 's1', text: 'keep', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'drop', sessionId: 's1', text: 'drop', queuedAt: 2000 })
+    store.sync.enqueueMessage({ id: 'keep', sessionId: asSessionId('s1'), text: 'keep', queuedAt: 1000 })
+    store.sync.enqueueMessage({ id: 'drop', sessionId: asSessionId('s1'), text: 'drop', queuedAt: 2000 })
     store.sync.deleteQueuedMessage('drop')
     expect(store.sync.listQueuedMessages('s1').map((m) => m.id)).toEqual(['keep'])
   })
 
   it('bumpQueuedAttempts increments the attempt counter', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'q1', sessionId: 's1', text: 't', queuedAt: 1000 })
+    store.sync.enqueueMessage({ id: 'q1', sessionId: asSessionId('s1'), text: 't', queuedAt: 1000 })
     store.sync.bumpQueuedAttempts('q1')
     store.sync.bumpQueuedAttempts('q1')
     expect(store.sync.listQueuedMessages('s1')[0]?.attempts).toBe(2)
@@ -97,9 +98,9 @@ describe('SessionStore queued_messages', () => {
 
   it('deleteQueuedMessagesForSession drops only that session queue', () => {
     const store = new SessionStore(':memory:')
-    store.sync.enqueueMessage({ id: 'a1', sessionId: 's-a', text: 'x', queuedAt: 1000 })
-    store.sync.enqueueMessage({ id: 'a2', sessionId: 's-a', text: 'y', queuedAt: 2000 })
-    store.sync.enqueueMessage({ id: 'b1', sessionId: 's-b', text: 'z', queuedAt: 3000 })
+    store.sync.enqueueMessage({ id: 'a1', sessionId: asSessionId('s-a'), text: 'x', queuedAt: 1000 })
+    store.sync.enqueueMessage({ id: 'a2', sessionId: asSessionId('s-a'), text: 'y', queuedAt: 2000 })
+    store.sync.enqueueMessage({ id: 'b1', sessionId: asSessionId('s-b'), text: 'z', queuedAt: 3000 })
     store.sync.deleteQueuedMessagesForSession('s-a')
     expect(store.sync.listQueuedMessages('s-a')).toEqual([])
     expect(store.sync.listQueuedMessages('s-b').map((m) => m.id)).toEqual(['b1'])
@@ -108,14 +109,14 @@ describe('SessionStore queued_messages', () => {
     const store = new SessionStore(':memory:')
     store.sync.enqueueMessage({
       id: 'steward-1',
-      sessionId: 'parent',
+      sessionId: asSessionId('parent'),
       text: 'child done',
       queuedAt: 1000,
       inputOrigin: 'steward',
     })
     store.sync.enqueueMessage({
       id: 'mail-1',
-      sessionId: 'worker',
+      sessionId: asSessionId('worker'),
       text: 'new mail',
       queuedAt: 1000,
       inputOrigin: 'mail',

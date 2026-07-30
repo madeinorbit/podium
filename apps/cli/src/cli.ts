@@ -11,7 +11,7 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import { isAgentKind } from '@podium/model'
+import { asSessionId, isAgentKind } from '@podium/model'
 import {
   type ApprovalOp,
   type FeatureId,
@@ -277,7 +277,11 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
         message: 'podium automation: --repo/--agent/--model/--effort require --fresh',
       }
     }
-    target = selectedSession ? { kind: 'session', sessionId: selectedSession } : { kind: 'current' }
+    // DECODE EDGE: `--session` is raw argv, so the brand is applied where the
+    // string enters the command's typed input.
+    target = selectedSession
+      ? { kind: 'session' as const, sessionId: asSessionId(selectedSession) }
+      : { kind: 'current' as const }
   }
 
   return {

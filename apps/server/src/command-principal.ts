@@ -54,7 +54,7 @@
  * cached decision.
  */
 
-import type { Capability } from '@podium/model'
+import type { Capability, SessionId } from '@podium/model'
 import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 
 /**
@@ -105,10 +105,10 @@ export interface UserCommandPrincipal {
  */
 export interface AgentCommandPrincipal {
   readonly kind: 'agent'
-  readonly agentSessionId: string
+  readonly agentSessionId: SessionId
   readonly onBehalfOf: UserId
   readonly capability: Capability
-  readonly chain: readonly string[]
+  readonly chain: readonly SessionId[]
 }
 
 /**
@@ -171,10 +171,10 @@ export function attributionOf(principal: CommandPrincipal): CommandAttribution {
 export interface DelegationIndex {
   /** The session that spawned this one, if it was spawned by another session.
    *  Today's provenance vocabulary is `spawnedBy: 'session:<id>'`. */
-  parentSessionOf(sessionId: string): string | undefined
+  parentSessionOf(sessionId: SessionId): SessionId | undefined
   /** The human a root agent session was spawned for. Absent ⇒ the instance's
    *  one account, which is the only answer available before POD-1075. */
-  onBehalfOfFor?(sessionId: string): UserId | undefined
+  onBehalfOfFor?(sessionId: SessionId): UserId | undefined
 }
 
 /** Chain depth ceiling. A cycle in `spawnedBy` would otherwise hang the resolve;
@@ -197,8 +197,8 @@ export function resolvePrincipal(
   if (actorSessionId === undefined) {
     return { kind: 'user', user: FIRST_ADMIN_USER_ID, capability }
   }
-  const chain: string[] = []
-  let cursor: string | undefined = delegations.parentSessionOf(actorSessionId)
+  const chain: SessionId[] = []
+  let cursor: SessionId | undefined = delegations.parentSessionOf(actorSessionId)
   while (cursor !== undefined && chain.length < MAX_CHAIN_DEPTH) {
     if (cursor === actorSessionId || chain.includes(cursor)) break
     chain.push(cursor)
@@ -206,7 +206,7 @@ export function resolvePrincipal(
   }
   // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
-  const root = chain[chain.length - 1] ?? actorSessionId
+  const root: SessionId = chain[chain.length - 1] ?? actorSessionId
   const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? FIRST_ADMIN_USER_ID
   return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
 }

@@ -1,3 +1,4 @@
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- Omni-search (docs/spec/search-v1.md §2.4) ----
@@ -23,7 +24,7 @@ export const SearchResultWire = z.object({
   /** Recency evidence that fed the ranking, when the source has one (ISO 8601). */
   ts: z.string().optional(),
   // Open-the-hit refs.
-  sessionId: z.string().optional(),
+  sessionId: SessionIdField.optional(),
   machineId: z.string().optional(),
   /** Native conversation id (transcript hits — pairs with machineId). */
   nativeId: z.string().optional(),

@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { type ComposerDriver, claudeComposerDriver, codexComposerDriver } from '@podium/composer'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -26,8 +27,8 @@ function fakeScreen(): ScreenReader & { set(lines: string[]): void } {
 describe('SessionComposerSync.scrape (read-only)', () => {
   it('publishes the extracted native draft, deduping unchanged scrapes', () => {
     const screen = fakeScreen()
-    const published: { sessionId: string; text: string }[] = []
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, screen, (sessionId, text) =>
+    const published: { sessionId: SessionId; text: string }[] = []
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, screen, (sessionId, text) =>
       published.push({ sessionId, text }),
     )
 
@@ -46,7 +47,7 @@ describe('SessionComposerSync.scrape (read-only)', () => {
   it('never publishes on a null scrape (no clean composer — must not clobber)', () => {
     const screen = fakeScreen()
     const published: string[] = []
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, screen, (_s, t) =>
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, screen, (_s, t) =>
       published.push(t),
     )
     screen.set(['streaming output, no composer box'])
@@ -57,7 +58,7 @@ describe('SessionComposerSync.scrape (read-only)', () => {
   it('seed() suppresses re-publishing a known value (its own inject echo)', () => {
     const screen = fakeScreen()
     const published: string[] = []
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, screen, (_s, t) =>
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, screen, (_s, t) =>
       published.push(t),
     )
     sync.seed('hello')
@@ -71,7 +72,7 @@ describe('SessionComposerSync.scrape (read-only)', () => {
     try {
       const screen = fakeScreen()
       const published: string[] = []
-      const sync = new SessionComposerSync('s1', claudeComposerDriver, screen, (_s, t) =>
+      const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, screen, (_s, t) =>
         published.push(t),
       )
       screen.set(['╭────────────╮', '│ > typing   │', '╰────────────╯'])
@@ -174,7 +175,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     const term = scriptedTerminal(claudeComposerDriver)
     const published: string[] = []
     const sync = new SessionComposerSync(
-      's1',
+      asSessionId('s1'),
       claudeComposerDriver,
       term.reader,
       (_s, t) => published.push(t),
@@ -191,7 +192,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     const term = scriptedTerminal(codexComposerDriver)
     const published: string[] = []
     const sync = new SessionComposerSync(
-      's1',
+      asSessionId('s1'),
       codexComposerDriver,
       term.reader,
       (_s, t) => published.push(t),
@@ -210,7 +211,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
   it('never injects blind: no write when there is no clean composer on screen', () => {
     const term = scriptedTerminal(claudeComposerDriver)
     let writes = 0
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, term.reader, () => {}, {
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
       writePty: () => {
         writes++
       },
@@ -225,7 +226,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
   it('does not inject while the native side is hot (recent input-byte tap)', () => {
     const term = scriptedTerminal(claudeComposerDriver)
     let writes = 0
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, term.reader, () => {}, {
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
       writePty: () => {
         writes++
       },
@@ -240,7 +241,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     const term = scriptedTerminal(claudeComposerDriver)
     term.setComposer('already here')
     let writes = 0
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, term.reader, () => {}, {
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
       writePty: () => {
         writes++
       },
@@ -253,7 +254,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
   it('does not inject while the agent is not idle (turn/overlay up — never Ctrl-C a turn)', () => {
     const term = scriptedTerminal(claudeComposerDriver)
     let writes = 0
-    const sync = new SessionComposerSync('s1', claudeComposerDriver, term.reader, () => {}, {
+    const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
       writePty: (bytes) => {
         writes++
         term.applyBytes(bytes)
@@ -272,7 +273,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
   it('does not publish a native scrape while not idle (a transcript › is not the composer)', () => {
     const screen = fakeScreen()
     const published: string[] = []
-    const sync = new SessionComposerSync('s1', codexComposerDriver, screen, (_s, t) =>
+    const sync = new SessionComposerSync(asSessionId('s1'), codexComposerDriver, screen, (_s, t) =>
       published.push(t),
     )
     sync.setIdle(false)
@@ -287,7 +288,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     try {
       const screen = fakeScreen()
       const published: string[] = []
-      const sync = new SessionComposerSync('s1', claudeComposerDriver, screen, (_s, t) =>
+      const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, screen, (_s, t) =>
         published.push(t),
       )
       sync.setIdle(false)
@@ -309,7 +310,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     vi.useFakeTimers()
     try {
       const term = scriptedTerminal(claudeComposerDriver)
-      const sync = new SessionComposerSync('s1', claudeComposerDriver, term.reader, () => {}, {
+      const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
         writePty: term.applyBytes,
       })
       sync.setIdle(false)
@@ -332,7 +333,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     const published: string[] = []
     let demoted = false
     const sync = new SessionComposerSync(
-      's1',
+      asSessionId('s1'),
       claudeComposerDriver,
       term.reader,
       (_s, t) => published.push(t),
@@ -361,7 +362,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     const term = scriptedTerminal(claudeComposerDriver)
     const published: string[] = []
     const sync = new SessionComposerSync(
-      's1',
+      asSessionId('s1'),
       claudeComposerDriver,
       term.reader,
       (_s, t) => published.push(t),
@@ -387,7 +388,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
       '  ? for shortcuts',
     ]
     const sync = new SessionComposerSync(
-      's1',
+      asSessionId('s1'),
       claudeComposerDriver,
       screen,
       (_s, t) => published.push(t),
@@ -413,26 +414,26 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
 describe('ComposerSyncEngine', () => {
   it('attach returns false for a harness without a composer driver', () => {
     const engine = new ComposerSyncEngine(() => {})
-    expect(engine.attach('s1', 'shell', 80, 24)).toBe(false)
-    expect(engine.attach('s2', 'grok', 80, 24)).toBe(false)
-    expect(engine.has('s1')).toBe(false)
+    expect(engine.attach(asSessionId('s1'), 'shell', 80, 24)).toBe(false)
+    expect(engine.attach(asSessionId('s2'), 'grok', 80, 24)).toBe(false)
+    expect(engine.has(asSessionId('s1'))).toBe(false)
   })
 
   it('attach starts read-only sync for a claude/codex session and detach cleans up', () => {
     const engine = new ComposerSyncEngine(() => {})
-    expect(engine.attach('s1', 'claude-code', 80, 24)).toBe(true)
-    expect(engine.has('s1')).toBe(true)
-    expect(engine.attach('s1', 'claude-code', 80, 24)).toBe(true) // idempotent
-    engine.detach('s1')
-    expect(engine.has('s1')).toBe(false)
+    expect(engine.attach(asSessionId('s1'), 'claude-code', 80, 24)).toBe(true)
+    expect(engine.has(asSessionId('s1'))).toBe(true)
+    expect(engine.attach(asSessionId('s1'), 'claude-code', 80, 24)).toBe(true) // idempotent
+    engine.detach(asSessionId('s1'))
+    expect(engine.has(asSessionId('s1'))).toBe(false)
   })
 
   it('counts native publishes in getStats() (telemetry, §7)', () => {
     vi.useFakeTimers()
     try {
       const engine = new ComposerSyncEngine(() => {}, { writePty: () => {} })
-      engine.attach('s1', 'claude-code', 40, 6)
-      engine.onData('s1', '╭────────────╮\r\n│ > typed │\r\n╰────────────╯\r\n')
+      engine.attach(asSessionId('s1'), 'claude-code', 40, 6)
+      engine.onData(asSessionId('s1'), '╭────────────╮\r\n│ > typed │\r\n╰────────────╯\r\n')
       vi.advanceTimersByTime(100)
       const stats = engine.getStats()
       expect(stats.nativePublishes).toBeGreaterThanOrEqual(1)
@@ -447,12 +448,12 @@ describe('ComposerSyncEngine', () => {
   it('feeds frames through to a native-draft publish', () => {
     vi.useFakeTimers()
     try {
-      const published: { sessionId: string; text: string }[] = []
+      const published: { sessionId: SessionId; text: string }[] = []
       const engine = new ComposerSyncEngine((sessionId, text) =>
         published.push({ sessionId, text }),
       )
-      engine.attach('s1', 'claude-code', 40, 6)
-      engine.onData('s1', '╭────────────╮\r\n│ > from native │\r\n╰────────────╯\r\n')
+      engine.attach(asSessionId('s1'), 'claude-code', 40, 6)
+      engine.onData(asSessionId('s1'), '╭────────────╮\r\n│ > from native │\r\n╰────────────╯\r\n')
       vi.advanceTimersByTime(100)
       expect(published).toEqual([{ sessionId: 's1', text: 'from native' }])
     } finally {

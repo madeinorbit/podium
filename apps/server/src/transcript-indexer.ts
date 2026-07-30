@@ -1,3 +1,4 @@
+import { machineScopedKey } from '@podium/model'
 import { open } from 'node:fs/promises'
 import { claudeRecordToItems } from '@podium/transcript'
 import type { SessionStore } from './store'
@@ -76,7 +77,7 @@ export class TranscriptIndexer {
 
   /** Mirror hook: new bytes landed in the lake for this segment. */
   onBytes(machineId: string, nativeId: string, lakePath: string): void {
-    const key = `${machineId}\n${nativeId}`
+    const key = machineScopedKey(machineId, nativeId)
     const active = this.running.get(key)
     if (active) {
       active.rerun = true
@@ -91,7 +92,7 @@ export class TranscriptIndexer {
    *  content is invalid. Synchronous, so an in-flight run's cursor check below
    *  observes the reset before it can append stale rows. */
   onTruncate(machineId: string, nativeId: string): void {
-    this.lastBackfillGap.delete(`${machineId}\n${nativeId}`)
+    this.lastBackfillGap.delete(machineScopedKey(machineId, nativeId))
     this.store.conversations.dropTranscriptIndex(machineId, nativeId)
   }
 
@@ -113,7 +114,7 @@ export class TranscriptIndexer {
       .conversations.segmentsToIndex(machineId)
       .filter(
         (s) =>
-          this.lastBackfillGap.get(`${machineId}\n${s.nativeId}`) !==
+          this.lastBackfillGap.get(machineScopedKey(machineId, s.nativeId)) !==
           `${s.mirroredBytes}:${s.indexedBytes}`,
       )
     if (behind.length === 0) return
@@ -137,7 +138,7 @@ export class TranscriptIndexer {
       const pass = { remainingBytes: this.passBudgetBytes }
       for (const nativeId of nativeIds) {
         if (pass.remainingBytes <= 0) return
-        const key = `${machineId}\n${nativeId}`
+        const key = machineScopedKey(machineId, nativeId)
         // A live onBytes run is already catching this segment up — skip it here.
         if (this.running.has(key)) continue
         const indexedBefore = this.store.conversations.indexedCursor(machineId, nativeId)

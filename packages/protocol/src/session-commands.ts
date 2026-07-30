@@ -34,7 +34,7 @@
  * widening the set is a product behaviour change, not a migration.
  */
 
-import { PinKind, WorkState } from '@podium/model'
+import { IssueIdField, PinKind, SessionIdField, WorkState } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from './commands'
 import { defineCommands } from './commands'
@@ -88,7 +88,7 @@ const PER_USER = 'per-user-state' as const
  * writes an agent-sourced name, and a human acting through any transport writes a
  * human-sourced one.
  */
-const renameInput = z.object({ sessionId: z.string(), name: z.string().max(120), mutationId })
+const renameInput = z.object({ sessionId: SessionIdField, name: z.string().max(120), mutationId })
 
 const rename: CommandDef = {
   input: renameInput,
@@ -103,7 +103,7 @@ const rename: CommandDef = {
     'nameSource is resolved from the principal’s on-behalf-of human (§3.1.3 A3), not from the transport being the operator cookie. Relay exposure stays OFF: POD-379 pins that presence writes have no agent path, and that absence is reproduced here as an explicit exposure decision rather than inherited from an allowlist.',
 }
 
-const setArchivedInput = z.object({ sessionId: z.string(), archived: z.boolean(), mutationId })
+const setArchivedInput = z.object({ sessionId: SessionIdField, archived: z.boolean(), mutationId })
 
 const setArchived: CommandDef = {
   input: setArchivedInput,
@@ -117,7 +117,7 @@ const setArchived: CommandDef = {
 }
 
 const setWorkStateInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   workState: workState.nullable(),
   mutationId,
 })
@@ -143,8 +143,8 @@ const setWorkState: CommandDef = {
  * different row, a different owner, and no issue command covers it.
  */
 const setIssueIdInput = z.object({
-  sessionId: z.string(),
-  issueId: z.string().nullable(),
+  sessionId: SessionIdField,
+  issueId: IssueIdField.nullable(),
   mutationId,
 })
 
@@ -167,7 +167,7 @@ const setIssueId: CommandDef = {
 
 /** Per-user read state. `policy.scope: 'self'` is what makes "one user setting
  *  another user's readAt" unrepresentable rather than merely unimplemented. */
-const markReadInput = z.object({ sessionId: z.string(), mutationId })
+const markReadInput = z.object({ sessionId: SessionIdField, mutationId })
 
 const markRead: CommandDef = {
   input: markReadInput,
@@ -182,7 +182,7 @@ const markRead: CommandDef = {
 
 const markUnread: CommandDef = { ...markRead }
 
-const snoozeSetInput = z.object({ sessionId: z.string(), until: z.string().nullable(), mutationId })
+const snoozeSetInput = z.object({ sessionId: SessionIdField, until: z.string().nullable(), mutationId })
 
 const snoozeSet: CommandDef = {
   input: snoozeSetInput,
@@ -195,7 +195,7 @@ const snoozeSet: CommandDef = {
   conflict: 'single-writer',
 }
 
-const snoozeClearInput = z.object({ sessionId: z.string(), mutationId })
+const snoozeClearInput = z.object({ sessionId: SessionIdField, mutationId })
 
 const snoozeClear: CommandDef = {
   input: snoozeClearInput,
@@ -225,7 +225,7 @@ const pinSet: CommandDef = {
 
 const tabsSetOrderInput = z.object({
   worktree: z.string(),
-  sessionIds: z.array(z.string()),
+  sessionIds: z.array(SessionIdField),
   mutationId,
 })
 
@@ -298,7 +298,7 @@ const tabsSetOrder: CommandDef = {
  * single writer, and a rejected stale revision IS that gate.
  */
 const sessionDraftInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** The `OpStreamDocument.revision` this edit was composed against. Absent ⇒
    *  unconditional (today's behaviour); present ⇒ the Authority may reject. */
   baseRevision: z.number().int().nonnegative().optional(),

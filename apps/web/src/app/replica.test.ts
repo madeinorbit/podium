@@ -1,4 +1,5 @@
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 import {
@@ -407,7 +408,7 @@ describe('replica adapter', () => {
 // ---------------------------------------------------------------------------
 
 function entry(mutationId: string, queuedAt = 1): OutboxEntry {
-  return { mutationId, kind: 'rename', input: { sessionId: 's1', name: mutationId }, queuedAt }
+  return { mutationId, kind: 'rename', input: { sessionId: asSessionId('s1'), name: mutationId }, queuedAt }
 }
 
 describe('replica outbox storage', () => {
@@ -477,7 +478,7 @@ describe('replica outbox storage', () => {
     // Drive a real Outbox over this storage: connectivity returns and the
     // queue drains FIFO through the executor, emptying the in-memory backing.
     const executed: string[] = []
-    const outbox = new Outbox<{ rename: { sessionId: string; name: string } }>({
+    const outbox = new Outbox<{ rename: { sessionId: SessionId; name: string } }>({
       storage,
       executors: {
         rename: async (input) => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { asIssueId, asSessionId, asUserId } from '../ids/brands'
 import {
   type AuthDecision,
   authorize,
@@ -27,18 +28,18 @@ describe('authorize — role gate', () => {
 describe('authorize — scope gate', () => {
   it('reads are scope-free', () => {
     expect(authorize(cap({ kind: 'none' }), 'read', { id: 'i1' })).toBe('allow')
-    expect(authorize(cap({ kind: 'subtree', rootId: 'root' }), 'read', { id: 'i1' })).toBe('allow')
+    expect(authorize(cap({ kind: 'subtree', rootId: asIssueId('root') }), 'read', { id: 'i1' })).toBe('allow')
   })
 
   it('allows an additive write (no existing target) on role alone', () => {
     expect(authorize(cap({ kind: 'none' }), 'write')).toBe('allow')
-    expect(authorize(cap({ kind: 'subtree', rootId: 'root' }), 'write')).toBe('allow')
+    expect(authorize(cap({ kind: 'subtree', rootId: asIssueId('root') }), 'write')).toBe('allow')
   })
 
   it('gates a write to an EXISTING issue by scope, overridably', () => {
     const outside = { id: 'other', ancestorIds: ['unrelated'] }
     const inside = { id: 'child', ancestorIds: ['root'] }
-    const scoped = cap({ kind: 'subtree', rootId: 'root' })
+    const scoped = cap({ kind: 'subtree', rootId: asIssueId('root') })
     expect(authorize(scoped, 'write', inside)).toBe('allow')
     expect(authorize(scoped, 'write', { id: 'root' })).toBe('allow')
     expect(authorize(scoped, 'write', outside)).toBe('confirm-required')
@@ -77,9 +78,9 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
   const SCOPES: Record<IssueScope['kind'], IssueScope> = {
     all: { kind: 'all' },
     none: { kind: 'none' },
-    subtree: { kind: 'subtree', rootId: 'elsewhere' },
-    owned: { kind: 'owned', userId: 'u1' },
-    self: { kind: 'self', userId: 'u1' },
+    subtree: { kind: 'subtree', rootId: asIssueId('elsewhere') },
+    owned: { kind: 'owned', userId: asUserId('u1') },
+    self: { kind: 'self', userId: asUserId('u1') },
   }
 
   it('every declared scope kind has an explicit rule for an out-of-scope write', () => {
@@ -102,8 +103,8 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
   it('preserves Capability.actorSessionId — the ACTOR half of §3.1.3 A3 attribution', () => {
     const withActor: Capability = {
       role: 'worker',
-      scope: { kind: 'subtree', rootId: 'root' },
-      actorSessionId: 's1',
+      scope: { kind: 'subtree', rootId: asIssueId('root') },
+      actorSessionId: asSessionId('s1'),
     }
     expect(withActor.actorSessionId).toBe('s1')
     // The seam is carried, not consulted: authz decisions do not read it.
@@ -120,7 +121,7 @@ const session = (owner: string | null, grants?: string[]) =>
   ({ kind: 'owned', id: 's1', owner, ...(grants ? { grants } : {}) }) as const
 
 describe('owner-or-grant scope (the personal class)', () => {
-  const alice = cap({ kind: 'owned', userId: 'alice' })
+  const alice = cap({ kind: 'owned', userId: asUserId('alice') })
 
   it('allows the OWNER and allows a GRANTEE', () => {
     expect(authorize(alice, 'write', session('alice'))).toBe('allow')
@@ -162,7 +163,7 @@ describe('owner-or-grant scope (the personal class)', () => {
 })
 
 describe('self scope (per-user state)', () => {
-  const alice = cap({ kind: 'self', userId: 'alice' })
+  const alice = cap({ kind: 'self', userId: asUserId('alice') })
 
   it('allows a principal to write its OWN row', () => {
     expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
@@ -183,7 +184,7 @@ describe('self scope (per-user state)', () => {
   })
 
   it('an admin ROLE does not widen a self scope — role and scope are independent gates', () => {
-    const adminSelf = cap({ kind: 'self', userId: 'alice' }, 'admin')
+    const adminSelf = cap({ kind: 'self', userId: asUserId('alice') }, 'admin')
     expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
     // The counterfactual: the same admin capability CAN manage its own row, so the
     // denial above is the scope talking and not a blanket refusal.
@@ -239,7 +240,7 @@ describe('OPERATOR keeps its unconstrained reach across the new target kinds', (
     // role, scoped to what it owns, does NOT reach somebody else's entity. So
     // the reach above is the scope talking, and flipping `resolvePrincipal` to
     // mint an `owned` scope is all that stands between here and a scoped admin.
-    const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: 'user:sole' } }
+    const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: asUserId('user:sole') } }
     expect(authorize(scopedAdmin, 'write', session('somebody-else'))).toBe('forbidden')
     expect(authorize(scopedAdmin, 'write', session('user:sole'))).toBe('allow')
   })

@@ -1,4 +1,4 @@
-import { IssueWire } from '@podium/model'
+import { IssueWire, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // The issue aggregate, its vocabularies (IssueStage/IssueType/IssueColor) and
@@ -21,7 +21,7 @@ export const IssueUpdatedMessage = z.object({
 export const AgentRelayRequestMessage = z.object({
   type: z.literal('agentRelayRequest'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   router: z.string(),
   proc: z.string(),
   input: z.unknown().optional(),

@@ -17,6 +17,7 @@
  * and attention routing per-user. None of it is asserted as desirable.
  */
 
+import { asIssueId, asSessionId, type IssueScope } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -45,15 +46,15 @@ describe('characterization: the sender is stamped from the capability, never fro
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const target = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 'sTarget', issueId: target.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
 
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
       to: 'sTarget',
       body: 'x',
       // All of this is a lie the client is telling. None of it may be read.
       from: 'operator',
       fromKind: 'operator',
-      fromSession: 'sVictim',
+      fromSession: asSessionId('sVictim'),
       fromIssue: target.id,
       sender: { kind: 'operator' },
     })) as { id: string }
@@ -66,7 +67,7 @@ describe('characterization: the sender is stamped from the capability, never fro
     }).toEqual({
       fromKind: 'agent',
       fromIssue: mine.id,
-      fromSession: 'sMine',
+      fromSession: asSessionId('sMine'),
     })
     // fromName belongs to system senders only; an agent leaves it unset.
     expect(row.fromName ?? null).toBeNull()
@@ -79,24 +80,30 @@ describe('characterization: the sender is stamped from the capability, never fro
     // SINGLE-OPERATOR ARTEFACT: scope 'all' IS the operator here, because there
     // is exactly one such capability. POD-728 dissolves this into named people.
     expect(senderFromCapability({ scope: { kind: 'all' } })).toEqual({ kind: 'operator' })
-    expect(senderFromCapability({ scope: { kind: 'all' }, actorSessionId: 's1' })).toEqual({
+    expect(senderFromCapability({ scope: { kind: 'all' }, actorSessionId: asSessionId('s1') })).toEqual({
       kind: 'operator',
     })
     // "unwrapped = the human" is an invariant the receiver's prime rules trust,
     // so an ISSUELESS agent session (scope 'none' + actorSessionId) must stamp as
     // an AGENT — enveloped, peer-clamped, cooldown-subject — never the operator.
-    expect(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: 's1' })).toEqual({
+    expect(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: asSessionId('s1') })).toEqual({
       kind: 'agent',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
     expect(senderFromCapability({ scope: { kind: 'none' } })).toEqual({ kind: 'agent' })
     expect(
-      senderFromCapability({ scope: { kind: 'subtree', rootId: 'iss_a' }, actorSessionId: 's1' }),
-    ).toEqual({ kind: 'agent', issueId: 'iss_a', sessionId: 's1' })
+      senderFromCapability({ scope: { kind: 'subtree', rootId: asIssueId('iss_a') }, actorSessionId: asSessionId('s1') }),
+    ).toEqual({ kind: 'agent', issueId: 'iss_a', sessionId: asSessionId('s1') })
     // A subtree scope with no rootId cannot claim an issue.
-    expect(senderFromCapability({ scope: { kind: 'subtree' }, actorSessionId: 's1' })).toEqual({
+    // The scope literal is DELIBERATELY malformed — a subtree arm with no rootId,
+    // which `IssueScope` makes unrepresentable. The cast is the point of the test:
+    // it pins the RUNTIME behaviour for a value the types now forbid, so the guard
+    // survives if something ever produces one (POD-362 composed this parameter;
+    // before that the service restated the scope shape and accepted this freely).
+    const malformedSubtree = { kind: 'subtree' } as unknown as IssueScope
+    expect(senderFromCapability({ scope: malformedSubtree, actorSessionId: asSessionId('s1') })).toEqual({
       kind: 'agent',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
   })
 })
@@ -112,8 +119,8 @@ describe('characterization: target gating on send (A2)', () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sTheirs', issueId: theirs.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     await rejectsWith(
       h.gate.dispatch(cap, undefined, 'send', { to: `#${theirs.seq}`, body: 'x' })!,
@@ -134,9 +141,9 @@ describe('characterization: target gating on send (A2)', () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sTheirs', issueId: theirs.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'working' })
 
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
       to: 'sTheirs',
       body: 'x',
       urgency: 'interrupt',
@@ -150,9 +157,9 @@ describe('characterization: target gating on send (A2)', () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     // An issueless session, and a cwd no issue owns.
-    h.put({ sessionId: 'sFree', cwd: '/elsewhere', phase: 'idle' })
+    h.put({ sessionId: asSessionId('sFree'), cwd: '/elsewhere', phase: 'idle' })
     await expect(
-      h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'send', { to: 'sFree', body: 'x' }),
+      h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', { to: 'sFree', body: 'x' }),
     ).rejects.toThrow('target session has no issue; only its parent or the operator may message it')
 
     // The operator may (single-operator artefact: one capability is admin over
@@ -166,10 +173,10 @@ describe('characterization: target gating on send (A2)', () => {
     ).toBe(true)
 
     // ... and so may its PARENT, by spawnedBy provenance alone.
-    h.put({ sessionId: 'sKid', cwd: '/elsewhere', phase: 'idle', spawnedBy: 'session:sMine' })
+    h.put({ sessionId: asSessionId('sKid'), cwd: '/elsewhere', phase: 'idle', spawnedBy: 'session:sMine' })
     expect(
       (
-        (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'send', {
+        (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
           to: 'sKid',
           body: 'x',
         })) as { ok: boolean }
@@ -184,7 +191,7 @@ describe('characterization: target gating on send (A2)', () => {
     h.setWorktree(theirs.id, '/wt/theirs')
     // No live session on `theirs`: a permitted wake here WOULD reach the spawn seam.
     await rejectsWith(
-      h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'send', {
+      h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
         to: theirs.id,
         body: 'wake up',
         lifecycle: 'wake',
@@ -196,7 +203,7 @@ describe('characterization: target gating on send (A2)', () => {
 
     // Confirmed, the same send reaches the seam — proving the seam really is
     // behind this check and a spawn always required write access to the target.
-    await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'send', {
+    await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
       to: theirs.id,
       body: 'wake up',
       lifecycle: 'wake',
@@ -218,8 +225,8 @@ describe('characterization: unknown vs out-of-scope vs in-scope target (A3)', ()
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    h.put({ sessionId: 'sMine', issueId: mine.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine2')
+    h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
+    const cap = h.agentCap(mine.id, asSessionId('sMine2'))
 
     // (1) UNKNOWN id. `resolveRef` returns an unresolvable ref unchanged and
     // checkIssueAccess skips the scope gate for a target it cannot find, so the
@@ -272,7 +279,7 @@ describe('characterization: unknown vs out-of-scope vs in-scope target (A3)', ()
   it('never writes a legacy mirror row for an unresolvable ref (#463 belt-and-braces)', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
       to: 'iss_nope',
       body: 'x',
     })) as { id: string }
@@ -292,7 +299,7 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     const own = h.createIssue({ title: 'own' })
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: own.id }, body: 'for you' })
 
-    const rows = (await h.gate.dispatch(h.agentCap(own.id, 'sMe'), undefined, 'inbox', {
+    const rows = (await h.gate.dispatch(h.agentCap(own.id, asSessionId('sMe')), undefined, 'inbox', {
       issue: own.id,
     })) as { id: string; status: string }[]
     expect(rows.map((m) => m.status)).toEqual(['read'])
@@ -306,11 +313,11 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     // Traffic between two OTHER principals, in the child's box.
     const other = h.createIssue({ title: 'other' })
     const foreign = h.svc.send(
-      { kind: 'agent', issueId: other.id, sessionId: 'sOther' },
+      { kind: 'agent', issueId: other.id, sessionId: asSessionId('sOther') },
       { to: { kind: 'issue', id: child.id }, body: 'not for the parent' },
     )
 
-    const rows = (await h.gate.dispatch(h.agentCap(parent.id, 'sParent'), undefined, 'inbox', {
+    const rows = (await h.gate.dispatch(h.agentCap(parent.id, asSessionId('sParent')), undefined, 'inbox', {
       issue: child.id,
     })) as { id: string; body: string; status: string }[]
     // In scope (the peeked issue's ancestors include the caller's subtree root):
@@ -330,16 +337,16 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     const third = h.createIssue({ title: 'third' })
     // (a) traffic between two other principals — invisible.
     h.svc.send(
-      { kind: 'agent', issueId: third.id, sessionId: 'sThird' },
+      { kind: 'agent', issueId: third.id, sessionId: asSessionId('sThird') },
       { to: { kind: 'issue', id: unrelated.id }, body: 'private' },
     )
     // (b) something the caller itself SENT there — visible (the sender may re-read).
     const own = h.svc.send(
-      { kind: 'agent', issueId: mine.id, sessionId: 'sMine' },
+      { kind: 'agent', issueId: mine.id, sessionId: asSessionId('sMine') },
       { to: { kind: 'issue', id: unrelated.id }, body: 'mine to see' },
     )
 
-    const rows = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'inbox', {
+    const rows = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'inbox', {
       issue: unrelated.id,
     })) as { id: string; body: string }[]
     expect(rows.map((m) => m.body)).toEqual(['mine to see'])
@@ -352,7 +359,7 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: mine.id }, body: 'issue mail' })
-    const rows = (await h.gate.dispatch(h.agentCap(mine.id, 'sMe'), undefined, 'inbox', {})) as {
+    const rows = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMe')), undefined, 'inbox', {})) as {
       status: string
     }[]
     expect(rows.map((m) => m.status)).toEqual(['read'])
@@ -389,7 +396,7 @@ describe('characterization: read-surface and reply authz (A5)', () => {
     // the assertion below would pass on a ledger that filtered nothing.
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: theirs.id }, body: 'not yours' })
 
-    const member = h.agentCap(mine.id, 'sMe')
+    const member = h.agentCap(mine.id, asSessionId('sMe'))
     // No longer a refusal: a member may read the ledger, and gets their own row.
     const own = (await h.gate.dispatch(member, undefined, 'ledger', {
       issueId: mine.id,
@@ -423,22 +430,22 @@ describe('characterization: read-surface and reply authz (A5)', () => {
     const from = h.createIssue({ title: 'from' })
     const to = h.createIssue({ title: 'to' })
     const bystander = h.createIssue({ title: 'bystander' })
-    h.put({ sessionId: 'sFrom', issueId: from.id, phase: 'idle' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'q', urgency: 'next-turn' },
     )
     const oid = original.message.id
 
     await expect(
-      h.gate.dispatch(h.agentCap(bystander.id, 'sBy'), undefined, 'reply', { id: oid, body: 'no' }),
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'reply', { id: oid, body: 'no' }),
     ).rejects.toThrow('only the recipient of a message may reply to it')
     await expect(
-      h.gate.dispatch(h.agentCap(bystander.id, 'sBy'), undefined, 'show', { id: oid }),
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'show', { id: oid }),
     ).rejects.toThrow('not allowed to view a message you neither sent nor received')
     await expect(
-      h.gate.dispatch(h.agentCap(bystander.id, 'sBy'), undefined, 'dismiss', { id: oid }),
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'dismiss', { id: oid }),
     ).rejects.toThrow('only the recipient of a message may dismiss it')
     await expect(h.gate.dispatch(OPERATOR, undefined, 'show', { id: 'msg_nope' })).rejects.toThrow(
       'unknown message msg_nope',
@@ -446,7 +453,7 @@ describe('characterization: read-surface and reply authz (A5)', () => {
 
     // `show` is a pure read: the SENDER may re-read what it sent, and neither
     // read consumes the row.
-    const shown = (await h.gate.dispatch(h.agentCap(from.id, 'sFrom'), undefined, 'show', {
+    const shown = (await h.gate.dispatch(h.agentCap(from.id, asSessionId('sFrom')), undefined, 'show', {
       id: oid,
     })) as { status: string }
     expect(shown.status).toBe('queued')
@@ -455,7 +462,7 @@ describe('characterization: read-surface and reply authz (A5)', () => {
     // The recipient may reply; so may the operator.
     expect(
       (
-        (await h.gate.dispatch(h.agentCap(to.id, 'sTo'), undefined, 'reply', {
+        (await h.gate.dispatch(h.agentCap(to.id, asSessionId('sTo')), undefined, 'reply', {
           id: oid,
           body: 'yes',
         })) as { ok: boolean }
@@ -466,9 +473,9 @@ describe('characterization: read-surface and reply authz (A5)', () => {
   it('dismisses a recipient-owned message straight to `read` without opening the inbox', async () => {
     const h = mailHarness()
     const to = h.createIssue({ title: 'to' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const r = h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: to.id }, body: 'x' })
-    const wire = (await h.gate.dispatch(h.agentCap(to.id, 'sTo'), undefined, 'dismiss', {
+    const wire = (await h.gate.dispatch(h.agentCap(to.id, asSessionId('sTo')), undefined, 'dismiss', {
       id: r.message.id,
     })) as { status: string; readAt: string | null }
     expect(wire.status).toBe('read')
@@ -478,14 +485,14 @@ describe('characterization: read-surface and reply authz (A5)', () => {
   it('returns pendingReminders only for the CALLING session, and nothing for a session-less caller', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     h.svc.send(
       { kind: 'operator' },
       { to: { kind: 'session', id: 's1' }, body: 'answer me', expectsResponse: true },
     )
     expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {})).toEqual([])
     expect(
-      await h.gate.dispatch(h.agentCap(iss.id, 's1'), undefined, 'pendingReminders', {}),
+      await h.gate.dispatch(h.agentCap(iss.id, asSessionId('s1')), undefined, 'pendingReminders', {}),
     ).toEqual([{ id: expect.any(String), from: 'operator', body: 'answer me' }])
   })
 })
@@ -501,7 +508,7 @@ describe('characterization: the operator principal class (A6)', () => {
   it('is exempt from the wake cooldown, and the sweep does not brake it either', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'sleeper' })
-    h.put({ sessionId: 's1', issueId: iss.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const to = { kind: 'session' as const, id: 's1' }
 
     // Three wakes back to back, no clock movement: all keep `wake`. An agent
@@ -529,7 +536,7 @@ describe('characterization: the operator principal class (A6)', () => {
   it('renders the labels as "the operator" on both sides', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // fromLabel: only reachable through the ONE framed operator case, a question.
     const q = h.svc.send(
       { kind: 'operator' },
@@ -541,7 +548,7 @@ describe('characterization: the operator principal class (A6)', () => {
     // toLabel: an operator-ADDRESSED row is never pushed (see the queueing pin),
     // so render it directly — the label is "the operator".
     const escalation = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'operator' }, body: 'help' },
     )
     expect(h.svc.renderFor(escalation.message)).toBe(
@@ -554,9 +561,9 @@ describe('characterization: the operator principal class (A6)', () => {
   it('keeps a toKind:operator row queued for UI pickup, skipped by both attemptDelivery and the sweep', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'escalating' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'operator' }, body: 'human, please look' },
     )
     // Its "delivery" is the operator reading their inbox, not a black hole.
@@ -592,7 +599,7 @@ describe('characterization: the operator principal class (A6)', () => {
   it('collapses senderKey so ALL superagent traffic shares one cooldown bucket', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'sleeper' })
-    h.put({ sessionId: 's1', issueId: iss.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const to = { kind: 'session' as const, id: 's1' }
 
     const first = h.svc.send({ kind: 'superagent' }, { to, body: '1', lifecycle: 'wake' })
@@ -615,7 +622,7 @@ describe('characterization: the operator principal class (A6)', () => {
   it('collapses every operator to one principal for the responds-to-request check', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // An operator asks for a response...
     const asked = h.svc.send(
       { kind: 'operator' },
@@ -656,10 +663,10 @@ describe('characterization: reply to a legacy raw-ref sender (A7, POD-463)', () 
       threadId: 'thr_legacy',
       inReplyTo: null,
       fromKind: 'agent',
-      fromSession,
+      fromSession: fromSession === null ? null : asSessionId(fromSession),
       fromName: null,
       // The migrated shape: a REF STRING where an id belongs.
-      fromIssue,
+      fromIssue: asIssueId(fromIssue),
       toKind: 'operator',
       toId: null,
       kind: 'message',
@@ -697,7 +704,7 @@ describe('characterization: reply to a legacy raw-ref sender (A7, POD-463)', () 
 
   it('falls through to the sender SESSION when the legacy ref does not resolve', () => {
     const h = mailHarness()
-    h.put({ sessionId: 'sLegacy', cwd: '/elsewhere', phase: 'idle' })
+    h.put({ sessionId: asSessionId('sLegacy'), cwd: '/elsewhere', phase: 'idle' })
     // A ref no issue owns. Anything that doesn't resolve must NOT reach the FK.
     const original = legacyRow(h, 'issue:#99999', 'sLegacy')
     expect(h.svc.replyTarget(original)).toEqual({ kind: 'session', id: 'sLegacy' })
@@ -721,7 +728,7 @@ describe('characterization: reply to a legacy raw-ref sender (A7, POD-463)', () 
   it('prefers a LIVE sender session over the sender issue, and the issue once that session is gone', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'sender issue' })
-    h.put({ sessionId: 'sAlive', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sAlive'), issueId: iss.id, phase: 'idle' })
     const original = legacyRow(h, `issue:#${iss.seq}`, 'sAlive')
     expect(h.svc.replyTarget(original)).toEqual({ kind: 'session', id: 'sAlive' })
     h.sessions.length = 0

@@ -4,7 +4,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   AgentObservation,
   AgentObservationAckMessage,
@@ -681,7 +681,7 @@ export async function foldCodexRolloutBootstrap(
 }
 
 export interface CodexCausalObserverConfig {
-  podiumSessionId: string
+  podiumSessionId: SessionId
   providerSessionId: string
   onRebindRequired?: (providerSessionId: string, cursor: ProviderCursor) => void
   observerGeneration: number
@@ -1043,7 +1043,7 @@ export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
 export const PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV = 'PODIUM_CODEX_HOOK_RECEIPT_DIR'
 
 export interface CodexCausalStateOptions {
-  podiumSessionId: string
+  podiumSessionId: SessionId
   providerSessionId: string | null
   observerGeneration: number
   bindingVersion: number
@@ -1071,7 +1071,7 @@ export interface CodexStateObservation {
 export function observeCodexState(opts: {
   cwd: string
   resumeValue?: string
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
@@ -1680,7 +1680,7 @@ async function findNamedCodexProcesses(): Promise<{ pid: string; codexNamed: tru
  * joining those two OS facts cannot confuse same-cwd sibling panes. */
 export async function findProcessBoundCodexRollout(
   sessionsRoot: string,
-  podiumSessionId: string,
+  podiumSessionId: SessionId,
   procRoot = '/proc',
 ): Promise<ProcessBoundCodexRollout | undefined> {
   return (await scanProcessBoundCodexRollouts(sessionsRoot, procRoot)).get(podiumSessionId)
@@ -1696,7 +1696,7 @@ let processScanCache:
 
 function cachedProcessBoundCodexRollout(
   sessionsRoot: string,
-  podiumSessionId: string,
+  podiumSessionId: SessionId,
   procRoot: string,
 ): Promise<ProcessBoundCodexRollout | undefined> {
   const key = `${sessionsRoot}\0${procRoot}`
@@ -1733,7 +1733,7 @@ export async function findLiveCodexRollout(
   sessionsRoot: string,
   cwd: string,
   startedAtMs: number,
-  podiumSessionId?: string,
+  podiumSessionId?: SessionId,
 ): Promise<
   | {
       path: string
@@ -1747,7 +1747,7 @@ export async function findLiveCodexRollout(
     path: string
     sortMs: number
     id: string | undefined
-    podiumSessionId: string | undefined
+    podiumSessionId: SessionId | undefined
   }[] = []
   // Day-directory pruning (POD-601): rollouts live under sessions/YYYY/MM/DD and a
   // candidate must satisfy `createdMs >= startedAtMs - 2000`, so a date directory
@@ -1806,7 +1806,9 @@ export async function findLiveCodexRollout(
             path: full,
             sortMs: createdMs,
             id: strField(payload, 'id'),
-            podiumSessionId: prefix?.match(PODIUM_SESSION_MARKER_RE)?.[1],
+            // DECODE EDGE: the Podium session id is embedded in the rollout
+            // file's marker line, so this is where it re-enters the id space.
+            podiumSessionId: prefix?.match(PODIUM_SESSION_MARKER_RE)?.[1] as SessionId | undefined,
           })
         } catch {
           // skip unreadable / non-matching candidate

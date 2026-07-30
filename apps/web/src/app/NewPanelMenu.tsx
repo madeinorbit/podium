@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineWire } from '@podium/model'
+import type { AgentKind, MachineWire, SessionId } from '@podium/model'
 import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
@@ -72,7 +72,7 @@ export function NewPanelMenu({
   issueId,
 }: {
   worktree: WorktreeView
-  onOpened: (sessionId: string) => void
+  onOpened: (sessionId: SessionId) => void
   /** Attach every session spawned from this menu to an issue (issue-as-workspace:
    *  the "+" inside an issue-keyed workspace). Omitted = today's behavior. */
   issueId?: string

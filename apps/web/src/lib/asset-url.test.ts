@@ -1,8 +1,9 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { assetUrl, scopedAssetUrl } from './asset-url'
 
 describe('assetUrl', () => {
-  const base = { httpOrigin: 'http://h:1', sessionId: 's1', fileDir: '/w/docs' }
+  const base = { httpOrigin: 'http://h:1', sessionId: asSessionId('s1'), fileDir: '/w/docs' }
   it('resolves a relative src against the file dir', () => {
     expect(assetUrl({ ...base, src: './img/a.png' })).toBe(
       'http://h:1/files/asset?sessionId=s1&path=%2Fw%2Fdocs%2Fimg%2Fa.png',

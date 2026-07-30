@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveCursorBin } from './cursor/cli.js'
 import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
@@ -56,7 +57,7 @@ describe('agentLaunchCommand', () => {
     expect(
       agentLaunchCommand('grok', {
         cwd: '/w',
-        podiumSessionId: 'podium-session-1',
+        podiumSessionId: asSessionId('podium-session-1'),
       }).env,
     ).toEqual({
       HARNESS_TERMINAL_ID: 'podium-session-1',
@@ -222,7 +223,7 @@ describe('agentLaunchCommand', () => {
 
     it('never places the stable Podium row id into Codex developer context', () => {
       const sessionId = 'f439e012-7cd1-4d39-a07e-5843caf35f0c'
-      expect(agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: sessionId }).args).toEqual(
+      expect(agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: asSessionId(sessionId) }).args).toEqual(
         CODEX_NETWORK_ARGS,
       )
     })

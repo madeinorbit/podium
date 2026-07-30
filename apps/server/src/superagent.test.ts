@@ -1,4 +1,4 @@
-import { SOLE_USER_ID, type TranscriptItem } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -68,7 +68,7 @@ describe('buildBtwSeed', () => {
     item({ id: 'u2', role: 'user', text: 'next thing', ts: '2026-06-16T07:02:00Z' }),
   ]
   const seed = buildBtwSeed({
-    session: { sessionId: 's1', name: 'feat-x', agentKind: 'claude-code', cwd: '/repo' },
+    session: { sessionId: asSessionId('s1'), name: 'feat-x', agentKind: 'claude-code', cwd: '/repo' },
     summary: 'Working on X.',
     items,
     maxChars: 20_000,
@@ -89,7 +89,7 @@ describe('buildBtwSeed', () => {
     expect(seed).not.toContain('x'.repeat(1000))
   })
   it('omits the summary line when none is given', () => {
-    expect(buildBtwSeed({ session: { sessionId: 's1' }, items })).not.toContain('Summary:')
+    expect(buildBtwSeed({ session: { sessionId: asSessionId('s1') }, items })).not.toContain('Summary:')
   })
 })
 
@@ -387,7 +387,7 @@ describe('session-steering tool belt (issue #62)', () => {
   const markPending = (h: ReturnType<typeof harness>, sessionId: string) =>
     h.registry.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: pendingQuestion,
     })
 
@@ -415,7 +415,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })
     expect(out).toBe('no pending question (phase=working)')
     expect(h.inputs).toEqual([]) // zero PTY input
@@ -480,7 +480,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('answer_question rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('answer_question', { sessionId: 'nope', answer: '1' })).toBe(
+    expect(await h.sa.callMcpTool('answer_question', { sessionId: asSessionId('nope'), answer: '1' })).toBe(
       'unknown session',
     )
   })
@@ -495,7 +495,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('resume_and_send fails on an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: 'nope', text: 'x' })).toBe(
+    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' })).toBe(
       'failed: unknown session',
     )
   })
@@ -503,17 +503,17 @@ describe('session-steering tool belt (issue #62)', () => {
   it("continue_session types 'continue' into an errored live session only", async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('errored') })
+    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('errored') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
     expect(h.inputs).toContain('continue\r')
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('idle') })
+    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('idle') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
   })
 
   it('continue_session rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('continue_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('continue_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })
@@ -523,7 +523,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sessionId = h.spawn(true)
     h.registry.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
     })
     expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toBe('hibernated')
@@ -532,7 +532,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('hibernate_session surfaces the registry refusal reasons', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: asSessionId('nope') })).toBe(
       'failed: unknown session',
     )
     const sessionId = h.spawn(true) // live but no resume ref yet
@@ -563,9 +563,9 @@ describe('session-steering tool belt (issue #62)', () => {
     )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
     expect(
-      await h.sa.callMcpTool('snooze_session', { sessionId: 'nope', until: 'next-message' }),
+      await h.sa.callMcpTool('snooze_session', { sessionId: asSessionId('nope'), until: 'next-message' }),
     ).toBe('unknown session')
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: 'nope' })).toBe('unknown session')
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: asSessionId('nope') })).toBe('unknown session')
   })
 
   it('rename_session sets the user-facing name', async () => {
@@ -575,7 +575,7 @@ describe('session-steering tool belt (issue #62)', () => {
       'renamed',
     )
     expect(h.metaOf(sessionId)?.name).toBe('auth fix')
-    expect(await h.sa.callMcpTool('rename_session', { sessionId: 'nope', name: 'x' })).toBe(
+    expect(await h.sa.callMcpTool('rename_session', { sessionId: asSessionId('nope'), name: 'x' })).toBe(
       'unknown session',
     )
   })
@@ -591,7 +591,7 @@ describe('session-steering tool belt (issue #62)', () => {
       /invalid workState/,
     )
     expect(h.metaOf(sessionId)?.workState).toBe('testing') // unchanged
-    expect(await h.sa.callMcpTool('set_work_state', { sessionId: 'nope', workState: 'done' })).toBe(
+    expect(await h.sa.callMcpTool('set_work_state', { sessionId: asSessionId('nope'), workState: 'done' })).toBe(
       'unknown session',
     )
   })
@@ -600,12 +600,12 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
     h.registry.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'done' } }),
     })
     expect(JSON.parse(await p)).toEqual({ phase: 'idle', verdict: 'done' })
@@ -616,7 +616,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sessionId = h.spawn(true)
     h.registry.gateway.routeDaemonFrame('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'question' } }),
     })
     const t0 = Date.now()
@@ -628,7 +628,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
       'timeout after 0s (session still working)',
     )
@@ -636,7 +636,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('wait_for_session rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })

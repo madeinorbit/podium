@@ -1,16 +1,4 @@
-import {
-  AgentKind,
-  AgentRuntimeState,
-  asAutomationId,
-  asAutomationRunId,
-  asSessionId,
-  ConversationSummaryWire,
-  GitRepositoryWire,
-  MachineWire,
-  ResumeRef,
-  SessionMeta,
-  SessionStatus,
-} from '@podium/model'
+import { AgentKind, AgentRuntimeState, ConversationSummaryWire, GitRepositoryWire, MachineWire, ResumeRef, SessionMeta, SessionStatus, asAutomationId, asAutomationRunId, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   AgentQuotaResultMessage,
@@ -34,7 +22,7 @@ import {
 describe('shared schemas', () => {
   it('round-trips a SessionMeta (spawn origin)', () => {
     const meta = {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 'fix the bug',
       cwd: '/home/u/proj',
@@ -58,7 +46,7 @@ describe('shared schemas', () => {
   // form round-trips too.
   it('round-trips a SessionMeta carrying spawnedBy', () => {
     const meta = {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 't',
       cwd: '/w',
@@ -81,7 +69,7 @@ describe('shared schemas', () => {
 
   it('round-trips a SessionMeta (resume origin, exited)', () => {
     const meta = {
-      sessionId: 's2',
+      sessionId: asSessionId('s2'),
       agentKind: 'codex' as const,
       title: 'old thread',
       cwd: '/w',
@@ -104,7 +92,7 @@ describe('shared schemas', () => {
 
   it('round-trips a SessionMeta (starting, no controller yet)', () => {
     const meta = {
-      sessionId: 's3',
+      sessionId: asSessionId('s3'),
       agentKind: 'claude-code' as const,
       title: 'new',
       cwd: '/w',
@@ -127,7 +115,7 @@ describe('shared schemas', () => {
   // Unread state (issue #124): readAt + unread are additive, defaulted so pre-field
   // cached payloads still validate (readAt → null, unread → false).
   const baseMeta = {
-    sessionId: 's_unread',
+    sessionId: asSessionId('s_unread'),
     agentKind: 'claude-code' as const,
     title: 't',
     cwd: '/w',
@@ -235,19 +223,19 @@ describe('shared schemas', () => {
 describe('ClientMessage', () => {
   const cases: ClientMessage[] = [
     { type: 'hello', clientId: 'c1', viewport: { cols: 80, rows: 24, dpr: 2 } },
-    { type: 'attach', sessionId: 's1' },
-    { type: 'detach', sessionId: 's1' },
-    { type: 'input', sessionId: 's1', data: 'aGk=' },
-    { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
-    { type: 'requestControl', sessionId: 's1' },
-    { type: 'redrawRequest', sessionId: 's1' },
+    { type: 'attach', sessionId: asSessionId('s1') },
+    { type: 'detach', sessionId: asSessionId('s1') },
+    { type: 'input', sessionId: asSessionId('s1'), data: 'aGk=' },
+    { type: 'resize', sessionId: asSessionId('s1'), cols: 100, rows: 30 },
+    { type: 'requestControl', sessionId: asSessionId('s1') },
+    { type: 'redrawRequest', sessionId: asSessionId('s1') },
     {
       type: 'sessionOpenUrlCallback',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       url: 'http://localhost:1455/auth/callback?code=x',
     },
-    { type: 'sessionOpenUrlDismiss', sessionId: 's1', requestId: 'open-1' },
+    { type: 'sessionOpenUrlDismiss', sessionId: asSessionId('s1'), requestId: 'open-1' },
     { type: 'ping' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
@@ -258,7 +246,7 @@ describe('ClientMessage', () => {
   })
   it('rejects resize with non-positive cols', () => {
     expect(() =>
-      parseClientMessage(JSON.stringify({ type: 'resize', sessionId: 's1', cols: 0, rows: 24 })),
+      parseClientMessage(JSON.stringify({ type: 'resize', sessionId: asSessionId('s1'), cols: 0, rows: 24 })),
     ).toThrow()
   })
 })
@@ -294,12 +282,12 @@ describe('ServerMessage', () => {
   }
   const cases: ServerMessage[] = [
     { type: 'welcome', clientId: 'c0' },
-    { type: 'attached', sessionId: 's1', controllerId: 'c0', geometry, epoch: 0 },
-    { type: 'attached', sessionId: 's1', controllerId: null, geometry, epoch: 0 },
-    { type: 'outputFrame', sessionId: 's1', seq: 3, epoch: 1, data: 'eA==' },
-    { type: 'controllerChanged', sessionId: 's1', controllerId: 'c1', geometry },
-    { type: 'geometry', sessionId: 's1', cols: 100, rows: 30 },
-    { type: 'agentExit', sessionId: 's1', code: 0 },
+    { type: 'attached', sessionId: asSessionId('s1'), controllerId: 'c0', geometry, epoch: 0 },
+    { type: 'attached', sessionId: asSessionId('s1'), controllerId: null, geometry, epoch: 0 },
+    { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 3, epoch: 1, data: 'eA==' },
+    { type: 'controllerChanged', sessionId: asSessionId('s1'), controllerId: 'c1', geometry },
+    { type: 'geometry', sessionId: asSessionId('s1'), cols: 100, rows: 30 },
+    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
     { type: 'sessionsChanged', sessions: [sessionMeta] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     {
@@ -338,10 +326,10 @@ describe('ServerMessage', () => {
         },
       ],
     },
-    { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
+    { type: 'sessionTitleChanged', sessionId: asSessionId('s1'), title: '✳ rename functionality' },
     {
       type: 'sessionAgentStateChanged',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       state: {
         phase: 'errored',
         since: '2026-06-12T10:00:00.000Z',
@@ -351,7 +339,7 @@ describe('ServerMessage', () => {
     },
     {
       type: 'sessionOpenUrl',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       url: 'https://auth.example/login?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
       callbackTarget: { host: 'localhost', port: 1455, path: '/auth/callback' },
@@ -359,7 +347,7 @@ describe('ServerMessage', () => {
     },
     {
       type: 'sessionOpenUrlResult',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       status: 'completed',
       httpStatus: 200,
@@ -463,10 +451,10 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 describe('ControlMessage (server -> daemon)', () => {
   const geometry = { cols: 80, rows: 24 }
   const cases: ControlMessage[] = [
-    { type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/w', geometry },
+    { type: 'spawn', sessionId: asSessionId('s1'), agentKind: 'claude-code', cwd: '/w', geometry },
     {
       type: 'spawn',
-      sessionId: 's2',
+      sessionId: asSessionId('s2'),
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 'id9' },
@@ -474,7 +462,7 @@ describe('ControlMessage (server -> daemon)', () => {
     },
     {
       type: 'spawn',
-      sessionId: 's-grok',
+      sessionId: asSessionId('s-grok'),
       agentKind: 'grok',
       cwd: '/w',
       resume: { kind: 'grok-session', value: 'g9' },
@@ -495,26 +483,26 @@ describe('ControlMessage (server -> daemon)', () => {
       mcpConfig: '{"mcpServers":{}}',
       timeoutMs: 600_000,
     },
-    { type: 'kill', sessionId: 's1' },
+    { type: 'kill', sessionId: asSessionId('s1') },
     { type: 'scanRequest', requestId: 'r1' },
     { type: 'scanReposRequest', requestId: 'rr1', roots: ['/home/u/src'] },
     { type: 'browseDirsRequest', requestId: 'bd1' },
     { type: 'browseDirsRequest', requestId: 'bd2', path: '~/src', includeHidden: true },
-    { type: 'input', sessionId: 's1', data: 'aGk=' },
-    { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
-    { type: 'redraw', sessionId: 's1' },
+    { type: 'input', sessionId: asSessionId('s1'), data: 'aGk=' },
+    { type: 'resize', sessionId: asSessionId('s1'), cols: 100, rows: 30 },
+    { type: 'redraw', sessionId: asSessionId('s1') },
     {
       type: 'sessionResumeRefAck',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       resume: { kind: 'codex-thread', value: 'thread-1' },
     },
     {
       type: 'sessionOpenUrlCallback',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       url: 'http://localhost:1455/auth/callback?code=x',
     },
-    { type: 'sessionOpenUrlDismiss', sessionId: 's1', requestId: 'open-1' },
+    { type: 'sessionOpenUrlDismiss', sessionId: asSessionId('s1'), requestId: 'open-1' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseControlMessage(encode(msg))).toEqual(msg)
@@ -532,19 +520,19 @@ describe('DaemonMessage (daemon -> server)', () => {
     resume: { kind: 'grok-session', value: 'conv-1' },
   }
   const cases: DaemonMessage[] = [
-    { type: 'bind', sessionId: 's1', cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
-    { type: 'bind', sessionId: 's-grok', cmd: 'grok', cwd: '/w', agentKind: 'grok', geometry },
-    { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
-    { type: 'agentExit', sessionId: 's1', code: 0 },
+    { type: 'bind', sessionId: asSessionId('s1'), cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
+    { type: 'bind', sessionId: asSessionId('s-grok'), cmd: 'grok', cwd: '/w', agentKind: 'grok', geometry },
+    { type: 'agentFrame', sessionId: asSessionId('s1'), seq: 0, data: 'eA==' },
+    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
     {
       type: 'sessionResumeRef',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       resume: { kind: 'codex-thread', value: 'thread-1' },
       confidence: 'exact',
       ackRequested: true,
     },
-    { type: 'spawnError', sessionId: 's1', message: 'enoent' },
-    { type: 'title', sessionId: 's1', title: '⠹ podium' },
+    { type: 'spawnError', sessionId: asSessionId('s1'), message: 'enoent' },
+    { type: 'title', sessionId: asSessionId('s1'), title: '⠹ podium' },
     { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     {
@@ -579,14 +567,14 @@ describe('DaemonMessage (daemon -> server)', () => {
     { type: 'browseDirsResult', requestId: 'bd3', error: 'Could not open directory /nope' },
     {
       type: 'sessionOpenUrl',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       url: 'https://auth.example/login',
       expiresAt: 1_800_000_000_000,
     },
     {
       type: 'sessionOpenUrlResult',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       status: 'failed',
       error: 'no listener',
@@ -640,7 +628,7 @@ describe('Layer 3 reattach messages', () => {
   it('round-trips a reattach control message', () => {
     const msg = {
       type: 'reattach' as const,
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code' as const,
       cwd: '/p',
@@ -650,7 +638,7 @@ describe('Layer 3 reattach messages', () => {
   })
 
   it('round-trips a reattachFailed daemon message', () => {
-    const msg = { type: 'reattachFailed' as const, sessionId: 's1', reason: 'no tmux session' }
+    const msg = { type: 'reattachFailed' as const, sessionId: asSessionId('s1'), reason: 'no tmux session' }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })
@@ -748,13 +736,13 @@ describe('memory breakdown messages', () => {
 describe('session draft messages', () => {
   it('parses setSessionDraft (client) and sessionDraftChanged (server)', () => {
     expect(
-      ClientMessage.parse({ type: 'setSessionDraft', sessionId: 's', text: 'hi' }),
+      ClientMessage.parse({ type: 'setSessionDraft', sessionId: asSessionId('s'), text: 'hi' }),
     ).toMatchObject({
       type: 'setSessionDraft',
       text: 'hi',
     })
     expect(
-      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' }),
+      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: asSessionId('s'), text: 'hi' }),
     ).toMatchObject({
       type: 'sessionDraftChanged',
       text: 'hi',
@@ -767,7 +755,7 @@ describe('versioned draft messages (POD-859)', () => {
     expect(
       ServerMessage.parse({
         type: 'sessionDraftChanged',
-        sessionId: 's',
+        sessionId: asSessionId('s'),
         text: 'hi',
         rev: 4,
         origin: 'clientA',
@@ -775,22 +763,22 @@ describe('versioned draft messages (POD-859)', () => {
       }),
     ).toMatchObject({ rev: 4, origin: 'clientA', editedAt: '2026-07-17T12:00:00.000Z' })
     expect(
-      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' }),
+      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: asSessionId('s'), text: 'hi' }),
     ).toMatchObject({ type: 'sessionDraftChanged', text: 'hi' })
   })
 
   it('parses draftEdit (client -> server) carrying baseRev', () => {
-    const m = { type: 'draftEdit', sessionId: 's', baseRev: 3, text: 'hello' } as const
+    const m = { type: 'draftEdit', sessionId: asSessionId('s'), baseRev: 3, text: 'hello' } as const
     expect(parseClientMessage(encode(m))).toEqual(m)
   })
 
   it('parses nativeDraft (daemon -> server)', () => {
-    const m = { type: 'nativeDraft', sessionId: 's', text: 'scraped from native' } as const
+    const m = { type: 'nativeDraft', sessionId: asSessionId('s'), text: 'scraped from native' } as const
     expect(parseDaemonMessage(encode(m))).toEqual(m)
   })
 
   it('parses draftTarget (server -> daemon)', () => {
-    const m = { type: 'draftTarget', sessionId: 's', text: 'inject me into native' } as const
+    const m = { type: 'draftTarget', sessionId: asSessionId('s'), text: 'inject me into native' } as const
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
 })
@@ -830,7 +818,7 @@ describe('image upload messages', () => {
     const msg = {
       type: 'imageUploadRequest' as const,
       requestId: 'iu1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       filename: 'screenshot.png',
       mimeType: 'image/png',
       dataBase64: 'aGVsbG8=',
@@ -853,7 +841,7 @@ describe('image upload messages', () => {
         JSON.stringify({
           type: 'imageUploadRequest',
           requestId: 'r1',
-          sessionId: 's1',
+          sessionId: asSessionId('s1'),
           filename: 'f.png',
           dataBase64: 'x',
         }),
@@ -872,18 +860,18 @@ describe('agent runtime state', () => {
   }
 
   it('round-trips an agentState daemon message', () => {
-    const msg = { type: 'agentState', sessionId: 's1', state }
+    const msg = { type: 'agentState', sessionId: asSessionId('s1'), state }
     expect(parseDaemonMessage(encode(msg as never))).toEqual(msg)
   })
 
   it('rejects an unknown phase', () => {
-    const bad = { type: 'agentState', sessionId: 's1', state: { ...state, phase: 'napping' } }
+    const bad = { type: 'agentState', sessionId: asSessionId('s1'), state: { ...state, phase: 'napping' } }
     expect(() => parseDaemonMessage(JSON.stringify(bad))).toThrow()
   })
 
   it('SessionMeta accepts an optional agentState', () => {
     const meta = SessionMeta.parse({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       title: 't',
       cwd: '/tmp',
@@ -926,7 +914,7 @@ describe('agent runtime state', () => {
 
   it('SessionMeta carries an optional, nullable snoozedUntil', () => {
     const base = {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       title: 't',
       cwd: '/w',
@@ -949,7 +937,7 @@ describe('agent runtime state', () => {
 
   it('SessionMeta carries the additive upstream-mirror flags (node⇄hub sync)', () => {
     const base = {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'shell',
       title: 't',
       cwd: '/w',
@@ -1018,39 +1006,47 @@ describe('output-scheduling protocol', () => {
   it('round-trips agentFrameBatch (daemon→server)', () => {
     // Per-field `as const` (not whole-object) keeps `frames` a mutable string[] so it
     // matches encode()'s AnyMessage param — whole-object `as const` makes it readonly.
-    const m = { type: 'agentFrameBatch' as const, sessionId: 's1', frames: ['YQ==', 'Yg=='] }
+    const m = { type: 'agentFrameBatch' as const, sessionId: asSessionId('s1'), frames: ['YQ==', 'Yg=='] }
     expect(parseDaemonMessage(encode(m))).toEqual(m)
   })
   it('round-trips viewState (client→server), focused nullable', () => {
-    const m = { type: 'viewState' as const, visible: ['s1', 's2'], focused: 's1' }
+    const m = {
+      type: 'viewState' as const,
+      visible: ['s1', 's2'].map(asSessionId),
+      focused: asSessionId('s1'),
+    }
     expect(parseClientMessage(encode(m))).toEqual(m)
-    const m2 = { type: 'viewState' as const, visible: [] as string[], focused: null }
+    const m2 = { type: 'viewState' as const, visible: [] as SessionId[], focused: null }
     expect(parseClientMessage(encode(m2))).toEqual(m2)
   })
   it('round-trips viewState with an optional modes map (rendered native/chat)', () => {
     const m = {
       type: 'viewState' as const,
-      visible: ['s1', 's2'],
-      focused: 's1',
+      visible: ['s1', 's2'].map(asSessionId),
+      focused: asSessionId('s1'),
       modes: { s1: 'native' as const, s2: 'chat' as const },
     }
     expect(parseClientMessage(encode(m))).toEqual(m)
   })
   it('viewState without modes still parses (backward compatible old clients)', () => {
-    const m = { type: 'viewState' as const, visible: ['s1'], focused: 's1' }
+    const m = {
+      type: 'viewState' as const,
+      visible: ['s1'].map(asSessionId),
+      focused: asSessionId('s1'),
+    }
     const parsed = parseClientMessage(encode(m))
     expect(parsed).toEqual(m)
     expect((parsed as { modes?: unknown }).modes).toBeUndefined()
   })
   it('round-trips sessionPriority (server→daemon)', () => {
-    const m = { type: 'sessionPriority' as const, sessionId: 's1', priority: 0 }
+    const m = { type: 'sessionPriority' as const, sessionId: asSessionId('s1'), priority: 0 }
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
   it('rejects out-of-range / non-int sessionPriority', () => {
     for (const p of [-1, 4, 1.5]) {
       expect(() =>
         parseControlMessage(
-          encode({ type: 'sessionPriority', sessionId: 's', priority: p } as never),
+          encode({ type: 'sessionPriority', sessionId: asSessionId('s'), priority: p } as never),
         ),
       ).toThrow()
     }
@@ -1063,7 +1059,7 @@ describe('agent relay messages', () => {
       JSON.stringify({
         type: 'agentRelayRequest',
         requestId: 'ir0',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         router: 'issues',
         proc: 'ready',
         input: { repoPath: '/r' },
@@ -1086,7 +1082,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       type: 'headlessTurnRequest',
       requestId: 'ht1',
       turnId: 'turn-1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       threadId: 'concierge',
       agent: 'claude-code',
       model: 'opus',
@@ -1108,7 +1104,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       type: 'headlessTurnRequest',
       requestId: 'ht2',
       turnId: 'turn-2',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       threadId: 'btw_x',
       agent: 'codex',
       cwd: '/repo',
@@ -1122,13 +1118,13 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
     const interrupt: ControlMessage = {
       type: 'headlessInterrupt',
       requestId: 'hi1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     }
     expect(parseControlMessage(encode(interrupt))).toEqual(interrupt)
     const bind: ControlMessage = {
       type: 'headlessBind',
       requestId: 'hb1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'grok',
       cwd: '/repo',
       resumeValue: 'abc',
@@ -1140,14 +1136,14 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
     const partial: DaemonMessage = {
       type: 'headlessTurnEvent',
       requestId: 'ht1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       event: { kind: 'partial-text', text: 'Hel', itemHint: 'u1' },
     }
     expect(parseDaemonMessage(encode(partial))).toEqual(partial)
     const status: DaemonMessage = {
       type: 'headlessTurnEvent',
       requestId: 'ht1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       event: { kind: 'status', status: 'tool', label: 'Bash' },
     }
     expect(parseDaemonMessage(encode(status))).toEqual(status)
@@ -1174,7 +1170,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
         encode({
           type: 'headlessTurnEvent',
           requestId: 'x',
-          sessionId: 's',
+          sessionId: asSessionId('s'),
           event: { kind: 'bogus' },
         } as unknown as DaemonMessage),
       ),
@@ -1187,7 +1183,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       name: 'Overnight continuation',
       runAt: '2026-07-17T02:00:00.000Z',
       prompt: 'Continue during the quota window.',
-      target: { kind: 'session', sessionId: 'sess_sleeping' },
+      target: { kind: 'session', sessionId: asSessionId('sess_sleeping') },
     })
     const description = describeApprovalOp(op)
     expect(description).toContain('Overnight continuation')
@@ -1199,19 +1195,19 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
   it('round-trips headlessActivity (turn boundaries) through the ServerMessage codec', () => {
     const start: ServerMessage = {
       type: 'headlessActivity',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       event: { kind: 'turn-start' },
     }
     expect(parseServerMessage(encode(start))).toEqual(start)
     const end: ServerMessage = {
       type: 'headlessActivity',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       event: { kind: 'turn-end', error: 'boom' },
     }
     expect(parseServerMessage(encode(end))).toEqual(end)
     const text: ServerMessage = {
       type: 'headlessActivity',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       event: { kind: 'partial-text', text: 'hi' },
     }
     expect(parseServerMessage(encode(text))).toEqual(text)

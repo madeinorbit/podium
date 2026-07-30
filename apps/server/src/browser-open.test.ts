@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -36,7 +37,7 @@ function setup() {
   return { registry, sessionId, m1, m2 }
 }
 
-function request(sessionId: string, requestId: string) {
+function request(sessionId: SessionId, requestId: string) {
   return {
     type: 'sessionOpenUrl' as const,
     sessionId,

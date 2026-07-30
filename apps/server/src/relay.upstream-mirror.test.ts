@@ -1,9 +1,5 @@
 import { createHash } from 'node:crypto'
-import {
-  type SessionMetaInput,
-  type ConversationSummaryWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type ConversationSummaryWire, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -138,22 +134,22 @@ describe('upstream mirror (registry surface)', () => {
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
     const reason = UPSTREAM_COMMAND_REJECTION
 
-    expect(registry.modules.sessions.sendText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.sendText({ sessionId: asSessionId('hub-1'), text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.modules.sessions.queueText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.queueText({ sessionId: asSessionId('hub-1'), text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.modules.sessions.resumeAndSend({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.resumeAndSend({ sessionId: asSessionId('hub-1'), text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.modules.sessions.hibernateSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(await registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(registry.modules.sessions.continueSession({ sessionId: 'hub-1' })).toEqual({ ok: false })
-    expect(() => registry.modules.sessions.killSession({ sessionId: 'hub-1' })).toThrow(reason)
+    expect(registry.modules.sessions.hibernateSession({ sessionId: asSessionId('hub-1') })).toEqual({ ok: false, reason })
+    expect(await registry.modules.sessions.resurrectSession({ sessionId: asSessionId('hub-1') })).toEqual({ ok: false, reason })
+    expect(registry.modules.sessions.continueSession({ sessionId: asSessionId('hub-1') })).toEqual({ ok: false })
+    expect(() => registry.modules.sessions.killSession({ sessionId: asSessionId('hub-1') })).toThrow(reason)
     // ...and the mirror entry is still there (rejection is side-effect free).
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === 'hub-1')).toBe(true)
   })

@@ -12,7 +12,7 @@ import type {
   LiveServerMessage,
   ServerMessage,
 } from '@podium/protocol'
-import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
 

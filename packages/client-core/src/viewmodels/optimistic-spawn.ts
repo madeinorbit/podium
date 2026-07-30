@@ -1,13 +1,4 @@
-import {
-  type AgentKind,
-  asIssueId,
-  asRepoId,
-  asSessionId,
-  type IssueWire,
-  isSortKey,
-  type SessionMeta,
-  sortKeyBetween,
-} from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, isSortKey, sortKeyBetween, type AgentKind, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -45,7 +36,7 @@ function basename(path: string): string {
 }
 
 export interface OptimisticSpawnArgs {
-  sessionId: string
+  sessionId: SessionId
   issueId: string
   agentKind: AgentKind
   cwd: string

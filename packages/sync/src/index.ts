@@ -34,6 +34,13 @@ export * from './span'
  */
 export * from './conformance/index'
 
+/**
+ * The AUTHORITY role (POD-305, 2.1) — the write funnel and the Ledger, joined.
+ * `./ledger` remains exported beside it during the cutover: POD-306 and POD-308
+ * still consume it, and deleting it in the same commit that introduced its
+ * replacement would have made this issue's diff the migration of every call site.
+ */
+export * from './authority/index'
 export * from './ledger'
 export * from './mirror'
 /**
@@ -47,6 +54,6 @@ export * from './mirror'
 export * from './mutation-ledger'
 export * from './outbox'
 export * from './replica/index'
-export * from './sync-repository'
+export * from './adapters/sqlite/sync-repository'
 export * from './upstream'
 export * from './upstream-forwarder'

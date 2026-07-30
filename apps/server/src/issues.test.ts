@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, asUserId, type IssueId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -28,7 +25,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -170,7 +167,7 @@ describe('IssueService CRUD', () => {
       repoPath: '/r',
       title: 'X',
       startNow: false,
-      id: 'iss_client-supplied',
+      id: asIssueId('iss_client-supplied'),
     })
     expect(wire.id).toBe('iss_client-supplied')
     expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
@@ -212,7 +209,7 @@ describe('IssueService CRUD', () => {
 
   it('createDraftFor threads a client-provided id through to create()', () => {
     const { svc } = harness()
-    const wire = svc.createDraftFor('/r', 'claude-code', 'iss_draft-client-id')
+    const wire = svc.createDraftFor('/r', 'claude-code', asIssueId('iss_draft-client-id'))
     expect(wire.id).toBe('iss_draft-client-id')
     expect(wire.draft).toBe(true)
   })
@@ -363,7 +360,7 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -451,7 +448,7 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -702,7 +699,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
   })
 
   it('explicit issueId attachment retires offers even when cwd is outside the worktree', () => {
-    const attached = offered('/elsewhere/agent', { sessionId: 'attached', issueId: undefined })
+    const attached = offered('/elsewhere/agent', { sessionId: asSessionId('attached'), issueId: undefined })
     // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
     const sessions: SessionMeta[] = []
     const { svc, clearSessionOffer } = harness(sessions)
@@ -791,7 +788,7 @@ describe('IssueService next-message defer (#430)', () => {
     expect(svc.get(w.id)!.deferred).toBe(true)
     // A session explicitly attached to the issue enters attention → defer clears.
     sessions.push({ ...sess('/elsewhere', 'awaiting_input'), issueId: w.id } as SessionMeta)
-    svc.onSessionAttention('/elsewhere')
+    svc.onSessionAttention(asSessionId('/elsewhere'))
     expect(svc.get(w.id)!.deferred).toBe(false)
     expect(svc.get(w.id)!.deferUntil == null).toBe(true)
   })
@@ -804,7 +801,7 @@ describe('IssueService next-message defer (#430)', () => {
     svc.defer(a.id, 'next-message')
     svc.defer(b.id, '2099-01-01')
     sessions.push({ ...sess('/x', 'awaiting_input'), issueId: b.id } as SessionMeta)
-    svc.onSessionAttention('/x')
+    svc.onSessionAttention(asSessionId('/x'))
     expect(svc.get(a.id)!.deferred).toBe(true) // session belongs to b, not a
     expect(svc.get(b.id)!.deferred).toBe(true) // timed defer untouched
   })
@@ -1512,7 +1509,7 @@ describe('IssueService field mutations (P1)', () => {
   it('claim sets assignee + in_progress; close sets done + reason', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const claimed = svc.claim(a.id, 'agent:claude')
+    const claimed = svc.claim(a.id, asUserId('agent:claude'))
     expect(claimed.assignee).toBe('agent:claude')
     expect(claimed.stage).toBe('in_progress')
     const closed = svc.close(a.id, 'wontfix')
@@ -1524,7 +1521,7 @@ describe('IssueService field mutations (P1)', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(a.coordinatorSessionId).toBeUndefined()
-    const set = svc.setCoordinator(a.id, 'sess_coord')
+    const set = svc.setCoordinator(a.id, asSessionId('sess_coord'))
     expect(set.coordinatorSessionId).toBe('sess_coord')
     expect(store.issues.getIssue(a.id)?.coordinatorSessionId).toBe('sess_coord')
     const cleared = svc.setCoordinator(a.id, null)
@@ -1542,7 +1539,7 @@ describe('IssueService field mutations (P1)', () => {
       title: 'Ag',
       startNow: false,
       origin: 'agent',
-      startedBySession: 'sess_creator',
+      startedBySession: asSessionId('sess_creator'),
     })
     expect(agent.startedBySession).toBe('sess_creator')
     expect(store.issues.getIssue(agent.id)?.startedBySession).toBe('sess_creator')
@@ -1564,7 +1561,7 @@ describe('IssueService field mutations (P1)', () => {
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const flagged = svc.setNeedsHuman(a.id, 'merge?', {
       options: [' Yes, merge ', 'No', '  '],
-      askedBy: 'sess_asker',
+      askedBy: asSessionId('sess_asker'),
     })
     expect(flagged.humanQuestionOptions).toEqual(['Yes, merge', 'No']) // trimmed, blanks dropped
     expect(flagged.humanQuestionAskedBy).toBe('sess_asker')
@@ -1846,7 +1843,7 @@ describe('IssueService.tree (issue #82)', () => {
     })
     sessions.push({
       ...sess('/elsewhere', 'working'),
-      sessionId: 'sess-impl',
+      sessionId: asSessionId('sess-impl'),
       issueId: epic.id,
       agentKind: 'grok',
       model: 'grok-4.5',
@@ -1855,7 +1852,7 @@ describe('IssueService.tree (issue #82)', () => {
     } as SessionMeta)
     sessions.push({
       ...sess('/elsewhere', 'idle'),
-      sessionId: 'sess-rev',
+      sessionId: asSessionId('sess-rev'),
       issueId: epic.id,
       agentKind: 'codex',
       model: 'gpt-5.6-sol',
@@ -1865,7 +1862,7 @@ describe('IssueService.tree (issue #82)', () => {
     } as SessionMeta)
     sessions.push({
       ...sess('/elsewhere', 'working'),
-      sessionId: 'sess-child',
+      sessionId: asSessionId('sess-child'),
       issueId: child.id,
       agentKind: 'claude-code',
       model: 'sonnet',
@@ -1875,10 +1872,10 @@ describe('IssueService.tree (issue #82)', () => {
     // Unrelated session must not appear.
     sessions.push({
       ...sess('/other', 'working'),
-      sessionId: 'sess-other',
+      sessionId: asSessionId('sess-other'),
       issueId: 'iss_other',
     } as SessionMeta)
-    svc.setCoordinator(epic.id, 'sess-impl')
+    svc.setCoordinator(epic.id, asSessionId('sess-impl'))
 
     const t = svc.tree(epic.id)
     expect(t.root.sessions).toHaveLength(2)
@@ -1898,7 +1895,7 @@ describe('IssueService.tree (issue #82)', () => {
     expect(rev.phase).toBe('idle')
     expect(t.root.children[0]!.sessions).toEqual([
       expect.objectContaining({
-        sessionId: 'sess-child',
+        sessionId: asSessionId('sess-child'),
         agentKind: 'claude-code',
         status: 'exited',
         phase: 'working',
@@ -2290,7 +2287,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     // labels + update + claim + needs-human by seq
     svc.setLabels(String(b.seq), ['x'])
     expect(svc.get(String(b.seq))?.labels).toContain('x')
-    svc.claim(`#${b.seq}`, 'agent:test')
+    svc.claim(`#${b.seq}`, asUserId('agent:test'))
     expect(svc.get(b.id)?.assignee).toBe('agent:test')
     svc.setNeedsHuman(String(b.seq), 'q?')
     expect(svc.get(b.id)?.needsHuman).toBe(true)
@@ -2965,7 +2962,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const h = harness([sess('/wt')])
     let n = 0
     const snapshot = vi.fn(async (o: { sourcePath: string }) => ({
-      artifactId: `art${++n}`,
+      artifactId: asArtifactId(`art${++n}`),
       entry: o.sourcePath.split('/').pop() as string,
       files: [{ path: o.sourcePath.split('/').pop() as string, size: 3 }],
     }))
@@ -3128,14 +3125,14 @@ describe('IssueService agent mail (#103)', () => {
   // The "run mail inbox" nag must count only messages not yet in the agent's
   // context. status='delivered' = transcript echo = already seen.
 
-  function substrateRow(issueId: string, id: string, status: 'queued' | 'delivered' | 'read') {
+  function substrateRow(issueId: IssueId, id: string, status: 'queued' | 'delivered' | 'read') {
     return {
       id,
       threadId: id,
       inReplyTo: null,
       fromKind: 'agent' as const,
-      fromSession: 'sX',
-      fromIssue: 'iss_sender',
+      fromSession: asSessionId('sX'),
+      fromIssue: asIssueId('iss_sender'),
       toKind: 'issue' as const,
       toId: issueId,
       kind: 'message' as const,
@@ -3146,7 +3143,7 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:00.000Z',
       status,
       deliveredAt: status === 'delivered' || status === 'read' ? '2026-06-30T00:00:01.000Z' : null,
-      deliveredTo: status === 'delivered' || status === 'read' ? 's1' : null,
+      deliveredTo: status === 'delivered' || status === 'read' ? asSessionId('s1') : null,
       readAt: status === 'read' ? '2026-06-30T00:00:02.000Z' : null,
       injectedAt: null,
       deadLetteredAt: null,
@@ -3223,12 +3220,12 @@ describe('IssueService agent mail (#103)', () => {
     for (let i = 0; i < 200; i += 1) {
       store.messages.addMessage({
         ...substrateRow(a.id, `msg_head_${String(i).padStart(3, '0')}`, 'queued'),
-        fromIssue: 'iss_head_sender',
+        fromIssue: asIssueId('iss_head_sender'),
       })
     }
     store.messages.addMessage({
       ...substrateRow(a.id, 'msg_tail_200', 'queued'),
-      fromIssue: 'iss_tail_sender',
+      fromIssue: asIssueId('iss_tail_sender'),
       createdAt: '2026-06-30T00:00:01.000Z',
     })
 

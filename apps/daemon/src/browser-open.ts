@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { get } from 'node:http'
 import type { BrowserOpenClassification } from '@podium/harness'
@@ -14,7 +15,7 @@ const CALLBACK_TIMEOUT_MS = 10_000
 const MAX_OPEN_URL_BYTES = 16_384
 
 interface PendingBrowserOpen {
-  sessionId: string
+  sessionId: SessionId
   requestId: string
   url: string
   intent: BrowserOpenIntent
@@ -23,7 +24,7 @@ interface PendingBrowserOpen {
 }
 
 export interface BrowserOpenManager {
-  capture(sessionId: string, rawUrl: string): { ok: true } | { ok: false; error: string }
+  capture(sessionId: SessionId, rawUrl: string): { ok: true } | { ok: false; error: string }
   callback(msg: SessionOpenUrlCallbackMessage): Promise<void>
   dismiss(msg: SessionOpenUrlDismissMessage): void
   replay(): void
@@ -128,14 +129,14 @@ export function createBrowserOpenManager(
     execute?: (url: URL) => Promise<number>
     /** Harness-specific classification for the session's URL, consulted ahead
      *  of the generic redirect_uri heuristic (adapter.classifyBrowserOpen). */
-    classify?: (sessionId: string, url: URL) => BrowserOpenClassification | undefined
+    classify?: (sessionId: SessionId, url: URL) => BrowserOpenClassification | undefined
   } = {},
 ): BrowserOpenManager {
   const now = opts.now ?? Date.now
   const ttlMs = opts.ttlMs ?? BROWSER_OPEN_TTL_MS
   const execute = opts.execute ?? executeLoopbackGet
   const pending = new Map<string, PendingBrowserOpen>()
-  const key = (sessionId: string, requestId: string): string => `${sessionId}:${requestId}`
+  const key = (sessionId: SessionId, requestId: string): string => `${sessionId}:${requestId}`
 
   const publish = (request: PendingBrowserOpen): void => {
     send({

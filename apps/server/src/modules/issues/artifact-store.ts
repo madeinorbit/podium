@@ -1,3 +1,4 @@
+import { asArtifactId, type ArtifactId, type IssueId } from '@podium/model'
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -61,7 +62,7 @@ export interface ArtifactManifestFile {
 }
 
 export interface ArtifactSnapshot {
-  artifactId: string
+  artifactId: ArtifactId
   entry: string
   files: ArtifactManifestFile[]
 }
@@ -104,7 +105,7 @@ export class IssueArtifactStore {
     private readonly rpc: ArtifactRpc,
   ) {}
 
-  private artifactDir(issueId: string, artifactId: string): string {
+  private artifactDir(issueId: IssueId, artifactId: ArtifactId): string {
     if (!ID_RE.test(issueId) || !ID_RE.test(artifactId)) throw new Error('bad artifact ref')
     return join(this.baseDir, issueId, artifactId)
   }
@@ -116,13 +117,14 @@ export class IssueArtifactStore {
    * partial dir and rethrows — nothing half-registered.
    */
   async snapshot(o: {
-    issueId: string
+    issueId: IssueId
     root: string
     machineId?: string
     sourcePath: string
     extraPaths?: string[]
   }): Promise<ArtifactSnapshot> {
-    const artifactId = randomBytes(6).toString('hex')
+    // MINT SITE for an ArtifactId — generated here, so the brand is applied here.
+    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
     const dir = this.artifactDir(o.issueId, artifactId)
     const machine = o.machineId ? { machineId: o.machineId } : {}
     const abs = (p: string) => (isAbsolute(p) ? p : join(o.root, p))
@@ -230,8 +232,8 @@ export class IssueArtifactStore {
 
   /** Serve one stored file, traversal-guarded to the artifact dir. Null = 404. */
   async read(
-    issueId: string,
-    artifactId: string,
+    issueId: IssueId,
+    artifactId: ArtifactId,
     relPath: string,
   ): Promise<{ bytes: Buffer; contentType: string } | null> {
     let dir: string
@@ -252,12 +254,12 @@ export class IssueArtifactStore {
   }
 
   /** Delete one snapshot dir (artifact-remove / post-replace cleanup). */
-  async remove(issueId: string, artifactId: string): Promise<void> {
+  async remove(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
     await rm(this.artifactDir(issueId, artifactId), { recursive: true, force: true })
   }
 
   /** Delete every snapshot of an issue (hard issue deletion). */
-  async removeIssue(issueId: string): Promise<void> {
+  async removeIssue(issueId: IssueId): Promise<void> {
     if (!ID_RE.test(issueId)) return
     await rm(join(this.baseDir, issueId), { recursive: true, force: true })
   }

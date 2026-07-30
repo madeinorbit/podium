@@ -1,3 +1,4 @@
+import { asIssueId, asUserId, type SessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +22,7 @@ import { SessionStore } from './store'
  */
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -184,7 +185,7 @@ function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
         payload: e.payload,
       })),
     ),
-    comments: normalize(store.issues.listIssueComments(issueId)),
+    comments: normalize(store.issues.listIssueComments(asIssueId(issueId))),
     // Compare the FOLDED oplog state, not row counts: sync writes coalesce
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
@@ -231,7 +232,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      regA.issues.claim(a.id, 'agent:test')
+      regA.issues.claim(a.id, asUserId('agent:test'))
       regA.issues.addComment(a.id, 'agent:test', 'progress note')
       regA.issues.close(a.id, 'done')
 

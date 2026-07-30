@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -23,7 +24,7 @@ describe('transcript read (server -> daemon)', () => {
     const msg = {
       type: 'transcriptRead' as const,
       requestId: 'tr1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       cwd: '/work',
       resume: { kind: 'claude-session', value: 'conv-1' },
@@ -38,7 +39,7 @@ describe('transcript read (server -> daemon)', () => {
     const msg = {
       type: 'transcriptRead' as const,
       requestId: 'tr2',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       cwd: '/work',
       direction: 'after' as const,
@@ -53,7 +54,7 @@ describe('transcript read (server -> daemon)', () => {
         JSON.stringify({
           type: 'transcriptRead',
           requestId: 'tr3',
-          sessionId: 's1',
+          sessionId: asSessionId('s1'),
           agentKind: 'claude-code',
           cwd: '/work',
           direction: 'sideways',
@@ -69,7 +70,7 @@ describe('transcript read (server -> daemon)', () => {
         JSON.stringify({
           type: 'transcriptRead',
           requestId: 'tr3b',
-          sessionId: 's1',
+          sessionId: asSessionId('s1'),
           direction: 'before',
           limit: 10,
         }),
@@ -84,7 +85,7 @@ describe('transcript read (server -> daemon)', () => {
           JSON.stringify({
             type: 'transcriptRead',
             requestId: 'tr4',
-            sessionId: 's1',
+            sessionId: asSessionId('s1'),
             agentKind: 'claude-code',
             cwd: '/work',
             direction: 'before',
@@ -101,7 +102,7 @@ describe('transcript read result (daemon -> server)', () => {
     const msg = {
       type: 'transcriptReadResult' as const,
       requestId: 'tr1',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       items: [item],
       head: 'c1',
       tail: 'c1',
@@ -114,7 +115,7 @@ describe('transcript read result (daemon -> server)', () => {
     const msg = {
       type: 'transcriptReadResult' as const,
       requestId: 'tr2',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       items: [],
       hasMore: true,
     }
@@ -125,7 +126,7 @@ describe('transcript read result (daemon -> server)', () => {
 describe('transcript delta (daemon -> server AND server -> client)', () => {
   const msg = {
     type: 'transcriptDelta' as const,
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     items: [item],
     tail: 'c1',
     reset: true,
@@ -140,31 +141,31 @@ describe('transcript delta (daemon -> server AND server -> client)', () => {
   })
 
   it('round-trips a transcriptDelta with tail/reset omitted', () => {
-    const minimal = { type: 'transcriptDelta' as const, sessionId: 's1', items: [item] }
+    const minimal = { type: 'transcriptDelta' as const, sessionId: asSessionId('s1'), items: [item] }
     expect(parseServerMessage(encode(minimal))).toEqual(minimal)
   })
 })
 
 describe('transcript subscribe (client -> server)', () => {
   it('round-trips a transcriptSubscribe with a since cursor', () => {
-    const msg = { type: 'transcriptSubscribe' as const, sessionId: 's1', since: 'c9' }
+    const msg = { type: 'transcriptSubscribe' as const, sessionId: asSessionId('s1'), since: 'c9' }
     expect(parseClientMessage(encode(msg))).toEqual(msg)
   })
 
   it('round-trips a transcriptSubscribe without since (full stream)', () => {
-    const msg = { type: 'transcriptSubscribe' as const, sessionId: 's1' }
+    const msg = { type: 'transcriptSubscribe' as const, sessionId: asSessionId('s1') }
     expect(parseClientMessage(encode(msg))).toEqual(msg)
   })
 
   it('round-trips a transcriptUnsubscribe', () => {
-    const msg = { type: 'transcriptUnsubscribe' as const, sessionId: 's1' }
+    const msg = { type: 'transcriptUnsubscribe' as const, sessionId: asSessionId('s1') }
     expect(parseClientMessage(encode(msg))).toEqual(msg)
   })
 })
 
 describe('retired transcript message literals no longer parse', () => {
   it('rejects transcriptAppend in the server and daemon unions', () => {
-    const raw = JSON.stringify({ type: 'transcriptAppend', sessionId: 's1', items: [] })
+    const raw = JSON.stringify({ type: 'transcriptAppend', sessionId: asSessionId('s1'), items: [] })
     expect(() => parseServerMessage(raw)).toThrow()
     expect(() => parseDaemonMessage(raw)).toThrow()
     expect(ServerMessage.safeParse(JSON.parse(raw)).success).toBe(false)
@@ -172,7 +173,7 @@ describe('retired transcript message literals no longer parse', () => {
   })
 
   it('rejects transcriptSnapshot in the server union', () => {
-    const raw = JSON.stringify({ type: 'transcriptSnapshot', sessionId: 's1', items: [] })
+    const raw = JSON.stringify({ type: 'transcriptSnapshot', sessionId: asSessionId('s1'), items: [] })
     expect(() => parseServerMessage(raw)).toThrow()
     expect(ServerMessage.safeParse(JSON.parse(raw)).success).toBe(false)
   })

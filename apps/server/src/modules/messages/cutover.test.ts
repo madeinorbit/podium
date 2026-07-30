@@ -21,6 +21,7 @@
  * pattern is wrong produce the same green.
  */
 
+import { asSessionId } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { TransportTag } from '@podium/commands'
@@ -264,7 +265,7 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const h = mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
       const mine = h.createIssue({ title: 'mine' })
       const theirs = h.createIssue({ title: 'theirs' })
-      const cap = h.agentCap(mine.id, 'sMine')
+      const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
       // ALLOWED first, so the instrument is known to be able to say yes: without
       // this arm a broken fixture and a working ceiling look identical.
@@ -297,7 +298,7 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const mine = h.createIssue({ title: 'mine' })
       const theirs = h.createIssue({ title: 'theirs' })
       hidden.push(theirs.id)
-      const cap = h.agentCap(mine.id, 'sMine')
+      const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
       const beyond = await outcome(() =>
         h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
@@ -394,11 +395,11 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     const h = composed(hidden)
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
-    h.put({ sessionId: 'sSender', issueId: sender.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
 
     // Accepted while the target is visible; no live session there, so it QUEUES —
     // which is the state the whole re-authorization rule is about.
-    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, 'sSender'), true, 'send', {
+    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, asSessionId('sSender')), true, 'send', {
       to: target.id,
       body: 'work please',
     })) as { id: string; disposition: string }
@@ -408,7 +409,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     // The target leaves the delegating human's visibility BETWEEN accept and
     // drain — the one mutation this scenario is about.
     hidden.push(target.id)
-    h.put({ sessionId: 'sTarget', issueId: target.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     h.svc.sweep()
 
     // Never applied…
@@ -428,13 +429,13 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     const h = composed([])
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
-    h.put({ sessionId: 'sSender', issueId: sender.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
 
-    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, 'sSender'), true, 'send', {
+    const accepted = (await h.gate.dispatch(h.agentCap(sender.id, asSessionId('sSender')), true, 'send', {
       to: target.id,
       body: 'work please',
     })) as { id: string; disposition: string }
-    h.put({ sessionId: 'sTarget', issueId: target.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
     h.svc.sweep()
 
     expect(h.svc.message(accepted.id)?.status).not.toBe('dead_letter')

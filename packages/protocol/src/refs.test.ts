@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   anyRefMatcher,
@@ -116,8 +117,8 @@ describe('ref grammar', () => {
 
   describe('resolveSessionIdentifier', () => {
     const sessions = [
-      { sessionId: 'uuid-a', displayRef: 'POD-529-A' },
-      { sessionId: 'uuid-draft', displayRef: 'POD-DRAFT-3' },
+      { sessionId: asSessionId('uuid-a'), displayRef: 'POD-529-A' },
+      { sessionId: asSessionId('uuid-draft'), displayRef: 'POD-DRAFT-3' },
     ]
 
     it('resolves internal ids and both permanent birth-ref forms', () => {

@@ -1,3 +1,4 @@
+import { type SessionId } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
 import { computeWarmSet, updateRecency } from './warm-set'
 
@@ -15,9 +16,9 @@ function warmCapacity(): number {
  * Sessions beyond the cap are evicted (the caller unmounts them); re-selecting
  * one re-enters the warm set and remounts it cold.
  */
-export function useWarmSet(allSessionIds: string[], activeIds: string[]): Set<string> {
-  const recency = useRef<string[]>([])
-  const [warm, setWarm] = useState<Set<string>>(() => new Set(activeIds))
+export function useWarmSet(allSessionIds: SessionId[], activeIds: SessionId[]): Set<SessionId> {
+  const recency = useRef<SessionId[]>([])
+  const [warm, setWarm] = useState<Set<SessionId>>(() => new Set(activeIds))
   // Recompute whenever the active pane(s) or the open-session set changes.
   const key = `${activeIds.join(',')}|${allSessionIds.join(',')}`
   useEffect(() => {

@@ -1,12 +1,4 @@
-import type {
-  AgentKind,
-  AgentRuntimeState,
-  ConversationSummaryWire,
-  HostMetricsWire,
-  IssueWire,
-  SessionMeta,
-  TranscriptItem,
-} from '@podium/model'
+import type { AgentKind, AgentRuntimeState, ConversationSummaryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 
 /**
@@ -25,7 +17,7 @@ import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@p
 export interface EventMap {
   /** A session's agent runtime state changed (daemon agentState message). */
   'session.stateChanged': {
-    sessionId: string
+    sessionId: SessionId
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
     /** Present only for a v1 accepted causal live transition [spec:SP-cdb2]. */
@@ -33,9 +25,9 @@ export interface EventMap {
   }
   /** A session was created by an operator/programmatic caller (createSession —
    *  the one funnel for fresh spawns; resumes and reattaches do not fire it). */
-  'session.created': { sessionId: string; agentKind: AgentKind }
+  'session.created': { sessionId: SessionId; agentKind: AgentKind }
   /** A session's process ended (agentExit / reattachFailed death). */
-  'session.exited': { sessionId: string; code: number }
+  'session.exited': { sessionId: SessionId; code: number }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
   /** The session list changed in a way that was broadcast (post-fanout). */
@@ -47,7 +39,7 @@ export interface EventMap {
   /** A closed issue was reopened. */
   'issue.reopened': { issueId: string }
   /** New transcript items were applied to a session's live delta buffer. */
-  'transcript.delta': { sessionId: string; items: TranscriptItem[] }
+  'transcript.delta': { sessionId: SessionId; items: TranscriptItem[] }
   /** A machine's daemon socket attached. */
   'machine.connected': { machineId: string }
   /** A machine's daemon socket detached. */
@@ -55,7 +47,7 @@ export interface EventMap {
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
-  'attention.raised': { sessionId: string; title: string; body: string }
+  'attention.raised': { sessionId: SessionId; title: string; body: string }
   /** Settings were replaced via setSettings (previous → next). */
   'settings.changed': {
     previous: import('@podium/runtime').PodiumSettings

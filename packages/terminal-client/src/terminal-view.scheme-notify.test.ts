@@ -7,6 +7,7 @@
 // re-queries OSC 11 and repaints. TerminalView TRACKS the subscription;
 // session-mount pushes the report on a real background change — as PTY input,
 // so it obeys the controller-only input rule.
+import { asSessionId } from '@podium/model'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
@@ -121,7 +122,7 @@ describe('session-mount colour-scheme report', () => {
     const { hub, sendInput } = fakeHub(() => 'controller')
     const mounted = mountSession(document.createElement('div'), {
       hub,
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       appearance: { theme: dark },
     })
     await subscribe(mounted)
@@ -138,7 +139,7 @@ describe('session-mount colour-scheme report', () => {
     const { hub, sendInput } = fakeHub(() => 'controller')
     const mounted = mountSession(document.createElement('div'), {
       hub,
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       appearance: { theme: dark },
     })
     mounted.setAppearance({ theme: tinted }) // no subscription yet
@@ -159,7 +160,7 @@ describe('session-mount colour-scheme report', () => {
     const { hub, sendInput } = fakeHub(() => 'spectator')
     const mounted = mountSession(document.createElement('div'), {
       hub,
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       appearance: { theme: dark },
     })
     await subscribe(mounted)

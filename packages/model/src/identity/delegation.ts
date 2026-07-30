@@ -64,7 +64,7 @@
 
 import { z } from 'zod'
 import type { IssueScope } from '../authz/issue-authz'
-import { AgentIdentityIdField, UserIdField } from '../ids'
+import { AgentIdentityIdField, IssueIdField, UserIdField } from '../ids'
 
 /**
  * The declared scope of a delegation, as a schema over `IssueScope`'s closed
@@ -82,9 +82,9 @@ import { AgentIdentityIdField, UserIdField } from '../ids'
 export const DelegationScope = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('all') }),
   z.object({ kind: z.literal('none') }),
-  z.object({ kind: z.literal('subtree'), rootId: z.string() }),
-  z.object({ kind: z.literal('owned'), userId: z.string() }),
-  z.object({ kind: z.literal('self'), userId: z.string() }),
+  z.object({ kind: z.literal('subtree'), rootId: IssueIdField }),
+  z.object({ kind: z.literal('owned'), userId: UserIdField }),
+  z.object({ kind: z.literal('self'), userId: UserIdField }),
 ])
 export type DelegationScope = z.infer<typeof DelegationScope>
 

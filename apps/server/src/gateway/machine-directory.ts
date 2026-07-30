@@ -27,7 +27,7 @@ import type {
   PeerObservations,
   ResolvedMachine,
 } from '@podium/protocol'
-import { LOCAL_MACHINE_ID } from '../local-machine'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import type { PairingGrant } from '../modules/machines/service'
 
 /** The slice of `MachinesService` this adapter needs. */

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
@@ -34,7 +35,7 @@ describe('machines store', () => {
   it('adoptLocalRows rewrites __local__ session machine ids', () => {
     const s = new SessionStore(':memory:')
     s.sessions.upsertSession({
-      id: 'sess',
+      id: asSessionId('sess'),
       agentKind: 'shell',
       cwd: '/x',
       title: 't',
@@ -120,7 +121,7 @@ describe('machines store', () => {
     s1.machines.upsertMachine({ id: 'm1', name: 'a', hostname: 'h', tokenHash: 'x' })
     s1.repos.addRepo('/a')
     s1.sessions.upsertSession({
-      id: 's1',
+      id: asSessionId('s1'),
       agentKind: 'shell',
       cwd: '/',
       title: 't',

@@ -17,6 +17,7 @@
  * this file characterizes the server behaviour those replays depend on.
  */
 
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -34,7 +35,7 @@ afterEach(() => disposeOracles())
 function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
   o.reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     cmd: 'claude',
     cwd: '/p',
     agentKind: 'claude-code',
@@ -42,7 +43,7 @@ function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
   })
   o.reg.gateway.routeDaemonFrame('local', {
     type: 'agentState',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
   })
 }

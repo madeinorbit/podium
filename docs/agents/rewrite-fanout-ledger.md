@@ -1672,3 +1672,99 @@ MEASURED rather than either side's number being carried across. POD-732 lowered 
 did NOT widen the detector's roots, correctly: POD-1180 exists because widening changes everyone's
 number and must be done once across the issues and sessions derived routers too, not by whoever
 happens to notice first.
+
+### The "cannot say NO" class has a SYSTEM-level form: a conformance suite certifying a FIXTURE
+
+POD-306's survey, and the fourth instance of this class in a day. The first three were each one suite:
+POD-351's `OPERATOR` short-circuit, POD-391's unreachable CSWSH branch, POD-732's `Proxy` that answers
+every procedure. This one is a layer up.
+
+The parameterised conformance suite (POD-373) was green — but **rungs 2 and 4 were only reachable
+against a scripted fixture**, because none of `feedId`/epoch minting and persistence, entity revision
+assignment, published `minAvailableSeq`, the bounded send queue, or resync-required emission exists on
+the REAL authority. The fixture was supplying the very behaviour the suite was meant to be certifying.
+Green, credited, and not measuring the kernel.
+
+**This was caught only because POD-305 refused to build those five speculatively and re-homed them with
+a reason instead of leaving them unowned.** Had they been built blind, or dropped at the phase seam,
+the suite would have gone on certifying a fixture until the wire cutover. Unowned items at a handoff
+boundary are how attempts 1 and 2 left half-migrations; naming an item and passing it explicitly is
+what made this findable.
+
+**The bar for wiring a suite onto a real implementation: it must FAIL when the implementation does not
+provide the thing.** Wiring it up and proving it load-bearing are different claims. And beware the swap
+itself — a suite that passed against a fixture and passes against the real kernel on the first try is
+either a triumph or still not reaching the kernel, and those are indistinguishable from outside. Give
+it a guard that fails loudly when it is talking to the fixture (POD-305's shape: bind to the SHIPPED
+matrix, with a check that fails FIRST if it imports empty).
+
+### Naming a restatement is not creating one — and a ratchet that grows on an extraction
+
+POD-311's ratchet went the WRONG way (+3: session-shapes 0→2, issue-shapes 0→2, per-user-singletons
+8→9) on a change that only MOVED code. The diagnosis is worth keeping because it will recur every time
+an inline schema is extracted:
+
+`NOT_A_REPRESENTATION` is keyed by `(file, symbol)`. The `createInput`/`updateInput` schemas were
+ALWAYS restatements of issue vocabulary — but **anonymous**, written inline as
+`def({ input: z.object({...}) })`, which the detector reads as an expression rather than a declaration.
+Extracting them gave them NAMES, and a named declaration is what the audit can see. The restatement did
+not appear; it became *visible*.
+
+So they were excluded at their new address for the same reason the session pair already carried, and
+the pin was bumped 34→36 deliberately — that pin exists to force exactly this conversation. Back to
+189, no baseline edited.
+
+**The general rule: when a ratchet moves on a change that only relocates code, ask whether the DETECTOR'S
+VISIBILITY changed before concluding the code did.** Same family as the `isFrozenFile` narrowing (which
+raised a baseline 13→16 because the detector's scope widened, not because code regressed) and POD-1180
+(an extraction into an unscanned file reads as a win with nothing removed).
+
+**And the honest negative that belongs beside it:** absorbing the stranded protocol contracts did NOT
+drop the ratchet, because none of the 25 inventory items ever counted `protocol/commands.ts` or
+`messages/mutations.ts` — AC3's "audit items zero" clause had no corresponding item to zero. POD-311
+reported that rather than hunting for a number to move. A criterion that cannot be satisfied because it
+names nothing is a finding about the criterion, not a licence to find a substitute metric.
+
+### A mutant that patches a value to what it already was
+
+POD-311's first oracle perturbation set `close.scope` to `issue` when it was ALREADY `issue`. It applied
+cleanly, changed nothing, and read as a PASS. Third distinct way a mutant can be non-evidence, after
+failed-to-apply and failed-to-compile. Its fix is the general one: **every perturbation must name the
+command it perturbs and DIFF THE FIELD FIRST**, asserting the mutant actually changed the value before
+reading the result.
+
+### "A column that CAN name a person is not an authenticator that DOES"
+
+POD-1075's line, and the correct handling of a promotion that looks due but isn't. It landed per-user
+`client_sessions` — the MODEL obstacle to guarding the reconnect reclaim — and still left
+`CLIENT_PRINCIPAL_GRADE` at `device`, because `auth-store.ts` is still one shared password, so two
+connections presenting it remain indistinguishable AS PERSONS. Promoting the grade would have been a
+well-typed lie. It put the reason in both docstrings so the next reader does not re-derive it.
+
+**Generalisation: landing the schema that makes a check EXPRESSIBLE is not landing the authenticator
+that makes it TRUE.** Say which half you shipped.
+
+### When two names for one thing disagree, PERSISTENCE decides — not aesthetics
+
+POD-1172 (`SOLE_USER_ID` "user:sole" vs `INSTANCE_OWNER` "instance-owner") was resolved onto
+`FIRST_ADMIN_USER_ID` = "user:sole". The reason generalises: POD-380's migration had **already written
+that value into every pin, snooze and tab-order row**, and a migration is frozen history. Choosing the
+other name would have cost a second data migration to re-key correct rows in order to change a string
+no user ever sees. The loser was minted in memory and persisted nowhere, so retiring it cost nothing.
+
+**And the deletion was made SAFE, not merely complete.** Removing POD-351's `samePrincipal` bridge and
+its tripwire, it added the POSITIVE control the bridge existed to make pass: *an agent whose human IS
+the sole human MAY write*. Without it, the denial test can be satisfied by a ceiling that refuses
+everything — which is exactly what the unreconciled constants did, and what nothing in that suite
+distinguished from correctness. Deleting a bridge without adding its positive control converts a known
+bug into an invisible one.
+
+### Default-absent beats default-present at a wire boundary
+
+`UserWire` is a `pick` from the R1 aggregate, so a new R1 field is absent from the wire BY DEFAULT.
+An omit-list inverts that: a new field ships to the wire unless someone remembers, and the mistake is
+invisible in the diff because the diff shows only the new field, not the omit-list that failed to grow.
+Credential material is a separate schema on its own matrix row, so `UserWire` has no key to forget to
+strip. Same instinct one layer down: `createClientSession` takes the user as a REQUIRED parameter,
+because a store-level default is the one place per-user login could silently keep writing one id for
+everybody while every session still works.

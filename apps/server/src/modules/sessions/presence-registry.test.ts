@@ -18,7 +18,7 @@
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { OPERATOR, SOLE_USER_ID } from '@podium/model'
+import { OPERATOR, SOLE_USER_ID, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
@@ -51,7 +51,7 @@ function fixture() {
    */
   const asUser = (userId: string, scope: 'owned' | 'self'): PresencePrincipal => ({
     userId,
-    capability: { role: 'worker', scope: { kind: scope, userId } },
+    capability: { role: 'worker', scope: { kind: scope, userId: asUserId(userId) } },
     onBehalfOf: userId,
     humanDirect: true,
   })
@@ -169,7 +169,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     // the mismatch is caught rather than trusted.
     const mismatched: PresencePrincipal = {
       userId: ALICE,
-      capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
+      capability: { role: 'worker', scope: { kind: 'self', userId: asUserId(BOB) } },
       onBehalfOf: ALICE,
       humanDirect: true,
     }
@@ -184,7 +184,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     // the denial above is the scope check talking, not a broken fixture.
     const coherent: PresencePrincipal = {
       ...mismatched,
-      capability: { role: 'worker', scope: { kind: 'self', userId: ALICE } },
+      capability: { role: 'worker', scope: { kind: 'self', userId: asUserId(ALICE) } },
     }
     expect(presence.execute('snoozes.set', { sessionId, until: null }, coherent).outcome).toBe(
       'applied',
@@ -218,7 +218,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     'sessions.setIssueId',
   ]
 
-  const inputFor = (name: string, sessionId: string) => {
+  const inputFor = (name: string, sessionId: SessionId) => {
     switch (name) {
       case 'sessions.rename':
         return { sessionId, name: 'renamed' }
@@ -237,7 +237,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     // Sessions are owned by SOLE_USER_ID until POD-1075 (SessionsService.sessionOwner).
     const owner: PresencePrincipal = {
       userId: SOLE_USER_ID,
-      capability: { role: 'worker', scope: { kind: 'owned', userId: SOLE_USER_ID } },
+      capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(SOLE_USER_ID) } },
       onBehalfOf: SOLE_USER_ID,
       humanDirect: true,
     }
@@ -262,7 +262,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     const denied = presence.execute('sessions.rename', { sessionId, name: 'x' }, stranger)
     const missing = presence.execute(
       'sessions.rename',
-      { sessionId: '00000000-0000-4000-8000-000000000000', name: 'x' },
+      { sessionId: asSessionId('00000000-0000-4000-8000-000000000000'), name: 'x' },
       stranger,
     )
 
@@ -286,7 +286,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     expect(
       presence.execute(
         'sessions.rename',
-        { sessionId: 'nope', name: 'x' },
+        { sessionId: asSessionId('nope'), name: 'x' },
         soleHumanPrincipal(OPERATOR),
       ).outcome,
     ).toBe('denied')

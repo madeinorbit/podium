@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   handoffBlockerText,
@@ -11,7 +8,7 @@ import {
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's',
+    sessionId: asSessionId('s'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',

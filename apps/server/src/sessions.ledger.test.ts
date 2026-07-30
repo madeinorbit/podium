@@ -1,10 +1,8 @@
-import {
-  asSessionId,
-  type SessionMeta, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LOCAL_MACHINE_ID } from './local-machine'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -70,7 +68,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       ledger.commit({
         write: () =>
           store.sessions.upsertSession({
-            id: 's-atomic',
+            id: asSessionId('s-atomic'),
             agentKind: 'shell',
             cwd: '/w',
             title: 't',
@@ -261,7 +259,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(h) upstream mirror sets and staleness flips are explicitly captured (#247)', () => {
     const upstreamMeta: SessionMeta = {
-      sessionId: asSessionId('hub-s1'), // // POD-361-EDGE-CAST
+      sessionId: asSessionId('hub-s1'),
       agentKind: 'shell',
       title: 'hub session',
       cwd: '/hub/w',

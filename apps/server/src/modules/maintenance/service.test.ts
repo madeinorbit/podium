@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -27,9 +28,9 @@ const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
   threadId: 'thread_1',
   inReplyTo: null,
   fromKind: 'agent',
-  fromSession: 'sess_sender',
+  fromSession: asSessionId('sess_sender'),
   fromName: null,
-  fromIssue: 'issue_sender',
+  fromIssue: asIssueId('issue_sender'),
   toKind: 'issue',
   toId: 'issue_target',
   kind: 'message',
@@ -103,7 +104,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
 
   it('expires through one atomic idempotent command and emits one durable transition', async () => {
     const message = baseMessage({
-      deliveredTo: 'sess_previous',
+      deliveredTo: asSessionId('sess_previous'),
       hop: 2,
       clampedFrom: 'interrupt',
     })
@@ -313,7 +314,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const lease = handshake('gen_session_archive')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
-      sessionId: 'ses_done',
+      sessionId: asSessionId('ses_done'),
       issueId: null,
       stoppedAt: '2026-07-01T00:00:00.000Z',
       readAt: '2026-07-02T00:00:00.000Z',

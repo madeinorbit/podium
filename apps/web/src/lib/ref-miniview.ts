@@ -10,7 +10,7 @@
  * without React or the store.
  */
 
-import type { IssuePanelArtifact, IssuePanelTodo, IssueWire } from '@podium/model'
+import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId } from '@podium/model'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -67,7 +67,7 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
 export interface RefSessionLike {
-  sessionId: string
+  sessionId: SessionId
   displayRef?: string
   cwd: string
   issueId?: string

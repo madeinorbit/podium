@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { appendFile, mkdir, mkdtemp, rename, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -726,7 +727,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       resumeValue: sessionId,
       pollMs: 10,
       causal: {
-        podiumSessionId: 'podium-restart-rewrite',
+        podiumSessionId: asSessionId('podium-restart-rewrite'),
         providerSessionId: sessionId,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -749,7 +750,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
     first.onObservationAck?.({
       type: 'agentObservationAck',
-      sessionId: 'podium-restart-rewrite',
+      sessionId: asSessionId('podium-restart-rewrite'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: firstObservations[0]!.transitionId,
@@ -787,7 +788,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       resumeValue: sessionId,
       pollMs: 10,
       causal: {
-        podiumSessionId: 'podium-restart-rewrite',
+        podiumSessionId: asSessionId('podium-restart-rewrite'),
         providerSessionId: sessionId,
         bindingVersion: 1,
         observerGeneration: 2,
@@ -834,7 +835,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       },
       onLivePollComplete: (cursor) => livePolls.push(cursor),
       causal: {
-        podiumSessionId: 'podium-grok',
+        podiumSessionId: asSessionId('podium-grok'),
         providerSessionId: sessionId,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -861,7 +862,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       checkpoint = result.checkpoint
       return {
         type: 'agentObservationAck',
-        sessionId: 'podium-grok',
+        sessionId: asSessionId('podium-grok'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: observation.transitionId,
@@ -983,7 +984,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         restartedBootstrap = true
       },
       causal: {
-        podiumSessionId: 'podium-grok',
+        podiumSessionId: asSessionId('podium-grok'),
         providerSessionId: sessionId,
         bindingVersion: 1,
         observerGeneration: 2,
@@ -1006,7 +1007,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   it('reconciles an accepted edge to a foreign authoritative epoch', async () => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-grok-foreign-ack',
+      podiumSessionId: asSessionId('podium-grok-foreign-ack'),
       providerSessionId: 'g-foreign-ack',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1047,7 +1048,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     }
     causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-grok-foreign-ack',
+      sessionId: asSessionId('podium-grok-foreign-ack'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: observations[0]!.transitionId,
@@ -1075,7 +1076,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const observations: AgentObservation[] = []
     let checkpoint: SessionObservationCheckpointV1 | null = null
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-multi-edge',
+      podiumSessionId: asSessionId('podium-multi-edge'),
       providerSessionId: 'g-multi-edge',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1119,7 +1120,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       checkpoint = outcome.checkpoint
       causal.acknowledge({
         type: 'agentObservationAck',
-        sessionId: 'podium-multi-edge',
+        sessionId: asSessionId('podium-multi-edge'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: observation.transitionId,
@@ -1143,7 +1144,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     let checkpoint: SessionObservationCheckpointV1 | null = null
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-truncate',
+      podiumSessionId: asSessionId('podium-truncate'),
       providerSessionId: 'g-truncate-causal',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1171,7 +1172,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       checkpoint = result.checkpoint
       causal.acknowledge({
         type: 'agentObservationAck',
-        sessionId: 'podium-truncate',
+        sessionId: asSessionId('podium-truncate'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: observation.transitionId,
@@ -1268,7 +1269,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     let checkpoint: SessionObservationCheckpointV1 | null = null
     const seedObservations: AgentObservation[] = []
     const seed = new GrokCausalObserver({
-      podiumSessionId: 'podium-authoritative-recovery',
+      podiumSessionId: asSessionId('podium-authoritative-recovery'),
       providerSessionId: 'g-authoritative-recovery',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1287,7 +1288,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       checkpoint = outcome.checkpoint
       causal.acknowledge({
         type: 'agentObservationAck',
-        sessionId: 'podium-authoritative-recovery',
+        sessionId: asSessionId('podium-authoritative-recovery'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: observation.transitionId,
@@ -1320,7 +1321,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
     const observations: AgentObservation[] = []
     const recovery = new GrokCausalObserver({
-      podiumSessionId: 'podium-authoritative-recovery',
+      podiumSessionId: asSessionId('podium-authoritative-recovery'),
       providerSessionId: 'g-authoritative-recovery',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1342,7 +1343,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const rejected = observations[0]!
     recovery.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-authoritative-recovery',
+      sessionId: asSessionId('podium-authoritative-recovery'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: rejected.transitionId,
@@ -1385,7 +1386,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     if (acceptedOpen.kind === 'rejected') throw new Error(acceptedOpen.rejectionReason)
     recovery.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-authoritative-recovery',
+      sessionId: asSessionId('podium-authoritative-recovery'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: opened.transitionId,
@@ -1427,7 +1428,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       resumeValue: sessionId,
       pollMs: 10,
       causal: {
-        podiumSessionId: 'podium-pending-rotation',
+        podiumSessionId: asSessionId('podium-pending-rotation'),
         providerSessionId: sessionId,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -1439,7 +1440,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const ack = (observation: AgentObservation): void =>
       observer.onObservationAck?.({
         type: 'agentObservationAck',
-        sessionId: 'podium-pending-rotation',
+        sessionId: asSessionId('podium-pending-rotation'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: observation.transitionId,
@@ -1490,7 +1491,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     let retryNow = 0
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-retry-bounded',
+      podiumSessionId: asSessionId('podium-retry-bounded'),
       providerSessionId: 'g-retry-bounded',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1518,7 +1519,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
     causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-retry-bounded',
+      sessionId: asSessionId('podium-retry-bounded'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: bootstrap.transitionId,
@@ -1554,7 +1555,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     expect(observations.at(-1)?.transitionId).toBe(live.transitionId)
     causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-retry-bounded',
+      sessionId: asSessionId('podium-retry-bounded'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: live.transitionId,
@@ -1573,7 +1574,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   ] as const)('retries %s without advancing an authoritative cursor', (rejectionReason) => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-rejected-without-cursor',
+      podiumSessionId: asSessionId('podium-rejected-without-cursor'),
       providerSessionId: 'g-rejected-without-cursor',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1599,7 +1600,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const bootstrap = observations[0]!
     causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-rejected-without-cursor',
+      sessionId: asSessionId('podium-rejected-without-cursor'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: bootstrap.transitionId,
@@ -1613,7 +1614,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   })
 
   it('releases an ack-lost duplicate only when the accepted cursor is exact', () => {
-    const makeObserver = (podiumSessionId: string) => {
+    const makeObserver = (podiumSessionId: SessionId) => {
       const observations: AgentObservation[] = []
       const causal = new GrokCausalObserver({
         podiumSessionId,
@@ -1641,11 +1642,11 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       return { causal, observations, segment }
     }
 
-    const exact = makeObserver('podium-exact-duplicate')
+    const exact = makeObserver(asSessionId('podium-exact-duplicate'))
     const exactBootstrap = exact.observations[0]!
     exact.causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-exact-duplicate',
+      sessionId: asSessionId('podium-exact-duplicate'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: exactBootstrap.transitionId,
@@ -1656,11 +1657,11 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     expect(exact.observations).toHaveLength(2)
     expect(exact.observations[1]).toMatchObject({ transitionKind: 'turn_opened' })
 
-    const stale = makeObserver('podium-stale-duplicate')
+    const stale = makeObserver(asSessionId('podium-stale-duplicate'))
     const staleBootstrap = stale.observations[0]!
     stale.causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-stale-duplicate',
+      sessionId: asSessionId('podium-stale-duplicate'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: staleBootstrap.transitionId,
@@ -1679,7 +1680,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   ] as const)('retains %s even when rejection reports the current cursor', (rejectionReason) => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
-      podiumSessionId: 'podium-authoritative-cursor',
+      podiumSessionId: asSessionId('podium-authoritative-cursor'),
       providerSessionId: 'g-authoritative-cursor',
       bindingVersion: 1,
       observerGeneration: 1,
@@ -1705,7 +1706,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     const bootstrap = observations[0]!
     causal.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-authoritative-cursor',
+      sessionId: asSessionId('podium-authoritative-cursor'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: bootstrap.transitionId,
@@ -1752,7 +1753,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         cwd,
         homeDir: home,
         resumeValue: candidate,
-        podiumSessionId: 'podium-rebind',
+        podiumSessionId: asSessionId('podium-rebind'),
         observationLease: {
           provider: 'grok',
           providerSessionId: priorSessionId,
@@ -1778,7 +1779,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
       observer.onProviderRebindAck?.({
         type: 'agentObservationRebindAck',
-        sessionId: 'podium-rebind',
+        sessionId: asSessionId('podium-rebind'),
         provider: 'grok',
         rebindId: request!.rebindId,
         priorObserverGeneration: 7,
@@ -1837,7 +1838,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         cwd,
         homeDir: home,
         resumeValue: candidate,
-        podiumSessionId: 'podium-rebind-rejected',
+        podiumSessionId: asSessionId('podium-rebind-rejected'),
         observationLease: {
           provider: 'grok',
           providerSessionId: oldSessionId,
@@ -1859,7 +1860,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
       observer.onProviderRebindAck?.({
         type: 'agentObservationRebindAck',
-        sessionId: 'podium-rebind-rejected',
+        sessionId: asSessionId('podium-rebind-rejected'),
         provider: 'grok',
         rebindId: request!.rebindId,
         priorObserverGeneration: 9,
@@ -1916,7 +1917,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         cwd,
         homeDir: home,
         resumeValue: sessionId,
-        podiumSessionId: 'podium-adapter',
+        podiumSessionId: asSessionId('podium-adapter'),
         observationLease: {
           provider: 'grok',
           providerSessionId: sessionId,
@@ -1943,7 +1944,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
       observer.onObservationAck?.({
         type: 'agentObservationAck',
-        sessionId: 'podium-adapter',
+        sessionId: asSessionId('podium-adapter'),
         observerGeneration: 4,
         bindingVersion: 3,
         transitionId: bootstrap.transitionId,

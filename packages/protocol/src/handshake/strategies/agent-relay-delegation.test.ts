@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { asAgentIdentityId, asDelegationRef, asUserId, type Principal } from '../../planes/principal'
 import { attributionOf } from '../../planes/principal'
@@ -23,7 +24,7 @@ interface LinkSpec {
 const link = (over: LinkSpec): DelegationLink => ({
   ref: asDelegationRef(over.ref),
   agentIdentity: asAgentIdentityId(over.agentIdentity ?? `agent-${over.ref}`),
-  scope: over.scope ?? { kind: 'spawned-for', sessionId: 'sess-1', issueId: 'iss-1' },
+  scope: over.scope ?? { kind: 'spawned-for', sessionId: asSessionId('sess-1'), issueId: 'iss-1' },
   delegatedBy: over.delegatedBy === undefined ? null : over.delegatedBy === null ? null : asDelegationRef(over.delegatedBy),
   rootUser:
     over.rootUser === undefined
@@ -110,7 +111,7 @@ describe('agent relay strategy — delegated principal', () => {
       agentIdentity: 'agent-child',
       delegatedBy: 'del-parent',
       rootUser: null,
-      scope: { kind: 'spawned-for', sessionId: 'sess-2', issueId: 'iss-1' },
+      scope: { kind: 'spawned-for', sessionId: asSessionId('sess-2'), issueId: 'iss-1' },
     })
     const { strategy } = strategyFor([parent, child])
     const outcome = authenticate(strategy, 'del-child')

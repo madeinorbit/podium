@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
@@ -76,21 +77,21 @@ describe('issues.* subtree scope (P1a)', () => {
     })
 
   it('worker may write inside its subtree', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
     await expect(c.issues.update({ id: A.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker writing outside its subtree is rejected until overridden', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).rejects.toThrow(
       /outside your subtree/,
     )
-    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } }, true)
+    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } }, true)
     await expect(c2.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker may always create and always read', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
     await expect(
       c.issues.create({ repoPath: '/r', title: 'filed', startNow: false }),
     ).resolves.toBeTruthy()
@@ -108,7 +109,7 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 
   it('setNeedsHuman is scope-gated like other writes', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
     await expect(c.issues.setNeedsHuman({ id: A.id, question: 'q' })).resolves.toBeTruthy()
     await expect(c.issues.setNeedsHuman({ id: B.id, question: 'q' })).rejects.toThrow(
       /outside your subtree/,
@@ -136,8 +137,8 @@ describe('issues.* subtree scope (P1a)', () => {
     const worker = (actorSessionId: string) =>
       callerWith({
         role: 'worker',
-        scope: { kind: 'subtree', rootId: A.id },
-        actorSessionId,
+        scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+        actorSessionId: asSessionId(actorSessionId),
       })
     // Spoof: a subtree worker pointing askedBy at an unrelated session is refused
     // outright — otherwise the human's later chip answer would be injected there.
@@ -161,8 +162,8 @@ describe('issues.* subtree scope (P1a)', () => {
   it('answerQuestion is scope-gated and never clears on failed delivery (issue #53)', async () => {
     const c = callerWith({
       role: 'worker',
-      scope: { kind: 'subtree', rootId: A.id },
-      actorSessionId: 'sess_gone',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+      actorSessionId: asSessionId('sess_gone'),
     })
     await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
       /outside your subtree/,
@@ -180,7 +181,7 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 
   it('issues.prime binds to the capability subtree root', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
     const out = await c.issues.prime({ repoPath: '/r' })
     expect(out).toContain(A.title)
   })
@@ -226,7 +227,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     // No session behind the id → no actor to name.
-    expect(registry.modules.sessions.capabilityForSession('no-such-session')).toEqual({
+    expect(registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })
@@ -345,7 +346,7 @@ describe('issues.mail* (agent mail #103)', () => {
       overrideScope,
     })
 
-  const scopedToA = () => callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+  const scopedToA = () => callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
 
   it('mailSend to ANOTHER issue needs no --outside-scope; sender is issue:#<seq>', async () => {
     const m = await scopedToA().issues.mailSend({ id: B.id, body: 'heads up' })
@@ -373,7 +374,7 @@ describe('issues.mail* (agent mail #103)', () => {
     const opInbox = await callerWith(OPERATOR).issues.mailInbox({ id: A.id })
     expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
     // other agent peek (reads are scope-free)
-    const scopedToB = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: B.id } })
+    const scopedToB = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(B.id) } })
     await scopedToB.issues.mailInbox({ id: A.id })
     // recipient still sees it unread and consumes it
     expect(await scopedToA().issues.mailPending()).toMatchObject({ unread: 1 })
@@ -398,7 +399,7 @@ describe('issues.mail* (agent mail #103)', () => {
     await expect(c.issues.mailClaim({ messageId: theirs.id })).rejects.toThrow(
       /outside your subtree/,
     )
-    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } }, true)
+    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } }, true)
     await expect(c2.issues.mailClaim({ messageId: theirs.id })).resolves.toMatchObject({
       claimed: true,
     })
@@ -486,7 +487,7 @@ describe('issues.subscription* authz (Phase B)', () => {
       overrideScope,
     })
   const scopedTo = (id: string) =>
-    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: id } })
+    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(id) } })
 
   it('a subtree caller subscribes ITSELF (issue subscriber = its root)', async () => {
     const s = await scopedTo(A.id).issues.subscriptionAdd({

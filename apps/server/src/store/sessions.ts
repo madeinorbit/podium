@@ -4,7 +4,13 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import { AgentKind } from '@podium/model'
+import {
+  type AccountId,
+  AgentKind,
+  asSessionId,
+  type IssueId,
+  type SessionId,
+} from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
   OfferMap,
@@ -35,7 +41,7 @@ function requireUserId(userId: string): void {
 export class SessionsRepository {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly purgeObservationCheckpoint: (sessionId: string) => void = () => {},
+    private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
   ) {}
 
   // ---- sessions ----
@@ -73,13 +79,20 @@ export class SessionsRepository {
     return rows.map((r) => this.mapSession(r))
   }
 
+  /**
+   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
+   * a `SessionRow`. Every cast is a decode of an untyped column, brands included:
+   * sqlite carries no brand, so this is where a stored string re-enters the branded
+   * id space. NOT POD-361 adapter casts; above this function every session id is
+   * branded.
+   */
   private mapSession(r: Record<string, unknown>): SessionRow {
     return {
-      id: r.id as string,
+      id: r.id as SessionId,
       agentKind: r.agent_kind as string,
       ...(r.model != null ? { model: r.model as string } : {}),
       ...(r.effort != null ? { effort: r.effort as string } : {}),
-      ...(r.account_id != null ? { accountId: r.account_id as string } : {}),
+      ...(r.account_id != null ? { accountId: r.account_id as AccountId } : {}),
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
@@ -118,8 +131,8 @@ export class SessionsRepository {
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
       spawnedBy: (r.spawned_by as string | null) ?? null,
       headless: r.headless === 1,
-      issueId: (r.issue_id as string | null) ?? null,
-      refIssueId: (r.ref_issue_id as string | null) ?? null,
+      issueId: (r.issue_id as IssueId | null) ?? null,
+      refIssueId: (r.ref_issue_id as IssueId | null) ?? null,
       refLetter: (r.ref_letter as string | null) ?? null,
       refDraft: (r.ref_draft as number | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
@@ -136,7 +149,7 @@ export class SessionsRepository {
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
       deletedAt: (r.deleted_at as string | null) ?? null,
       deletionSource: (r.deletion_source as SessionDeletionSource | null) ?? null,
-      deletedByIssueId: (r.deleted_by_issue_id as string | null) ?? null,
+      deletedByIssueId: (r.deleted_by_issue_id as IssueId | null) ?? null,
     }
   }
 
@@ -290,7 +303,7 @@ export class SessionsRepository {
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  purgeSession(id: string): void {
+  purgeSession(id: SessionId): void {
     this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
@@ -377,7 +390,7 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  setSnooze(userId: string, sessionId: string, until: string | null): void {
+  setSnooze(userId: string, sessionId: SessionId, until: string | null): void {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -390,7 +403,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  clearSnooze(userId: string, sessionId: string): void {
+  clearSnooze(userId: string, sessionId: SessionId): void {
     this.db
       .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
       .run(userId, sessionId.trim())
@@ -438,7 +451,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  setOffer(sessionId: string, offer: OfferRecord): void {
+  setOffer(sessionId: SessionId, offer: OfferRecord): void {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     this.db
@@ -460,7 +473,7 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  clearOffer(sessionId: string): void {
+  clearOffer(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(sessionId.trim())
   }
 
@@ -510,7 +523,7 @@ export class SessionsRepository {
    * it names. This is §3.1.6 S5's system-writer rule — a system job may act
    * across owners, and it lands in the scope of what it acted on.
    */
-  private scrubTabOrders(sessionId: string): void {
+  private scrubTabOrders(sessionId: SessionId): void {
     const rows = this.db.prepare('SELECT user_id, worktree, ids FROM tab_order').all() as {
       user_id: string
       worktree: string
@@ -541,7 +554,7 @@ export class SessionsRepository {
   // every keystroke, while a SessionRow is rewritten on every meta change — sharing
   // a row would make either write clobber the other. The registry debounces the
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
-  loadDrafts(): Record<string, string> {
+  loadDrafts(): Record<SessionId, string> {
     const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
       session_id: string
       text: string
@@ -567,7 +580,7 @@ export class SessionsRepository {
   /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
    *  session's draft. Returns the new updated_at when set, or undefined when cleared
    *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
-  setDraft(sessionId: string, text: string): string | undefined {
+  setDraft(sessionId: SessionId, text: string): string | undefined {
     const id = sessionId.trim()
     if (!id) return undefined
     if (text) {
@@ -622,7 +635,7 @@ export class SessionsRepository {
   /** All persisted draft docs, keyed by session. Legacy rows (or a DB where the
    *  versioning migration has not applied) read back with `rev: 0`, `origin: null`,
    *  and an empty history. */
-  loadDraftDocs(): Record<string, StoredDraftDoc> {
+  loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
     const versioned = this.versionedDraftColumns()
     const sql = versioned
       ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'
@@ -651,8 +664,10 @@ export class SessionsRepository {
   /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
    *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
    *  On a DB without the versioning columns, degrades to a legacy text-only write. */
-  setDraftDoc(sessionId: string, doc: StoredDraftDoc): void {
-    const id = sessionId.trim()
+  setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): void {
+    // `.trim()` returns a plain `string` — a normalizing method STRIPS the brand.
+    // Re-applied because trimming an id yields the same id, not a different one.
+    const id = asSessionId(sessionId.trim())
     if (!id) return
     if (!doc.text) {
       this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)

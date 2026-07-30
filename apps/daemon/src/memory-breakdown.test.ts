@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { attributeMemory, type ProcSample, snapshotProcesses } from './memory-breakdown'
 
@@ -20,7 +21,7 @@ describe('attributeMemory', () => {
     ]
     const { agents } = attributeMemory(
       procs,
-      [{ sessionId: 's1', label: 'podium-s1', pid: 10 }],
+      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 10 }],
       [],
     )
     expect(agents).toEqual([{ sessionId: 's1', bytes: 155 * MB, processCount: 3 }])
@@ -36,7 +37,7 @@ describe('attributeMemory', () => {
     ]
     const { agents } = attributeMemory(
       procs,
-      [{ sessionId: 's1', label: 'podium-s1', pid: 20 }],
+      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 20 }],
       [],
     )
     expect(agents[0]?.bytes).toBe(202 * MB)
@@ -71,7 +72,7 @@ describe('attributeMemory', () => {
     ]
     const { agents, projects } = attributeMemory(
       procs,
-      [{ sessionId: 's1', label: 'podium-s1', pid: 10 }],
+      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 10 }],
       ['/src/app'],
     )
     expect(agents[0]?.bytes).toBe(140 * MB)
@@ -100,9 +101,9 @@ describe('attributeMemory', () => {
     const { agents, projects } = attributeMemory(
       procs,
       [
-        { sessionId: 'small', label: 'podium-small', pid: 10 },
-        { sessionId: 'big', label: 'podium-big', pid: 20 },
-        { sessionId: 'gone', label: 'podium-gone', pid: 999 }, // no live process
+        { sessionId: asSessionId('small'), label: 'podium-small', pid: 10 },
+        { sessionId: asSessionId('big'), label: 'podium-big', pid: 20 },
+        { sessionId: asSessionId('gone'), label: 'podium-gone', pid: 999 }, // no live process
       ],
       ['/p/one', '/p/two', '/p/empty'],
     )

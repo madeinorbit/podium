@@ -1,3 +1,4 @@
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /** The loopback listener inferred from an authorization URL's redirect_uri. */
@@ -19,7 +20,7 @@ export type BrowserOpenIntent = z.infer<typeof BrowserOpenIntent>
 /** Daemon -> server -> browser: a session asked its host OS to open a URL. */
 export const SessionOpenUrlMessage = z.object({
   type: z.literal('sessionOpenUrl'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   requestId: z.string(),
   url: z.string().url(),
   intent: BrowserOpenIntent.optional(),
@@ -31,7 +32,7 @@ export type SessionOpenUrlMessage = z.infer<typeof SessionOpenUrlMessage>
 /** Browser -> server -> owning daemon: execute the pasted callback on that host. */
 export const SessionOpenUrlCallbackMessage = z.object({
   type: z.literal('sessionOpenUrlCallback'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   requestId: z.string(),
   url: z.string().min(1).max(16_384),
 })
@@ -40,7 +41,7 @@ export type SessionOpenUrlCallbackMessage = z.infer<typeof SessionOpenUrlCallbac
 /** Browser -> server -> owning daemon: revoke an open request without completing it. */
 export const SessionOpenUrlDismissMessage = z.object({
   type: z.literal('sessionOpenUrlDismiss'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   requestId: z.string(),
 })
 export type SessionOpenUrlDismissMessage = z.infer<typeof SessionOpenUrlDismissMessage>
@@ -48,7 +49,7 @@ export type SessionOpenUrlDismissMessage = z.infer<typeof SessionOpenUrlDismissM
 /** Daemon/server -> browser: terminal state (or retryable failure) for the affordance. */
 export const SessionOpenUrlResultMessage = z.object({
   type: z.literal('sessionOpenUrlResult'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   requestId: z.string(),
   status: z.enum(['completed', 'failed', 'dismissed', 'expired']),
   error: z.string().optional(),

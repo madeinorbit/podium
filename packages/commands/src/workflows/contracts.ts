@@ -42,7 +42,7 @@
  * statement about what is wired. Conflating them is how a surface opens itself.
  */
 
-import { AgentKind } from '@podium/model'
+import { AgentKind, SessionIdField } from '@podium/model'
 import {
   WorkflowBindingTarget,
   WorkflowGitObservation,
@@ -646,7 +646,7 @@ export const workflowAssignStepInput = z.object({
   runId: z.string().optional(),
   stepId: z.string().min(1),
   mutationId: mutationIdInput,
-  sessionId: z.string().nullable(),
+  sessionId: SessionIdField.nullable(),
 })
 
 export const workflowAssignStepContract = {

@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { PerfRegistry } from './registry'
@@ -6,7 +7,7 @@ function trace(id: string): ClientSwitchTrace {
   return {
     switchId: id,
     startedAt: 1_000,
-    sessionId: 'sess-1',
+    sessionId: asSessionId('sess-1'),
     mode: 'chat',
     cold: false,
     totalMs: 42,

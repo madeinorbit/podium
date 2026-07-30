@@ -39,7 +39,7 @@
  * not be read as evidence that it does.
  */
 
-import type { Geometry } from '@podium/model'
+import type { Geometry, SessionId } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import type { ClientPublicationAuthority, Send } from '../modules/sessions/session'
 import type { ClientPrincipal } from './client-principal'
@@ -86,7 +86,7 @@ export interface ClientConn {
    * viewport in `hello` is only a transport bootstrap default. Sharing one
    * viewport across sessions can resize the foreground PTY from another pane. */
   viewports: Map<string, Geometry>
-  attached: Set<string>
+  attached: Set<SessionId>
   /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
    *  hello arrives, so a pre-hello client is treated as legacy — it receives
    *  snapshot broadcasts, never deltas it hasn't asked for. */
@@ -94,13 +94,13 @@ export interface ClientConn {
   /** Session ids this client subscribed to the structured transcript of. Lets
    *  detach sweep just this client's subscriptions instead of scanning every
    *  session on the host (audit P2-18). */
-  transcriptSubs: Set<string>
+  transcriptSubs: Set<SessionId>
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
   /** Sessions this client currently RENDERS on screen (from viewState). */
-  viewVisible: Set<string>
+  viewVisible: Set<SessionId>
   /** The one session that has input focus on this client, or null. */
-  focused: string | null
+  focused: SessionId | null
   /** Per-session rendered mode (native terminal vs chat) this client reports for the
    *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
    *  deliberately UNUSED by output scheduling — computePriorities never reads it, so

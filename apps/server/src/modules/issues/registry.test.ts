@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import { ISSUE_COMMAND_NAMES } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
@@ -314,7 +315,7 @@ describe('issue spawn provenance', () => {
         capability: {
           role: 'worker',
           scope: { kind: 'subtree', rootId: issue.id },
-          actorSessionId: 'parent-session',
+          actorSessionId: asSessionId('parent-session'),
         },
       } as const
       const start = vi.spyOn(registry.issues, 'start').mockResolvedValue(issue)
@@ -352,7 +353,7 @@ describe('issue spawn provenance', () => {
         capability: {
           role: 'worker' as const,
           scope: { kind: 'none' as const },
-          actorSessionId: 'sess_agent_creator',
+          actorSessionId: asSessionId('sess_agent_creator'),
         },
       }
       const created = (await registry.issueCommands.dispatch(agentCaller, 'issues', 'create', {
@@ -369,8 +370,8 @@ describe('issue spawn provenance', () => {
         {
           capability: {
             role: 'worker',
-            scope: { kind: 'subtree', rootId: created.id },
-            actorSessionId: 'sess_coord',
+            scope: { kind: 'subtree', rootId: asIssueId(created.id) },
+            actorSessionId: asSessionId('sess_coord'),
           },
         },
         'issues',
@@ -383,7 +384,7 @@ describe('issue spawn provenance', () => {
         { capability: OPERATOR },
         'issues',
         'setCoordinator',
-        { id: created.id, sessionId: 'sess_handoff' },
+        { id: created.id, sessionId: asSessionId('sess_handoff') },
       )) as { coordinatorSessionId?: string }
       expect(set.coordinatorSessionId).toBe('sess_handoff')
 

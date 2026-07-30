@@ -1,9 +1,4 @@
-import {
-  type IssueWireInput,
-  type SessionMetaInput,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 import {
@@ -205,21 +200,21 @@ describe('pickPaneSession (#108 — sidebar click opens a pane)', () => {
   const recent = sess('recent', WT, { lastActiveAt: new Date(NOW - 3_600_000).toISOString() })
 
   it('keeps the current pane when it is already a member', () => {
-    expect(pickPaneSession([old, recent], 'old')).toBe('old')
+    expect(pickPaneSession([old, recent], asSessionId('old'))).toBe('old')
   })
 
   it('keeps the current pane when it is a row file tab (extraValidIds)', () => {
-    expect(pickPaneSession([old, recent], 'file:x', ['file:x'])).toBe('file:x')
+    expect(pickPaneSession([old, recent], asSessionId('file:x'), ['file:x'])).toBe('file:x')
   })
 
   it('opens the most recently active member when the pane is foreign or empty', () => {
-    expect(pickPaneSession([old, recent], 'elsewhere')).toBe('recent')
+    expect(pickPaneSession([old, recent], asSessionId('elsewhere'))).toBe('recent')
     expect(pickPaneSession([old, recent], null)).toBe('recent')
     expect(pickPaneSession([old], null)).toBe('old')
   })
 
   it('returns null for an empty row (clear to the picker)', () => {
-    expect(pickPaneSession([], 'elsewhere')).toBeNull()
+    expect(pickPaneSession([], asSessionId('elsewhere'))).toBeNull()
     expect(pickPaneSession([], null)).toBeNull()
   })
 })

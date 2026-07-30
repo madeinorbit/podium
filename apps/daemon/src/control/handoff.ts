@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { sep } from 'node:path'
 import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -24,7 +25,7 @@ import {
  * drag the export there — that is exactly what the pin exists to prevent, and honouring
  * it here keeps "never hand off a main checkout" airtight [spec:SP-3f7a].
  */
-function exportCwd(ctx: DaemonContext, sessionId: string, root: string): string {
+function exportCwd(ctx: DaemonContext, sessionId: SessionId, root: string): string {
   const raw = ctx.sessionCwdTracker.rawCwd(sessionId)
   if (!raw) return root
   return raw === root || raw.startsWith(`${root}${sep}`) ? raw : root

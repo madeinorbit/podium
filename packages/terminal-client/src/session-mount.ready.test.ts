@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
 import { codexInputReady, mountSession } from './session-mount'
@@ -43,7 +44,7 @@ describe('session-mount onReady', () => {
     withResizeObserver()
     const { hub, attached } = fakeHub()
     const onReady = vi.fn()
-    const mounted = mountSession(document.createElement('div'), { hub, sessionId: 's1', onReady })
+    const mounted = mountSession(document.createElement('div'), { hub, sessionId: asSessionId('s1'), onReady })
 
     expect(onReady).not.toHaveBeenCalled()
     attached() // server confirms the PTY is bound — usable even with an empty buffer
@@ -58,7 +59,7 @@ describe('session-mount onReady', () => {
     withResizeObserver()
     const { hub, frame } = fakeHub()
     const onReady = vi.fn()
-    const mounted = mountSession(document.createElement('div'), { hub, sessionId: 's1', onReady })
+    const mounted = mountSession(document.createElement('div'), { hub, sessionId: asSessionId('s1'), onReady })
 
     frame('') // empty replay is not "ready"
     expect(onReady).not.toHaveBeenCalled()
@@ -76,7 +77,7 @@ describe('session-mount onReady', () => {
       const onReady = vi.fn()
       const mounted = mountSession(document.createElement('div'), {
         hub,
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         onReady,
         readyTimeoutMs: 2000,
       })
@@ -99,7 +100,7 @@ describe('session-mount onReady', () => {
       const onReady = vi.fn()
       const mounted = mountSession(document.createElement('div'), {
         hub,
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         onReady,
         readyTimeoutMs: 2000,
       })

@@ -1,10 +1,4 @@
-import {
-  asArtifactId,
-  type IssuePanelArtifact,
-  type IssueWire,
-  type SessionMeta,
-  type SessionOffer,
-} from '@podium/model'
+import { asArtifactId, asSessionId, type IssuePanelArtifact, type IssueWire, type SessionMeta, type SessionOffer } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,7 +32,7 @@ const makeIssue = (artifacts: IssuePanelArtifact[]): IssueWire =>
     sessions: [],
   }) as unknown as IssueWire
 
-const session = { sessionId: 'sess_1', issueId: 'iss_1' } as unknown as SessionMeta
+const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionMeta
 
 const offerWith = (artifacts: string[]): SessionOffer => ({
   message: 'm',

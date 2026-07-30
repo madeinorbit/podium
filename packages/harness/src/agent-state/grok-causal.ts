@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
   AgentObservation,
   AgentObservationAckMessage,
@@ -10,7 +10,7 @@ import { initialAgentState, reduceAgentState } from './reducer.js'
 import type { AgentStateEvent } from './types.js'
 
 export interface GrokObservationLease {
-  podiumSessionId: string
+  podiumSessionId: SessionId
   providerSessionId: string
   bindingVersion: number
   observerGeneration: number

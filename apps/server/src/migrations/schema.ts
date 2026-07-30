@@ -325,24 +325,14 @@ export const clientSessions = sqliteTable("client_sessions", {
 	expiresAt: text("expires_at").notNull(),
 });
 
-export const changes = sqliteTable("changes", {
-	seq: integer().primaryKey({ autoIncrement: true }),
-	entity: text().notNull(),
-	entityId: text("entity_id").notNull(),
-	op: text().notNull(),
-	payload: text(),
-	eventTime: integer("event_time").notNull(),
-},
-(table) => [index("changes_entity").on(table.entity, table.entityId, table.seq),
-index("changes_event_time").on(table.eventTime),
-]);
-
-export const appliedMutations = sqliteTable("applied_mutations", {
-	mutationId: text("mutation_id").primaryKey(),
-	proc: text().notNull(),
-	result: text().notNull(),
-	appliedAt: integer("applied_at").notNull(),
-});
+// `changes` and `applied_mutations` moved to
+// packages/sync/src/adapters/sqlite/schema.ts at POD-305. They are GENERIC SYNC
+// INFRASTRUCTURE (ADR 1 §10), not product entities, so the sync adapter owns
+// them; drizzle.config.ts unions both schema files into the ONE journal, so
+// global migration ordering is unchanged. `queued_messages` and
+// `upstream_outbox` below stay HERE: the sync adapter reads them, and reading a
+// table is not owning it — they are the session inbox and the node->hub
+// forwarder's queue, which are feature-owned.
 
 export const queuedMessages = sqliteTable("queued_messages", {
 	id: text().primaryKey(),

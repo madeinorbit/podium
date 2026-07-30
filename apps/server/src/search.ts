@@ -1,3 +1,4 @@
+import { machineScopedKey } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from './store'
@@ -171,7 +172,7 @@ export function searchAll(
   const seenSegments = new Set<string>()
   const sessions = registry.listSessions()
   for (const t of transcriptRows) {
-    const segKey = `${t.machineId}\n${t.nativeId}`
+    const segKey = machineScopedKey(t.machineId, t.nativeId)
     if (seenSegments.has(segKey)) continue // one result per conversation, best rank first
     seenSegments.add(segKey)
     const norm = bestRank !== undefined && bestRank < 0 ? t.rank / bestRank : 1

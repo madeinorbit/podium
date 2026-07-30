@@ -6,7 +6,7 @@
  * shares ONE construction path with zero React involvement.
  */
 
-import type { WorkState } from '@podium/model'
+import type { SessionId, WorkState } from '@podium/model'
 import { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'
@@ -19,14 +19,14 @@ import type { StoreNotices } from './types'
  *  stay direct (low offline value); sendText stays direct too — live chat must
  *  fail fast, not silently queue. */
 export type OutboxKinds = {
-  resumeAndSend: { sessionId: string; text: string }
-  rename: { sessionId: string; name: string }
-  setArchived: { sessionId: string; archived: boolean }
-  setWorkState: { sessionId: string; workState: WorkState | null }
-  snoozeSet: { sessionId: string; until: string | null }
-  snoozeClear: { sessionId: string }
-  sessionMarkRead: { sessionId: string }
-  sessionMarkUnread: { sessionId: string }
+  resumeAndSend: { sessionId: SessionId; text: string }
+  rename: { sessionId: SessionId; name: string }
+  setArchived: { sessionId: SessionId; archived: boolean }
+  setWorkState: { sessionId: SessionId; workState: WorkState | null }
+  snoozeSet: { sessionId: SessionId; until: string | null }
+  snoozeClear: { sessionId: SessionId }
+  sessionMarkRead: { sessionId: SessionId }
+  sessionMarkUnread: { sessionId: SessionId }
   issueMarkRead: { id: string }
   issueMarkUnread: { id: string }
   issueSetTucked: { id: string; tucked: boolean }

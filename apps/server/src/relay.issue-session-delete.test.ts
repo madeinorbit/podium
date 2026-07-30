@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -54,7 +55,7 @@ describe('issue/session deletion lifecycle', () => {
     expect(tombstones.every((s) => s.deletedByIssueId === issue.id)).toBe(true)
     const killed = messages
       .filter(
-        (message): message is { type: string; sessionId: string } =>
+        (message): message is { type: string; sessionId: SessionId } =>
           !!message && typeof message === 'object' && 'type' in message && 'sessionId' in message,
       )
       .filter((message) => message.type === 'kill')

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { AgentRuntimeState } from '@podium/model'
 import type { AgentObservation, ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -273,7 +274,7 @@ describe('durable terminal hibernation proof', () => {
     const proofBefore = store.observationCheckpoints.getTerminalCandidate(sessionId)
     const autoContinue = (
       registry.modules.sessions as unknown as {
-        autoContinue: { onSessionGone(sessionId: string): void }
+        autoContinue: { onSessionGone(sessionId: SessionId): void }
       }
     ).autoContinue
     const gone = vi.spyOn(autoContinue, 'onSessionGone')
