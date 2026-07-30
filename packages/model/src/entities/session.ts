@@ -42,6 +42,7 @@
  */
 
 import { z } from 'zod'
+import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { AgentKind } from './agent'
 
 // ---------------------------------------------------------------------------
@@ -167,7 +168,13 @@ export const SessionOffer = z.object({
 })
 export type SessionOffer = z.infer<typeof SessionOffer>
 
-export const SessionMeta = z.object({
+/**
+ * The session entity — PROVENANCE-FREE (POD-304 / ADR 4 D3.8). `viaHub` and
+ * `upstreamStale` are not fields of a session: they describe how a row reached
+ * a replica, and they live on the envelope. See `SessionMeta` below for the
+ * wire projection that still carries them flat until POD-308.
+ */
+export const SessionMetaEntity = z.object({
   sessionId: z.string(),
   agentKind: AgentKind,
   title: z.string(),
@@ -307,14 +314,25 @@ export const SessionMeta = z.object({
    *  web hides it from the ordinary session lists (Phase C). Additive: absent =
    *  a normal PTY session. */
   headless: z.boolean().optional(),
-  /** True for a session mirrored FROM this node's upstream hub (node⇄hub sync,
-   *  docs/spec/node-hub-sync.md §2.3). Read-only surface in P7a: command paths
-   *  reject it; P7b's push path excludes it (provenance — never echoed back).
-   *  Additive: absent = a local session, today's behavior. */
-  viaHub: z.boolean().optional(),
-  /** True when this viaHub entry is last-known state from an UNREACHABLE hub —
-   *  retained, not blanked (spec §2.3 staleness semantics). Only ever set
-   *  alongside viaHub; local sessions never carry it. */
-  upstreamStale: z.boolean().optional(),
 })
+export type SessionMetaEntity = z.infer<typeof SessionMetaEntity>
+
+/**
+ * The wire/read projection: the provenance-free entity plus the FLAT provenance
+ * encoding today's wire carries (POD-304).
+ *
+ * The three flags used to be declared here, restated again on `IssueWire`, with
+ * one file's doc comment pointing at the other — the hand-restated field list
+ * ADR 4 exists to delete. They now have ONE definition site
+ * (`provenance/envelope.ts`), and they are spread at their historical key
+ * position — LAST — so the encoding is byte-identical and `wire-golden.json`
+ * proves it rather than a comment claiming it.
+ *
+ * `SESSION_FLAT_PROVENANCE_SHAPE` is deliberately the two-key `.pick()`:
+ * `SessionMeta` has never carried `pendingSync`, and widening a wire contract
+ * is not a refactor. Replica read sites go through `provenanceOf` / `isViaHub`
+ * / `isUpstreamStale` rather than these fields, so POD-308 can nest the carrier
+ * without touching them.
+ */
+export const SessionMeta = SessionMetaEntity.extend(SESSION_FLAT_PROVENANCE_SHAPE)
 export type SessionMeta = z.infer<typeof SessionMeta>

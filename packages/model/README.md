@@ -24,13 +24,14 @@ it. Reserved directories are intentionally empty and carry a README naming their
 | `identity/` | Identity of things and of principals: git remote / repo identity, worktree identity, session identity — and POD-1075's `User` / account aggregate | live, grows |
 | `authz/` | The authorization policy: roles, the closed scope set, and `authorize` — the single enforcement function | live |
 | `predicates/` | Pure derivations over entity shapes: issue stage/defer, snooze, sort keys, machine + handoff selection, session priority, mobile entry | live |
-| `annotations/` | Per-field ownership / visibility annotations with a totality test | **reserved** — POD-304 |
+| `annotations/` | The ownership matrix as data: one annotated row per replicated class, the closed column vocabulary, the Authority-only arbitration reads, and the totality test (see its README) | live — POD-304 |
+| `provenance/` | `ReplicatedEnvelope<T>` — how a row reached THIS replica. Deliberately not the home for owner / visibility / attribution | live — POD-304 |
 | `user-state/` | The per-user state family keyed `(userId, entityId)`: `readAt`, snooze, pins, tab order, preferences | **reserved** — POD-1076 |
 
 Nothing outside this package imports a subpath — the `exports` map publishes only `.` — so this
 layout can be rearranged without touching a consumer.
 
-## Three invariants that later work depends on
+## Four invariants that later work depends on
 
 Recorded because POD-1075 (user accounts / identity) and POD-1076 (per-user state) extend this
 package rather than replacing it, per `docs/multi-user-readiness.md` (human decisions,
@@ -53,7 +54,18 @@ package rather than replacing it, per `docs/multi-user-readiness.md` (human deci
    defer presets store and for any offset-bearing spelling.
 
 3. **Multi-user is not multi-tenancy.** Nothing here carries an `instance_id` or an
-   instance-partition concept; ADR 1 D5 is unaffected.
+   instance-partition concept; ADR 1 D5 is unaffected. `annotations/matrix.test.ts` now
+   asserts this over the serialized matrix, so a future row cannot smuggle a tenant
+   discriminator in as a column value.
+
+4. **An unclassified entity class is PRIVATE, and that holds without the test** (POD-304).
+   `visibilityClassOf` resolves an unknown class to `personal` — a total function with no
+   "unclassified" outcome a caller could mishandle and no thrown error a caller could catch
+   and treat as permissive. The totality test is the other half, not a substitute: it fails
+   the build for the missing declaration. Forgetting to classify must fail toward privacy
+   (ADR 9 D4), and a default that fails open is the failure mode that rule exists to
+   prevent. The arbitration reads deliberately do the OPPOSITE and throw: visibility has a
+   safe default, a merge policy does not.
 
 ## Build orchestration
 

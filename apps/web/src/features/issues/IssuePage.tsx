@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core'
+import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -683,18 +684,22 @@ function StatusStrip({ issue }: { issue: IssueWire }): JSX.Element {
           internal
         </StatusChip>
       )}
-      {issue.viaHub && (
+      {/* Replica PROVENANCE, read through the envelope accessors rather than off
+          the entity (POD-304). Identical rendering — the point is that when
+          POD-308 nests the carrier under an `envelope` key, this indicator does
+          not have to be found and changed again. */}
+      {isViaHub(issue) && (
         <StatusChip
-          tone={issue.upstreamStale ? 'amber' : 'sky'}
+          tone={isUpstreamStale(issue) ? 'amber' : 'sky'}
           title={
-            issue.upstreamStale
+            isUpstreamStale(issue)
               ? 'Mirrored from an unreachable hub — last-known state'
-              : issue.pendingSync
+              : isPendingSync(issue)
                 ? 'Edit queued for the hub — shown optimistically'
                 : 'Mirrored from this node’s upstream hub'
           }
         >
-          {issue.upstreamStale ? 'hub · stale' : issue.pendingSync ? 'hub · syncing' : 'hub'}
+          {isUpstreamStale(issue) ? 'hub · stale' : isPendingSync(issue) ? 'hub · syncing' : 'hub'}
         </StatusChip>
       )}
       {(created || updated) && (

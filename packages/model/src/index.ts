@@ -42,6 +42,19 @@ export * from './identity/git-identity'
 export * from './identity/session-identity'
 export * from './identity/worktree'
 
+// The ownership matrix as DATA (POD-304): the vocabulary, one fully annotated
+// row per replicated aggregate / field group, and the Authority-only arbitration
+// surface. `annotations/arbitration-direction.test.ts` fails when replica-side
+// code imports the arbitration reads — ADR 1 D1's direction, enforced.
+export * from './annotations/arbitration'
+export * from './annotations/matrix'
+export * from './annotations/ownership'
+
+// Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately
+// NOT the home for owner / visibility / actor / on-behalf-of — those are durable
+// entity truth and must not be droppable at a boundary.
+export * from './provenance/envelope'
+
 // Pure derivations over entity shapes.
 export * from './predicates/issue-stage'
 export * from './predicates/machine-selection'

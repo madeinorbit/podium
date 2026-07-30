@@ -611,7 +611,7 @@ same commit.**
 
 | Workspace | Layer | Platform | Owns (features) | Transition |
 |---|---|---|---|---|
-| `packages/model` | L0 model | browser-safe | entity-schemas, entity-predicates, issue-stage, issue-authz, session-dedup, git-identity, clock | **DONE** (Phase 1 POD-299 + POD-300): absorbed and deleted `packages/domain`, plus the `@podium/runtime/git.ts` shim; then POD-300 moved every replicated-entity schema in from `packages/protocol` (`entities/`: agent, session, issue, conversation, machine, transcript, handoff — the machine file is one named group because per-machine facts inherit machine scoping). Zod-only, zero workspace deps. Reserved homes: `ids/` (POD-360…363), `annotations/` (POD-304), `user-state/` (POD-1076) |
+| `packages/model` | L0 model | browser-safe | entity-schemas, entity-predicates, issue-stage, issue-authz, session-dedup, git-identity, clock | **DONE** (Phase 1 POD-299 + POD-300): absorbed and deleted `packages/domain`, plus the `@podium/runtime/git.ts` shim; then POD-300 moved every replicated-entity schema in from `packages/protocol` (`entities/`: agent, session, issue, conversation, machine, transcript, handoff — the machine file is one named group because per-machine facts inherit machine scoping). Zod-only, zero workspace deps. POD-304 then filled `annotations/` (the ownership matrix as DATA: 53 rows × ADR 1 D4's eight columns + Amendment 1 D8's owner/visibility/grants + the attribution pair, the system-writer rule, inheritance-on-create and visibility-mutability; a totality test; `arbitration.ts` as the Authority-only read surface) and added `provenance/` (`ReplicatedEnvelope<T>` — the entity schemas are provenance-free). Reserved homes remaining: `ids/` (POD-360…363), `user-state/` (POD-1076) |
 | `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | **DONE** (Phase 1 POD-300): entity schemas moved to `packages/model`; protocol keeps only frames (message unions, codec, handshake, sync-class taxonomy, versioning) and imports the entities. No re-export shim. Wire proven byte-identical by the golden fixtures in `packages/protocol/src/messages/wire-golden.json`. Next: Phase 2 POD-308 wire cutover |
 | `packages/issue-client` | L1 wire | node-only | issue-command-table | → folded into the command registry (Phase 3 POD-311) |
 | `packages/transcript` | L2 kernel | node-only | transcript-parsing | package placement settled by ADR 8; POD-398 implements |
@@ -705,6 +705,29 @@ per-user state family (POD-1076)** — both multi-user, 2026-07-29.
 **Oracle status / audit counts:** filled at phase close. Audit items: hand-restated
 field definitions, raw-string ids (now incl. `messages/handoff.ts`), agent-kind/
 capability tables (five adapters since grok landed dc6537d6), stateDir.
+
+**POD-304 as-built (provenance envelope + ownership annotations).** Two decisions this
+section records because later phases depend on them:
+
+1. **The provenance split landed at the DEFINITION sites, not on the wire.** ADR 4 D3.8
+   moves `viaHub` / `upstreamStale` / `pendingSync` to a `ReplicatedEnvelope<T>`; nesting
+   them under an `envelope` key is a WIRE change, and Phase 1's contract is that the wire
+   does not move (POD-360's goldens). So `SessionMetaEntity` / `IssueWireEntity` are
+   provenance-free while `SessionMeta` / `IssueWire` compose entity + the flat group at the
+   historical key position — byte-identical, 87/87 goldens. **POD-308 owns nesting the
+   carrier.** Replica read sites already go through `provenanceOf` / `isViaHub` /
+   `isUpstreamStale` / `isPendingSync`, so the cutover does not have to find them again.
+2. **`owner` / `visibility` / `actor` / `on-behalf-of` are forbidden on the envelope**
+   (ADR 4 Am1 D9.4), enforced by test. An envelope fact is droppable at a replica
+   boundary; an authorization input that can be dropped fails OPEN. The same reasoning
+   settled the needs-human placement question: `humanQuestionAskedBy` /
+   `humanQuestionAskedAt` are server-authoritative attribution and stay ENTITY data.
+
+**Handed forward in writing:** `docs/rearch-visibility-mutability-inventory.md` (generated
+from the matrix, `--check`-gated) is POD-1077's input — 32 of 53 classes have visibility
+that changes after create, which is the quantitative form of "the machinery is
+load-bearing from day one". The owner column is a RULE (`OwnerResolution` + declared
+no-owner reason), not a `UserId` field, so POD-1075's brand plugs in additively.
 
 **Verification steps (gate POD-423):** regenerate the gate evidence checklist against
 current main, not the 07-13 snapshot; audit items zero; oracle green; wire fixtures
