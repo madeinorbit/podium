@@ -99,7 +99,15 @@ export const ROW = {
   locks: id('advisory-locks'),
   approvals: id('approval-requests'),
   automations: id('automations-and-runs'),
-  workflows: id('workflows'),
+  // The workflow surface, as FIVE classes rather than the one row it used to
+  // be (POD-731). The split is not cosmetic: revisions inherit their definition
+  // while runs inherit the ISSUE they advance, and one row cannot carry two
+  // owner rules. See the rows themselves for the rest.
+  workflowDefinitions: id('workflow-definitions'),
+  workflowRevisions: id('workflow-revisions'),
+  workflowBindings: id('workflow-bindings'),
+  workflowExecutionProfiles: id('workflow-execution-profiles'),
+  workflowRuns: id('workflow-runs'),
 
   messages: id('messages-substrate'),
   messagingTopics: id('messaging-issue-topics'),
@@ -1303,33 +1311,150 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'account-disable'], note: 'PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability.' },
     open: [],
   },
+  // -------------------------------------------------------------------------
+  // Workflows — FIVE ROWS, not one (POD-731).
+  //
+  // This was a single row covering "workflows / revisions / bindings / runs /
+  // steps / events / execution_profiles", and one row could only carry one
+  // answer per column. That was survivable while the whole surface was
+  // single-operator; it stops being survivable the moment the columns DISAGREE,
+  // and they disagree in three places that matter:
+  //
+  //   - a REVISION inherits its definition, but a RUN inherits the ISSUE it
+  //     advances — different owners, and collapsing them makes "who owns this
+  //     run" answerable only by reading handler code;
+  //   - a definition is `exp-rev` while the run machine is `cmd` (the old row
+  //     said so, in a NOTE, which is not a column a totality test can check);
+  //   - an EXECUTION PROFILE names managed credentials and owned compute, so it
+  //     is `secret-presence` and `never-enqueue` where the rest is `public` and
+  //     `offline-eligible`.
+  //
+  // Readiness §3.1.1 rule 2 requires the classification to be declared per
+  // class with a totality test. Five classes, five rows. What is NOT here is a
+  // sixth `deployment-substrate` row for the global library: see
+  // `workflowDefinitions`' owner note.
+  // -------------------------------------------------------------------------
   {
-    id: ROW.workflows,
+    id: ROW.workflowDefinitions,
     section: 'coordination',
-    title: 'Workflows / revisions / bindings / runs / steps / events / execution_profiles',
-    sites: ['apps/server workflows service (`wf_` / `wfr_` / `wrun_` prefixes)'],
+    title: 'Workflow definitions (`workflows`)',
+    sites: ['apps/server `workflows` table (`wf_` prefix); modules/workflows/handlers'],
     home: 'server',
-    idMinting: 'Server prefixed ids',
+    idMinting: 'Server prefixed ids (`wf_`)',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'exp-rev',
-    conflictNote: 'exp-rev on definitions; `cmd` on the run machine.',
     tombstone: 'soft-delete',
-    tombstoneNote: 'Archive / supersede.',
+    tombstoneNote: 'Archive; a definition is never hard-deleted while a run references one of its revisions.',
     offline: 'offline-eligible',
     secret: 'public',
-    owner: { kind: 'user', resolves: 'creating-user' },
+    owner: { kind: 'user', resolves: 'creating-user', note: 'ADR 9 D8 S6, and the GLOBAL arm is the same rule rather than an exception: a global-scope definition is owned by the ADMIN who created it and shared by an explicit read grant. It is deliberately NOT declared `deployment-substrate` — readiness §3.1.1 says a global library entry is substrate-SHAPED, but the substrate set is ADR 1 Amendment 1 D9.3’s one-way ratchet and POD-1071 owns turning it. Its WRITE path is admin-grade all the same (POD-731 closed the ambient `scope === "global"` early return in `assertCreateScope` and `assertWorkflowWrite`); its READ reaches the same audience through ADR 9 D2’s grant edge, which a reader can be shown and an owner can revoke.' },
     visibility: 'personal',
-    grants: { kind: 'verbs', verbs: ['read', 'write'], note: 'Run advance is ADDITIONALLY gated by the target machine’s `use`.' },
+    grants: PERSONAL_GRANTS,
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human; a run inherits its definition.' },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'grant-use'],
-      note: 'PHASE 2 MUST HANDLE: two axes again — the definition’s grants, and machine `use` for run advance.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human (ADR 9 D5 A4).' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'account-disable'], note: 'PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability.' },
+    open: [],
+  },
+  {
+    id: ROW.workflowRevisions,
+    section: 'coordination',
+    title: 'Workflow revisions (`workflow_revisions`)',
+    sites: ['apps/server `workflow_revisions` table (`wfr_` prefix)'],
+    home: 'server',
+    idMinting: 'Server prefixed ids (`wfr_`)',
+    writers: ['operator', 'agent-session'],
+    replication: 'server-to-clients',
+    conflict: 'append',
+    conflictNote: 'REVISION IMMUTABILITY, as a conflict rule rather than a convention: a revise APPENDS a version and never edits a prior one in place, and publication is not a lock (POD-730 §2). That is why the offline class below is safe — a queued revise replayed after the library moved is a new revision, not a lost edit.',
+    tombstone: 'never-delete',
+    tombstoneNote: 'A revision a run pinned must remain readable for that run’s whole life.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.workflowDefinitions, note: 'The DEFINITION’s owner, not the reviser’s — readiness §3.1.2’s parent rule. Otherwise a shared workflow fragments into per-reviser ownership one edit at a time and the person who shared it loses the ability to read what it became.' },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.workflowDefinitions },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.workflowDefinitions, note: 'DECLARED: owner AND grants follow the definition.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the definition, so a share on the definition makes every revision appear at once without any revision’s own version moving.' },
+    open: [],
+  },
+  {
+    id: ROW.workflowBindings,
+    section: 'coordination',
+    title: 'Workflow bindings (`workflow_bindings`)',
+    sites: ['apps/server `workflow_bindings` table (`(target_kind, target_id)` composite key)'],
+    home: 'server',
+    idMinting: 'Composite key — `(target_kind, target_id)`, no minted id',
+    writers: ['operator', 'agent-session'],
+    replication: 'server-to-clients',
+    conflict: 'exp-rev',
+    tombstone: 'remove',
+    tombstoneNote: 'Rebinding replaces the row; there is no binding history.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'A binding inherits its TARGET, and the edge points at the issue arm because that is the one this matrix has a row for. The other three arms are stated rather than left implicit: a `session` binding inherits that session, a `repository` binding inherits the machine-scoped repo (POD-1079’s model, cited by POD-731’s contract rather than guessed at), and a `global` binding is instance-wide and admin-grade — the shipped `protectedWrite` brake, kept. Sharing an issue must share what runs on it; a binding owned by whoever last changed it would leave the issue’s owner unable to see why their own issue starts the workflow it does.' },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.issueCore },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore, note: 'DECLARED: the target’s owner and grants, never the binder’s.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'reparent'], note: 'PHASE 2 MUST HANDLE: `bindings()` is a QUERY and was one of the three read-shaped operator branches POD-730 pinned — it returned every binding in the instance. A scoped feed must filter it per principal.' },
+    open: [],
+  },
+  {
+    id: ROW.workflowExecutionProfiles,
+    section: 'coordination',
+    title: 'Execution profiles (`execution_profiles`)',
+    sites: ['apps/server `execution_profiles` table (`wfp_` prefix); the per-run immutable snapshot on `workflow_run_steps`'],
+    home: 'server',
+    idMinting: 'Server prefixed ids (`wfp_`)',
+    writers: ['operator'],
+    replication: 'server-to-clients',
+    replicationNote: 'The `accountId` REFERENCE replicates; no credential material does. ADR 1 D6 is untouched — this row is `secret-presence`, not `secret-value`.',
+    conflict: 'exp-rev',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'A profile a run pinned survives as that run’s immutable snapshot regardless.',
+    offline: 'never-enqueue',
+    secret: 'secret-presence',
+    secretNote: 'FAIL CLOSED: `accountId` names MANAGED CREDENTIALS (server-only, admin-grade to manage under ADR 1 D6) and `machineId` names OWNED COMPUTE, where `use` is a CODE-EXECUTION boundary and not a privacy one (ADR 9 D6 M2). The row holds neither the credential nor the machine — it holds two references — but which account funds which workflow, and which machine runs it, are disclosures on their own. Never enqueued: a queued profile write would replay a credential-to-compute binding after the grant authorizing it may have been revoked.',
+    owner: { kind: 'user', resolves: 'creating-user' },
+    visibility: 'personal',
+    grants: PERSONAL_GRANTS,
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human. A RUN does not inherit the live profile — it pins an immutable SNAPSHOT (POD-730 §4), which is correct for reproducibility and must never become the model for authorization: the snapshot is re-authorized at every apply against the CURRENT delegation (ADR 9 D5 A1).' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-role-change'], note: 'PHASE 2 MUST HANDLE: two axes that move independently — the profile’s own grants, and `use` on the machine it pins. `profiles()` had NO gate at all and listed every profile, with its `accountId`, to any caller.' },
+    open: [],
+  },
+  {
+    id: ROW.workflowRuns,
+    section: 'coordination',
+    title: 'Workflow runs, run steps and run events (`workflow_runs` / `workflow_run_steps` / `workflow_events`)',
+    sites: ['apps/server `workflow_runs`, `workflow_run_steps`, `workflow_events` (`wrun_` prefix)'],
+    home: 'server',
+    idMinting: 'Server prefixed ids (`wrun_`)',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote: 'The run STATE MACHINE, and the reason this could not stay in a note on a definitions row: an advance is a COMMAND against a run, not a field write, and its at-most-once property is the run-scoped idempotency POD-731 landed rather than anything a merge rule could supply.',
+    tombstone: 'never-delete',
+    tombstoneNote: 'A superseded run keeps its whole step history; `workflow_events` is append-only and is the ONLY durable audit trail this surface has (POD-730 §9 — no reader in the product yet, and it must not be dropped on the assumption nothing reads it).',
+    offline: 'online-only',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'A run inherits the ISSUE or SESSION it advances, NOT the agent that advances it (readiness §3.1.2) — a colleague’s agent checkpointing your issue must not acquire your run. This is where the old single row was most misleading: it declared `creating-user` for the whole surface, which is right for a definition and wrong for a run.' },
+    visibility: 'personal',
+    grants: { kind: 'verbs', verbs: ['read', 'write'], note: 'Read and write on the run follow the subject. An ADVANCE is ADDITIONALLY gated by `use` on the machine the step is placed on (ADR 9 D6 M5, checked at assign time AND again at apply, with unauthorized distinguishable from unreachable) — a DIFFERENT vocabulary on a different object, never a personal verb on this row.' },
+    attribution: { actor: 'required', onBehalfOf: 'required', note: 'ADR 9 D5 A3, and POD-731 landed the pair: `workflow_events.on_behalf_of` records WHICH HUMAN the actor acted for beside WHICH agent or session acted, both stamped from the transport principal and never from payload. The one path still recording a null human is `startRun`, which takes no caller to resolve one from.' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore, note: 'DECLARED: the subject issue or session, not the actor.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-disable'], note: 'PHASE 2 MUST HANDLE: `runs()` and `runFor()` were the other two read-shaped operator branches — every run in the instance, and any run by id. And `account-disable` is load-bearing here rather than theoretical: runs are long-lived and UNATTENDED, so revoking a person must stop their in-flight runs advancing with no reaper to write.' },
     open: [],
   },
 ]

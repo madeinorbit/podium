@@ -550,42 +550,59 @@ export class SessionRegistry {
       locks: () => locks,
       issues: () => issues,
     })
-    workflows = new WorkflowService({
-      store: this.store.workflows,
-      now: () => new Date(this.now()).toISOString(),
-      session: (sessionId) => {
-        const s = liveSessions().get(sessionId)
-        return s
-          ? {
-              sessionId: s.sessionId,
-              cwd: s.cwd,
-              ...(s.issueId ? { issueId: s.issueId } : {}),
-              agentKind: s.agentKind,
-              machineId: s.machineId,
-            }
-          : undefined
+    workflows = new WorkflowService(
+      {
+        store: this.store.workflows,
+        now: () => new Date(this.now()).toISOString(),
+        session: (sessionId) => {
+          const s = liveSessions().get(sessionId)
+          return s
+            ? {
+                sessionId: s.sessionId,
+                cwd: s.cwd,
+                ...(s.issueId ? { issueId: s.issueId } : {}),
+                agentKind: s.agentKind,
+                machineId: s.machineId,
+              }
+            : undefined
+        },
+        issue: (issueId) => {
+          const issue = issues?.getMeta(issueId)
+          // Only `worktreePath` is read (workflows' step-placement check); the id /
+          // repoId / repoPath this used to also carry had no reader (POD-367).
+          return issue ? { worktreePath: issue.worktreePath } : undefined
+        },
+        repoIdForPath: (path) => this.store.repos.resolveRepoIdForPath(path),
+        notifyCoordinator: (sessionId, text) => {
+          messagesSvc.send(
+            { kind: 'system', name: 'workflow' },
+            {
+              to: { kind: 'session', id: sessionId },
+              body: text,
+              kind: 'notification',
+              // #471: fyi is the only urgency that currently waits for a turn boundary.
+              urgency: 'fyi',
+              lifecycle: 'wait',
+            },
+          )
+        },
       },
-      issue: (issueId) => {
-        const issue = issues?.getMeta(issueId)
-        // Only `worktreePath` is read (workflows' step-placement check); the id /
-        // repoId / repoPath this used to also carry had no reader (POD-367).
-        return issue ? { worktreePath: issue.worktreePath } : undefined
+      {
+        /**
+         * THE RUN-SCOPED IDEMPOTENCY LEDGER (POD-731), backed by the product's
+         * existing `applied_mutations` table rather than by a second mechanism —
+         * the same store the outbox write path already treats as "a replay of an
+         * already-applied mutation returns its recorded result instead of
+         * re-running". The workflow key namespaces it by command and run, so a
+         * mutation id replayed against another run is a different delivery.
+         */
+        ledger: {
+          recall: (key) => this.store.sync.getAppliedMutation(key),
+          record: (key, result) =>
+            this.store.sync.recordAppliedMutation(key, 'workflows', result, this.now()),
+        },
       },
-      repoIdForPath: (path) => this.store.repos.resolveRepoIdForPath(path),
-      notifyCoordinator: (sessionId, text) => {
-        messagesSvc.send(
-          { kind: 'system', name: 'workflow' },
-          {
-            to: { kind: 'session', id: sessionId },
-            body: text,
-            kind: 'notification',
-            // #471: fyi is the only urgency that currently waits for a turn boundary.
-            urgency: 'fyi',
-            lifecycle: 'wait',
-          },
-        )
-      },
-    })
+    )
     sessionInstructions.register({
       source: 'podium:issues',
       prepare: () => ({ content: ISSUE_SYSTEM_POINTER }),
