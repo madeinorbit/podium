@@ -456,40 +456,40 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // Never blanked on the way (D7 stale-visible) and never ahead of its snapshot.
         expect(sliceOf(ada).length).toBeGreaterThan(0)
         expect(ada.replica.cursor?.seq).toBeLessThanOrEqual(authority.head())
-        // NO DATA LOSS. The user's authored input is recoverable verbatim, and both
-        // kernels rebuilt from the store agree with exactly what committed.
+        // NO DATA LOSS, and both kernels rebuilt from the store agree with exactly what
+        // committed — which is the only honest way to ask what survived, since a
+        // surviving object could otherwise answer from memory.
         const recovered = (await ada.recover()) as Client
         expect(await recovered.view.outbox.read()).toEqual(await ada.view.outbox.read())
         expect(recovered.view.cache.readCursor()).toEqual(ada.replica.cursor)
+        // `preOutbox` was the pre-abort durable state; it is referenced here so the
+        // fixture cannot drift into never having had a queued entry to lose.
+        expect(preOutbox.map((r) => r.mutationId)).toEqual([record.mutationId])
 
-        // ── WHAT DOES NOT HOLD, PINNED: POD-1161 ───────────────────────────────
-        // `Replica.install` drains `this.buffer` BEFORE its transaction commits, so the
-        // aborted attempt consumed the buffered frame and the RETRY started empty. The
-        // retirement that frame was the only carrier of is gone.
+        // ── THE RETIREMENT SURVIVES THE ABORT TOO (POD-1161, fixed) ────────────
+        // This block was a PIN on today's broken behaviour and is now inverted, which is
+        // exactly what a pin is for: it went red the moment the fix landed, and only it.
         //
-        // Unlike entity truth, retirement is not re-derivable: provenance for an
-        // already-applied command appears in the feed ONCE, and no later frame carries it
-        // again after the cursor passes it. The entity side is safe precisely because a
-        // re-bootstrap re-derives it by construction — which is why this defect hides.
-        //
-        // The consequence is not silent loss and not a torn commit: it is a STUCK entry
-        // for a command that demonstrably applied, which POD-371's liveness backstop
-        // eventually dead-letters with reason `max-age` — surfaced, but telling the user
-        // their write aged out unsent when it in fact landed.
-        //
-        // ASSERTED AS TODAY'S BEHAVIOUR SO IT GOES RED WHEN FIXED. Do not delete this
-        // block when POD-1161 lands — INVERT it: `retired` should be non-empty and the
-        // entry should be gone. The candidate fix is to move the buffer reset into the
-        // `adopt` closure that already runs in `span.onCommit`, which is where POD-1158
-        // put every other post-commit observation.
-        expect(retired).toEqual([])
-        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
-        expect(await ada.view.outbox.read()).toEqual(preOutbox)
-        expect(ada.outbox.find(record.mutationId)?.input).toEqual({
-          entity: 'issue',
-          entityId: 'ADA-1',
-          value: { closed: true },
-        })
+        // `Replica.install` used to clear `this.buffer` BEFORE its transaction committed,
+        // so an aborted attempt consumed the buffered frames and the walk's restart
+        // (D6.5) began empty. Only the RETIREMENT was lost, and that asymmetry is why it
+        // hid: a re-bootstrap re-derives entity truth by construction, while provenance
+        // for an already-applied command appears in the feed ONCE and no later frame
+        // carries it again after the cursor passes it. The buffer now obeys the same
+        // all-or-nothing rule as the cursor and the cache — the consumed prefix is
+        // removed inside the `adopt` closure that runs in `span.onCommit`.
+        expect(retired.map((e) => (e.type === 'retired' ? e.mutationId : null))).toEqual([
+          record.mutationId,
+        ])
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(await ada.view.outbox.read()).toEqual([])
+        // Exactly ONCE across both attempts. A buffer that survived the abort could
+        // otherwise retire the same command twice — the resurrection shape POD-370's
+        // batching rule exists to prevent, arriving through the retry instead.
+        expect(retired).toHaveLength(1)
+        // The entity truth the frame carried landed with it, so the retirement is not
+        // ahead of the fact that justifies it.
+        expect(ada.replica.view('issue', 'ADA-1')).toEqual({ closed: true })
 
         // POSITIVE CONTROL: the same install path with NO injected failure retires the
         // command its buffered frame confirms. Without it, every branch above could be
@@ -520,6 +520,99 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await clean.settle()
         expect(clean.outboxEvents.some((e) => e.type === 'retired')).toBe(true)
         expect(clean.outbox.find(graceWrite.mutationId)).toBeUndefined()
+      })
+
+      it(`${ledger.cover('base/crash-between-writes')} — a crash while DRAINING the buffer leaves the frame buffered, retirement and all`, async () => {
+        // The third route into a multi-region commit, and the one a mutation proved was
+        // unguarded: `drainBuffer` applies frames that were buffered around a heal or a
+        // walk. It used to take the whole buffer and empty it up front, so a commit that
+        // aborted part-way dropped every remaining frame — the same defect as POD-1161's
+        // install site, at a second site, which is why the fix had to be the CONCEPT
+        // (consume only after durability) rather than the one line that was named.
+        seedTwoSlices()
+        const ada = await connected(ADA)
+        const startCursor = (ada.replica.cursor as Cursor).seq
+
+        // A plain change for the heal to land on, then MY command above it, so the frame
+        // that still owes a retirement is the BUFFERED one rather than the healed one.
+        const plain = authority.append({
+          entity: 'issue',
+          entityId: 'ADA-2',
+          op: 'upsert',
+          payload: { plain: true },
+        })
+        const record = await enqueueWrite(ada, {
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
+        await ada.outbox.drain()
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+        expect(authority.receiptFor(record.mutationId)?.seq).toBeGreaterThan(plain)
+
+        // Read BEFORE the injector is armed, and before any await that could let the heal
+        // run: an `await` between `receive` and `failNextCommit` lets the whole heal and
+        // drain complete first, so the fault lands on some LATER transaction instead. That
+        // happened while writing this, and it surfaced as the injected error escaping the
+        // `rejects` guard rather than as an obviously wrong assertion.
+        const preOutbox = await ada.view.outbox.read()
+        const uowBefore = storage.unitOfWorkTransactions()
+
+        // Stale, so the next frame is BUFFERED and a heal starts (D7-1-FRAME-WHILE-STALE).
+        ada.replica.disconnect()
+        // The heal stops at `plain`, which is exactly where the buffered frame chains on.
+        // Without the ceiling the heal covers everything and the buffered frame is
+        // dropped as covered — the drain's own commit would never run, and this case
+        // would be the all-green probe its sibling already was.
+        authority.changesSinceCeiling = plain
+        ada.replica.receive(authority.frameFor(ADA, plain))
+        expect(ada.replica.stats().bufferedFrames).toBe(1)
+        // Armed with NO await between this and the `receive` above.
+        storage.failNextCommit(new Error('power loss draining the buffer'))
+        let threw: string | null = null
+        try {
+          await ada.settle()
+        } catch (e) {
+          threw = e instanceof Error ? e.message : String(e)
+        }
+        // SURFACED, and surfaced ONCE (POD-1162). A refused durable commit must never be
+        // silent (ADR 6 D4.4).
+        expect(threw).toBe('power loss draining the buffer')
+
+        // The window really was open: the drain's commit was multi-region.
+        expect(storage.unitOfWorkTransactions()).toBeGreaterThan(uowBefore)
+        // The heal itself landed (it owed no retirement, so it autocommitted).
+        expect(ada.replica.cursor?.seq).toBe(plain)
+        expect(ada.replica.cursor?.seq).toBeGreaterThan(startCursor)
+        // THE FRAME IS STILL BUFFERED, retirement and all. Under the old shape it was
+        // gone, and with it the only carrier of this command's provenance.
+        expect(ada.replica.stats().bufferedFrames).toBe(1)
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+        expect(await ada.view.outbox.read()).toEqual(preOutbox)
+
+        // AND THE REPLICA IS NOT WEDGED (POD-1162). This is the half that mattered most
+        // and that I had to find by instrumenting rather than by reasoning: a refused
+        // commit used to leave `inflight` REJECTED, so every later `.then(task)` skipped
+        // its task. `connect()` took its transition and issued no `changesSince` at all —
+        // measured call count 0 — the frame sat buffered forever, and `settled()` replayed
+        // the same stale error to every future caller. The heal COUNT is the assertion
+        // that says otherwise; posture alone would have read healthy while nothing ran.
+        authority.changesSinceCeiling = null
+        const healsBefore = authority.changesSinceCalls.length
+        ada.replica.connect()
+        await ada.settle()
+        expect(authority.changesSinceCalls.length).toBeGreaterThan(healsBefore)
+
+        // …and the ladder RESOLVED DOWNWARD to convergence rather than merely surviving.
+        // "Kept" has to mean usable, not merely present.
+        expect(ada.outbox.find(record.mutationId)).toBeUndefined()
+        expect(ada.outboxEvents.filter((e) => e.type === 'retired')).toHaveLength(1)
+        expect(await ada.view.outbox.read()).toEqual([])
+        expect(ada.replica.view('issue', 'ADA-1')).toEqual({ closed: true })
+        expect(ada.replica.cursor?.seq).toBe(authority.head())
+        expect(ada.replica.stats().bufferedFrames).toBe(0)
+        // The failure was reported ONCE, not stuck on the replica forever.
+        await expect(ada.settle()).resolves.toBeUndefined()
       })
 
       it(`${ledger.cover('base/quota-exhaustion')} — a denied durable write surfaces and loses nothing`, async () => {

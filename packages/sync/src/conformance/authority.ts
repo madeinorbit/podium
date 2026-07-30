@@ -198,6 +198,8 @@ export class ConformanceAuthority {
   readonly chunkTrace: string[] = []
   bootstrapCalls = 0
   readonly receipts: ApplyReceipt[] = []
+  /** Cursors `changesSince` was asked about, in order. Proves a heal was ATTEMPTED. */
+  readonly changesSinceCalls: Cursor[] = []
   /** Chunk size. A tuning parameter, not a protocol constant (ADR 2 D6). */
   chunkSize = 2
   /**
@@ -213,6 +215,17 @@ export class ConformanceAuthority {
    * consumed. Measured, not assumed — `unitOfWorkTransactions()` moved by 0.
    */
   pinSnapshotSeq: number | null = null
+  /**
+   * Cap the upper bound of a `changesSince` reply below the head.
+   *
+   * D13.1 requires a reply's certified range to be contiguous with the cursor; it does
+   * NOT require it to reach the head. Capping it is what lets a heal land the replica
+   * exactly where a BUFFERED frame chains on, which is the only way to drive the
+   * buffer-drain path with a frame that still owes a retirement. Without it a heal
+   * always covers everything and every buffered frame is dropped as covered — so the
+   * drain path's own commit would never be exercised.
+   */
+  changesSinceCeiling: number | null = null
   private readonly transports = new Map<string, ConformanceTransport>()
 
   head(): number {
@@ -303,6 +316,7 @@ export class ConformanceAuthority {
   portFor(principal: ConformancePrincipal): AuthorityReadPort {
     return {
       changesSince: async (cursor: Cursor): Promise<ChangesSinceReply> => {
+        this.changesSinceCalls.push(cursor)
         // Feed identity is checked by EQUALITY (D1). A restored backup re-serves the
         // same seqs under a new epoch, so seq comparison alone cannot see the
         // divergence — which is exactly the D1 case this suite owes.
@@ -312,7 +326,11 @@ export class ConformanceAuthority {
         if (cursor.seq < this.minAvailableSeq) {
           return { kind: 'bootstrap-required', reason: 'compacted' }
         }
-        return this.frameFor(principal, cursor.seq)
+        const upTo =
+          this.changesSinceCeiling === null
+            ? this.head()
+            : Math.min(this.changesSinceCeiling, this.head())
+        return this.frameFor(principal, cursor.seq, upTo)
       },
       bootstrap: (): AsyncIterable<BootstrapChunk> => {
         this.bootstrapCalls += 1

@@ -110,6 +110,14 @@ export interface TransitionOutcome {
 const entityKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
 /**
+ * Bound on one buffer drain, so a non-terminating drain is LOUD rather than silent
+ * (POD-1140: microtask starvation defeats vitest's own testTimeout, and an unbounded
+ * loop here once took a whole lane down with zero output). Generous: it bounds a
+ * pathology, not a workload.
+ */
+const DRAIN_BUFFER_LIMIT = 10_000
+
+/**
  * A multi-region commit was required and no `SyncUnitOfWork` was supplied.
  *
  * Its own type rather than a bare `Error` because it is a WIRING fault, not a
@@ -147,6 +155,8 @@ export class Replica {
   /** Set while a bootstrap walk is in flight; bumped to abandon a superseded walk. */
   private walkGeneration = 0
   private inflight: Promise<void> = Promise.resolve()
+  /** A ladder failure awaiting its ONE report through `settled()` (POD-1162). */
+  private failure: unknown | undefined
   private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
@@ -269,9 +279,25 @@ export class Replica {
     for (let i = 0; i < 50; i += 1) {
       const before = this.inflight
       await before
-      if (this.inflight === before) return
+      if (this.inflight === before) return this.reportFailure()
     }
     throw new Error('replica did not settle: the ladder is not resolving downward')
+  }
+
+  /**
+   * Rethrow a held ladder failure ONCE, then clear it.
+   *
+   * Once, because a caller that has been told cannot be helped by being told again, and
+   * a sticky error is indistinguishable from a wedge to everyone downstream — which is
+   * precisely the bug this pair of methods replaces. Clearing it does not lose it: the
+   * commit never applied, so the cursor never advanced, so the condition is still
+   * observable in the replica's own state and the next frame heals it.
+   */
+  private reportFailure(): void {
+    const failure = this.failure
+    if (failure === undefined) return
+    this.failure = undefined
+    throw failure
   }
 
   // ─── Inputs ───────────────────────────────────────────────────────────────
@@ -678,27 +704,52 @@ export class Replica {
    * an overlapping frame — nothing from it reaches the store.
    */
   private async drainBuffer(): Promise<void> {
-    const buffered = this.buffer
-    this.buffer = []
-    for (let i = 0; i < buffered.length; i += 1) {
-      const frame = buffered[i] as DeltaFrame
+    // A FRAME IS CONSUMED ONLY AFTER ITS COMMIT IS DURABLE (POD-1161). This used to
+    // take the whole buffer and empty it up front, so a commit that aborted part-way
+    // dropped every remaining frame — and with them the retirements they were the only
+    // carrier of. Entity truth survives that (a heal or a re-bootstrap re-derives it);
+    // retirement does not, because provenance for an already-applied command appears in
+    // the feed ONCE and no later frame carries it again after the cursor passes it.
+    //
+    // Shifting after `await` rather than restoring on failure is the same shape the
+    // install path uses, and it is deliberate: restoring is the undo-shaped answer the
+    // span design avoids everywhere else, and it would have to reconstruct order by
+    // hand. Frames arriving while this awaits append to the END of `this.buffer`, which
+    // is where feed order already puts them.
+    //
+    // BOUNDED AND LOUD (POD-1140): the loop consumes from a buffer that concurrent
+    // frames can grow, so it needs a bound that is not "until it is empty". An
+    // unbounded drain here is the shape that once produced zero bytes and hung forever.
+    for (let guard = 0; this.buffer.length > 0; guard += 1) {
+      if (guard > DRAIN_BUFFER_LIMIT) {
+        throw new Error(
+          `replica buffer drain did not terminate after ${DRAIN_BUFFER_LIMIT} frames (${this.buffer.length} still buffered)`,
+        )
+      }
+      const frame = this.buffer[0] as DeltaFrame
       const cursor = this.cursorValue as Cursor
       if (frame.feedId !== cursor.feedId || frame.epoch !== cursor.epoch) {
         this.startRebootstrap('epoch-mismatch')
         return
       }
       if (frame.seq <= cursor.seq) {
+        // Covered by our own cursor: nothing to learn and nothing to lose. Dropping it
+        // is safe without a commit, so it is consumed immediately.
+        this.buffer.shift()
         this.note('D6-BUFFER-COVERED')
         continue
       }
       if (frame.fromSeq !== cursor.seq) {
-        this.buffer = buffered.slice(i)
+        // A gap: this frame and everything after it stay buffered for the heal.
         this.counters.pendingGap = true
         this.startHeal()
         return
       }
       const applied = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+      // A rejection leaves the frame at the head of the buffer, so the heal or the
+      // re-bootstrap that follows still has it — and still has its retirements.
       await applied.done
+      this.buffer.shift()
       this.note(applied.row)
     }
   }
@@ -848,8 +899,14 @@ export class Replica {
       epoch: head.epoch,
       seq: head.snapshotSeq,
     }
-    const buffered = this.buffer
-    this.buffer = []
+    // A COPY, and `this.buffer` is NOT cleared here (POD-1161). Clearing before the
+    // commit meant an aborted install consumed the buffered frames and the walk's
+    // restart (D6.5) began empty, silently dropping the retirements those frames
+    // carried. The consumed prefix is removed inside the `adopt` closure below, which
+    // runs in `span.onCommit` — where POD-1158 put every other post-commit observation,
+    // for exactly the same reason. A copy rather than the live array because frames
+    // continue to arrive while this awaits, and folding must see a stable set.
+    const buffered = [...this.buffer]
 
     // Fold the buffered frames against the snapshot point. No truncation: a frame
     // is either dropped (wholly covered by the snapshot) or applied whole from an
@@ -901,6 +958,10 @@ export class Replica {
         this.store.installSnapshot(rows, snapshotCursor, mutations, span)
       },
       () => {
+        // Consume exactly the prefix this install included. Frames that arrived while
+        // the transaction was open are LATER in feed order and stay buffered for the
+        // drain below — clearing outright would drop them.
+        this.buffer = this.buffer.slice(buffered.length)
         this.note('D6-INSTALL')
         this.cursorValue = running
         this.exits.clear()
@@ -934,6 +995,12 @@ export class Replica {
       // committed (which is why the posture reads live), but this row describes
       // what the WALK found in its leftover buffer.
           this.note('D6-INSTALL-GAP', 'bootstrapping')
+          // Discarding here is deliberate and survives POD-1161: these frames are
+          // UNCHAINABLE against the fresh snapshot, so keeping them is the infinite
+          // ladder described above. The heal that follows resolves against the
+          // authority, which is where their content — and any provenance still owed —
+          // comes back from. That is not the aborted-transaction case: this arm runs
+          // only after the install COMMITTED.
           this.buffer = []
           this.counters.pendingGap = true
           this.startHeal()
@@ -995,13 +1062,36 @@ export class Replica {
     }
   }
 
+  /**
+   * Queue one async ladder step, and NEVER leave the chain rejected (POD-1162).
+   *
+   * The `throw error` this replaces poisoned `inflight` permanently: a rejected promise
+   * makes every later `.then(task)` skip its task, so ONE refused durable commit stopped
+   * the replica dead — `connect()` took its transition, no `changesSince` was ever
+   * issued, the buffered frame sat there forever, and `settled()` replayed the same
+   * stale error to every future caller. Measured: `changesSince` call count 0 after a
+   * commit refusal. D7 requires every failure to resolve strictly DOWNWARD and
+   * terminate; that terminated nothing, it just stopped.
+   *
+   * POD-1158 is why this became reachable. Before it, a multi-region commit threw
+   * synchronously out of `receive()` and never entered this chain at all; routing that
+   * failure class through `inflight` is what turned a caller-visible throw into a wedge.
+   *
+   * So a failure is now SURFACED ONCE through `settled()` and the chain stays usable.
+   * Nothing else is needed to recover: the commit did not apply, so the cursor did not
+   * advance, so the next frame is a gap and takes rung 1 — the ladder does the rest. The
+   * error is held rather than swallowed because a refused durable write must never be
+   * silent (ADR 6 D4.4).
+   */
   private run(task: () => Promise<void>): void {
     this.inflight = this.inflight.then(task).catch((error) => {
       if (error instanceof ReplicaStoreCorruptError) {
         this.onCorruption()
         return
       }
-      throw error
+      // Held for the next `settled()`. First one wins: a later failure cannot hide an
+      // earlier unreported one.
+      if (this.failure === undefined) this.failure = error
     })
   }
 
