@@ -257,130 +257,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
   })
 
-  it('(h) upstream mirror sets and staleness flips are explicitly captured (#247)', () => {
-    const upstreamMeta: SessionMeta = {
-      sessionId: asSessionId('hub-s1'),
-      agentKind: 'shell',
-      title: 'hub session',
-      cwd: '/hub/w',
-      status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
-      createdAt: '2026-07-01T00:00:00.000Z',
-      lastActiveAt: '2026-07-01T00:00:00.000Z',
-      origin: { kind: 'spawn' },
-      archived: false,
-      readAt: null,
-      unread: true,
-      machineId: 'hub-m1',
-      machineName: 'hub',
-    }
-    const registry = makeRegistry()
-    const cursor = cursorOf(registry)
-    // Mirror set: hub-fed rows have no local session row, so their owning seam captures them.
-    registry.modules.sessions.setUpstreamSessions([upstreamMeta])
-    registry.modules.sessions.flushBroadcasts()
-    const afterSet = registry.modules.sessions.syncChangesSince(cursor)
-    expect(afterSet.kind).toBe('delta')
-    if (afterSet.kind !== 'delta') return
-    const setChange = afterSet.changes.find(
-      (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(setChange?.value?.viaHub).toBe(true)
-    // Staleness flip: applied at read time, captured at broadcast time.
-    registry.modules.sessions.setUpstreamStale(true)
-    registry.modules.sessions.flushBroadcasts()
-    const afterStale = registry.modules.sessions.syncChangesSince(afterSet.cursor)
-    expect(afterStale.kind).toBe('delta')
-    if (afterStale.kind !== 'delta') return
-    const staleChange = afterStale.changes.find(
-      (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(staleChange?.value?.upstreamStale).toBe(true)
-    // Mirror cleared: the owning seam declares an explicit remove.
-    registry.modules.sessions.setUpstreamSessions([])
-    registry.modules.sessions.flushBroadcasts()
-    const afterClear = registry.modules.sessions.syncChangesSince(afterStale.cursor)
-    expect(afterClear.kind).toBe('delta')
-    if (afterClear.kind !== 'delta') return
-    expect(
-      afterClear.changes.some(
-        (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'remove',
-      ),
-    ).toBe(true)
-  })
-
-  it('keeps the local side of an id collision visible and reveals the upstream row on removal', () => {
-    const registry = makeRegistry()
-    const upstream: SessionMeta = {
-      sessionId: asSessionId('union-collision'),
-      agentKind: 'shell',
-      title: 'hub',
-      cwd: '/hub',
-      status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
-      createdAt: '2026-07-01T00:00:00.000Z',
-      lastActiveAt: '2026-07-01T00:00:00.000Z',
-      origin: { kind: 'spawn' },
-      archived: false,
-      readAt: null,
-      unread: true,
-    }
-    registry.modules.sessions.setUpstreamSessions([upstream])
-    registry.modules.sessions.createSession({
-      sessionId: upstream.sessionId,
-      agentKind: 'shell',
-      cwd: '/local',
-    })
-    const local = registry.modules.sessions
-      .listSessions()
-      .find((session) => session.sessionId === upstream.sessionId)
-    expect(local?.cwd).toBe('/local')
-    expect(local?.viaHub).toBeUndefined()
-
-    registry.modules.sessions.setUpstreamSessions([{ ...upstream, title: 'hub latest' }])
-    const cursor = cursorOf(registry)
-    registry.modules.sessions.setUpstreamStale(true)
-    const afterStale = registry.modules.sessions.syncChangesSince(cursor)
-    expect(afterStale.kind).toBe('delta')
-    if (afterStale.kind !== 'delta') return
-    expect(
-      afterStale.changes.filter(
-        (change) => change.entity === 'session' && change.id === upstream.sessionId,
-      ),
-    ).toEqual([])
-
-    const projectionEvents: ProjectionEvent[] = []
-    const off = registry.modules.sessions.onSessionProjection((event) =>
-      projectionEvents.push(event),
-    )
-    registry.modules.sessions.killSession({ sessionId: upstream.sessionId })
-    off()
-    const revealed = registry.modules.sessions.syncChangesSince(afterStale.cursor)
-    expect(revealed.kind).toBe('delta')
-    if (revealed.kind !== 'delta') return
-    const last = revealed.changes
-      .filter((change) => change.entity === 'session' && change.id === upstream.sessionId)
-      .at(-1) as { op: string; value?: SessionMeta } | undefined
-    expect(last).toMatchObject({ op: 'upsert', value: { viaHub: true, upstreamStale: true } })
-    expect(projectionEvents).toHaveLength(1)
-    expect(projectionEvents[0]?.changes.map((change) => change.op)).toEqual(['remove', 'upsert'])
-    expect(projectionEvents[0]?.changes.at(-1)).toMatchObject({
-      seq: projectionEvents[0]?.ledgerCursor,
-      value: { viaHub: true, upstreamStale: true },
-    })
-    expect(
-      registry.modules.sessions
-        .listSessions()
-        .find((session) => session.sessionId === upstream.sessionId)?.viaHub,
-    ).toBe(true)
-  })
-
   it('(i) startup adoption and a machine rename re-capture machineId/machineName (#247)', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
@@ -460,27 +336,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       rows: 40,
     })
     registry.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId })
-    registry.modules.sessions.setUpstreamSessions([
-      {
-        sessionId: asSessionId('hub-explicit'),
-        agentKind: 'shell',
-        title: 'hub',
-        cwd: '/hub',
-        status: 'live',
-        controllerId: null,
-        geometry: { cols: 80, rows: 24 },
-        epoch: 0,
-        clientCount: 0,
-        createdAt: '2026-07-01T00:00:00.000Z',
-        lastActiveAt: '2026-07-01T00:00:00.000Z',
-        origin: { kind: 'spawn' },
-        archived: false,
-        readAt: null,
-        unread: true,
-      },
-    ])
-    registry.modules.sessions.setUpstreamStale(true)
-    registry.modules.sessions.setUpstreamSessions([])
     registry.modules.sessions.flushBroadcasts()
 
     expect(reconcile.mock.calls.filter(([entity]) => entity === 'session')).toEqual([])
@@ -849,7 +704,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       })
 
     expect(() =>
-      registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: '2026-07-20T12:00:00.000Z' }),
+      registry.modules.sessions.setSnooze({
+        userId: SOLE_USER_ID,
+        sessionId,
+        until: '2026-07-20T12:00:00.000Z',
+      }),
     ).toThrow('snooze append failed')
     append.mockRestore()
     expect(
@@ -1011,9 +870,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // a freshly created session sits on the '__local__' placeholder until a real
     // machine adopts it, not on LOCAL_MACHINE_ID — asserting the latter is what
     // this test got wrong on its first run.
-    expect(listed?.machineName).toBe(
-      registry.modules.machines.machineName(listed?.machineId ?? ''),
-    )
+    expect(listed?.machineName).toBe(registry.modules.machines.machineName(listed?.machineId ?? ''))
     expect(listed?.machineName).not.toBe(undefined)
   })
 })

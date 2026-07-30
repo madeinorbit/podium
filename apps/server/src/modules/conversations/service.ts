@@ -29,9 +29,9 @@ export interface ConversationsDeps {
   store: SessionStore
   now(): number
   /** The write-seam change log ([spec:SP-3fe2] #257): discovery upserts/removes
-   *  and meta curation commit atomically with their store writes; the upstream
-   *  mirror paths reconcile the broadcast union (the write-less full-truth diff,
-   *  removes included — exactly what the legacy broadcast-seam oplog recorded). */
+   *  and meta curation commit atomically with their store writes; the write-less
+   *  full-list publish reconciles the full-truth diff, removes included — exactly
+   *  what the legacy broadcast-seam oplog recorded. */
   ledger: ConversationLedger
   /** Legacy snapshot fan-out (funnel.publishComputed): the changes were already
    *  durably appended at the write seam, so this carries NO metadataDelta —
@@ -66,9 +66,9 @@ export interface LakeReadSession {
 }
 
 /**
- * Conversation index + upstream mirror + transcript lake (issue #13 Phase 2 —
- * peeled off SessionRegistry): daemon discovery pushes land here, get identity-
- * stamped into the store, and fan out; the MirrorService/TranscriptIndexer pair
+ * Conversation index + transcript lake (issue #13 Phase 2 — peeled off
+ * SessionRegistry): daemon discovery pushes land here, get identity-stamped into
+ * the store, and fan out; the MirrorService/TranscriptIndexer pair
  * (opt-in via `mirrorLakeDir`) keeps the lake + FTS index fed.
  */
 export class ConversationsService {
@@ -78,9 +78,6 @@ export class ConversationsService {
   // their last serialization so cap clients still get a snapshot when ONLY diagnostics
   // changed (rare: scan problems), without re-sending the list on every conversation delta.
   private lastDiagnosticsBroadcast = ''
-  // Entities mirrored FROM the hub this node syncs against (node-hub-sync §2.3):
-  // display/read surfaces, never pushed back upstream.
-  private readonly upstreamConversations = new Map<string, ConversationSummaryWire>()
   private readonly pendingMirrorReads = new Map<
     string,
     (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void
@@ -117,43 +114,21 @@ export class ConversationsService {
     }
   }
 
-  /** Local ∪ upstream conversations — what attach/broadcast/changesSince serve. */
+  /** The conversations attach/broadcast/changesSince serve. POD-309 removed the
+   *  hub-mirror union that used to happen here. */
   allConversations(): ConversationSummaryWire[] {
-    if (this.upstreamConversations.size === 0) return this.latestConversations
-    const localIds = new Set(this.latestConversations.map((c) => c.id))
-    return [
-      ...this.latestConversations,
-      ...[...this.upstreamConversations.values()].filter((c) => !localIds.has(c.id)),
-    ]
+    return this.latestConversations
   }
 
   diagnostics(): ConversationDiagnosticWire[] {
     return this.latestConversationDiagnostics
   }
 
-  /** Replace the mirrored conversation list (same pipeline as sessions). Conversations
-   *  carry no machineId on the wire, so the echo filter here is id-based: a locally
-   *  known conversation id wins over the hub copy. */
-  setUpstreamConversations(list: ConversationSummaryWire[]): void {
-    this.upstreamConversations.clear()
-    const localIds = new Set(this.latestConversations.map((c) => c.id))
-    for (const c of list) {
-      if (localIds.has(c.id)) continue
-      this.upstreamConversations.set(c.id, c)
-    }
-    this.publishConversationList()
-  }
-
-  /** Hub-staleness flip rebroadcast: only meaningful while upstream entries exist. */
-  rebroadcastUpstream(): void {
-    if (this.upstreamConversations.size > 0) this.publishConversationList()
-  }
-
-  /** Write-less full-list publish tail for the upstream-mirror paths (mirrors
-   *  issues' publishIssueList, [spec:SP-3fe2] #255/#257): reconcile the local ∪
-   *  upstream UNION against the ledger baseline — the full-truth diff, removes
-   *  included, which is byte-for-byte what the legacy broadcast-seam oplog
-   *  recorded for conversations on every broadcast — then fan the snapshot out.
+  /** Write-less full-list publish tail (mirrors issues' publishIssueList,
+   *  [spec:SP-3fe2] #255/#257): reconcile the list against the ledger baseline —
+   *  the full-truth diff, removes included, which is byte-for-byte what the legacy
+   *  broadcast-seam oplog recorded for conversations on every broadcast — then fan
+   *  the snapshot out.
    *  The reconcile's appends reach delta clients via the funnel's ordered
    *  onAppended pipe; broadcastConversations carries only the legacy snapshot. */
   private publishConversationList(): void {
@@ -291,8 +266,6 @@ export class ConversationsService {
    *  delta clients via the funnel's ordered onAppended pipe — feeding the
    *  legacy oplog here again would double-append every conversation change. */
   private broadcastConversations(): void {
-    // Local ∪ upstream: hub-mirrored conversations ride the same snapshot + change
-    // log pipeline as local ones (node-hub-sync §2.3), so node clients see them live.
     const conversations = this.allConversations()
     const msg: ServerMessage = {
       type: 'conversationsChanged',

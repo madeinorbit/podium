@@ -14,21 +14,27 @@ import { startServer } from './server'
 // pair refused) while every core surface keeps working — then check the
 // role-resolution defaults that keep existing deployments unchanged.
 describe('resolveServerRole', () => {
-  it('no upstream configured → core + hub (the historical all-in-one shape)', () => {
-    expect(resolveServerRole(undefined, {})).toEqual({ hub: true })
+  it('no explicit role → core + hub (the H1 shape: the server IS the rendezvous)', () => {
+    expect(resolveServerRole()).toEqual({ hub: true })
+    expect(resolveServerRole(undefined)).toEqual({ hub: true })
   })
 
-  it('upstream configured → node: hub surfaces off', () => {
-    expect(resolveServerRole(undefined, { upstream: { url: 'x', token: 't' } })).toEqual({
-      hub: false,
-    })
+  // The default is `true`, so a test asserting only the default cannot tell a working
+  // override from `return { hub: true }`. Both directions, explicitly.
+  it('an explicit role config wins in BOTH directions', () => {
+    expect(resolveServerRole({ hub: false })).toEqual({ hub: false })
+    expect(resolveServerRole({ hub: true })).toEqual({ hub: true })
   })
 
-  it('an explicit role config wins over the upstream heuristic, both ways', () => {
-    expect(resolveServerRole({ hub: true }, { upstream: { url: 'x', token: 't' } })).toEqual({
-      hub: true,
-    })
-    expect(resolveServerRole({ hub: false }, {})).toEqual({ hub: false })
+  // POD-309: the `config.upstream` heuristic is retired, not merely unused. A caller
+  // that still passes the old second argument must not be able to switch hub OFF —
+  // that is exactly the regression a re-added `!config.upstream` branch would be.
+  it('a leftover upstream-shaped argument no longer turns hub surfaces off', () => {
+    const asOldCaller = resolveServerRole as unknown as (
+      explicit: Partial<{ hub: boolean }> | undefined,
+      config: { upstream?: unknown },
+    ) => { hub: boolean }
+    expect(asOldCaller(undefined, { upstream: { url: 'x', token: 't' } })).toEqual({ hub: true })
   })
 })
 
@@ -136,7 +142,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
   })
 })
 
-describe('startServer default role (no upstream configured) keeps hub surfaces on', () => {
+describe('startServer default role keeps hub surfaces on', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
 

@@ -17,8 +17,6 @@ export interface IssuePublisherDeps {
    *  the registry constructor hasn't assigned the service yet (broadcasts can run
    *  via loadFromStore before that). */
   allWire(sessionList?: SessionMeta[]): IssueWire[] | undefined
-  /** Local ∪ upstream union (modules/issues/upstream). */
-  withUpstreamIssues(local: IssueWire[]): IssueWire[]
   /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
    *  spec's rows (the durable change append, including removes) → funnel
    *  fan-out of the snapshot. Wired in relay.ts. */
@@ -57,12 +55,11 @@ export class IssuePublisher implements IssuePublishSpecs {
     return this.currentLocalIssues ?? this.safeIssuesList()
   }
 
-  /** Spec for a full issue list (every issuesChanged path). Takes the LOCAL
-   *  list; the hub-mirrored issues are unioned in HERE, so every caller
-   *  (IssueService mutations, session rebroadcast, staleness flips) serves
-   *  local ∪ upstream without knowing about the mirror (node-hub-issues §2.1). */
+  /** Spec for a full issue list (every issuesChanged path). POD-309 removed the
+   *  local ∪ hub-mirror union that used to happen here: with federation retired the
+   *  local list IS the list, and `currentLocalIssues` is no longer a half of anything. */
   issuesChanged(localIssues: IssueWire[]): PublishSpec {
-    const issues = this.deps.withUpstreamIssues(localIssues)
+    const issues = localIssues
     this.currentLocalIssues = localIssues
     return {
       rows: issues.map((i) => ({ id: i.id, value: i })),

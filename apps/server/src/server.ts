@@ -15,12 +15,7 @@ import {
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
-import {
-  prepareLedgerBoot,
-  readOwnDaemonMachineId,
-  UpstreamForwarder,
-  UpstreamSync,
-} from '@podium/sync'
+import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
@@ -41,12 +36,13 @@ import { perf } from './modules/perf/registry'
 import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
-import { SessionRegistry, upstreamMirrorFor } from './relay'
+import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
+import { reportParkedUpstreamMutations } from './upstream-retirement'
 import { closeServerFast } from './shutdown'
 import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
@@ -152,10 +148,9 @@ export async function startServer(
   // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
   await applyEnvPassword()
   // Role composition (roles.ts): which optional module groups this process
-  // activates. Explicit opts win; else `upstream` in config.json makes this a
-  // NODE (hub surfaces off); else the historical all-in-one shape: core + hub.
+  // activates. Explicit opts win; else the H1 shape, core + hub.
   const config = loadConfig()
-  const role = resolveServerRole(opts.role, config)
+  const role = resolveServerRole(opts.role)
   const store = new SessionStore()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -224,40 +219,17 @@ export async function startServer(
   // against the regression where data vanished because no daemon ever registered. The
   // same-host daemon then authenticates through the normal hello path (wsServer).
   registry.modules.machines.ensureLocalMachine(hostname(), bootstrapToken)
-  // Node⇄hub sync (docs/spec/node-hub-sync.md): when config.json carries `upstream`,
-  // this server is a NODE and mirrors its hub's fleet through the thin-client
-  // protocol. No upstream config = the constructor never runs = zero new behavior.
-  let upstreamSync: UpstreamSync | undefined
-  let upstreamForwarder: UpstreamForwarder | undefined
-  const upstreamConfig = config.upstream
-  if (upstreamConfig) {
-    const ownMachineId = readOwnDaemonMachineId()
-    if (ownMachineId) registry.modules.sessions.setUpstreamOwnMachineIds([ownMachineId])
-    // P7b write path (docs/spec/node-hub-issues.md §2.2): issue mutations targeting
-    // viaHub issues forward to the hub with the SAME token, durably queued while it
-    // is unreachable. Drain triggers: enqueue (forwarder-internal), flat retry
-    // (forwarder-internal), and upstream (re)connect (onConnected below).
-    upstreamForwarder = new UpstreamForwarder({
-      url: upstreamConfig.url,
-      token: upstreamConfig.token,
-      store: store.sync,
-      onQueueChanged: () => registry.modules.upstreamIssues.outboxChanged(),
-      // A queued mutation the hub definitively rejects must be SURFACED, not just
-      // logged (#25): durable issue.upstream_rejected event + overlay retirement.
-      onPoisoned: (proc, input, message) =>
-        registry.modules.upstreamIssues.mutationRejected(proc, input, message),
-    })
-    registry.modules.upstreamIssues.setForwarder(upstreamForwarder)
-    const forwarder = upstreamForwarder
-    upstreamSync = new UpstreamSync({
-      url: upstreamConfig.url,
-      token: upstreamConfig.token,
-      mirror: upstreamMirrorFor(registry.modules),
-      store: store.settings,
-      onConnected: () => void forwarder.drain(),
-    })
-    upstreamSync.start()
-  }
+  // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
+  // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
+  // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
+  // what survives it is the SEAM — authority/feed identity, the mutation-envelope
+  // origin/causation fields, the reserved node-peer caps, and kernel ports with no
+  // transport baked in — none of which is wired from this composition root.
+  //
+  // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
+  // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
+  // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
+  reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
@@ -472,8 +444,6 @@ export async function startServer(
       if (settled) return
       settled = true
       messaging.stop()
-      upstreamSync?.stop()
-      upstreamForwarder?.stop()
       registry.dispose()
       store.close()
       reject(
@@ -579,8 +549,6 @@ export async function startServer(
                 // (POD-611 made it deterministic and fast), and a report is worth
                 // less than a fast stop. The queue is durable — it goes next boot.
                 ['telemetry.stop', () => telemetry.stop()],
-                ['upstreamSync.stop', () => upstreamSync?.stop()],
-                ['upstreamForwarder.stop', () => upstreamForwarder?.stop()],
                 ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
                 ['registry.dispose', () => registry.dispose()],
                 ['store.close', () => store.close()],
