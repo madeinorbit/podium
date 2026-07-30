@@ -67,6 +67,7 @@
  *    rows keyed `(userId, issueId)` — a RE-KEY, not a re-representation.
  */
 
+import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { z } from 'zod'
 import { ISSUE_COLOR_SLOTS } from './issue-color'
 import { SessionMeta } from './session'
@@ -225,7 +226,9 @@ export type IssueGitState = z.infer<typeof IssueGitState>
 // The issue wire/read projection
 // ---------------------------------------------------------------------------
 
-export const IssueWire = z.object({
+/** The issue fields that precede the provenance keys on today's wire (POD-304 —
+ *  see `IssueWireEntity` / `IssueWire` below the shape). */
+const IssueWireCore = z.object({
   id: z.string(),
   repoPath: z.string(),
   /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
@@ -366,20 +369,13 @@ export const IssueWire = z.object({
    *  (or a pre-field peer). Tolerant: malformed from a newer peer parses as
    *  unset rather than failing the whole issue. */
   gitState: IssueGitState.optional().catch(undefined),
-  /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
-   *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
-   *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:
-   *  absent = a local issue, today's behavior. */
-  viaHub: z.boolean().optional(),
-  /** True when this viaHub entry is last-known state from an UNREACHABLE hub —
-   *  retained, not blanked (same semantics as SessionMeta.upstreamStale). Only
-   *  ever set alongside viaHub. */
-  upstreamStale: z.boolean().optional(),
-  /** True while a node-side edit of this viaHub issue sits queued in the node's
-   *  upstream outbox (hub unreachable) — the value shown is the node's optimistic
-   *  patch; the hub's next delta/snapshot overwrites with truth and clears this
-   *  (docs/spec/node-hub-issues.md §2.2). Only ever set alongside viaHub. */
-  pendingSync: z.boolean().optional(),
+})
+
+/** The issue fields that follow the provenance keys on today's wire. Split out
+ *  so `IssueWire` can compose head + provenance + tail and keep the historical
+ *  key ORDER — zod emits keys in shape order, so appending the provenance group
+ *  at the end would change the encoded bytes (POD-304). */
+const IssueWireTail = z.object({
   /** Designated coordinator session (bare session id) for actionable issue-addressed
    *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
    *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
@@ -389,6 +385,26 @@ export const IssueWire = z.object({
    *  payloads still parse. */
   startedBySession: z.string().optional(),
 })
+
+/**
+ * The issue entity — PROVENANCE-FREE (POD-304 / ADR 4 D3.8). `viaHub`,
+ * `upstreamStale` and `pendingSync` describe how a row reached a replica, not
+ * the issue, so they live on the envelope (`provenance/envelope.ts`) and are
+ * declared there ONCE for both entities instead of twice.
+ */
+export const IssueWireEntity = IssueWireCore.extend(IssueWireTail.shape)
+export type IssueWireEntity = z.infer<typeof IssueWireEntity>
+
+/**
+ * The wire/read projection: entity + the FLAT provenance encoding today's wire
+ * carries, spread at its historical MID-SHAPE position so `wire-golden.json`
+ * still passes byte-for-byte. POD-308 nests the carrier; replica read sites go
+ * through `provenanceOf` / `isViaHub` / `isUpstreamStale` / `isPendingSync` and
+ * therefore do not change when it does.
+ */
+export const IssueWire = IssueWireCore.extend(ISSUE_FLAT_PROVENANCE_SHAPE).extend(
+  IssueWireTail.shape,
+)
 export type IssueWire = z.infer<typeof IssueWire>
 
 // ---------------------------------------------------------------------------
