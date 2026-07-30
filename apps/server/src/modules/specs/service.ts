@@ -20,11 +20,11 @@ import {
   getSpec,
   listSpecs,
   removeSpec,
+  saveSpec,
+  searchSpecs,
   type SpecComponent,
   type SpecComponentMeta,
   type SpecSearchHit,
-  saveSpec,
-  searchSpecs,
 } from '../../pspec'
 import { isAllowedRoot } from '../../root-allowlist'
 
