@@ -346,7 +346,14 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     changesSince: (cursor: number) => rows.filter((r) => r.seq > cursor),
     planChangePrune: () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: () => 0,
-    latestChangeStates: () => rows,
+    // Latest per (entity, id) — the port's contract, and what the sqlite
+    // adapter's GROUP BY returns. A fake that hands back the whole table reads
+    // every historical write as part of the current world.
+    latestChangeStates: () => {
+      const latest = new Map<string, (typeof rows)[number]>()
+      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
+      return [...latest.values()]
+    },
   }
 
   // Ada may see `mine`; Grace holds nothing. No privileged principal exists.

@@ -95,7 +95,13 @@ import type {
 } from './ports'
 import type { FeedPrincipal, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
 import { principalIdOf } from '../feed/visibility'
-import { DEFAULT_RESCOPE_THRESHOLD, scopeBatch, type ScopedDelivery } from './scoping'
+import {
+  DEFAULT_RESCOPE_THRESHOLD,
+  scopeBatch,
+  scopeBootstrap,
+  type ScopedBootstrap,
+  type ScopedDelivery,
+} from './scoping'
 
 export interface AuthorityDeps {
   /** The durable change log. Narrow by design — see `ChangeStorePort`. */
@@ -256,6 +262,47 @@ export class Authority implements AuthorityPort {
 
   cursor(): number {
     return this.deps.store.maxChangeSeq()
+  }
+
+  /**
+   * THE INSTALLED WORLD for one principal, at the current head (POD-1203).
+   *
+   * This is what makes bootstrap a FEED FEATURE rather than a parallel mechanism.
+   * Before the serving-path cutover the server answered "what is there?" by
+   * asking five features to rebuild their own full lists, and the delta stream
+   * answered "what changed?" — two paths over one truth, agreeing by assumption.
+   * Here both answers come out of the same log: the world is the latest retained
+   * row per (entity, id), and the position it was read at is the same `cursor()`
+   * the next delta certifies from.
+   *
+   * READ AT ONE POSITION, SYNCHRONOUSLY, AND THAT IS THE CONTIGUITY ARGUMENT.
+   * `throughSeq` is taken in the same synchronous pass as the rows, and this role
+   * appends only inside `commit`, so nothing can land between the two. A caller
+   * that attaches a feed at this `throughSeq` therefore resumes exactly where the
+   * world stopped — no window, and no `changesSince` round trip to discover where
+   * it stands, which is what the v1 snapshot could never offer because its
+   * message carried no position at all.
+   */
+  bootstrap(principal: FeedPrincipal): ScopedBootstrap {
+    const state: SequencedChange[] = []
+    for (const row of this.deps.store.latestChangeStates()) {
+      if (row.op !== 'upsert' || row.payload === null) continue
+      try {
+        state.push({
+          seq: row.seq,
+          entity: row.entity as MetadataEntityKind,
+          entityId: row.entityId,
+          op: 'upsert',
+          value: JSON.parse(row.payload),
+        })
+      } catch {
+        // A corrupt payload is skipped rather than failing the attach: the row is
+        // unreadable for every consumer of the log (the dedup baseline skips it
+        // for the same reason), and the next write of that entity re-upserts it
+        // into every replica.
+      }
+    }
+    return scopeBootstrap({ policy: this.deps.visibility }, principal, state, this.cursor())
   }
 
   /**

@@ -28,7 +28,7 @@ import type {
 } from './arbitration'
 import type { FeedPrincipal } from '../feed/visibility'
 import type { StagedChangeSpec, SequencedChange, StoredChangeRow } from './change-lifecycle'
-import type { ScopedDelivery } from './scoping'
+import type { ScopedBootstrap, ScopedDelivery } from './scoping'
 
 /**
  * The durable change log, as the Authority needs it.
@@ -48,8 +48,20 @@ export interface ChangeStorePort {
   /** Plain range read: rows with seq > cursor, in seq order. The CALLER decides
    *  whether the cursor is still inside the retained range. */
   changesSince(cursor: number): readonly SequencedChange[]
-  /** Latest retained row per (entity, id) — the boot seed for the dedup baseline. */
-  latestChangeStates(): readonly Omit<StoredChangeRow, 'eventTime'>[]
+  /**
+   * Latest retained row per (entity, id) — the boot seed for the dedup baseline,
+   * and the ONLY honest source for a bootstrap ({@link AuthorityPort.bootstrap}).
+   *
+   * `seq` is that row's position in the one global sequence, and it is here
+   * because a bootstrap is a set of feed rows and a feed row has a position.
+   * Reading the current state out of `changesSince(0)` instead would look
+   * equivalent and would be wrong the moment anything is pruned: head-pruning
+   * drops old rows, so an entity whose last change fell below the retention floor
+   * would simply be MISSING from the installed world — silently, and only on
+   * long-lived servers. This read is defined per (entity, id) over the whole
+   * table precisely so it survives that.
+   */
+  latestChangeStates(): readonly (Omit<StoredChangeRow, 'eventTime'> & { seq: number })[]
 }
 
 /**
@@ -135,6 +147,16 @@ export interface AuthorityPort {
 
   /** The highest seq ever assigned. 0 before any change. */
   cursor(): number
+
+  /**
+   * The INSTALLED WORLD for one principal, at the current head (POD-1203).
+   *
+   * On the port because bootstrap is a feed operation: a serving edge must be
+   * able to ask the same role for "what is there" and "what changed" and get
+   * answers that cannot disagree. A composition that read the world from
+   * somewhere else would be the second read path the cutover deleted.
+   */
+  bootstrap(principal: FeedPrincipal): ScopedBootstrap
 
   /**
    * Subscribe to the ORDERED delta pipe, AS ONE PRINCIPAL. Returns an

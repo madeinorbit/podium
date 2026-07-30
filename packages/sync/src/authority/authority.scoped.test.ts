@@ -73,7 +73,17 @@ function memoryStore(): ChangeLogStore {
     changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
     planChangePrune: () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: () => 0,
-    latestChangeStates: () => rows,
+    // LATEST PER (entity, id), which is what the port says and what the sqlite
+    // adapter's GROUP BY does. This fake returned the whole table, which was
+    // invisible while the only consumer was the dedup baseline (a later row just
+    // overwrites an earlier one in the fold) and became wrong the moment
+    // `bootstrap` read it as a world: every historical write reappeared as its
+    // own row, and a deleted entity came back alive under its stale upsert.
+    latestChangeStates: () => {
+      const latest = new Map<string, (typeof rows)[number]>()
+      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
+      return [...latest.values()]
+    },
   }
 }
 
@@ -465,5 +475,97 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
 
     expect(ada[0]?.kind).toBe('batch')
     expect(ada[0]?.ids).toEqual(['a', 'b', 'c', 'd'])
+  })
+})
+
+/**
+ * BOOTSTRAP IS THE SAME FEED, READ AS A WORLD (POD-1203).
+ *
+ * The serving-path cutover deletes the full-list snapshot fan-out, so "what is
+ * there?" has to be answerable from the log itself. Every case below drives
+ * `bootstrap` and NOTHING else — there is no list-rebuilding collaborator in this
+ * fixture for an answer to come from, which is the property that makes these
+ * assertions about the feed rather than about a fake.
+ *
+ * WHAT EACH REFUSING ARM DEPENDS ON: a missing grant row in the table this file
+ * owns. `ANON` holds none, ever, and there is no privileged principal here whose
+ * scope could short-circuit the check — the POD-351 shape this suite was built
+ * against in the first place.
+ */
+describe('bootstrap — the installed world for ONE principal', () => {
+  it('serves the current value of every row the principal may see', () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('a'))
+    authority.capture([upsert('a', { v: 1 })])
+    authority.capture([upsert('a', { v: 2 })])
+
+    const world = authority.bootstrap(ADA)
+    // ONE row per entity, carrying the LATEST value — not a replay of both writes.
+    expect(world.changes.map((c) => [c.entityId, c.op])).toEqual([['a', 'upsert']])
+    expect(world.changes[0]?.op === 'upsert' && world.changes[0].value).toEqual({ v: 2 })
+  })
+
+  it('is read at the head, so the delta stream resumes with no window', () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('a'))
+    authority.capture([upsert('a', { v: 1 })])
+    authority.capture([upsert('grace-only', { v: 1 })])
+
+    // The head, NOT the last visible row's seq. A bootstrap certified at seq 1
+    // would leave seq 2 uncertified for Ada forever: she was evaluated for it and
+    // suppressed, and a feed attached at 1 would re-ask and be suppressed again.
+    expect(authority.bootstrap(ADA).throughSeq).toBe(2)
+  })
+
+  it('suppresses a row the principal may not see', () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('ada-private'))
+    authority.capture([upsert('ada-private', { owner: 'ada' })])
+    authority.capture([upsert('grace-private', { owner: 'grace' })])
+
+    expect(authority.bootstrap(ADA).changes.map((c) => c.entityId)).toEqual(['ada-private'])
+    // The paired half. Without it, "Ada sees hers" passes against an
+    // implementation that hands everyone everything.
+    expect(authority.bootstrap(ANON).changes).toEqual([])
+    // ...and it still says how far the world was read, so an empty world is
+    // positionable rather than indistinguishable from "not read yet".
+    expect(authority.bootstrap(ANON).throughSeq).toBe(2)
+  })
+
+  it('installs POSITIVE STATE ONLY — a removed entity is absent, not a tombstone', () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('a'))
+    tables.grant('ada', ref('b'))
+    authority.capture([upsert('a', { v: 1 })])
+    authority.capture([upsert('b', { v: 1 })])
+    authority.capture([{ entity: 'session', entityId: 'a', op: 'remove' }])
+
+    const world = authority.bootstrap(ADA)
+    expect(world.changes.map((c) => c.entityId)).toEqual(['b'])
+    // A `remove` in a bootstrap would have the replica write a tombstone for an
+    // entity it was never told about (ADR 2 D15 — positive state only).
+    expect(world.changes.every((c) => c.op === 'upsert')).toBe(true)
+  })
+
+  it('does not derive evicts or take the rescope path — a bootstrap has no "before"', () => {
+    // The anchor half of `scopeBatch` is deliberately absent here. Run over a
+    // whole world it would trip the threshold on any instance with grant edges,
+    // and a `rescope` mid-bootstrap tells a replica to re-bootstrap while it is
+    // bootstrapping. The threshold is 2 and there are 4 anchored subjects, so the
+    // live path WOULD rescope over exactly this data — which is what makes this a
+    // test of the difference and not a restatement of the case above.
+    const { authority, tables } = build(2)
+    const subjects = ['a', 'b', 'c', 'd'].map(ref)
+    for (const s of subjects) {
+      tables.grant('ada', s)
+      authority.capture([upsert(s.entityId, { id: s.entityId })])
+    }
+    tables.edge(ref('role-change'), ['ada'], subjects)
+    tables.grant('ada', ref('role-change'))
+    authority.capture([upsert('role-change', { role: 'member' })])
+
+    const world = authority.bootstrap(ADA)
+    expect(world.changes.map((c) => c.entityId)).toEqual(['a', 'b', 'c', 'd', 'role-change'])
+    expect(world.changes.some((c) => c.op === 'evict')).toBe(false)
   })
 })
