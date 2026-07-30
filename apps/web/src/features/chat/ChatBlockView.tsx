@@ -1,4 +1,11 @@
-import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
+import {
+  envelopePrincipal,
+  formatChurn,
+  isImagePath,
+  MACHINE_CONTEXT_RE,
+  type ParsedEnvelope,
+  parseEnvelopeBatch,
+} from '@podium/client-core/viewmodels'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo } from 'react'
@@ -11,7 +18,6 @@ import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipal, parseEnvelopeBatch, type ParsedEnvelope } from './message-envelope'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 

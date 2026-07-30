@@ -298,6 +298,11 @@ export function SessionScreen() {
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
+            assetContext={{
+              httpOrigin: client.serverConfig.httpOrigin,
+              sessionId,
+              cwd: session.cwd,
+            }}
             pendingTurns={pendingTurns}
             onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
             onLoadOlder={loadOlder}

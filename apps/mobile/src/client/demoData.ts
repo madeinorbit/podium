@@ -370,8 +370,30 @@ export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
     {
       id: 't2',
       role: 'assistant',
-      text: 'Reproduced it. Two tabs refresh concurrently; the second rotation invalidates the first tab’s brand-new token. The fix is either a rotation grace window or refresh-token reuse detection with a shared lock.',
+      text: '## Refresh race found\n\nTwo tabs refresh concurrently; the second rotation invalidates the first tab’s **brand-new token**.\n\n| Option | Security | Multi-tab |\n| --- | :---: | ---: |\n| Grace window | Strong | Safe |\n| Rotate on expiry | Weaker | Safe |\n\n> Recommendation: keep rotation and add a 30-second grace window.\n\n- Guard rotation with a shared lock\n- Record `reuse_detected` for audit\n- Re-run the [auth suite](https://example.com/auth-ci)',
       ts: min(30),
+    },
+    {
+      id: 't2-recap',
+      role: 'system',
+      systemKind: 'recap',
+      text: '**While you were away:** the race was reproduced in two tabs.\n\n- Added a grace-window regression test\n- Preserved token-reuse audit logging',
+      ts: min(26),
+    },
+    {
+      id: 't2-envelope',
+      role: 'user',
+      text: '[podium message msg_demo · from issue:POD-121 · to your session · reply: podium mail reply msg_demo]\n**Dependency cleared.** The header work is ready for review.\n[a response was requested: reply when handled]\n[end podium message msg_demo]',
+      ts: min(22),
+    },
+    {
+      id: 't2-file',
+      role: 'tool',
+      text: '',
+      toolName: 'SendUserFile',
+      toolTitle: 'Review bundle',
+      toolPaths: ['reports/auth-race.md'],
+      ts: min(18),
     },
     {
       id: 't3',
@@ -416,6 +438,12 @@ export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
 export const DEMO_SUPER_SESSION = 'demo-superagent'
 
 DEMO_TRANSCRIPTS[DEMO_SUPER_SESSION] = [
+  {
+    id: 'super-context',
+    role: 'user',
+    text: '[CONCIERGE CONTEXT]\nRepository: podium\nReady issues: POD-87, POD-121\nCurrent branch: main\nOperator preference: keep summaries concise.',
+    ts: min(70),
+  },
   {
     id: 'super-t1',
     role: 'user',
