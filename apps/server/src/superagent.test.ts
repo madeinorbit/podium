@@ -566,7 +566,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // an expired deadline must not surface. Before POD-1076 this could not be
     // asserted, because the mirror held the stale value until the next restart.
     const h = harness()
-    const sessionId = h.spawn()
+    const sessionId = asSessionId(h.spawn())
     // Through the SERVICE, not the store: a direct store write is invisible to the
     // projection's overlay cache, which is the same rule `IssueService.rows` has
     // always had. Driving the real entry point is also what makes this a test of
