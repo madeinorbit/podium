@@ -107,13 +107,23 @@ to suppress must report TS2578 — it did, at `store/server-secrets.ts(140,1)` a
 | `bunx tsgo --noEmit` in `apps/server` | exit 0 |
 | `bunx tsgo --noEmit` in `packages/sync` | exit 0 |
 | unit: `packages/{sync,model,runtime,commands}` + `scripts` | **132 files, 2186 tests passed** |
-| unit: `apps/server` (full) | _pending — filled in from the real run below_ |
+| unit: `apps/server` (full) | **210 files passed; 3071 tests passed, 1 skipped** (286s) |
 | `bun scripts/check-boundaries.ts` | OK — 56 allowlisted, 0 new |
 | `bun run audit:rearch` | OK — 29 items, 225 sites (baseline exact) |
 | `bun scripts/check-no-nul-bytes.ts` | OK |
 | `bun run migration:check` | Everything's fine |
 | `bun run migration:manifest` | regenerated, committed |
 | all 15 `audit:*` gates (incl. the new `audit:client-secrets`) | OK |
+
+`apps/web` is EXCLUDED from `vitest.unit.config.ts`, so a run filtered to its
+settings screens prints *"No test files found"* and exits 0 — the false green the
+ledger names. It is reported here rather than counted as a lane: this diff
+touches no `apps/web` file (`git diff --name-only issue/279-integration...HEAD`
+has zero matches under `apps/web`), so the claim there is MECHANISTIC — the
+changed code is disjoint from that app's sources — not measured.
+
+NO RED WAS OBSERVED IN ANY LANE THIS ISSUE RAN, so none of the known-red list is
+being invoked.
 
 ## Decisions taken at forks (no human in the loop)
 
