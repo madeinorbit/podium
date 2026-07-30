@@ -26,6 +26,13 @@
  * for one type is how the drift starts again.
  */
 export * from './span'
+/**
+ * The cross-hop conformance suite (POD-373). Exported from the package because it is
+ * PARAMETERIZED BY INSTANTIATION: POD-307, POD-308, POD-309, POD-374 and POD-375 each
+ * supply a `SyncInstantiation` and call `describeSyncConformance(it)`, and none of them
+ * may edit the suite to be admitted.
+ */
+export * from './conformance/index'
 
 export * from './ledger'
 export * from './mirror'
