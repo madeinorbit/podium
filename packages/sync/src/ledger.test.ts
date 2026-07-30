@@ -47,11 +47,27 @@ describe('entityOverlayKey', () => {
     expect(entityOverlayKey('iss', 'ue-x')).not.toBe(entityOverlayKey('issue', 'x'))
   })
 
-  it('ledger.ts source spells the separator as \\u0000, never a literal 0x00 byte', () => {
-    const srcPath = fileURLToPath(new URL('./ledger.ts', import.meta.url))
+  // POD-305 moved the helper into the Authority role, so the source guard
+  // follows the FUNCTION. Left pointing at ledger.ts it would have kept passing
+  // over a file that no longer contains a separator to get wrong — a guard that
+  // has quietly stopped guarding anything, which is worse than no guard.
+  //
+  // Not hypothetical: writing authority.ts emitted a literal 0x00 on the first
+  // attempt, and every grep for `entityOverlayKey` in it returned nothing.
+  it('the source spells the separator as \\u0000, never a literal 0x00 byte', () => {
+    const srcPath = fileURLToPath(new URL('./authority/authority.ts', import.meta.url))
     const bytes = readFileSync(srcPath)
     expect(bytes.includes(0)).toBe(false)
     expect(bytes.toString('utf8')).toContain('\\u0000')
+  })
+
+  it('and the facade re-exports rather than declaring a second separator', () => {
+    // The counterfactual for the guard above: it only protects the ONE
+    // definition, so a second copy in ledger.ts would be unguarded. There is
+    // none — the facade re-exports.
+    const src = readFileSync(fileURLToPath(new URL('./ledger.ts', import.meta.url)), 'utf8')
+    expect(src).toContain("export { entityOverlayKey } from './authority/authority'")
+    expect(src).not.toContain('function entityOverlayKey')
   })
 })
 
