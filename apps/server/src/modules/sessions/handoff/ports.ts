@@ -24,7 +24,7 @@
  * more; it must not grow a correlation mechanism of its own.
  */
 
-import type { HandoffManifestV1, ResumeRef } from '@podium/model'
+import type { HandoffManifestV1, ResumeRef, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import type { Capability } from '../../../issue-authz'
 import type { Session } from '../session'

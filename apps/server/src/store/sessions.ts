@@ -7,6 +7,7 @@
 import {
   type AccountId,
   AgentKind,
+  asSessionId,
   type IssueId,
   type SessionId,
 } from '@podium/model'
@@ -302,7 +303,7 @@ export class SessionsRepository {
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  purgeSession(id: string): void {
+  purgeSession(id: SessionId): void {
     this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
@@ -664,7 +665,9 @@ export class SessionsRepository {
    *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
    *  On a DB without the versioning columns, degrades to a legacy text-only write. */
   setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): void {
-    const id = sessionId.trim()
+    // `.trim()` returns a plain `string` — a normalizing method STRIPS the brand.
+    // Re-applied because trimming an id yields the same id, not a different one.
+    const id = asSessionId(sessionId.trim())
     if (!id) return
     if (!doc.text) {
       this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)

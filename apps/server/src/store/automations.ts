@@ -204,6 +204,7 @@ export class AutomationsRepository {
            )`,
       )
       .all() as Record<string, unknown>[]
-    return new Map(rows.map((r) => [r.automation_id as string, r.session_id as string]))
+    // SERIALIZATION EDGE: both columns re-enter their id spaces here.
+    return new Map(rows.map((r) => [r.automation_id as AutomationId, r.session_id as SessionId]))
   }
 }

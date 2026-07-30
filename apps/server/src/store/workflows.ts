@@ -21,10 +21,15 @@ import {
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { transaction } from '@podium/runtime/sqlite'
 
-export interface WorkflowActor {
-  kind: 'operator' | 'session'
-  id: string | null
-}
+/**
+ * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
+ * Every producer already obeys the correlation — router.ts emits
+ * `{ kind: 'operator', id: null }` and the three session producers emit a real
+ * session id — but the old shape let `{ kind: 'operator', id: <something> }` be
+ * built, so `id` could not carry `SessionId` without lying on the operator arm.
+ * As a union the brand is exact and the illegal pair is unrepresentable.
+ */
+export type WorkflowActor = { kind: 'operator'; id: null } | { kind: 'session'; id: SessionId }
 
 export interface WorkflowRunRow {
   id: string

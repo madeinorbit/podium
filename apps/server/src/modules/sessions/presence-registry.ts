@@ -189,7 +189,9 @@ interface Registration {
  * same code path.
  */
 const ownedSession: TargetResolver = (input, _principal, deps) => {
-  const sessionId = typeof input.sessionId === 'string' ? input.sessionId : ''
+  // Same decode edge as `sessionIdOf` below; kept inline because the empty-string
+  // case returns EARLY here rather than being handed on.
+  const sessionId = typeof input.sessionId === 'string' ? asSessionId(input.sessionId) : ''
   if (!sessionId) return undefined
   const owner = deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
@@ -276,13 +278,13 @@ const REGISTRATIONS: Record<string, Registration> = {
     // move is storage-only and needs no contract or wire change.
     target: ownPerUserRow,
     handler: (input, _principal, deps) => {
-      deps.sessions.markSessionRead(str(input.sessionId))
+      deps.sessions.markSessionRead(sessionIdOf(input.sessionId))
     },
   },
   'sessions.markUnread': {
     target: ownPerUserRow,
     handler: (input, _principal, deps) => {
-      deps.sessions.markSessionUnread(str(input.sessionId))
+      deps.sessions.markSessionUnread(sessionIdOf(input.sessionId))
     },
   },
   'snoozes.set': {
@@ -299,7 +301,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   'snoozes.clear': {
     target: ownPerUserRow,
     handler: (input, principal, deps) => {
-      deps.sessions.clearSnooze(principal.userId, str(input.sessionId))
+      deps.sessions.clearSnooze(principal.userId, sessionIdOf(input.sessionId))
       return deps.store.sessions.listSnoozes(principal.userId)
     },
   },
@@ -336,7 +338,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       // write, byte-for-byte.
       const baseRevision = typeof input.baseRevision === 'number' ? input.baseRevision : undefined
       if (baseRevision !== undefined) {
-        const current = deps.sessions.draftRevision(str(input.sessionId))
+        const current = deps.sessions.draftRevision(sessionIdOf(input.sessionId))
         if (current !== undefined && current !== baseRevision) {
           return { ok: false, reason: 'stale-revision', revision: current }
         }

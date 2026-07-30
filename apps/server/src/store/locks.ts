@@ -55,7 +55,8 @@ export class LocksRepository {
       id: r.id as number,
       repoId: r.repo_id as string,
       name: r.name as string,
-      sessionId: r.session_id as string,
+      // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
+    sessionId: r.session_id as SessionId,
       issueId: (r.issue_id as string | null) ?? null,
       label: r.label as string,
       enqueuedAt: r.enqueued_at as string,

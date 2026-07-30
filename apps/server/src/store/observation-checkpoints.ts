@@ -51,7 +51,8 @@ export class ObservationCheckpointsRepository {
       }
     }
     return {
-      sessionId: r.session_id as string,
+      // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
+    sessionId: r.session_id as SessionId,
       provider: provider.data,
       providerSessionId: (r.provider_session_id as string | null) ?? null,
       bindingVersion: Number(r.binding_version),
