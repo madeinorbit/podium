@@ -4,6 +4,7 @@ import {
   handoffAvailability,
   handoffSource,
   handoffTargets,
+  machinesForAgent,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
@@ -54,6 +55,76 @@ describe('agent machine capability', () => {
         'codex',
       ),
     ).toBeUndefined()
+  })
+
+  // POD-303 / readiness §3.1.4 M5: "an unreachable-vs-unauthorized distinction
+  // must be visible, since 'denied' and 'offline' produce the same empty list
+  // otherwise". These four cases are the shape that makes the distinction real,
+  // and each fixture carries the COUNTERFACTUAL — the machine that would have
+  // been accepted, or refused for the other reason.
+  it('refuses a denied machine as unauthorized, not as offline', () => {
+    const runnable = { inventory: { agents: [agent('in')] } }
+    // Same machine, three verdicts: eligible with no `use` decision, offline with
+    // no decision, denied while otherwise perfectly runnable. If the projection
+    // flattened denied into offline, the first two assertions would still pass and
+    // only this one would fail.
+    expect(agentCapabilityRejection({ id: 'a', online: true, ...runnable }, 'codex')).toBeUndefined()
+    expect(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex')).toBe('offline')
+    expect(
+      agentCapabilityRejection({ id: 'a', online: true, use: 'denied', ...runnable }, 'codex'),
+    ).toBe('unauthorized')
+    // …and the two reasons are genuinely different values, which is the whole
+    // point: a caller can tell "ask the owner for access" from "wake it up".
+    expect(
+      agentCapabilityRejection({ id: 'a', online: true, use: 'denied', ...runnable }, 'codex'),
+    ).not.toBe(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex'))
+  })
+
+  it('reports unauthorized ahead of liveness, inventory and the shell shortcut', () => {
+    // Fails closed: a denied machine must not answer with its `use`-gated detail
+    // (§3.1.4 M2), and per §3.1.5 the refusal must not vary with the hidden state
+    // or it becomes an oracle for it. The counterfactuals are the SAME machine
+    // without `use: 'denied'`, which each yield a different, state-revealing answer.
+    const denied = { id: 'a', use: 'denied' } as const
+    expect(agentCapabilityRejection({ ...denied, online: false }, 'codex')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
+    expect(agentCapabilityRejection({ ...denied, online: true }, 'codex')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe('harness-missing')
+    expect(
+      agentCapabilityRejection(
+        { ...denied, online: true, inventory: { agents: [agent('out')] } },
+        'codex',
+      ),
+    ).toBe('unauthorized')
+    // Spawning a shell is `use` too — the shell shortcut must not bypass the gate.
+    expect(agentCapabilityRejection({ ...denied, online: true }, 'shell')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', online: true }, 'shell')).toBeUndefined()
+  })
+
+  it('leaves an unevaluated use decision permissive rather than inventing a grant', () => {
+    // Absence means NOT EVALUATED — today's single-operator world. This test pins
+    // that today's behaviour is unchanged (the ONLY reason the field is optional),
+    // and pairs the absent case with the explicit ones so a future change that
+    // starts defaulting the field has to update this file deliberately.
+    const runnable = { id: 'a', online: true, inventory: { agents: [agent('in')] } }
+    expect(agentCapabilityRejection(runnable, 'codex')).toBeUndefined()
+    expect(agentCapabilityRejection({ ...runnable, use: 'granted' }, 'codex')).toBeUndefined()
+    expect(agentCapabilityRejection({ ...runnable, use: 'denied' }, 'codex')).toBe('unauthorized')
+  })
+
+  it('degrades an unknown harness id to harness-missing instead of throwing or guessing', () => {
+    // POD-303's open-wire rule at the availability seam: a HarnessId from a newer
+    // peer is compared by VALUE against the machine's inventory, never dispatched
+    // through a closed switch. The counterfactual is in the same fixture — a
+    // machine that DOES carry an installed, logged-in codex — so "degrades" cannot
+    // pass by the machine simply having no inventory at all.
+    const machine = { id: 'a', online: true, inventory: { agents: [agent('in')] } }
+    expect(agentCapabilityRejection(machine, 'codex')).toBeUndefined()
+    expect(agentCapabilityRejection(machine, 'some-harness-from-2027')).toBe('harness-missing')
+    // Excluded from the offer rather than crashing it, and the machine that CAN
+    // run codex is still offered — one unknown id does not poison the list.
+    expect(machinesForAgent([machine], 'some-harness-from-2027')).toEqual([])
+    expect(machinesForAgent([machine], 'codex')).toEqual([machine])
   })
 
   it('treats shell as a daemon capability and chooses an agent-capable repo machine', () => {
@@ -241,6 +312,27 @@ describe('handoffAvailability (POD-821)', () => {
     expect(
       rejected([{ id: 'target', online: false, inventory: { agents: [agent('out')] } }]),
     ).toEqual(['offline'])
+  })
+
+  it('denies handoff to a machine the principal may not use, rather than retargeting it', () => {
+    // §3.1.4 M5: handoff to a machine without `use` is DENIED — it stays in the
+    // candidate list wearing its reason, so the menu states its case instead of
+    // vanishing, and it is excluded from the eligible targets. The fixture holds
+    // BOTH a denied and an eligible target, so "excluded" cannot pass by the list
+    // being empty for some other reason.
+    const machines = [
+      { id: 'source', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'target', online: true, use: 'denied' as const, inventory: { agents: [agent('in')] } },
+      { id: 'other', online: true, inventory: { agents: [agent('in')] } },
+    ]
+    const withOther = [
+      { ...repos[0]!, machines: [...repos[0]!.machines, { machineId: 'other', path: '/c' }] },
+    ]
+    expect(handoffAvailability(session, withOther, machines).candidates).toEqual([
+      { machine: machines[1], rejection: 'unauthorized' },
+      { machine: machines[2] },
+    ])
+    expect(handoffTargets(session, withOther, machines).map((m) => m.id)).toEqual(['other'])
   })
 
   it('offers no candidates when no other machine has the repo', () => {

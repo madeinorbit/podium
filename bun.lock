@@ -261,6 +261,7 @@
       "name": "@podium/harness",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",

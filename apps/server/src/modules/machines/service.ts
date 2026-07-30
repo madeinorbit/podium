@@ -274,14 +274,25 @@ export class MachinesService {
     const machine = this.listMachines().find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = agentCapabilityRejection(machine, agentKind)
-    if (rejection === 'offline') {
-      throw new Error(`machine '${machine.name}' is offline`)
-    }
-    if (rejection === 'harness-missing') {
-      throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
-    }
-    if (rejection === 'logged-out') {
-      throw new Error(`${agentKind} is not logged in on machine '${machine.name}'`)
+    // Exhaustive rather than a chain of ifs: a rejection reason nobody handled
+    // used to fall through and THROW NOTHING, i.e. a new refusal would fail OPEN
+    // and route work to a machine that just refused it. The `never` arm makes
+    // adding a reason a compile error at this gate.
+    switch (rejection) {
+      case undefined:
+        return
+      case 'unauthorized':
+        throw new Error(`you do not have access to run agents on machine '${machine.name}'`)
+      case 'offline':
+        throw new Error(`machine '${machine.name}' is offline`)
+      case 'harness-missing':
+        throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
+      case 'logged-out':
+        throw new Error(`${agentKind} is not logged in on machine '${machine.name}'`)
+      default: {
+        const exhaustive: never = rejection
+        throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)
+      }
     }
   }
 

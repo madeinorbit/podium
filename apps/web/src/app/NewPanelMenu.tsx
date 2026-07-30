@@ -533,11 +533,27 @@ function capabilityReason(
   label: string,
   rejection: ReturnType<typeof agentCapabilityRejection>,
 ): string | undefined {
-  if (rejection === 'offline') return `${machine.name} is offline.`
-  if (rejection === 'harness-missing')
-    return `${agentLabel(label)} is not installed on ${machine.name}.`
-  if (rejection === 'logged-out') return `${agentLabel(label)} is not logged in on ${machine.name}.`
-  return undefined
+  // Exhaustive on purpose: an unhandled rejection would return undefined, and
+  // undefined ENABLES the row — so a new refusal reason would silently become
+  // "spawn is fine". A `never` here makes adding one a compile error instead.
+  switch (rejection) {
+    case undefined:
+      return undefined
+    // §3.1.4 M5: spawn UI must not offer machines the principal lacks `use` on,
+    // and denied must not read as offline — those need opposite responses.
+    case 'unauthorized':
+      return `You don’t have access to run agents on ${machine.name}.`
+    case 'offline':
+      return `${machine.name} is offline.`
+    case 'harness-missing':
+      return `${agentLabel(label)} is not installed on ${machine.name}.`
+    case 'logged-out':
+      return `${agentLabel(label)} is not logged in on ${machine.name}.`
+    default: {
+      const exhaustive: never = rejection
+      return exhaustive
+    }
+  }
 }
 
 /** Disabled menu rows retain pointer events on a wrapper so their reason is hoverable. */

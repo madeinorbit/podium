@@ -69,6 +69,51 @@ describe('MachinesService daemon socket identity', () => {
   })
 })
 
+describe('MachinesService.requireAgent refuses rather than falling through (POD-303)', () => {
+  /** A service whose machine list is stubbed, so the gate can be driven with a
+   *  `use` decision Phase 4 (POD-1079) will eventually put on the projection. */
+  function serviceListing(machines: unknown[]): MachinesService {
+    const svc = makeService()
+    ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines
+    return svc
+  }
+  const runnable = {
+    id: MACHINE,
+    name: 'vmi',
+    inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' as const } }] },
+  }
+
+  test('a denied machine throws about access, not about being offline', () => {
+    // The counterfactual is the SAME machine without the denial: it is accepted,
+    // so the throw is caused by `use`, not by the fixture being unrunnable. And
+    // the offline machine is here too, proving the two refusals are different
+    // messages rather than one generic "unavailable".
+    expect(() =>
+      serviceListing([{ ...runnable, online: true }]).requireAgent(MACHINE, 'codex'),
+    ).not.toThrow()
+    expect(() =>
+      serviceListing([{ ...runnable, online: true, use: 'denied' }]).requireAgent(MACHINE, 'codex'),
+    ).toThrow(/do not have access/)
+    expect(() =>
+      serviceListing([{ ...runnable, online: false }]).requireAgent(MACHINE, 'codex'),
+    ).toThrow(/is offline/)
+  })
+
+  test('a shell on a denied machine is refused too — spawning is `use`', () => {
+    // Shells skip the harness checks, and that shortcut must not skip the access
+    // gate. Counterfactual: the same shell request on an undenied machine passes.
+    expect(() =>
+      serviceListing([{ id: MACHINE, name: 'vmi', online: true }]).requireAgent(MACHINE, 'shell'),
+    ).not.toThrow()
+    expect(() =>
+      serviceListing([{ id: MACHINE, name: 'vmi', online: true, use: 'denied' }]).requireAgent(
+        MACHINE,
+        'shell',
+      ),
+    ).toThrow(/do not have access/)
+  })
+})
+
 describe('MachinesService inventory persistence (#222)', () => {
   const INV: Inventory = {
     os: 'linux',

@@ -43,6 +43,29 @@ export const HARNESS_MCP_SUPPORT: Record<HarnessAgent, 'full' | 'none'> = {
   cursor: 'none',
 }
 
+/**
+ * The stored PREFERENCE for "which harness does a generic new-agent action
+ * start" — `'auto'` plus the closed builtin set. A saved setting, not an
+ * availability answer.
+ *
+ * IT MUST NOT GROW AVAILABILITY MEMBERS (POD-303). Adding `'unauthorized'` or
+ * `'offline'` here would persist a momentary fact into a config file: whether a
+ * harness can be run depends on WHICH MACHINE and WHICH PRINCIPAL, and both
+ * change while a stored preference does not. So the two questions stay in two
+ * places:
+ *   - THIS enum answers "what did the user pick?"
+ *   - `agentCapabilityRejection` (@podium/model, predicates/machine-selection)
+ *     answers "can it run on that machine, for this principal, right now?" — and
+ *     that union is where `'unauthorized'` lives, deliberately DISTINCT from
+ *     `'offline'` per docs/multi-user-readiness.md §3.1.4 M5, so spawn UI can
+ *     tell "ask the owner for access" from "wake the machine up" instead of
+ *     rendering one empty list for both.
+ *
+ * Consequence for spawn UI: resolve the offer per (choice, machine) through that
+ * projection. Reading this enum alone can never express a refusal, so a surface
+ * that offers harnesses straight from it will silently offer machines the
+ * principal may not use.
+ */
 export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok', 'opencode', 'cursor'])
 export type AgentChoice = z.infer<typeof AgentChoice>
 
