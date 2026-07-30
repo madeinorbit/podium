@@ -69,10 +69,42 @@ describe('default-closed classification: an unclassified aggregate FAILS', () =>
     expect(aggregateVisibilityOf('FixtureWidget')).toBe('personal')
   })
 
+  /**
+   * THE REGISTRY MEMBERSHIP PIN — and the reason it exists.
+   *
+   * `aggregateVisibilityOf('Session') === 'personal'` is TRUE WHETHER OR NOT
+   * `Session` is registered, because the default-closed fallback returns
+   * `personal` for anything it has never heard of. So a test asserting only
+   * that could not tell a correct declaration from a total absence.
+   *
+   * Found by mutation (POD-367's rule: prove the instrument can say YES before
+   * believing it say NO). MUTANT E deleted the whole `Session` entry from
+   * `CANONICAL_AGGREGATES` and the suite stayed GREEN — and the test COUNT
+   * silently fell from 27 to 24, because every `it.each(CANONICAL_AGGREGATES)`
+   * quietly iterated one fewer case. Coverage evaporating without a red is the
+   * worse half of that finding.
+   */
+  it('actually REGISTERS both aggregates — not merely resolves them by default', () => {
+    expect(CANONICAL_AGGREGATES.map((a) => a.name).sort()).toEqual(['Issue', 'Session'])
+  })
+
+  it('reads the DECLARED class, not the default — shown with a non-personal one', () => {
+    // The counterfactual the default-closed fallback otherwise hides. If
+    // `aggregateVisibilityOf` ignored the registry and always returned the
+    // default, this would answer `personal` and fail.
+    const declaredSubstrate = [
+      { ...CANONICAL_AGGREGATES[0]!, name: 'Substrateish', visibility: 'deployment-substrate' },
+    ] as const
+
+    expect(aggregateVisibilityOf('Substrateish', declaredSubstrate)).toBe('deployment-substrate')
+    // …and the same lookup still falls closed for a name that is not in it.
+    expect(aggregateVisibilityOf('Session', declaredSubstrate)).toBe('personal')
+  })
+
   it('classifies both canonical aggregates as personal, not substrate', () => {
-    // Both alternatives exist in the vocabulary the check reads, so this is not
-    // vacuous: the previous test shows `deployment-substrate` is reachable and
-    // rejected for these rows.
+    // Meaningful only alongside the two tests above: the membership pin proves
+    // they are registered, and the counterfactual proves the function reads the
+    // declaration rather than returning the default regardless.
     expect(aggregateVisibilityOf('Session')).toBe('personal')
     expect(aggregateVisibilityOf('Issue')).toBe('personal')
   })
