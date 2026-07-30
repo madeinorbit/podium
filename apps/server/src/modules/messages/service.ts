@@ -26,6 +26,12 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import {
+  deliversUnwrapped,
+  exemptFromBrakes,
+  type MailSenderPrincipal,
+  senderBrakeKey,
+} from '@podium/commands'
 import type { AgentPhase, SessionMeta } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
@@ -116,6 +122,31 @@ export type SendDisposition =
  *   - `unwrapped` an operator's byte-faithful body (no envelope, no id) → no echo
  *                 is possible, so injection itself is the confirmation. */
 type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
+
+/**
+ * The L1 principal projection of a sender, for the policy functions in
+ * `@podium/commands`.
+ *
+ * `user` is `null` on BOTH sides on purpose. The re-keyed brake bucket
+ * (`operator:<user>`) needs the human at the root of the delegation chain, and a
+ * `MessageRow` has no column to hold one until POD-1075 lands the User
+ * aggregate. Stamping the sender side alone would be worse than not stamping it:
+ * `senderKey(from)` is compared against `senderKeyOfRow(row)` by the cooldown and
+ * by the same-sender guard, so an asymmetric key silently disables both. So the
+ * POLICY lands here as one function with its per-user behaviour tested at L1, and
+ * the value arrives with the column.
+ */
+const principalOf = (from: MessageSender): MailSenderPrincipal =>
+  ({ ...from, user: null }) as MailSenderPrincipal
+
+const principalOfRow = (m: MessageRow): MailSenderPrincipal =>
+  ({
+    kind: m.fromKind,
+    user: null,
+    ...(m.fromIssue ? { issueId: m.fromIssue } : {}),
+    ...(m.fromSession ? { sessionId: m.fromSession } : {}),
+    ...(m.fromName ? { name: m.fromName } : {}),
+  }) as MailSenderPrincipal
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
@@ -218,6 +249,35 @@ export interface MessageDeliveryDeps {
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string
+  /**
+   * APPLY-TIME RE-AUTHORIZATION (ADR 3 D8 / Amendment 1 D16, POD-728).
+   *
+   * Mail is durable-queued: a row accepted while its sender was authorized can
+   * sit in the queue until the recipient wakes, and by then the sender's rights
+   * may have changed. D8 re-authorizes on every apply, and under readiness
+   * §3.1.3 A1 that means RE-RESOLVING the delegation chain live rather than
+   * reading a capability snapshotted at accept — which is the whole reason the
+   * snapshot was refused.
+   *
+   * Called on every delivery attempt (the synchronous one at send, and every
+   * sweep pass thereafter), plus once before the legacy mirror write. A refusal
+   * DEAD-LETTERS the row with the returned reason: never silently dropped
+   * (ADR 3 D9), never applied. Found at send time it returns synchronously to
+   * the watching sender; found later it notifies the sender once, which is what
+   * "surfaced to its sender" means.
+   *
+   * The reason string is the port's to choose, and the choice is policy:
+   *  - a sender who NEVER had access must get a reason indistinguishable from
+   *    "no such issue" (Amendment 1 D20.2 — otherwise the queue is an existence
+   *    oracle one step removed);
+   *  - a sender whose access was REVOKED mid-queue may be told so, because they
+   *    already knew the target existed and nothing new leaks.
+   *
+   * Absent (single-user today, and in partial test harnesses) = allow. That is
+   * the honest statement of the current fact rather than a disabled check: with
+   * one human there is nothing to revoke. POD-1075/POD-1079 wire the real port.
+   */
+  authorizeAtApply?(message: MessageRow): { ok: true } | { ok: false; reason: string }
   now(): string
 }
 
@@ -758,7 +818,7 @@ export class MessageDeliveryService {
 
     // Brake 1 — wake cooldown per (sender, target issue). Operator intent is
     // never braked. Checked at send; the sweep also honours it on retries.
-    if (lifecycle === 'wake' && from.kind !== 'operator') {
+    if (lifecycle === 'wake' && !exemptFromBrakes(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
       const key = `${this.senderKey(from)}|${issueKey ?? toId ?? ''}`
@@ -882,7 +942,12 @@ export class MessageDeliveryService {
     // unresolved ref must surface as an undeliverable message, never as a raw
     // SQLite FOREIGN KEY error out of the mirror insert.
     let legacy: IssueMessageRow | undefined
-    if (message.toKind === 'issue' && toId && issues.has(toId)) {
+    // The apply-time gate runs BEFORE the mirror, not only before delivery.
+    // Otherwise a caller who addressed the literal internal id of an issue
+    // beyond its human's visibility would land a row in that issue's legacy
+    // mailbox even though delivery later refuses it — a write into a workspace
+    // the principal cannot see, which is the injection §3.1.5 exists to prevent.
+    if (message.toKind === 'issue' && toId && issues.has(toId) && this.applyAuth(message).ok) {
       legacy = {
         id,
         issueId: toId,
@@ -922,6 +987,11 @@ export class MessageDeliveryService {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
     const notifySender = opts?.viaSweep === true
+    // ADR 3 D8: re-authorize on EVERY apply. A queued send whose principal lost
+    // access before the drain is rejected here and surfaced to its sender —
+    // not silently dropped, not applied.
+    const auth = this.applyAuth(message)
+    if (!auth.ok) return this.deadLetter(message, auth.reason, { notifySender })
     if (message.toKind === 'operator') {
       // Escalation to the human: stays queued, kind-tagged for UI pickup (ledger
       // view). Its "delivery" is the operator reading their inbox, not a black hole.
@@ -1292,7 +1362,7 @@ export class MessageDeliveryService {
         this.emitTransition(message, 'message.requeued')
       }
     }
-    if (message.lifecycle === 'wake' && message.fromKind !== 'operator') {
+    if (message.lifecycle === 'wake' && !exemptFromBrakes(principalOfRow(message))) {
       const key = this.wakeKeyOfRow(message)
       if (this.wakeCooldownHot(key)) {
         this.scheduleWakeCooldown(key, message)
@@ -1850,16 +1920,15 @@ export class MessageDeliveryService {
     }
   }
 
+  /** ONE definition of the brake bucket, in `@podium/commands` — see
+   *  {@link senderBrakeKey} for why `operator`/`superagent` must be re-keyed per
+   *  user and why the bare kind is still the right answer today. */
   private senderKey(from: MessageSender): string {
-    if (from.kind === 'agent') return `agent:${from.sessionId ?? from.issueId ?? '?'}`
-    if (from.kind === 'system') return `system:${from.name ?? '?'}`
-    return from.kind
+    return senderBrakeKey(principalOf(from))
   }
 
   private senderKeyOfRow(m: MessageRow): string {
-    if (m.fromKind === 'agent') return `agent:${m.fromSession ?? m.fromIssue ?? '?'}`
-    if (m.fromKind === 'system') return `system:${m.fromName ?? '?'}`
-    return m.fromKind
+    return senderBrakeKey(principalOfRow(m))
   }
 
   /** Whether `from` is the same principal that sent `original` — guards
@@ -1992,7 +2061,7 @@ export class MessageDeliveryService {
   }
 
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
-    if (message.fromKind === 'operator') return
+    if (exemptFromBrakes(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
     this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
   }
@@ -2091,7 +2160,7 @@ export class MessageDeliveryService {
     ) {
       return 'pointer'
     }
-    if (message.fromKind === 'operator' && message.kind !== 'question') return 'unwrapped'
+    if (deliversUnwrapped(principalOfRow(message), message.kind)) return 'unwrapped'
     return 'echo'
   }
 
@@ -2260,6 +2329,15 @@ export class MessageDeliveryService {
         },
       )
     } catch {}
+  }
+
+  /** {@link MessageDeliveryDeps.authorizeAtApply}, with the absent-port default
+   *  stated once. Never memoized: D8 re-authorizes on EVERY apply, and a cached
+   *  answer is the capability snapshot D16 refuses, one layer down. */
+  private applyAuth(message: MessageRow): { ok: true } | { ok: false; reason: string } {
+    const port = this.deps.authorizeAtApply
+    if (!port) return { ok: true }
+    return port(message)
   }
 
   private legacyAuthor(from: MessageSender): string {

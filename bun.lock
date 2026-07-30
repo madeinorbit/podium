@@ -124,6 +124,7 @@
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
         "@podium/agent-bridge": "workspace:*",
+        "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
         "@podium/model": "workspace:*",
@@ -243,6 +244,19 @@
       },
       "peerDependencies": {
         "react": ">=19",
+      },
+    },
+    "packages/commands": {
+      "name": "@podium/commands",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/model": "workspace:*",
+        "@podium/protocol": "workspace:*",
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/composer": {
@@ -1083,6 +1097,8 @@
     "@podium/cli": ["@podium/cli@workspace:apps/cli"],
 
     "@podium/client-core": ["@podium/client-core@workspace:packages/client-core"],
+
+    "@podium/commands": ["@podium/commands@workspace:packages/commands"],
 
     "@podium/composer": ["@podium/composer@workspace:packages/composer"],
 

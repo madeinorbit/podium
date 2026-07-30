@@ -369,26 +369,49 @@ describe('characterization: inbox scope arithmetic — own consumes, in-scope pe
 // ---------------------------------------------------------------------------
 
 describe('characterization: read-surface and reply authz (A5)', () => {
-  it('gates the message LEDGER to the operator, verbatim', async () => {
+  // EDITED BY POD-728, and this pin anticipated the edit: it read "POD-728
+  // reclassifies this (own traffic for a member, cross-user at admin grade) —
+  // this pin is what proves the reclassification happened."
+  //
+  // THE DECISION IT IMPLEMENTS: `mail.ledger`'s exposure classification in
+  // packages/commands/src/mail/contracts.ts. `operator` was one person when
+  // "operator surface" was written; readiness §3.2 requires every role-level
+  // attribution to name a person, so the gate splits along ADR 3 Amendment 1
+  // D15's line — the role floor says a member may ATTEMPT the query, the row
+  // gate says which rows come back. It stays a QUERY either way.
+  it('gives a member their OWN ledger traffic and reserves cross-user rows for admin grade', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
+    const theirs = h.createIssue({ title: 'theirs' })
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: mine.id }, body: 'x' })
+    // THE COUNTERFACTUAL: traffic in a box the member is not a party to. Without
+    // this row the filtered result and the unfiltered one are the same list and
+    // the assertion below would pass on a ledger that filtered nothing.
+    h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: theirs.id }, body: 'not yours' })
 
-    // SINGLE-OPERATOR ARTEFACT and documented as such: the ledger exposes other
-    // principals' traffic, so today only the one all-scope capability may read
-    // it. POD-728 reclassifies this (own traffic for a member, cross-user at
-    // admin grade) — this pin is what proves the reclassification happened.
-    await expect(
-      h.gate.dispatch(h.agentCap(mine.id, 'sMe'), undefined, 'ledger', {}),
-    ).rejects.toThrow('the message ledger is an operator surface')
-    // Even for the caller's OWN issue, and even as its own recipient.
-    await expect(
-      h.gate.dispatch(h.agentCap(mine.id, 'sMe'), undefined, 'ledger', { issueId: mine.id }),
-    ).rejects.toThrow('the message ledger is an operator surface')
+    const member = h.agentCap(mine.id, 'sMe')
+    // No longer a refusal: a member may read the ledger, and gets their own row.
+    const own = (await h.gate.dispatch(member, undefined, 'ledger', {
+      issueId: mine.id,
+    })) as { body: string }[]
+    expect(own.map((r) => r.body)).toEqual(['x'])
 
-    // An UNFILTERED ledger query returns nothing at all — "no filter" is not
-    // "everything", so there is no accidental firehose behind the gate.
+    // The other issue's traffic is NOT theirs to read, and the refusal is an
+    // empty page rather than an error — a distinguishable refusal would confirm
+    // that the issue exists (the contract's errorConsistency clause).
+    expect(await h.gate.dispatch(member, undefined, 'ledger', { issueId: theirs.id })).toEqual([])
+    // ADMIN GRADE gets the cross-user projection: the SAME query, a row back.
+    // This is the counterfactual — without it, "member sees []" would also pass
+    // against a ledger that returned nothing to anyone.
+    const cross = (await h.gate.dispatch(OPERATOR, undefined, 'ledger', {
+      issueId: theirs.id,
+    })) as { body: string }[]
+    expect(cross.map((r) => r.body)).toEqual(['not yours'])
+
+    // An UNFILTERED ledger query still returns nothing at all — "no filter" is
+    // not "everything", so there is no accidental firehose behind either grade.
     expect(await h.gate.dispatch(OPERATOR, undefined, 'ledger', {})).toEqual([])
+    expect(await h.gate.dispatch(member, undefined, 'ledger', {})).toEqual([])
     const rows = (await h.gate.dispatch(OPERATOR, undefined, 'ledger', {
       issueId: mine.id,
     })) as unknown[]

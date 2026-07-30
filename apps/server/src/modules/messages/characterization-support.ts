@@ -22,6 +22,7 @@
  *    predicate-driven `sleep` seam.
  */
 
+import type { HumanCeiling } from '@podium/commands'
 import type { AgentPhase, SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
@@ -29,7 +30,8 @@ import { SessionStore } from '../../store'
 import { type IssueDeps, IssueService } from '../issues/service'
 import { issueTestPlumbing } from '../issues/service/test-plumbing'
 import { MessageGate, type MessageGateDeps } from './gate'
-import { MessageDeliveryService } from './service'
+import type { MachineAccess } from './handlers/context'
+import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake } from './spawn'
 
 /** One recorded push at the PTY transport seam. `text` is captured verbatim —
@@ -120,6 +122,17 @@ export interface HarnessOptions {
    * sleep before an assertion is itself a bug).
    */
   onPoll?(poll: number): void
+  /**
+   * ADDITIVE, POD-728. The multi-user seams the mail vertical now consults, so a
+   * test can exercise them without a second harness. Every default is exactly
+   * today's single-user behaviour, so no existing characterization changes:
+   * the ceiling is at its maximum, every machine is usable and reachable, and
+   * the apply-time gate allows. NO ASSERTION IN ANY POD-727 SUITE WAS TOUCHED BY
+   * ADDING THESE.
+   */
+  ceiling?: HumanCeiling
+  machines?: MachineAccess
+  authorizeAtApply?: MessageDeliveryDeps['authorizeAtApply']
 }
 
 export interface MailHarness {
@@ -217,6 +230,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: (issueId, ids) =>
       store.issues.markIssueMessagesRead(issueId, ids, now()),
+    ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     transact: (fn) => store.transact(fn),
     ...(opts?.omitSpawnOnWake
       ? {}
@@ -241,45 +255,51 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     now,
   })
 
-  const gate = new MessageGate({
-    messages: () => svc,
-    issues: () => issues,
-    listSessions: () => sessions,
-    spawnSession:
-      opts?.spawnSession ??
-      ((input) => {
-        gateSpawns.push(input as unknown as Record<string, unknown>)
-        const sessionId = `child${gateSpawns.length}`
-        sessions.push(
-          session({
-            sessionId,
-            status: 'starting',
-            ...(input.issueId ? { issueId: input.issueId } : {}),
-            ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-          }),
-        )
-        return { sessionId }
-      }),
-    ...(opts?.resolveExecutionProfile
-      ? { resolveExecutionProfile: opts.resolveExecutionProfile }
-      : {}),
-    createIssue: (input) => issues.create({ ...input, startNow: false }),
-    appendEvent: (e) => store.events.appendEvent(e),
-    // Deterministic poll seam (POD-757: never sleep before an assertion). A
-    // "sleep" advances the INJECTED clock by exactly the requested amount and
-    // returns immediately, so a bounded wait converges through its real polling
-    // loop with zero wall-clock time. `onPoll` lets a test flip state mid-wait.
-    sleep: (ms: number) => {
-      nowMs += ms
-      polls += 1
-      opts?.onPoll?.(polls)
-      return Promise.resolve()
+  const gate = new MessageGate(
+    {
+      messages: () => svc,
+      issues: () => issues,
+      listSessions: () => sessions,
+      spawnSession:
+        opts?.spawnSession ??
+        ((input) => {
+          gateSpawns.push(input as unknown as Record<string, unknown>)
+          const sessionId = `child${gateSpawns.length}`
+          sessions.push(
+            session({
+              sessionId,
+              status: 'starting',
+              ...(input.issueId ? { issueId: input.issueId } : {}),
+              ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+            }),
+          )
+          return { sessionId }
+        }),
+      ...(opts?.resolveExecutionProfile
+        ? { resolveExecutionProfile: opts.resolveExecutionProfile }
+        : {}),
+      createIssue: (input) => issues.create({ ...input, startNow: false }),
+      appendEvent: (e) => store.events.appendEvent(e),
+      // Deterministic poll seam (POD-757: never sleep before an assertion). A
+      // "sleep" advances the INJECTED clock by exactly the requested amount and
+      // returns immediately, so a bounded wait converges through its real polling
+      // loop with zero wall-clock time. `onPoll` lets a test flip state mid-wait.
+      sleep: (ms: number) => {
+        nowMs += ms
+        polls += 1
+        opts?.onPoll?.(polls)
+        return Promise.resolve()
+      },
+      awaitPollMs: opts?.awaitPollMs ?? 500,
+      now,
+      retireNotificationFact: (factKey, target) =>
+        store.notificationFacts.retire(factKey, target, now()),
     },
-    awaitPollMs: opts?.awaitPollMs ?? 500,
-    now,
-    retireNotificationFact: (factKey, target) =>
-      store.notificationFacts.retire(factKey, target, now()),
-  })
+    {
+      ...(opts?.ceiling ? { ceiling: opts.ceiling } : {}),
+      ...(opts?.machines ? { machines: opts.machines } : {}),
+    },
+  )
 
   return {
     store,
