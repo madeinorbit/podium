@@ -99,6 +99,56 @@ floor honest instead of flattering, which is why the reconciliation is dated in 
 
 Each was reverted and the gate returned to `exit 0`.
 
+## Review round — both blockers fixed (commit `80878950`)
+
+The first review returned CHANGES REQUESTED with two blockers. **Both were real**, and both are
+the same underlying mistake: the relocation moved harness branching out of the views (right) but
+into a **closed** dispatch (wrong), turning "silently mishandles an unknown harness" into "crashes
+on it", and separately dropping a live visual fallback. A behaviour regression riding inside a
+boundary fix.
+
+| Blocker | Fix | Proof |
+|---|---|---|
+| Both new capability helpers **threw** `undefined is not an object` for an unknown harness id, where the `===` checks they replaced returned `false` | Helpers now take an open id and resolve via `agentCapabilitiesFor(kind): AgentCapabilities \| undefined`, defaulting to `false` — which is exactly what the old comparisons returned | Reviewer's probe reproduced verbatim against the pre-fix code (same error text), then re-run against the fix: `promptModeHints: false, handoff: false, row: undefined` |
+| `AGENT_FLEET_TILE_TINT[unknownKind]` was `undefined`, so `cn()` dropped the tile's border, background and text tone | `agent-tone.ts` is now five **total resolvers** whose fallback IS the old non-Claude branch, verbatim | `agentFleetTileTint('future-harness')` returns `border-[#33456e] bg-[#182338] text-[#c3cbe0]`, identical to `codex`; built-in pixels unchanged |
+
+**The degradation is now a test, not an assertion** — that test is the incremental-completeness
+contract, and without it the next person re-closes the set. `agent-tone.test.ts` pins totality
+across all six built-ins *and* an id outside the builtin set; `agent-capabilities.test.ts` pins
+both helpers returning `false` without throwing; `issue-context-menu.test.ts` pins that an
+unknown-harness session is not handoff-eligible and does not throw.
+
+### Vocabulary coordinated with POD-397 — and it caught a merge break
+
+POD-397 (`5cc2bdae`) lands the identity model in `packages/protocol/src/messages/harness.ts`: an
+open branded `HarnessId`, the closed `BuiltinHarnessKind`, `isBuiltinHarnessKind`, and
+`manifestFor(kind): AgentManifest | undefined`.
+
+My first cut of this fix exported **its own `HarnessId`** from `./terminal` — and
+`packages/protocol/src/messages/index.ts` does `export * from './harness'` (line 19) **and**
+`export * from './terminal'` (line 31). That would have been a **duplicate export the moment
+POD-397 merged**, and whoever merged second would have eaten it. Removed: the parameter is spelled
+inline, the doc comment names POD-397 as the owning vocabulary, and the web-side alias is local and
+unexported. `agentCapabilitiesFor` deliberately mirrors `manifestFor`'s contract (unknown ⇒
+`undefined`, caller branches), so POD-398 inherits a rename rather than two competing vocabularies.
+Mailed to POD-397's session, including the asymmetry POD-398 will meet: `AgentKind` includes
+`'shell'`, their `BuiltinHarnessKind` does not.
+
+### Standing-rule checks applied to this diff
+
+- **Path-prefix detectors** (the POD-396 hazard): this diff **moves, renames and splits nothing**,
+  and touches no `packages/agent-bridge/**` or `packages/pty/**` path, so no path-scoped detector
+  can zero from it. `durable-host-sync-async-twins` still reads **4**, not 0. Verified against the
+  audit's **per-item** comparison, which exits non-zero on any item drifting up *or* down — not
+  against the 264 total. (A first attempt to diff per-detector lines between two of my own runs
+  matched **zero lines** and was therefore vacuous; discarded rather than reported as agreement.)
+- **Binary/control-byte check** (section 3): `git diff --stat 201dd989..HEAD` shows **no `Bin`
+  markers** — every file in this diff reads as text. `check-no-nul-bytes` exit 0.
+- **Hang vs load** (section 4): the one hang-shaped failure I saw — `terminal-view.keyboard.test.ts`
+  timing out in a *setup hook* and silently skipping all 13 tests — is filed as **POD-1126** rather
+  than written off as load, even though it is provably not this diff's (it fails identically with
+  every changed file reverted in place).
+
 ## Other lanes
 
 > **Verification posture (revised).** The coordinator diagnosed the box as swap-thrashing (16GB of
