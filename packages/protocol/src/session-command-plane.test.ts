@@ -3,6 +3,7 @@
  * derivable, enforced here rather than in review.
  */
 
+import { AgentKind, ResumeRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { commandExposure, isExposedOn } from './commands'
 import {
@@ -53,27 +54,13 @@ describe('the command-plane table', () => {
     expect(def.policy?.machineVerb).toBe('use')
   })
 
-  it.each(defs)(
-    '%s is not offline-enqueueable, the one documented exception aside (D18.3)',
-    (key, def) => {
-      if (key === OFFLINE_ELIGIBLE_EXCEPTION) {
-        expect(def.offline).toBe('eligible')
-        // An exception that is not argued is a mistake wearing a comment. The
-        // decision record must name what overrode the blanket rule.
-        expect(def.decision).toContain('oracle')
-        return
-      }
-      expect(def.offline).not.toBe('eligible')
-    },
-  )
-
-  it('the exemption list is exactly one command, and it is the one the outbox oracle covers', () => {
-    const eligible = defs.filter(([, def]) => def.offline === 'eligible').map(([key]) => key)
-    expect(eligible).toEqual([OFFLINE_ELIGIBLE_EXCEPTION])
-    // sendText is the counterfactual the oracle draws in the same breath: same
-    // shape, same substrate, deliberately NOT queued.
-    expect(sessionCommandPlane.defs.sendText.offline).not.toBe('eligible')
-  })
+  // D18.3's implication (machineVerb 'use' ⇒ not offline-eligible) and its ONE
+  // named exception are asserted in `command-facet-rules.test.ts`, over EVERY
+  // contract table this package exports rather than only this one. POD-642
+  // spotted why that matters: `sessions.handoff` is the second declarer of the
+  // field, and a per-file assertion would have left the rule unenforced for the
+  // table that motivated it. A rule with two homes is a rule that drifts, so it
+  // is not restated here.
 
   it('exposure is per-command, not one blanket list', () => {
     // create is an operator seam; sendText is reachable by an agent at a peer.
@@ -104,6 +91,20 @@ describe('the command-plane table', () => {
     expect(Object.keys(sessionCommandPlaneInputs).sort()).toEqual(
       Object.keys(sessionCommandPlane.defs).sort(),
     )
+  })
+
+  it('the vocabularies are the MODEL\'s instances, not same-valued copies', () => {
+    // `toBe`, never a comparison of accepted values. A forked z.enum with
+    // identical members parses, encodes and passes every golden case
+    // identically — POD-380 found exactly that defect in its own contracts
+    // after a wire regeneration, and enum membership being compile-time is why
+    // no other gate would have caught it.
+    // Asserted through the precisely-typed input map rather than through
+    // `CommandDef['input']`, which is a widened ZodTypeAny with no `.shape` —
+    // and these are the exact objects the router builds its procedures on.
+    expect(sessionCommandPlaneInputs.create.shape.agentKind.unwrap()).toBe(AgentKind)
+    expect(sessionCommandPlaneInputs.resume.shape.agentKind).toBe(AgentKind)
+    expect(sessionCommandPlaneInputs.resume.shape.resume).toBe(ResumeRef)
   })
 
   it('input schemas are live and reject the shapes the router rejected', () => {

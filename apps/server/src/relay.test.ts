@@ -4,8 +4,7 @@ import { join } from 'node:path'
 import {
   asSessionId,
   type AgentPhase,
-  type AgentRuntimeState,
-} from '@podium/model'
+  type AgentRuntimeState, SOLE_USER_ID } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -2986,51 +2985,113 @@ describe('reconnect identity (hello reclaim)', () => {
   })
 
   describe('session draft sync', () => {
+    /**
+     * Draft writes are gated on the session EXISTING (POD-380): `sessions.setDraft`
+     * is an owner-or-grant write, and a session nobody can resolve has no owner, so
+     * the envelope refuses it as the presence class's silent no-op. These fixtures
+     * therefore create the session they type into.
+     *
+     * That is a deliberate behaviour change, and it is why these tests changed: the
+     * legacy path wrote a draft row against ANY id, which POD-379 recorded for
+     * snoozes/pins as a write that "SUCCEEDS against an id that does not exist".
+     * Under §3.1.5 the draft cannot keep that property — a draft on a session you
+     * cannot see must fail exactly like one on a session that does not exist.
+     *
+     * Note what this ALSO fixed: 'clears a draft when text is empty' kept passing
+     * after the gate landed, because its assertion is that NO broadcast happens and
+     * a refused write broadcasts nothing either. It was green for the wrong reason.
+     */
+    const seedSession = (reg: SessionRegistry): string =>
+      reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' }).sessionId
     it('broadcasts setSessionDraft to other clients, not the sender', () => {
       const reg = new SessionRegistry()
+      const sessionId = seedSession(reg)
       const a: ServerMessage[] = []
       const b: ServerMessage[] = []
       const idA = reg.modules.sessions.attachClient((m) => a.push(m))
       reg.modules.sessions.attachClient((m) => b.push(m))
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId: 'sess',
+        sessionId,
         text: 'half typed',
       })
       expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
       expect(b).toContainEqual({
         type: 'sessionDraftChanged',
-        sessionId: 'sess',
+        sessionId,
         text: 'half typed',
       })
     })
 
+    it('REFUSES a draft for a session that does not exist, silently, like the rest of the class', () => {
+      // The counterfactual for the fixtures above: they pass because the session
+      // exists, not because the gate is absent. POD-379's not-found shape for the
+      // presence writes is a silent no-op — no throw, no row, no broadcast — and the
+      // draft now shares it (§3.1.5).
+      const reg = new SessionRegistry()
+      const seen: ServerMessage[] = []
+      const idA = reg.modules.sessions.attachClient(() => {})
+      reg.modules.sessions.attachClient((m) => seen.push(m))
+
+      expect(() =>
+        reg.modules.sessions.onClientMessage(idA, {
+          type: 'setSessionDraft',
+          sessionId: 'no-such-session',
+          text: 'into the void',
+        }),
+      ).not.toThrow()
+
+      expect(seen.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
+      expect(reg.sessionStore.sessions.loadDrafts()['no-such-session']).toBeUndefined()
+    })
+
     it('replays stored drafts to a freshly connected client', () => {
       const reg = new SessionRegistry()
+      const sessionId = seedSession(reg)
       const idA = reg.modules.sessions.attachClient(() => {})
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId: 'sess',
+        sessionId,
         text: 'wip',
       })
       const c: ServerMessage[] = []
       reg.modules.sessions.attachClient((m) => c.push(m))
-      expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'wip' })
+      expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId, text: 'wip' })
     })
 
     it('clears a draft when text is empty', () => {
       const reg = new SessionRegistry()
+      const sessionId = seedSession(reg)
       const idA = reg.modules.sessions.attachClient(() => {})
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId: 'sess',
+        sessionId,
         text: 'wip',
       })
+      // The write LANDED first — asserted, because this test's real assertion is an
+      // ABSENCE and an absence proves nothing unless the presence came first: it
+      // passed vacuously once the existence gate landed. Evidence is the BROADCAST
+      // rather than the row, because persistence is debounced and the row would not
+      // be there yet even on the happy path.
+      const watcher: ServerMessage[] = []
+      reg.modules.sessions.attachClient((m) => watcher.push(m))
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId: 'sess',
+        sessionId,
+        text: 'wip again',
+      })
+      expect(watcher).toContainEqual({
+        type: 'sessionDraftChanged',
+        sessionId,
+        text: 'wip again',
+      })
+
+      reg.modules.sessions.onClientMessage(idA, {
+        type: 'setSessionDraft',
+        sessionId,
         text: '',
       })
+      expect(reg.sessionStore.sessions.loadDrafts()[sessionId]).toBeUndefined()
       const c: ServerMessage[] = []
       reg.modules.sessions.attachClient((m) => c.push(m))
       expect(c.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
@@ -3043,16 +3104,17 @@ describe('reconnect identity (hello reclaim)', () => {
         const dbPath = join(dir, 'podium.db')
         const store = new SessionStore(dbPath)
         const reg = new SessionRegistry(store)
+        const sessionId = seedSession(reg)
         const idA = reg.modules.sessions.attachClient(() => {})
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId: 'sess',
+          sessionId,
           text: 'real work',
         })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
-        expect(store.sessions.loadDrafts().sess).toBeUndefined()
+        expect(store.sessions.loadDrafts()[sessionId]).toBeUndefined()
         vi.advanceTimersByTime(1000)
-        expect(store.sessions.loadDrafts().sess).toBe('real work')
+        expect(store.sessions.loadDrafts()[sessionId]).toBe('real work')
         store.close()
 
         // "Restart": a fresh registry on the same DB replays the persisted draft
@@ -3063,7 +3125,7 @@ describe('reconnect identity (hello reclaim)', () => {
         reg2.modules.sessions.attachClient((m) => c.push(m))
         expect(c).toContainEqual({
           type: 'sessionDraftChanged',
-          sessionId: 'sess',
+          sessionId,
           text: 'real work',
         })
         store2.close()
@@ -3077,20 +3139,26 @@ describe('reconnect identity (hello reclaim)', () => {
       try {
         const store = new SessionStore(':memory:')
         const reg = new SessionRegistry(store)
+        const sessionId = seedSession(reg)
         const idA = reg.modules.sessions.attachClient(() => {})
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId: 'sess',
+          sessionId,
           text: 'about to send',
         })
+        vi.advanceTimersByTime(1000)
+        // The debounced write LANDED — the absence below is only meaningful against
+        // a presence (this test asserted an absence that a refused write also gives).
+        expect(store.sessions.loadDrafts()[sessionId]).toBe('about to send')
+
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId: 'sess',
+          sessionId,
           text: '',
         })
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
-        expect(store.sessions.loadDrafts().sess).toBeUndefined()
+        expect(store.sessions.loadDrafts()[sessionId]).toBeUndefined()
         store.close()
       } finally {
         vi.useRealTimers()
@@ -3256,17 +3324,20 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
 
   it('flag off (default) keeps the legacy plain broadcast with no rev', () => {
     const reg = new SessionRegistry()
+    // A real session: draft writes are gated on the session existing (POD-380) —
+    // see the note in the 'session draft sync' describe above.
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const b: ServerMessage[] = []
     const idA = reg.modules.sessions.attachClient(() => {})
     reg.modules.sessions.attachClient((m) => b.push(m))
     reg.modules.sessions.onClientMessage(idA, {
       type: 'setSessionDraft',
-      sessionId: 's',
+      sessionId,
       text: 'legacy',
     })
     expect(b.find((m) => m.type === 'sessionDraftChanged')).toEqual({
       type: 'sessionDraftChanged',
-      sessionId: 's',
+      sessionId,
       text: 'legacy',
     })
   })
@@ -3373,12 +3444,12 @@ describe('SessionRegistry snooze', () => {
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
-    reg.modules.sessions.clearSnooze(sessionId)
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    reg.modules.sessions.clearSnooze(SOLE_USER_ID, sessionId)
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
   })
 
@@ -3390,10 +3461,10 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
     reg.modules.sessions.sendText({ sessionId, text: 'hi' })
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })
 
   it('leaving the attention phase clears it; staying in attention keeps it', () => {
@@ -3408,18 +3479,18 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
     reg.modules.sessions.onDaemonMessageFrom(
       'local',
       agentState(sessionId, 'idle', { idle: { kind: 'question' } }),
     )
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
 
     // -> working leaves attention: snooze clears.
     reg.modules.sessions.onDaemonMessageFrom('local', agentState(sessionId, 'working'))
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })
 
   it('seeds snoozedUntil from the store at load', () => {
@@ -3445,7 +3516,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.sessions.setSnooze('s1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
     const reg = new SessionRegistry(store)
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })

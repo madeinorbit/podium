@@ -124,19 +124,27 @@ export const repoDraftSeq = sqliteTable("repo_draft_seq", {
 	nextSeq: integer("next_seq").notNull(),
 });
 
+// PER-USER STATE (POD-380, docs/multi-user-readiness.md §3.3): keyed
+// (user_id, kind, id). A pin is mine; it was never instance-wide state that
+// happened to have one writer.
 export const pins = sqliteTable("pins", {
+	userId: text("user_id").notNull(),
 	kind: text().notNull(),
 	id: text().notNull(),
 	pinnedAt: text("pinned_at").notNull(),
 },
-(table) => [primaryKey({ columns: [table.kind, table.id], name: "pins_pk"}),
+(table) => [primaryKey({ columns: [table.userId, table.kind, table.id], name: "pins_pk"}),
 ]);
 
+// PER-USER STATE (POD-380): keyed (user_id, worktree).
 export const tabOrder = sqliteTable("tab_order", {
-	worktree: text().primaryKey(),
+	userId: text("user_id").notNull(),
+	worktree: text().notNull(),
 	ids: text().notNull(),
 	updatedAt: text("updated_at").notNull(),
-});
+},
+(table) => [primaryKey({ columns: [table.userId, table.worktree], name: "tab_order_pk"}),
+]);
 
 export const conversations = sqliteTable("conversations", {
 	id: text().primaryKey(),
@@ -220,11 +228,17 @@ export const sessionDrafts = sqliteTable("session_drafts", {
 	history: text("history"),
 });
 
+// PER-USER STATE (POD-380): keyed (user_id, session_id). Note snoozed_until
+// stays NULLABLE and null is MEANINGFUL — "until next message", a snooze that
+// never lapses by time. Absence of the row is "not snoozed".
 export const snoozes = sqliteTable("snoozes", {
-	sessionId: text("session_id").primaryKey(),
+	userId: text("user_id").notNull(),
+	sessionId: text("session_id").notNull(),
 	snoozedUntil: text("snoozed_until"),
 	createdAt: text("created_at").notNull(),
-});
+},
+(table) => [primaryKey({ columns: [table.userId, table.sessionId], name: "snoozes_pk"}),
+]);
 
 // Agent action offers [spec:SP-c7f1] — one live offer per session (a freeform
 // message + JSON-encoded action buttons). Ephemeral overlay like `snoozes`;

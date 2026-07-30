@@ -543,7 +543,14 @@ describe('against the live repo', () => {
     // And the registry it is checked against is non-empty, so
     // `representation-registry-rot`'s zero means "nothing rotted", not "nothing
     // to check".
-    expect(RETAINED_REPRESENTATIONS.length).toBe(43)
+    // 43 -> 44 when POD-1151 registered `StoredIssue`, the R1 side of the one
+    // toStorage/fromStorage pair. Moving this number is the DELIBERATE ACT the pin
+    // exists to force, so it is moved with the reason rather than loosened to a
+    // `toBeGreaterThan`: the entry is justified (IssueAggregate minus the five
+    // members no column exists for, with the storage gap named as data rather than
+    // defaulted at the seam) and its role note records why it is filed R3 rather
+    // than inventing an ADR 4 role.
+    expect(RETAINED_REPRESENTATIONS.length).toBe(44)
   })
 
   it('reports real files for every site', () => {

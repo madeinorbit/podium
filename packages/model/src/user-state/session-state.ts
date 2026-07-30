@@ -108,3 +108,25 @@ export const POD380_USER_STATE_MEMBERS = [
   { name: 'pin', schema: PinState, table: 'pins' },
   { name: 'tabOrder', schema: TabOrderState, table: 'tab_order' },
 ] as const
+
+/**
+ * THE SOLE USER, until POD-1075 mints real accounts.
+ *
+ * Podium authenticates with one shared password that resolves to `OPERATOR`, and
+ * `client_sessions` has no user column — a client session is a DEVICE, not a
+ * person (docs/multi-user-readiness.md §3.2). So every per-user row written today
+ * belongs to one identity, and that identity needs a NAME rather than an implicit
+ * empty string, for three reasons:
+ *
+ *  1. the rows are keyed `(userId, entityId)` NOW, so the migration POD-1075
+ *     performs is "give this row a real owner", not "add a column";
+ *  2. a self-scoping check needs something to compare against — with no principal
+ *     identity a `self` policy would be vacuously true, which is worse than absent;
+ *  3. it is greppable. Every site that will need a real principal is
+ *     `SOLE_USER_ID`, so POD-1075's work is enumerable instead of archaeological.
+ *
+ * It is NOT a fallback. A principal that arrives without an identity must be
+ * refused, never defaulted to this — that is the §3.1.6 S4 rule ("unknown chats
+ * must fail closed, never fall back to an operator identity") applied here.
+ */
+export const SOLE_USER_ID = 'user:sole' as const

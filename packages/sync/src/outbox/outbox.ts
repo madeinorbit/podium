@@ -16,8 +16,21 @@
  * hazard), which is why entries expire before their receipts do: expiry at the
  * replica is how we refuse that send. The inequality
  * `OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS` and its
- * import-the-constant lint are D10/D11 numbers owned by POD-371; this module
- * takes `maxAgeMs` as configuration and never mints a default.
+ * import-the-constant invariant are D10/D11 numbers, and they live in `limits.ts`
+ * (POD-371) — this module still takes `maxAgeMs` as configuration and never mints
+ * a default, because the inequality is against a constant `packages/*` cannot
+ * import (boundary rule 4). The invariant test that supplies the real receipt
+ * constant therefore sits on the server side of that boundary.
+ *
+ * ## Retry (D10)
+ *
+ * A transient failure is retried an UNLIMITED number of times, spaced by
+ * exponential backoff (`nextAttemptAt`), until the age limit ends it: there is no
+ * global attempt ceiling, because a ceiling converts user work into silent
+ * failure. A DEFINITIVE refusal — including an authorization denial, which is
+ * permanent because D8 resolves the delegation chain live — gets zero automatic
+ * retries and dead-letters at once, so it neither burns the age limit nor holds
+ * the head of its partition.
  *
  * ## Ordering
  *
@@ -63,6 +76,13 @@ import type {
   OutboxSubmitOutcome,
   SyncSpan,
 } from './ports'
+import {
+  type BackoffPolicy,
+  backoffDelayMs,
+  isDefinitiveFailure,
+  resolveMaxAgeMs,
+  TRANSIENT_BACKOFF,
+} from './limits'
 import {
   MAX_AGE_REASON,
   normalizeRefusal,
@@ -314,11 +334,21 @@ export class Outbox {
   private readonly spanDeltas = new WeakMap<SyncSpan, OutboxStoreMutation[]>()
   private readonly spanEvents = new WeakMap<SyncSpan, OutboxEvent[]>()
 
+  private readonly backoff: BackoffPolicy
+
   private constructor(config: OutboxConfig, records: readonly OutboxRecord[]) {
     this.config = config
     this.store = config.store
     this.principal = config.principal
     this.records = records
+    this.backoff = config.backoff ?? TRANSIENT_BACKOFF
+    // D10: a per-command override may only SHORTEN. Checked HERE, at open, so a
+    // config that would lengthen an entry past D11's inequality fails before it
+    // has queued anything — rather than at the moment the first such command is
+    // enqueued, hours later, in front of a user.
+    for (const [command, override] of Object.entries(config.commandMaxAgeMs ?? {})) {
+      resolveMaxAgeMs(config.maxAgeMs, command, override)
+    }
     if (config.onEvent) this.listeners.add(config.onEvent)
   }
 
@@ -498,6 +528,16 @@ export class Outbox {
         // continues once the user recovers or discards it.
         return
       }
+      if (!this.isDue(record)) {
+        // D10 backoff: this entry's next attempt is not due yet. The whole
+        // partition waits, because letting a successor overtake a backing-off
+        // head would silently reorder writes to one aggregate (D12 FIFO) — and
+        // OTHER partitions are untouched, which is the property that makes this a
+        // delay rather than head-of-line blocking. The age check above runs
+        // FIRST, so an entry whose backoff would outlive the horizon expires
+        // instead of sleeping through it.
+        return
+      }
       try {
         if (!(await this.attempt(record))) return
       } catch (error) {
@@ -516,6 +556,10 @@ export class Outbox {
     const sending = await this.transition(queued, 'drain-started', {
       attempts: queued.attempts + 1,
       lastAttemptAt: this.config.now(),
+      // The schedule has been consumed. Left in place it would be a stale
+      // timestamp on an in-flight record, and the next transient failure sets a
+      // fresh one anyway.
+      nextAttemptAt: undefined,
     })
 
     let outcome: OutboxSubmitOutcome
@@ -528,32 +572,65 @@ export class Outbox {
       outcome = { kind: 'unreachable' }
     }
 
-    switch (outcome.kind) {
-      case 'applied': {
-        await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
-        return true
-      }
-      case 'accepted': {
-        await this.transition(sending, 'authority-accepted', { acceptedAt: this.config.now() })
-        // Order within the partition holds: nothing may be submitted behind an
-        // envelope the Authority has taken but not yet applied.
-        return false
-      }
-      case 'rejected': {
-        await this.reject(sending, normalizeRefusal(outcome.refusal))
-        return false
-      }
-      case 'unreachable': {
-        // D9 invariant 4: this is NOT a rejection. Back to `queued`, forever if
-        // need be, until the age limit converts it to `expired`.
-        //
-        // Returning FALSE is load-bearing, not incidental: the head of this
-        // partition did not get through, so nothing behind it may be submitted.
-        // Returning true here would silently reorder writes to one aggregate.
-        await this.transition(sending, 'transport-failed', {})
-        return false
-      }
+    if (outcome.kind === 'applied') {
+      await this.transition(sending, 'authority-applied', { appliedAt: this.config.now() })
+      return true
     }
+    if (outcome.kind === 'accepted') {
+      await this.transition(sending, 'authority-accepted', { acceptedAt: this.config.now() })
+      // Order within the partition holds: nothing may be submitted behind an
+      // envelope the Authority has taken but not yet applied.
+      return false
+    }
+    // D10's retry classification, and the reason it is a shared function rather
+    // than a second `case` arm: an authorization denial must be TERMINAL here
+    // (D8 resolves the delegation chain live, so a post-revocation denial is
+    // permanent), and "which failures are retryable" is the one judgement a
+    // future edit could get wrong in a way no other test would notice.
+    if (isDefinitiveFailure(outcome)) {
+      // Zero automatic retries. Straight to rejection and dead-letter, so the
+      // entry stops holding the head of its partition and stops burning the age
+      // limit on an attempt that can never succeed.
+      await this.reject(sending, normalizeRefusal(outcome.refusal))
+      return false
+    }
+    // Transport failure — D9 invariant 4: this is NOT a rejection. Back to
+    // `queued`, for unlimited attempts, until the age limit converts it to
+    // `expired`. The exhaustiveness of the classification is checked by this
+    // assignment: a new outcome kind that `failureClassOf` calls transient stops
+    // compiling here until it is decided deliberately.
+    const transient: 'unreachable' = outcome.kind
+    void transient
+    //
+    // Returning FALSE is load-bearing, not incidental: the head of this
+    // partition did not get through, so nothing behind it may be submitted.
+    // Returning true here would silently reorder writes to one aggregate.
+    await this.transition(sending, 'transport-failed', this.backoffPatch(sending.attempts))
+    return false
+  }
+
+  /**
+   * D10's exponential backoff, computed from the attempt count that just failed.
+   * No attempt ceiling — the age limit is the only bound.
+   *
+   * Set HERE and nowhere else, and that placement is a decision. The other three
+   * paths that requeue an entry (`noteTransportLost`, `requeueStalled`, the
+   * open-time crash reconciliation) are not failed round-trips: a transport-loss
+   * report is normally followed by an explicit reconnect, at which point we KNOW
+   * the Authority is reachable and sleeping 60s would be user-visible latency for
+   * no protection; a stall sweep has already waited its own `stalledForMs`, which
+   * IS the spacing; and a cold open has no evidence about the Authority at all.
+   * Backoff exists to stop a client hammering an Authority that just refused to
+   * answer, so it is driven by the attempt that actually got no answer.
+   */
+  private backoffPatch(attempts: number): Partial<OutboxRecord> {
+    return { nextAttemptAt: this.config.now() + backoffDelayMs(attempts, this.backoff) }
+  }
+
+  /** Has this entry's backoff elapsed? An entry that never failed has no
+   *  schedule and is due immediately. */
+  private isDue(record: OutboxRecord): boolean {
+    return record.nextAttemptAt === undefined || this.config.now() >= record.nextAttemptAt
   }
 
   /**
@@ -718,6 +795,10 @@ export class Outbox {
       reason: undefined,
       deadLetteredAt: undefined,
       parkedFrom: undefined,
+      // A user retry is immediate: the backoff schedule belonged to the transport
+      // failures that preceded the parking, and a person who has just fixed their
+      // rights should not wait out a machine's spacing.
+      nextAttemptAt: undefined,
     })
   }
 
@@ -799,6 +880,18 @@ export class Outbox {
         await this.transition(record, 'transport-failed', {})
       }
     }
+    // The LONG-OFFLINE client (D11.5): a client that returns after longer than
+    // the age limit must find its aged work already resolved into dead-letter
+    // recovery, not sitting in `queued` waiting for something to notice.
+    //
+    // The drain would refuse to send an aged entry anyway, but only the HEAD of
+    // each partition and only when a drain runs. Sweeping at open makes the state
+    // honest before anyone reads it: every entry past the horizon is `dead-letter`
+    // with reason `max-age`, its recovery is `new-mutation-id` (D11.4 — the old id
+    // may still carry a receipt), and the user's authored input is intact and
+    // surfaced. Nothing is dropped; expiry is how we REFUSE the send, not how we
+    // discard the intent.
+    await this.sweepExpired()
     // Invariant 2 straggler: a crash between the verdict and the parking must
     // not leave an entry resolved but unrecoverable.
     for (const record of this.mine()) {
@@ -812,7 +905,17 @@ export class Outbox {
    *  defeats D11's inequality: the whole point of expiry is to refuse a send
    *  whose receipt may already have been pruned. `queuedAt` is immutable. */
   private isAgedOut(record: OutboxRecord): boolean {
-    return this.config.now() - record.queuedAt > this.config.maxAgeMs
+    return this.config.now() - record.queuedAt > this.maxAgeFor(record)
+  }
+
+  /** The horizon for ONE entry: the configured base, or the per-command override
+   *  when the contract asked for a shorter one (D10). */
+  private maxAgeFor(record: OutboxRecord): number {
+    return resolveMaxAgeMs(
+      this.config.maxAgeMs,
+      record.command.name,
+      this.config.commandMaxAgeMs?.[record.command.name],
+    )
   }
 
   private async expire(record: OutboxRecord): Promise<void> {

@@ -1,3 +1,4 @@
+import { SOLE_USER_ID } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -312,10 +313,10 @@ describe('SessionStore sessions', () => {
     const store = new SessionStore(':memory:')
     const deletedAt = '2026-07-13T11:00:00.000Z'
     store.sessions.upsertSession(row({ issueId: 'iss_1', status: 'live' }))
-    store.sessions.setPin('panel', 'id-1', true)
+    store.sessions.setPin(SOLE_USER_ID, 'panel', 'id-1', true)
     store.sessions.setDraft('id-1', 'recoverable input')
-    store.sessions.setSnooze('id-1', null)
-    store.sessions.setTabOrder('/proj', ['id-1'])
+    store.sessions.setSnooze(SOLE_USER_ID, 'id-1', null)
+    store.sessions.setTabOrder(SOLE_USER_ID, '/proj', ['id-1'])
 
     store.sessions.softDeleteSessions(['id-1'], deletedAt, 'standalone')
 
@@ -329,10 +330,10 @@ describe('SessionStore sessions', () => {
       }),
     ])
     expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
-    expect(store.sessions.listPins().panels).toEqual(['id-1'])
+    expect(store.sessions.listPins(SOLE_USER_ID).panels).toEqual(['id-1'])
     expect(store.sessions.loadDrafts()).toEqual({ 'id-1': 'recoverable input' })
-    expect(store.sessions.listSnoozes()).toEqual({ 'id-1': null })
-    expect(store.sessions.listTabOrders()).toEqual({ '/proj': ['id-1'] })
+    expect(store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ 'id-1': null })
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/proj': ['id-1'] })
 
     store.sessions.restoreDeletedForIssue('iss_1')
     expect(store.sessions.loadSessions()).toEqual([])
@@ -501,22 +502,22 @@ describe('SessionStore repos.json import', () => {
 describe('SessionStore pins', () => {
   it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({ panels: [], worktrees: [], repos: [] })
 
-    store.sessions.setPin('repo', '/repo/b', true)
-    store.sessions.setPin('worktree', '/repo/b-feature', true)
-    store.sessions.setPin('panel', 'session-2', true)
-    store.sessions.setPin('repo', '/repo/a', true)
-    store.sessions.setPin('repo', '/repo/b', true)
+    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', true)
+    store.sessions.setPin(SOLE_USER_ID, 'worktree', '/repo/b-feature', true)
+    store.sessions.setPin(SOLE_USER_ID, 'panel', 'session-2', true)
+    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/a', true)
+    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', true)
 
-    expect(store.sessions.listPins()).toEqual({
+    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/b', '/repo/a'],
     })
 
-    store.sessions.setPin('repo', '/repo/b', false)
-    expect(store.sessions.listPins()).toEqual({
+    store.sessions.setPin(SOLE_USER_ID, 'repo', '/repo/b', false)
+    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/a'],
@@ -527,11 +528,11 @@ describe('SessionStore pins', () => {
   it('removes a panel pin when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: 'session-1' }))
-    store.sessions.setPin('panel', 'session-1', true)
+    store.sessions.setPin(SOLE_USER_ID, 'panel', 'session-1', true)
 
     store.sessions.purgeSession('session-1')
 
-    expect(store.sessions.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+    expect(store.sessions.listPins(SOLE_USER_ID)).toEqual({ panels: [], worktrees: [], repos: [] })
     store.close()
   })
 })
@@ -539,38 +540,38 @@ describe('SessionStore pins', () => {
 describe('SessionStore snoozes', () => {
   it('starts empty, sets until-next-message (null) and timed, overwrites, and clears', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listSnoozes()).toEqual({})
+    expect(store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
 
-    store.sessions.setSnooze('s1', null)
-    store.sessions.setSnooze('s2', '2999-01-01T05:00:00.000Z')
-    expect(store.sessions.listSnoozes(0)).toEqual({ s1: null, s2: '2999-01-01T05:00:00.000Z' })
+    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, 's2', '2999-01-01T05:00:00.000Z')
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ s1: null, s2: '2999-01-01T05:00:00.000Z' })
 
     // overwrite s1 with a timed value
-    store.sessions.setSnooze('s1', '2999-01-01T05:00:00.000Z')
-    expect(store.sessions.listSnoozes(0).s1).toBe('2999-01-01T05:00:00.000Z')
+    store.sessions.setSnooze(SOLE_USER_ID, 's1', '2999-01-01T05:00:00.000Z')
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0).s1).toBe('2999-01-01T05:00:00.000Z')
 
-    store.sessions.clearSnooze('s1')
-    expect(store.sessions.listSnoozes(0)).toEqual({ s2: '2999-01-01T05:00:00.000Z' })
+    store.sessions.clearSnooze(SOLE_USER_ID, 's1')
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ s2: '2999-01-01T05:00:00.000Z' })
     store.close()
   })
 
   it('lazily drops a timed snooze whose deadline has passed; keeps null forever', () => {
     const store = new SessionStore(':memory:')
-    store.sessions.setSnooze('past', '2000-01-01T00:00:00.000Z')
-    store.sessions.setSnooze('forever', null)
+    store.sessions.setSnooze(SOLE_USER_ID, 'past', '2000-01-01T00:00:00.000Z')
+    store.sessions.setSnooze(SOLE_USER_ID, 'forever', null)
     const now = Date.parse('2026-06-19T00:00:00.000Z')
-    expect(store.sessions.listSnoozes(now)).toEqual({ forever: null })
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, now)).toEqual({ forever: null })
     // the expired row was deleted, not just filtered
-    expect(store.sessions.listSnoozes(0)).toEqual({ forever: null })
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({ forever: null })
     store.close()
   })
 
   it('removes a snooze when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: 's1' }))
-    store.sessions.setSnooze('s1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
     store.sessions.purgeSession('s1')
-    expect(store.sessions.listSnoozes(0)).toEqual({})
+    expect(store.sessions.listSnoozes(SOLE_USER_ID, 0)).toEqual({})
     store.close()
   })
 })
@@ -624,43 +625,43 @@ describe('SessionStore offers', () => {
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', () => {
     const store = new SessionStore(':memory:')
-    expect(store.sessions.listTabOrders()).toEqual({})
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({})
 
-    store.sessions.setTabOrder('/repo/a', ['s1', 's2'])
-    store.sessions.setTabOrder('/repo/b', ['s9'])
-    store.sessions.setTabOrder('/repo/a', ['s2', 's1'])
-    expect(store.sessions.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'], '/repo/b': ['s9'] })
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s1', 's2'])
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', ['s9'])
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'], '/repo/b': ['s9'] })
 
-    store.sessions.setTabOrder('/repo/b', [])
-    expect(store.sessions.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', [])
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'] })
     store.close()
   })
 
   it('rejects an empty worktree path', () => {
     const store = new SessionStore(':memory:')
-    expect(() => store.sessions.setTabOrder('  ', ['s1'])).toThrow('worktree path is empty')
+    expect(() => store.sessions.setTabOrder(SOLE_USER_ID, '  ', ['s1'])).toThrow('worktree path is empty')
     store.close()
   })
 
   it('persists across instances on the same file', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
-    a.sessions.setTabOrder('/repo/a', ['s2', 's1'])
+    a.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
     a.close()
     const b = new SessionStore(file)
-    expect(b.sessions.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    expect(b.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2', 's1'] })
     b.close()
   })
 
   it('scrubs a session from every order when it is deleted', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: 's1' }))
-    store.sessions.setTabOrder('/repo/a', ['s2', 's1'])
-    store.sessions.setTabOrder('/repo/b', ['s1'])
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/a', ['s2', 's1'])
+    store.sessions.setTabOrder(SOLE_USER_ID, '/repo/b', ['s1'])
 
     store.sessions.purgeSession('s1')
 
-    expect(store.sessions.listTabOrders()).toEqual({ '/repo/a': ['s2'] })
+    expect(store.sessions.listTabOrders(SOLE_USER_ID)).toEqual({ '/repo/a': ['s2'] })
     store.close()
   })
 })

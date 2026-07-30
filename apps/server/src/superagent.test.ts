@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/model'
+import { SOLE_USER_ID, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -648,7 +648,7 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.modules.sessions.setSnooze({ sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
     const rows = JSON.parse(await h.sa.callMcpTool('list_sessions', {}, 'btw_x')) as Array<
       Record<string, unknown>
     >

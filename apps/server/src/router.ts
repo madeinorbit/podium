@@ -10,6 +10,7 @@ import {
   agentSupportsCloud,
   clientSwitchTraceSchema,
   type FileReadResultMessage,
+  presenceCommand,
 } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
@@ -92,7 +93,60 @@ function sessionCommand<K extends SessionCommandKey>(
   )
 }
 
-const PinKind = z.enum(['panel', 'worktree', 'repo'])
+import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
+import type { PinState, SnoozeMap } from './store/types'
+
+/**
+ * PRESENCE-CLASS DERIVATION (POD-380).
+ *
+ * `presenceProc('sessions.rename')` builds the tRPC procedure for a presence
+ * contract out of the contract itself: its input schema is the contract's (one
+ * validation source), and its body is the framework envelope — exposure check,
+ * parse, LIVE authorization, framework-owned idempotency, then the handler.
+ *
+ * This is what deletes eleven `withMutation(input.mutationId, '<name>', …)`
+ * wrappers. It is deliberately NOT the full transport derivation POD-382 owns
+ * (procedures are still listed by hand below, so the shape of the router is
+ * reviewable in this diff); it is the join POD-311 describes, applied to one
+ * class.
+ */
+function presenceProc<Out = void>(name: string) {
+  const contract = presenceCommand(name)
+  // A typo here would silently produce a procedure that refuses everything, which
+  // is the "green gate that stopped looking" failure mode. Fail at module load.
+  if (!contract) throw new Error(`presenceProc: no contract named ${name}`)
+  return t.procedure.input(contract.input).mutation(({ ctx, input }): Out => {
+    const registry = new PresenceRegistry({
+      sessions: mods(ctx).sessions,
+      store: ctx.registry.sessionStore,
+      now: () => Date.now(),
+    })
+    const result = registry.execute(name, input, presencePrincipal(ctx), 'trpc')
+    if (result.outcome === 'invalid-input') {
+      // Unreachable via tRPC (the procedure already parsed the same schema), but a
+      // silent `undefined` here would be indistinguishable from the deliberate
+      // not-found no-op, so it is made loud rather than swallowed.
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `invalid input for ${name}` })
+    }
+    // 'denied' and 'not-exposed' return undefined — the SAME shape as a write
+    // against a session that does not exist (§3.1.5, and POD-379's pinned
+    // not-found behaviour for the presence class: a silent no-op).
+    //
+    // `Out` stays honest across that refusal, per class. The owner-or-grant
+    // session writes all return void, so undefined IS their type. The per-user
+    // writes (the ones with a real return value) build their authorization target
+    // FROM the principal, so a denial is unreachable by construction — the wire
+    // has no field naming another user's row. See PresenceRegistry.
+    return result.value as Out
+  })
+}
+
+/** The transport principal for a tRPC call. One shared password ⇒ the sole human
+ *  (§3.2); POD-1075 replaces this with a real per-user principal. */
+function presencePrincipal(ctx: Context) {
+  return soleHumanPrincipal(ctx.capability)
+}
+
 const cloudRepoInput = z.object({
   provider: z.literal('github'),
   owner: z.string().min(1),
@@ -473,76 +527,23 @@ export const appRouter = t.router({
     resurrect: t.procedure
       .input(sessionCommandPlaneInputs.resurrect)
       .mutation(({ ctx, input }) => sessionCommand(ctx, 'resurrect', input)),
-    rename: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          name: z.string().max(120),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.rename', () =>
-          mods(ctx).sessions.renameSession(input),
-        ),
-      ),
-    setArchived: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          archived: z.boolean(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setArchived', () =>
-          mods(ctx).sessions.setArchived(input),
-        ),
-      ),
+    // ---- PRESENCE CLASS (POD-380) ----
+    //
+    // These six no longer carry a hand-written body. Their input schema IS their
+    // contract's (`@podium/protocol`'s session-commands table), their authz is the
+    // contract's policy, and `withMutation` is GONE from every one of them:
+    // idempotency is the framework envelope's, applied once in PresenceRegistry
+    // rather than eleven times here. See `presenceProc` at the top of this file.
+    rename: presenceProc('sessions.rename'),
+    setArchived: presenceProc('sessions.setArchived'),
     // Mark a session read (issue #124): stamp read_at = now, flipping derived `unread`.
-    markRead: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.markRead', () =>
-          mods(ctx).sessions.markSessionRead(input.sessionId),
-        ),
-      ),
+    markRead: presenceProc('sessions.markRead'),
     // Mark a session UNREAD again (issue #138): clear read_at, flipping derived
     // `unread` back to true. Mirrors markRead exactly (email-style inverse action).
-    markUnread: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.registry.modules.sessions.withMutation(input.mutationId, 'sessions.markUnread', () =>
-          ctx.registry.modules.sessions.markSessionUnread(input.sessionId),
-        ),
-      ),
+    markUnread: presenceProc('sessions.markUnread'),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
-    setIssueId: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          issueId: z.string().nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setIssueId', () =>
-          mods(ctx).sessions.setSessionIssueId(input.sessionId, input.issueId),
-        ),
-      ),
-    setWorkState: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          workState: WorkState.nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setWorkState', () =>
-          mods(ctx).sessions.setWorkState(input),
-        ),
-      ),
+    setIssueId: presenceProc('sessions.setIssueId'),
+    setWorkState: presenceProc('sessions.setWorkState'),
     // Image upload: the client sends a base64-encoded image; the daemon writes
     // it to ~/.podium/uploads/<sessionId>/<uuid>.<ext> and returns the absolute
     // path so it can be inserted into a prompt. Claude Code reads images by path.
@@ -583,46 +584,20 @@ export const appRouter = t.router({
       ),
   }),
   pins: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listPins()),
-    set: t.procedure
-      .input(z.object({ kind: PinKind, id: z.string(), pinned: z.boolean() }))
-      .mutation(({ ctx, input }) => {
-        try {
-          ctx.registry.sessionStore.sessions.setPin(input.kind, input.id, input.pinned)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.registry.sessionStore.sessions.listPins()
-      }),
+    // PER-USER STATE (POD-380): the list is the CALLER's pins, not the instance's.
+    list: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listPins(presencePrincipal(ctx).userId),
+    ),
+    set: presenceProc<PinState>('pins.set'),
   }),
   snoozes: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listSnoozes()),
+    // PER-USER STATE (POD-380): the caller's snoozes.
+    list: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listSnoozes(presencePrincipal(ctx).userId),
+    ),
     // until === null => "until next message"; ISO string => timed.
-    set: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          until: z.string().nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.set', () => {
-          mods(ctx).sessions.setSnooze(input)
-          return ctx.registry.sessionStore.sessions.listSnoozes()
-        }),
-      ),
-    clear: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.clear', () => {
-          mods(ctx).sessions.clearSnooze(input.sessionId)
-          return ctx.registry.sessionStore.sessions.listSnoozes()
-        }),
-      ),
+    set: presenceProc<SnoozeMap>('snoozes.set'),
+    clear: presenceProc<SnoozeMap>('snoozes.clear'),
   }),
   superagent: t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
@@ -844,20 +819,11 @@ export const appRouter = t.router({
     }),
   }),
   tabs: t.router({
-    listOrders: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listTabOrders()),
-    setOrder: t.procedure
-      .input(z.object({ worktree: z.string(), sessionIds: z.array(z.string()) }))
-      .mutation(({ ctx, input }) => {
-        try {
-          ctx.registry.sessionStore.sessions.setTabOrder(input.worktree, input.sessionIds)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.registry.sessionStore.sessions.listTabOrders()
-      }),
+    // PER-USER STATE (POD-380): the caller's saved orders.
+    listOrders: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listTabOrders(presencePrincipal(ctx).userId),
+    ),
+    setOrder: presenceProc<Record<string, string[]>>('tabs.setOrder'),
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),

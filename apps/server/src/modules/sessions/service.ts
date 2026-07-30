@@ -22,7 +22,8 @@ export type SessionWirePrincipal = ActorRef
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
-import { computePriorities, repoNameFromOrigin } from '@podium/model'
+import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -146,8 +147,19 @@ const READY_POLL_MS = 200
 // lands as its own submitted input (CR delay + separate-read margin).
 const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
-// Idempotency records outlive any sane replay horizon, then get pruned.
-const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+/**
+ * Idempotency records outlive any sane replay horizon, then get pruned. ADR 2 D11
+ * owns this number and this is its prune site.
+ *
+ * EXPORTED because ADR 3 D11.3 requires the outbox age inequality
+ * (`OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS`) to IMPORT it
+ * rather than copy `30d` into the check — a copy is a comment that fails open the
+ * day this line is tuned. The importer is
+ * `receipt-retention.test.ts` beside this file: `packages/*` may not import
+ * `apps/*`, so the invariant is asserted on this side of that boundary, against
+ * the live constant. Lowering this value below the outbox horizon fails that test.
+ */
+export const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Normalize an agent-set session name the same way setAgentName does — trim,
  *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
@@ -952,7 +964,10 @@ export class SessionsService {
       })
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
-    const snoozes = this.store.sessions.listSnoozes()
+    // BOOT SEED. The live `Session.snoozedUntil` mirror feeds the UNSCOPED
+    // broadcast projection, so it can only carry one user's value; SOLE_USER_ID is
+    // spelled out rather than defaulted so POD-1077 can find every such site.
+    const snoozes = this.store.sessions.listSnoozes(SOLE_USER_ID)
     const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
     for (const r of this.store.sessions.loadSessions()) {
       const session = this.sessionFromStoredRow(r, 'boot')
@@ -1331,27 +1346,72 @@ export class SessionsService {
     return this.upstreamStale
   }
 
-  setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
+  /**
+   * Snooze a session for ONE USER (POD-380). Snooze is per-user state keyed
+   * `(userId, sessionId)`; `userId` is required so no caller can write a row
+   * without saying whose it is.
+   *
+   * The live `session.snoozedUntil` mirror it also sets is the value the BROADCAST
+   * session projection carries, and that projection is still unscoped (ADR 2 D2),
+   * so it necessarily reflects one user. Until POD-1077 makes fan-out
+   * per-principal, the mirror is only correct for SOLE_USER_ID — the durable rows
+   * are already per-user, and `snoozes.list` already answers per-principal.
+   */
+  setSnooze({
+    userId,
+    sessionId,
+    until,
+  }: {
+    userId: string
+    sessionId: string
+    until: string | null
+  }): void {
     const session = this.sessions.get(sessionId)
     if (!session) {
-      this.store.sessions.setSnooze(sessionId, until)
+      this.store.sessions.setSnooze(userId, sessionId, until)
       this.broadcastSessions()
       return
     }
     session.snoozedUntil = until
-    this.persist(session, () => this.store.sessions.setSnooze(sessionId, until))
+    this.persist(session, () => this.store.sessions.setSnooze(userId, sessionId, until))
     this.broadcastSessions()
   }
 
-  clearSnooze(sessionId: string): void {
+  clearSnooze(userId: string, sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session || !session.clearSnooze()) {
-      this.store.sessions.clearSnooze(sessionId)
+      this.store.sessions.clearSnooze(userId, sessionId)
       this.broadcastSessions()
       return
     }
-    this.persist(session, () => this.store.sessions.clearSnooze(sessionId))
+    this.persist(session, () => this.store.sessions.clearSnooze(userId, sessionId))
     this.broadcastSessions()
+  }
+
+  /**
+   * OWNER + GRANTS of a session, for the owner-or-grant policy (POD-380).
+   *
+   * `undefined` means the session does not exist — which the presence envelope
+   * treats identically to a denial (§3.1.5's consistent-error rule).
+   *
+   * Until POD-1075 adds real accounts there is no `owner` column, so every
+   * existing session belongs to the one identity the product has had. This is the
+   * ONE place that transitional answer is given, so POD-1075 changes it here
+   * rather than in eleven handlers.
+   */
+  sessionOwner(sessionId: string): { owner: string | null; grants: string[] } | undefined {
+    if (!this.sessions.has(sessionId)) return undefined
+    return { owner: SOLE_USER_ID, grants: [] }
+  }
+
+  /**
+   * The composer draft's current revision, or `undefined` when the session has no
+   * versioned draft doc. Read by the draft contract's handler to reject a STALE
+   * `baseRevision` instead of overwriting a second writer's text — the one rule the
+   * op-stream reservation enforces today (§3.3/§4).
+   */
+  draftRevision(sessionId: string): number | undefined {
+    return this.draftDocs.get(sessionId)?.rev
   }
 
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
@@ -1791,7 +1851,7 @@ export class SessionsService {
     }
     // A submitted message re-engages the session — drop any snooze so it returns
     // to the normal attention flow (covers chat send + resumeAndSend paths).
-    if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+    if (session.snoozedUntil !== undefined) this.clearSnooze(SOLE_USER_ID, sessionId)
     // The outgoing message transits the composer; suppress republishing it as a
     // native draft while it's in flight (POD-859 reviewer fix 5).
     if (this.draftSyncEnabled()) {
@@ -2006,6 +2066,24 @@ export class SessionsService {
     return this.draftSyncEnabledCached
   }
 
+  /**
+   * The presence-class command envelope, built lazily (POD-380).
+   *
+   * Lazy because the registry takes `this`: constructing it in the constructor
+   * would hand out a half-initialised service. The import is safe in this direction
+   * — presence-registry imports `SessionsService` as a TYPE only, so there is no
+   * runtime cycle.
+   */
+  private presenceRegistry: PresenceRegistry | undefined
+  private presenceEnvelope(): PresenceRegistry {
+    this.presenceRegistry ??= new PresenceRegistry({
+      sessions: this,
+      store: this.store,
+      now: () => this.now(),
+    })
+    return this.presenceRegistry
+  }
+
   /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
    *  send `setSessionDraft` are handled by that method's flag gate. */
   private handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
@@ -2212,7 +2290,7 @@ export class SessionsService {
       )
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
-      if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+      if (session.snoozedUntil !== undefined) this.clearSnooze(SOLE_USER_ID, sessionId)
       // ...and consume any pending agent action offer [spec:SP-c7f1].
       if (session.offer !== undefined) this.clearOffer(sessionId)
       this.broadcastSessions()
@@ -3679,7 +3757,8 @@ export class SessionsService {
       apply: (changes, ledgerCursor) => {
         const drafts = this.store.sessions.loadDrafts()
         const draftTimes = this.store.sessions.loadDraftTimes()
-        const snoozes = this.store.sessions.listSnoozes()
+        // Same reasoning as the boot seed above (unscoped broadcast projection).
+        const snoozes = this.store.sessions.listSnoozes(SOLE_USER_ID)
         const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
         for (const { session } of restored) {
           this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
@@ -4339,9 +4418,28 @@ export class SessionsService {
         this.reprioritizePreparedSessionPublications()
         break
       case 'setSessionDraft':
-        this.setSessionDraft(msg, id)
+        // MIGRATED (POD-380): the legacy unconditional whole-body draft write is the
+        // WebSocket surface this issue's brief names, so it now runs through the
+        // `sessions.setDraft` contract's envelope (exposure 'ws', policy
+        // owner-or-grant, redaction on `edit`) instead of calling the service
+        // directly. The WIRE message is untouched — the envelope adapts it to the
+        // contract's `edit` union, which is what lets a splice op join later without
+        // a wire change.
+        this.presenceEnvelope().execute(
+          'sessions.setDraft',
+          { sessionId: msg.sessionId, edit: { kind: 'replace', text: msg.text } },
+          soleHumanWsPrincipal(OPERATOR, id),
+          'ws',
+        )
         break
       case 'draftEdit':
+        // DELIBERATELY NOT migrated. `draftEdit` is Draft Sync v2 (POD-859), which
+        // already arbitrates by server-assigned `rev` plus a soft edit lease — it is
+        // the op-stream precursor, not the unconditional write. Routing it through a
+        // contract that models the unconditional write would DOWNGRADE it. The
+        // convergence point is named on both sides: the contract's `baseRevision` IS
+        // this message's `baseRev`, so whoever builds the op-stream class unifies
+        // them rather than reconciling two numbering schemes.
         this.handleDraftEdit(msg, id)
         break
       case 'sessionOpenUrlCallback':
@@ -4758,7 +4856,7 @@ export class SessionsService {
           SessionsService.isAttentionPhase(prev) &&
           !SessionsService.isAttentionPhase(next)
         ) {
-          this.clearSnooze(session.sessionId)
+          this.clearSnooze(SOLE_USER_ID, session.sessionId)
         }
         if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(session.sessionId)
@@ -4832,7 +4930,7 @@ export class SessionsService {
           SessionsService.isAttentionPhase(prev) &&
           !SessionsService.isAttentionPhase(next)
         ) {
-          this.clearSnooze(msg.sessionId)
+          this.clearSnooze(SOLE_USER_ID, msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.

@@ -906,7 +906,14 @@ describe('the optimistic-overlay reducer seam', () => {
             entityId: e.entityId,
             command: e.command,
           })),
-      reduce: (base, command) => ({ ...(base as object | undefined), ...(command as object) }),
+      // A patch reducer, in the shape POD-372's projection consumes: a command
+      // with a `kind` this fake does not know returns `no-reducer` so the
+      // reducer-less path is reachable from the Replica, not only from the
+      // projection's own unit tests.
+      reduce: (base, command) =>
+        (command as { readonly kind?: string }).kind === 'unreducible'
+          ? { kind: 'no-reducer' }
+          : { kind: 'value', value: { ...(base as object | undefined), ...(command as object) } },
       // The Replica passes the span; the outbox stages into it and publishes with it.
       retire: (matches, span) => outbox.retireBatch(matches, span),
     }
@@ -1362,6 +1369,76 @@ describe('the optimistic-overlay reducer seam', () => {
     // rebuilding anyway" is the data loss ports.ts exists to make unreachable.
     expect(h.overlay.handed).toHaveLength(0)
     expect(h.outbox.list()).toHaveLength(1)
+  })
+
+  // ── What the Replica hands the projection (POD-372) ───────────────────────
+  //
+  // The overlay's own semantics are proved over the pure function in
+  // `overlay-projection.test.ts`. What can only be proved here is the WIRING:
+  // that the Replica passes its own base row, its own exit and the outbox's
+  // pending list, and that no other path renders an overlay.
+
+  it('drops the overlay when a revoked share EVICTS the row mid-flight', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [session(0, 's1', 'shared with me')])
+    queued(h, 'm1', 's1')
+    // The optimistic value is on screen before the revocation, so the assertion
+    // below is a change and not a fixture that never rendered anything.
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'm1' })
+
+    // Somebody unshared it. The row leaves THIS principal's view; it still exists.
+    h.replica.receive(
+      deltaFrame(0, 1, [{ seq: 1, entity: 'session', entityId: 's1', op: 'evict' }]),
+    )
+
+    // The overlay drops WITH the row. An optimistic render that survived here
+    // would re-expose content the principal may no longer see — the one place
+    // optimism could leak revoked content.
+    expect(h.replica.view('session', 's1')).toBeUndefined()
+    expect(h.replica.overlay('session', 's1')).toMatchObject({
+      present: false,
+      origin: 'none',
+      // Still unsent work: the outbox keeps it and ADR 3 D8 re-authorizes at apply.
+      pending: ['m1'],
+      unapplied: ['m1'],
+    })
+    expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m1'])
+    expect(h.replica.exitKind('session', 's1')).toBe('evicted')
+  })
+
+  it('renders a reducer-less command as pending over the authoritative value', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [session(0, 's1', 'server name')])
+    h.outbox.enqueue({
+      mutationId: 'm-share',
+      entity: 'session',
+      entityId: 's1',
+      command: { kind: 'unreducible' },
+    })
+
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'server name' })
+    expect(h.replica.overlay('session', 's1')).toMatchObject({
+      origin: 'authority',
+      pending: ['m-share'],
+      unapplied: ['m-share'],
+    })
+  })
+
+  it('renders base truth only, with no pending reported, when no overlay port is wired', async () => {
+    // The counterfactual is the `overlayHarness` above: same store, same frames,
+    // an overlay port present. Without one there are no reducers to consult, so
+    // the read model is the authoritative slice and says so.
+    const h = harness()
+    await bootstrapped(h, 0, [session(0, 's1', 'server name')])
+
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'server name' })
+    expect(h.replica.overlay('session', 's1')).toEqual({
+      present: true,
+      value: { name: 'server name' },
+      origin: 'authority',
+      pending: [],
+      unapplied: [],
+    })
   })
 
   // ── The physical store publishes once for the whole span (D10 clause 5) ────

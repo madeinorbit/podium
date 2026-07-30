@@ -47,6 +47,7 @@
  * as a brief error rather than resolved silently in either direction.
  */
 
+import { AgentKind, ResumeRef } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from './commands'
 import { defineCommands } from './commands'
@@ -69,11 +70,24 @@ const sendInput = z.object({
   mutationId,
 })
 
-/** The harness a session runs, as the shipped router validates it. */
-const agentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
-
-/** A durable conversation pointer, as `ResumeRef` shapes it. */
-const resumeRef = z.object({ kind: z.string(), value: z.string() })
+/**
+ * The harness a session runs, and the durable conversation pointer — THE MODEL'S
+ * INSTANCES, imported, not re-declared.
+ *
+ * Both were local copies here until POD-380's wire regeneration exposed the same
+ * defect in its own contracts, and the class is worth naming because a copy is
+ * invisible in every gate that would normally catch a schema change: enum
+ * membership is compile-time, so a forked `z.enum` with identical members
+ * parses, encodes and passes every golden case identically. Only instance
+ * identity sees it, which is why `session-command-plane.test.ts` asserts these
+ * with `toBe` against `@podium/model` rather than comparing accepted values.
+ *
+ * It also matters behaviourally here: the router previously validated
+ * `sessions.create` with the model's `AgentKind`, so a local copy would have
+ * been a silent second definition of what the tRPC surface accepts.
+ */
+const agentKind = AgentKind
+const resumeRef = ResumeRef
 
 /**
  * Every command in this file is an execution request against the session's

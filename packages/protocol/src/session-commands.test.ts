@@ -5,11 +5,12 @@
  * than being served with an implicit default.
  */
 
-import { OP_STREAM_MEMBERS, WorkState } from '@podium/model'
+import { OP_STREAM_MEMBERS, PinKind, WorkState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type CommandDef, commandExposure, isExposedOn } from './commands'
 import {
+  pinCommands,
   PRESENCE_COMMAND_TABLES,
   presenceCommand,
   presenceCommandNames,
@@ -229,6 +230,15 @@ describe('the composer draft reserves op-stream without building it (§4)', () =
   })
 })
 
+/** `.nullable()` wraps the enum, so identity has to be read through the wrapper.
+ *  Throws rather than returning the wrapper when the shape is not what it expects,
+ *  so a schema change cannot silently turn this into a comparison of two wrappers. */
+function unwrapNullable(field: z.ZodTypeAny): z.ZodTypeAny {
+  const inner = (field as unknown as { _def?: { innerType?: z.ZodTypeAny } })._def?.innerType
+  if (!inner) throw new Error('expected a nullable wrapper around the enum')
+  return inner
+}
+
 /** The `workState` field of the setWorkState contract, non-optional so a shape
  *  change surfaces here rather than as a skipped assertion. */
 function workStateField(): z.ZodTypeAny {
@@ -258,28 +268,17 @@ describe('input schemas preserve the shipped router validation', () => {
     ).toBe(false)
   })
 
-  it('setWorkState accepts exactly @podium/model’s WorkState values — the leaf contract has not forked the enum', () => {
-    // Type identity is not available here (protocol is a leaf and WorkState is a
-    // zod enum in model, so `toBe` on the instance would couple the wire to the
-    // model import order). Accepted-value equality is the property that matters,
-    // and it fails if either side gains or loses a member.
-    const field = workStateField()
-    for (const value of WorkState.options) {
-      expect(field.safeParse(value).success, value).toBe(true)
-    }
-    expect(field.safeParse('reviewing').success).toBe(false)
-    expect(field.safeParse(null).success).toBe(true)
+  it('setWorkState’s field IS @podium/model’s WorkState instance, not a same-shaped copy', () => {
+    // `toBe`, not accepted-value equality. A local `z.enum([...])` with identical
+    // members parses the same, encodes the same, and passes every one of the golden
+    // wire cases — enum membership is compile-time, so the wire gate cannot see a
+    // fork. Instance identity is the only assertion that can.
+    expect(unwrapNullable(workStateField())).toBe(WorkState)
   })
 
-  it('setWorkState rejects any value model does NOT list — the two enums have the same size', () => {
-    // Guards the guard above: iterating model's options proves the contract is not
-    // NARROWER, and this proves it is not WIDER (a contract that accepted every
-    // string would pass the loop).
-    const field = workStateField()
-    const accepted = ['planning', 'implementing', 'testing', 'done', 'icebox', 'reviewing', 'x'].filter(
-      (v) => field.safeParse(v).success,
-    )
-    expect(accepted.sort()).toEqual([...WorkState.options].sort())
+  it('pins.set’s kind field IS @podium/model’s PinKind instance', () => {
+    const shape = (pinCommands.defs.set.input as z.ZodObject<z.ZodRawShape>).shape
+    expect(shape.kind).toBe(PinKind)
   })
 
   it('every table namespace matches the tRPC router it replaces', () => {

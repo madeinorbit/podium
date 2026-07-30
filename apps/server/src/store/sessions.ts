@@ -19,6 +19,19 @@ import type {
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
+/**
+ * Refuse a per-user WRITE with no identity (POD-380).
+ *
+ * The reads tolerate an unknown user (they return that user's empty slice, which
+ * is the truthful answer), but a write with no owner would create a row nobody
+ * can ever read or delete. Failing here rather than defaulting to SOLE_USER_ID is
+ * §3.1.6 S4's rule: an unidentified principal fails CLOSED, it does not fall back
+ * to an operator identity.
+ */
+function requireUserId(userId: string): void {
+  if (userId.trim() === '') throw new Error('per-user state write has no user id')
+}
+
 export class SessionsRepository {
   constructor(
     private readonly db: SqlDatabase,
@@ -294,9 +307,18 @@ export class SessionsRepository {
       .run(machineId)
   }
 
-  // ---- pins ----
-  listPins(): PinState {
-    const rows = this.db.prepare('SELECT kind, id FROM pins ORDER BY rowid ASC').all() as {
+  // ---- pins (PER-USER STATE, POD-380) ----
+  //
+  // Keyed (user_id, kind, id). `userId` is REQUIRED and leading on every method
+  // here rather than optional-with-a-default: a defaulted user id is how one
+  // person ends up reading another's rows, and the point of the re-key is that the
+  // caller must say whose state it is touching. Server-internal paths that have no
+  // principal pass SOLE_USER_ID explicitly, which makes them greppable for
+  // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
+  listPins(userId: string): PinState {
+    const rows = this.db
+      .prepare('SELECT kind, id FROM pins WHERE user_id = ? ORDER BY rowid ASC')
+      .all(userId) as {
       kind: PinKind
       id: string
     }[]
@@ -309,16 +331,19 @@ export class SessionsRepository {
     return pins
   }
 
-  setPin(kind: PinKind, id: string, pinned: boolean): void {
+  setPin(userId: string, kind: PinKind, id: string, pinned: boolean): void {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
+    requireUserId(userId)
     const cleanId = id.trim()
     if (!cleanId) throw new Error('pin id is empty')
     if (pinned) {
       this.db
-        .prepare('INSERT OR IGNORE INTO pins (kind, id, pinned_at) VALUES (?, ?, ?)')
-        .run(kind, cleanId, new Date().toISOString())
+        .prepare('INSERT OR IGNORE INTO pins (user_id, kind, id, pinned_at) VALUES (?, ?, ?, ?)')
+        .run(userId, kind, cleanId, new Date().toISOString())
     } else {
-      this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run(kind, cleanId)
+      this.db
+        .prepare('DELETE FROM pins WHERE user_id = ? AND kind = ? AND id = ?')
+        .run(userId, kind, cleanId)
     }
   }
 
@@ -326,8 +351,10 @@ export class SessionsRepository {
   /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
    *  (the client clock also ignores lapsed ones at render time; this is just
    *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
-  listSnoozes(now: number = Date.now()): SnoozeMap {
-    const rows = this.db.prepare('SELECT session_id, snoozed_until FROM snoozes').all() as {
+  listSnoozes(userId: string, now: number = Date.now()): SnoozeMap {
+    const rows = this.db
+      .prepare('SELECT session_id, snoozed_until FROM snoozes WHERE user_id = ?')
+      .all(userId) as {
       session_id: string
       snoozed_until: string | null
     }[]
@@ -340,25 +367,33 @@ export class SessionsRepository {
       }
       out[r.session_id] = r.snoozed_until
     }
-    for (const id of expired) this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
+    // The lazy delete stays scoped to the reader: housekeeping on read must never
+    // drop somebody else's row, even an expired one.
+    for (const id of expired) {
+      this.db.prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?').run(userId, id)
+    }
     return out
   }
 
-  /** Snooze a session. `until` = null → until next message; ISO string → timed. */
-  setSnooze(sessionId: string, until: string | null): void {
+  /** Snooze a session for one user. `until` = null → until next message; ISO
+   *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
+  setSnooze(userId: string, sessionId: string, until: string | null): void {
+    requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
     this.db
       .prepare(
-        `INSERT INTO snoozes (session_id, snoozed_until, created_at) VALUES (?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET snoozed_until = excluded.snoozed_until`,
+        `INSERT INTO snoozes (user_id, session_id, snoozed_until, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, session_id) DO UPDATE SET snoozed_until = excluded.snoozed_until`,
       )
-      .run(id, until, new Date().toISOString())
+      .run(userId, id, until, new Date().toISOString())
   }
 
-  /** Un-snooze a session (no-op if not snoozed). */
-  clearSnooze(sessionId: string): void {
-    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+  /** Un-snooze a session for one user (no-op if not snoozed). */
+  clearSnooze(userId: string, sessionId: string): void {
+    this.db
+      .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
+      .run(userId, sessionId.trim())
   }
 
   // ---- agent action offers [spec:SP-c7f1] ----
@@ -431,8 +466,10 @@ export class SessionsRepository {
 
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
-  listTabOrders(): Record<string, string[]> {
-    const rows = this.db.prepare('SELECT worktree, ids FROM tab_order').all() as {
+  listTabOrders(userId: string): Record<string, string[]> {
+    const rows = this.db
+      .prepare('SELECT worktree, ids FROM tab_order WHERE user_id = ?')
+      .all(userId) as {
       worktree: string
       ids: string
     }[]
@@ -448,27 +485,50 @@ export class SessionsRepository {
     return out
   }
 
-  setTabOrder(worktree: string, sessionIds: string[]): void {
+  setTabOrder(userId: string, worktree: string, sessionIds: string[]): void {
+    requireUserId(userId)
     const cleanWorktree = worktree.trim()
     if (!cleanWorktree) throw new Error('worktree path is empty')
     if (sessionIds.length === 0) {
-      this.db.prepare('DELETE FROM tab_order WHERE worktree = ?').run(cleanWorktree)
+      this.db
+        .prepare('DELETE FROM tab_order WHERE user_id = ? AND worktree = ?')
+        .run(userId, cleanWorktree)
       return
     }
     this.db
       .prepare(
-        `INSERT INTO tab_order (worktree, ids, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(worktree) DO UPDATE SET ids = excluded.ids, updated_at = excluded.updated_at`,
+        `INSERT INTO tab_order (user_id, worktree, ids, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, worktree) DO UPDATE SET ids = excluded.ids, updated_at = excluded.updated_at`,
       )
-      .run(cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
+      .run(userId, cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
   }
 
-  /** Drop a session id from every saved tab order during irreversible purge. */
+  /**
+   * Drop a session id from EVERY user's saved tab order during irreversible
+   * purge. Deliberately cross-user: a purge destroys the session itself, so
+   * leaving a dangling id in somebody else's saved order would outlive the thing
+   * it names. This is §3.1.6 S5's system-writer rule — a system job may act
+   * across owners, and it lands in the scope of what it acted on.
+   */
   private scrubTabOrders(sessionId: string): void {
-    for (const [worktree, ids] of Object.entries(this.listTabOrders())) {
+    const rows = this.db.prepare('SELECT user_id, worktree, ids FROM tab_order').all() as {
+      user_id: string
+      worktree: string
+      ids: string
+    }[]
+    for (const row of rows) {
+      let ids: string[]
+      try {
+        const parsed = JSON.parse(row.ids)
+        if (!Array.isArray(parsed)) continue
+        ids = parsed.filter((x): x is string => typeof x === 'string')
+      } catch {
+        continue // corrupt row -> nothing to scrub
+      }
       if (!ids.includes(sessionId)) continue
       this.setTabOrder(
-        worktree,
+        row.user_id,
+        row.worktree,
         ids.filter((id) => id !== sessionId),
       )
     }

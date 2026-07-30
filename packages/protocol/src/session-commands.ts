@@ -34,6 +34,7 @@
  * widening the set is a product behaviour change, not a migration.
  */
 
+import { PinKind, WorkState } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from './commands'
 import { defineCommands } from './commands'
@@ -49,13 +50,15 @@ import { defineCommands } from './commands'
  */
 const mutationId = z.string().max(128).optional()
 
-/** Work-state vocabulary, restated structurally: @podium/model owns the enum, and
- *  this leaf contract must not fork it — see the identity test in
- *  session-commands.test.ts, which asserts the two accept the same values. */
-const workState = z.enum(['planning', 'implementing', 'testing', 'done', 'icebox'])
-
-/** Pin kinds, as the shipped router validates them. */
-const pinKind = z.enum(['panel', 'worktree', 'repo'])
+// The two enum vocabularies these contracts validate against are @podium/model's
+// INSTANCES, imported rather than restated. A local `z.enum([...])` with the same
+// members would parse identically, encode identically, and pass every golden wire
+// case — branding and enum membership are compile-time, so a golden fixture is
+// structurally blind to a forked definition. Only using the same instance makes the
+// composition real, and `session-commands.test.ts` asserts the identity with `toBe`
+// rather than comparing accepted values.
+const workState = WorkState
+const pinKind = PinKind
 
 // ---------------------------------------------------------------------------
 // Shared session state — owner-or-grant

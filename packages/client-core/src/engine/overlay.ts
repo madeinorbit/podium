@@ -276,6 +276,33 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
   }
 }
 
+/**
+ * THE CONTRACT ↔ REDUCER MAP (POD-380).
+ *
+ * POD-311 puts an "optional command-specific optimistic reducer" on the contract.
+ * The reducers themselves are these `overlayForOutboxEntry` cases and they must
+ * stay here — they read `SessionMeta` / `IssueWire`, which a leaf contract package
+ * cannot import. What this map adds is the JOIN: which presence CONTRACT each
+ * outbox kind reduces for, so a migrated command is provably reduced rather than
+ * reduced-by-coincidence-of-having-an-outbox-kind.
+ *
+ * The pairing runs contract-name → outbox kind because the outbox is keyed by kind
+ * and the contract table is keyed by dotted name; without one explicit map the two
+ * vocabularies drift silently and nothing notices. `overlay.test.ts` asserts every
+ * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order are
+ * absent because they are direct-only and never enter the outbox at all
+ * (POD-379's oracle), which is a reason, not an omission.
+ */
+export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> = {
+  'sessions.rename': 'rename',
+  'sessions.setArchived': 'setArchived',
+  'sessions.setWorkState': 'setWorkState',
+  'sessions.markRead': 'sessionMarkRead',
+  'sessions.markUnread': 'sessionMarkUnread',
+  'snoozes.set': 'snoozeSet',
+  'snoozes.clear': 'snoozeClear',
+}
+
 export interface FoldResult<T> {
   rows: T[]
   /** Ids of insert overlays NOT yet confirmed by a base row — pendingSpawnIds. */
@@ -352,6 +379,27 @@ export function pruneAwaiting<T extends object>(
   base: readonly T[],
   keyOf: (row: T) => string,
   now: number = Date.now(),
+  /**
+   * Ids the AUTHORITY said were REMOVED — deleted, not merely absent (POD-380).
+   *
+   * Absence and deletion are different facts and this parameter is what keeps them
+   * apart. A replica no longer holds the world, only its principal's slice
+   * (docs/multi-user-readiness.md §3.1), so a row can leave `base` because it was
+   * deleted OR because it left YOUR VIEW — an un-share, a rescope, POD-1077's
+   * `evict` op. ADR 2 §3.1's warning is explicit: `remove` cannot be reused for
+   * the second case, because the replica would render it as "deleted", and D5
+   * already warns that soft-delete and tombstone "look identical from a distance
+   * and are not". This is a third member of that family.
+   *
+   * Omitted (today: nothing threads it, because POD-1077 has not landed and the
+   * only channel is `Replica.applyChanges`'s `removeIds`) ⇒ absence is treated as
+   * OUT-OF-SLICE and the overlay is KEPT. That is the default-closed answer: an
+   * evicted row that comes back — re-shared, rescoped in — finds its optimistic
+   * value still painted, and the AWAITING_TRUTH_TTL_MS backstop bounds the case
+   * where it never returns. Retiring on absence, which is what this function did
+   * before, silently reads every eviction as a deletion.
+   */
+  removedIds?: ReadonlySet<string>,
 ): AwaitingTruth[] {
   if (!awaiting.some((a) => a.overlay.entity === entity)) return awaiting
   const byId = new Map(base.map((r) => [keyOf(r), r]))
@@ -366,7 +414,13 @@ export function pruneAwaiting<T extends object>(
   const keep = awaiting.filter((a) => {
     if (a.overlay.entity !== entity) return true
     const row = byId.get(a.overlay.id)
-    if (row === undefined) return false // row gone — nothing left to overlay
+    if (row === undefined) {
+      // GONE, but which kind of gone? Only a reported REMOVAL retires the overlay.
+      // Plain absence is out-of-slice (see `removedIds`) and is bounded by the TTL
+      // below rather than resolved as a deletion here.
+      if (removedIds?.has(a.overlay.id)) return false
+      return now - a.resolvedAt <= AWAITING_TRUTH_TTL_MS
+    }
     if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire)) return false
     if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
       // Covering truth never arrived — bound the mask instead of wedging (see
