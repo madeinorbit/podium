@@ -6,6 +6,7 @@
  * L2 and infrastructure-neutral: ports only, injected. Nothing here imports a
  * storage engine or a transport.
  */
+export * from './limits'
 export * from './outbox'
 export * from './ports'
 export * from './reasons'

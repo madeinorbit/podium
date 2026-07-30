@@ -7,6 +7,7 @@
 
 import type { MutationId } from '@podium/protocol'
 import type { SyncSpan } from '../span'
+import type { BackoffPolicy } from './limits'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
 import type { DeadLetterRecord, EnvelopeConfirmation, OutboxRecord, UserRef } from './records'
 import type { OutboxState } from './states'
@@ -235,6 +236,25 @@ export interface OutboxConfig {
    * D11.3 warns about.
    */
   readonly maxAgeMs: number
+  /**
+   * D10's per-command override, keyed by contract name (`command.name`). It may
+   * only SHORTEN — a lock acquire that is worthless after a minute has no
+   * business sitting in a queue for two weeks. A value ABOVE `maxAgeMs` is
+   * refused at `open()` rather than clamped: lengthening is legal only in the
+   * same change that raises ADR 2's receipt retention, so a config that asks for
+   * it is asking to break D11's inequality and must hear about it.
+   *
+   * The kernel holds no table of its own. Which contract gets which age is
+   * contract vocabulary (POD-311); this is the seam that carries it.
+   */
+  readonly commandMaxAgeMs?: Readonly<Record<string, number>>
+  /**
+   * D10's transient-retry spacing. Defaults to `TRANSIENT_BACKOFF` (start 1s,
+   * factor 2, cap 60s) — a spacing choice with no cross-ADR constraint on it,
+   * unlike `maxAgeMs`, which participates in an inequality against a constant
+   * this package cannot see and therefore has no default.
+   */
+  readonly backoff?: BackoffPolicy
   /**
    * Mints ids for re-issues that may not reuse the old one (D11.4: after
    * `expired`, a receipt may still exist for the original id).

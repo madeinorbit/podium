@@ -167,11 +167,16 @@ describe('local ack, acceptance and application are three distinct events', () =
 
 describe('D9 invariant 4 — network failure is not a rejection', () => {
   it('returns a failed send to queued, with no reason and no dead-letter', async () => {
-    const { outbox, events } = await harness(() => unreachable)
+    const { outbox, events, clock } = await harness(() => unreachable)
     const record = await outbox.enqueue(close('POD-1'))
 
+    // Each pass waits out D10's backoff first (POD-371) — the spacing is what
+    // stops a client hammering an Authority that is not answering; the absence of
+    // a ceiling is what keeps the retries unlimited.
     await outbox.drain()
+    clock.advance(60_000)
     await outbox.drain()
+    clock.advance(60_000)
     await outbox.drain()
 
     expect(state(outbox, record.mutationId)).toBe('queued')
@@ -194,7 +199,7 @@ describe('D9 invariant 4 — network failure is not a rejection', () => {
 
   it('is at-least-once: a lost reply replays the SAME mutationId, so the receipt dedupes it', async () => {
     let firstReplyLost = true
-    const { outbox, authority } = await harness(() => {
+    const { outbox, authority, clock } = await harness(() => {
       if (firstReplyLost) {
         firstReplyLost = false
         return unreachable
@@ -204,6 +209,7 @@ describe('D9 invariant 4 — network failure is not a rejection', () => {
     const record = await outbox.enqueue(close('POD-1'))
 
     await outbox.drain()
+    clock.advance(1000) // D10 backoff after the first failure.
     await outbox.drain()
 
     expect(authority.envelopes.map((e) => e.mutationId)).toEqual([
@@ -417,10 +423,11 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
   it('revoked while offline: the queued write is REJECTED on reconnect, not applied', async () => {
     // The central multi-user risk (readiness §2): someone is un-shared while a
     // collaborator is offline with pending commands.
-    const { outbox, authority, events } = await harness(() => unreachable)
+    const { outbox, authority, events, clock } = await harness(() => unreachable)
     const record = await outbox.enqueue(close('POD-1', { attribution: ADAS_AGENT }))
     await outbox.drain()
     expect(state(outbox, record.mutationId)).toBe('queued')
+    clock.advance(60_000) // Past D10's backoff for the transient failure above.
 
     // Ada's share is revoked. Her agent's rights are her CURRENT rights
     // intersected with its scope, resolved live at apply — so the very same
@@ -570,6 +577,9 @@ describe('the evicted-target case resolves inside D9s existing state set', () =>
     const { outbox, authority, events } = await harness(() => denied, { store, clock })
     expect(state(outbox, record.mutationId)).toBe('queued')
 
+    // The backoff schedule from the failed attempt above is DURABLE, so it
+    // survives the cold start too (POD-371) — a restart may not reset the spacing.
+    clock.advance(60_000)
     authority.reprogram(() => denied)
     await outbox.drain()
 
@@ -599,6 +609,7 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     // Not just in memory: a cold start after the re-bootstrap still finds them.
     expect(store.durable().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
     const reopened = await harness(() => applied, { store, clock })
+    clock.advance(60_000) // Past the backoff the failed attempt above scheduled.
     await reopened.outbox.drain()
     expect(state(reopened.outbox, a.mutationId)).toBe('applied')
     expect(state(reopened.outbox, b.mutationId)).toBe('applied')
@@ -971,7 +982,7 @@ describe('review round 1 — the blockers, each with the test that would have ca
     // The mutant that survived: `attempt()` returning true on `unreachable`. The
     // head did not get through, so submitting the entry behind it would silently
     // reorder two writes to the same aggregate (D12: FIFO within a partition).
-    const { outbox, authority } = await harness((envelope) =>
+    const { outbox, authority, clock } = await harness((envelope) =>
       (envelope.input as { comment: string }).comment === 'head' ? unreachable : applied,
     )
     const head = await outbox.enqueue({ ...close('POD-1'), input: { comment: 'head' } })
@@ -984,10 +995,15 @@ describe('review round 1 — the blockers, each with the test that would have ca
     expect(authority.attempts(behind.mutationId)).toBe(0)
     expect(authority.envelopes).toHaveLength(1)
 
-    // Still blocked on later passes, and it unblocks in ORDER once the head lands.
+    // Still blocked on later passes — including a pass where the head's backoff
+    // HAS elapsed, so what holds the successor is FIFO and not merely the delay —
+    // and it unblocks in ORDER once the head lands.
+    clock.advance(60_000)
     await outbox.drain()
     expect(authority.attempts(behind.mutationId)).toBe(0)
+    expect(authority.attempts(head.mutationId)).toBe(2)
     authority.reprogram(() => applied)
+    clock.advance(60_000)
     await outbox.drain()
     expect(authority.envelopes.map((e) => e.mutationId).slice(-2)).toEqual([
       head.mutationId,
