@@ -65,6 +65,11 @@ export function NewWorkButton() {
   const actions: SheetAction[] = (() => {
     if (step === 'harness') {
       return [
+        {
+          label: 'New task',
+          hint: 'Tracked work with its own branch and worktree',
+          onPress: () => router.push('/new-issue'),
+        },
         ...HARNESSES.map(({ kind, label }) => ({
           label,
           onPress: () => {
@@ -111,7 +116,7 @@ export function NewWorkButton() {
 
   const title =
     step === 'harness'
-      ? 'Choose harness'
+      ? 'New work'
       : step === 'repo'
         ? `New ${panelLabel(harness)} · repository`
         : selectedRepo
