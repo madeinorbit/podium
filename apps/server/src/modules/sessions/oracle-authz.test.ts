@@ -122,7 +122,9 @@ describe('oracle: presence writes have no agent path (absence, not a check)', ()
   }
 })
 
-describe('oracle: lifecycle commands have no agent path either', () => {
+describe('oracle: the lifecycle commands an agent cannot reach', () => {
+  // NOT exhaustive of sessions.*: `continue` and `stop` ARE relay-allowed and are
+  // characterized in the next describe. This list is the refused remainder.
   for (const proc of [
     'create',
     'resume',
@@ -147,6 +149,94 @@ describe('oracle: lifecycle commands have no agent path either', () => {
       expect(reply.error).toBe(`sessions.${proc} is not permitted via relay`)
     })
   }
+})
+
+describe('oracle: continue and stop ARE reachable by an agent, under different gates', () => {
+  it(`${AGENT_ONLY}: continue rides the same scope gate as the sends — in-subtree accepted, cross-issue refused`, async () => {
+    const { o, a, b, agentSessionId } = await twoIssueOracle()
+    const peer = o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/.worktrees/a',
+      issueId: a.id,
+    })
+    const stranger = o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/.worktrees/b',
+      issueId: b.id,
+    })
+
+    const allowed = await o.relay({
+      requestId: 'continue-in-scope',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'continue',
+      input: { sessionId: peer.sessionId },
+    })
+    expect(allowed.ok).toBe(true)
+    // A shell that is not errored refuses the retry, but the CALL was authorized —
+    // that is the distinction this test pins.
+    expect(allowed.result).toEqual({ ok: false })
+
+    const denied = await o.relay({
+      requestId: 'continue-cross-scope',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'continue',
+      input: { sessionId: stranger.sessionId },
+    })
+    expect(denied.ok).toBe(false)
+    expect(denied.error).toBe(
+      `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
+    )
+  })
+
+  it(`${AGENT_ONLY}: stop with NO sessionId is a self-stop and is always allowed`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+
+    const reply = await o.relay({
+      requestId: 'stop-self',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+
+    expect(reply.ok).toBe(true)
+    // The caller's own session is parked; the kill is DEFERRED until after this
+    // reply is on the wire, so the agent sees its own stop succeed.
+    expect(
+      o.reg.modules.sessions.listSessions().find((s) => s.sessionId === agentSessionId)?.status,
+    ).toBe('hibernated')
+  })
+
+  it(`${AGENT_ONLY}: stopping an ISSUELESS stranger is refused with a message DIFFERENT from the send path's — and --outside-scope DOES lift it here`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+    const orphan = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+
+    const denied = await o.relay({
+      requestId: 'stop-issueless',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: orphan.sessionId },
+    })
+    expect(denied.ok).toBe(false)
+    expect(denied.error).toBe(
+      'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',
+    )
+
+    // The asymmetry worth pinning: for an issueless SEND the override is inert
+    // (see the send test above); for stop it is the sanctioned confirmation.
+    const confirmed = await o.relay({
+      requestId: 'stop-issueless-override',
+      sessionId: agentSessionId,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: orphan.sessionId },
+      outsideScope: true,
+    })
+    expect(confirmed.ok).toBe(true)
+  })
 })
 
 describe('oracle: the writes an agent CAN make, and what gates them', () => {

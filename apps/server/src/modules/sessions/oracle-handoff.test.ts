@@ -30,11 +30,25 @@ import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-suppor
 
 const SHA = 'a'.repeat(40)
 
+interface TimelineEvent {
+  machine: 'm1' | 'm2'
+  type: ControlMessage['type']
+  msg: ControlMessage
+}
+
 interface HandoffFixture {
   reg: SessionRegistry
   store: SessionStore
   source: ControlMessage[]
   target: ControlMessage[]
+  /** ONE ordered stream across BOTH machines — cross-machine ordering claims
+   *  (nothing is stopped before the target verified a base) are only assertable
+   *  against a shared timeline, never against two per-machine arrays. */
+  timeline: TimelineEvent[]
+  /** Position of the first `machine:type` event, or -1. */
+  at(machine: 'm1' | 'm2', type: ControlMessage['type']): number
+  /** How many `machine:type` events happened. */
+  count(machine: 'm1' | 'm2', type: ControlMessage['type']): number
   sessionId: string
 }
 
@@ -77,8 +91,10 @@ async function handoffFixture(
 
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
+  const timeline: TimelineEvent[] = []
   reg.modules.sessions.attachDaemon('m1', (msg) => {
     source.push(msg)
+    timeline.push({ machine: 'm1', type: msg.type, msg })
     if (msg.type === 'repoOpRequest') {
       const ok = msg.args?.ref === 'main'
       reg.modules.sessions.onDaemonMessageFrom('m1', {
@@ -136,6 +152,7 @@ async function handoffFixture(
   })
   reg.modules.sessions.attachDaemon('m2', (msg) => {
     target.push(msg)
+    timeline.push({ machine: 'm2', type: msg.type, msg })
     if (msg.type === 'repoOpRequest') {
       // The bundle-base handshake: the target proves which of the source's SHAs
       // it already has. `targetHasBase: false` is the d73e9121 shape — a target
@@ -172,7 +189,20 @@ async function handoffFixture(
     conversationId: 'native-id',
     machineId: 'm1',
   })
-  return { reg, store, source, target, sessionId }
+  timeline.length = 0
+  source.length = 0
+  target.length = 0
+  return {
+    reg,
+    store,
+    source,
+    target,
+    timeline,
+    at: (machine, type) => timeline.findIndex((e) => e.machine === machine && e.type === type),
+    count: (machine, type) =>
+      timeline.filter((e) => e.machine === machine && e.type === type).length,
+    sessionId,
+  }
 }
 
 const meta = (f: HandoffFixture) =>
@@ -207,20 +237,36 @@ describe('oracle: handoff success across two machines', () => {
     expect(meta(f)?.handoffTarget).toBeUndefined()
   })
 
-  it(`${MUST_NOT_CHANGE}: nothing is stopped until the pre-flight passed — kill comes AFTER the bundle-base handshake`, async () => {
+  it(`${MUST_NOT_CHANGE}: the whole two-machine step sequence, in order — nothing irreversible happens before the TARGET verified a common base`, async () => {
     const f = await handoffFixture()
 
     await f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' })
 
-    const killIndex = f.source.findIndex((m) => m.type === 'kill')
-    const exportIndex = f.source.findIndex((m) => m.type === 'handoffExportRequest')
-    const baseProbeIndex = f.target.findIndex((m) => m.type === 'repoOpRequest')
-    expect(killIndex).toBeGreaterThanOrEqual(0)
-    expect(baseProbeIndex).toBeGreaterThanOrEqual(0)
-    // Order within the source stream: the process dies before the export runs.
-    expect(killIndex).toBeLessThan(exportIndex)
-    // And the target's verification happened before the source was ever killed.
-    expect(f.source.slice(0, killIndex).some((m) => m.type === 'handoffExportRequest')).toBe(false)
+    // ONE stream across both machines. Exact equality, so a reordering, an extra
+    // round-trip or a dropped step all fail — including the one this test exists
+    // for: killing the source before the target has proven it shares a base.
+    expect(f.timeline.map((e) => `${e.machine}:${e.type}`)).toEqual([
+      // source rev-parses the candidate refs (parentBranch/main/origin-main/branch)
+      'm1:repoOpRequest',
+      'm1:repoOpRequest',
+      'm1:repoOpRequest',
+      // target proves which of them it already has — the bundle-base handshake
+      'm2:repoOpRequest',
+      // ONLY NOW is the live process stopped
+      'm1:kill',
+      'm1:handoffExportRequest',
+      'm1:handoffChunkReadRequest',
+      'm2:handoffImportChunk',
+      'm2:handoffImportRequest',
+      'm2:spawn',
+    ])
+    // Stated as the cross-machine inequality too, so the intent survives a
+    // legitimate future change to the number of rev-parse probes.
+    expect(f.at('m2', 'repoOpRequest')).toBeGreaterThanOrEqual(0)
+    expect(f.at('m2', 'repoOpRequest')).toBeLessThan(f.at('m1', 'kill'))
+    expect(f.at('m1', 'kill')).toBeLessThan(f.at('m1', 'handoffExportRequest'))
+    expect(f.at('m1', 'handoffExportRequest')).toBeLessThan(f.at('m2', 'handoffImportRequest'))
+    expect(f.at('m2', 'handoffImportRequest')).toBeLessThan(f.at('m2', 'spawn'))
   })
 
   it(`${willChange('POD-1079', "machines become owned compute; handoff must later check 'use' on the target")}: handoff to any paired ONLINE machine is allowed with no per-machine authorization`, async () => {
@@ -317,19 +363,37 @@ describe('oracle: duplicate dispatch', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: CONCURRENT duplicate dispatch is NOT serialized today — both attempts run and the session still lands on the target exactly once`, async () => {
+  it(`${MUST_NOT_CHANGE}: CONCURRENT duplicate dispatch is NOT serialized — today BOTH orchestrations run end to end`, async () => {
     const f = await handoffFixture()
 
-    const [a, b] = await Promise.allSettled([
+    const settled = await Promise.allSettled([
       f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
       f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
     ])
 
-    // There is no in-flight lock: today both calls enter the orchestration. The
-    // characterization is the OUTCOME — the row ends up on the target, once.
-    expect([a.status, b.status]).toContain('fulfilled')
-    expect(meta(f)).toMatchObject({ machineId: 'm2', cwd: '/target/repo/.worktrees/x' })
-    expect(f.reg.modules.sessions.listSessions()).toHaveLength(1)
+    // There is NO in-flight lock and no dedup: both calls resolve ok, the package
+    // is exported twice, imported twice and spawned twice on the target. Pinned
+    // as exact counts precisely so POD-642 cannot quietly serialize (or quietly
+    // duplicate harder) without this failing.
+    expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled'])
+    expect(
+      settled.map((s) => (s.status === 'fulfilled' ? s.value : (s.reason as Error).message)),
+    ).toEqual([
+      { ok: true, newCwd: '/target/repo/.worktrees/x' },
+      { ok: true, newCwd: '/target/repo/.worktrees/x' },
+    ])
+    expect(f.count('m1', 'handoffExportRequest')).toBe(2)
+    expect(f.count('m2', 'handoffImportRequest')).toBe(2)
+    expect(f.count('m2', 'spawn')).toBe(2)
+    // The source is killed ONCE: the second orchestration finds the row already
+    // parked, so `wasRunning` is false on its pass.
+    expect(f.count('m1', 'kill')).toBe(1)
+    // Despite the double run there is still exactly one row, on the target.
+    expect(
+      f.reg.modules.sessions
+        .listSessions()
+        .map((s) => ({ machineId: s.machineId, cwd: s.cwd, status: s.status })),
+    ).toEqual([{ machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' }])
   })
 })
 

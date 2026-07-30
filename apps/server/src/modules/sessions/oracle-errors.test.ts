@@ -100,6 +100,17 @@ describe('oracle: not-found shape, per write', () => {
     ).toEqual({ ok: false })
   })
 
+  it(`${EXISTENCE_ORACLE}: continue and stop disagree with each other — continue reports a bare ok:false, stop names the cause`, async () => {
+    const o = makeOracle()
+
+    // Same class of failure (the session does not exist), two different shapes.
+    expect(await o.call.sessions.continue({ sessionId: GHOST })).toEqual({ ok: false })
+    expect(await o.call.sessions.stop({ sessionId: GHOST })).toEqual({
+      ok: false,
+      reason: 'unknown session',
+    })
+  })
+
   it(`${EXISTENCE_ORACLE}: handoff THROWS on an unknown session — the only session write whose not-found path is an exception`, async () => {
     const o = makeOracle()
 
@@ -165,6 +176,51 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       ),
     ).toBe("machine 'Gone' is offline")
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: resume against an OFFLINE machine throws the same reachability message as create, and spawns nothing`, async () => {
+    const o = makeOracle({ offlineMachines: OFFLINE })
+
+    expect(
+      await messageOf(() =>
+        o.call.sessions.resume({
+          agentKind: 'claude-code',
+          cwd: '/p',
+          resume: { kind: 'claude-session', value: 'n1' },
+          conversationId: 'n1',
+          machineId: 'gone',
+        }),
+      ),
+    ).toBe("machine 'Gone' is offline")
+    expect(o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
+  })
+
+  it(`${willChange('POD-1079', 'M5 requires unreachable to be DISTINGUISHABLE; today a send to an unreachable machine reports success')}: both send paths report ok/queued when the target's machine has gone away`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    // The machine drops off: no daemon socket, so nothing can reach the PTY.
+    o.reg.modules.sessions.detachDaemon('local')
+    expect(o.meta(sessionId).status).toBe('reconnecting')
+    o.daemon.length = 0
+
+    const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
+    const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'anyone there' })
+
+    // THIS IS THE BASELINE M5 HAS TO CHANGE: unreachable is reported as a
+    // successful queue, indistinguishable from a busy-agent queue, and nothing
+    // says the machine is gone. `unauthorized` has no shape at all yet.
+    expect(sent).toEqual({ ok: true, queued: true, disposition: 'queued' })
+    expect(woken).toEqual({ ok: true, queued: true, disposition: 'queued' })
+    expect(o.daemon.filter((m) => m.type === 'input')).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: an UNKNOWN machine id is a different message from an offline one`, async () => {

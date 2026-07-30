@@ -12,7 +12,16 @@
 
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
+import {
+  disposeOracles,
+  MUST_NOT_CHANGE,
+  makeOracle,
+  PASTE_END,
+  PASTE_START,
+  ptyFrames,
+  waitFor,
+  willChange,
+} from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -290,12 +299,12 @@ describe('oracle: sendText / resumeAndSend', () => {
     // carries inputOrigin 'mail' — NOT 'human'. Only the direct keystroke paths
     // (answerAskUserQuestion below) stamp 'human'. The distinction is what the
     // actor / on-behalf-of split in POD-312 has to preserve or replace.
-    expect(inputs(o.daemon).map((m) => m.inputOrigin)).toEqual(['mail'])
-    expect(
-      inputs(o.daemon)
-        .map((m) => Buffer.from(m.data, 'base64').toString())
-        .join(''),
-    ).toContain('hello there')
+    // EXACT frame sequence, not a substring: one bracketed-paste frame carrying
+    // the text and nothing else. A wrapper change (an added CR, a split write, a
+    // second frame) is a behaviour change the migration must not make silently.
+    expect(ptyFrames(o.daemon)).toEqual([
+      { inputOrigin: 'mail', data: `${PASTE_START}hello there${PASTE_END}` },
+    ])
   })
 
   it(`${MUST_NOT_CHANGE}: sendText bypasses controller gating — a chat send is an explicit user act, not a competing keyboard`, async () => {
@@ -308,6 +317,9 @@ describe('oracle: sendText / resumeAndSend', () => {
 
     expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)
     await waitFor(() => inputs(o.daemon).length > 0, 'the gated-around send to reach the PTY')
+    expect(ptyFrames(o.daemon)).toEqual([
+      { inputOrigin: 'mail', data: `${PASTE_START}still lands${PASTE_END}` },
+    ])
   })
 
   it(`${MUST_NOT_CHANGE}: resumeAndSend wakes a PARKED session (the send is not dropped)`, async () => {
@@ -382,5 +394,87 @@ describe('oracle: answerAskUserQuestion', () => {
       await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] }),
     ).toEqual({ ok: false })
     expect(inputs(o.daemon)).toEqual([])
+  })
+})
+
+describe('oracle: continue (the errored-agent retry)', () => {
+  it(`${MUST_NOT_CHANGE}: continue types 'continue' + CR stamped 'auto_continue', and ONLY when the agent phase is errored`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId, 'idle')
+    o.daemon.length = 0
+
+    // Idle is not a retryable state: refused, and nothing is typed.
+    expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
+    expect(ptyFrames(o.daemon)).toEqual([])
+
+    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+
+    expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: true })
+    expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
+  })
+
+  it(`${MUST_NOT_CHANGE}: continue refuses a PARKED session even while its last known phase is errored — a dead PTY would swallow it`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId, 'errored')
+    await o.call.sessions.hibernate({ sessionId })
+    o.daemon.length = 0
+
+    expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
+    expect(ptyFrames(o.daemon)).toEqual([])
+  })
+})
+
+describe('oracle: stop (clean end, keep the branch)', () => {
+  it(`${MUST_NOT_CHANGE}: stop parks the process, stamps stopReason 'parent', and CLEARS readAt (unlike archive, which keeps it)`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    await o.call.sessions.markRead({ sessionId })
+    expect(o.meta(sessionId).readAt).not.toBeNull()
+
+    expect(await o.call.sessions.stop({ sessionId })).toEqual({
+      ok: true,
+      worktreeFreed: false,
+      deferredKill: false,
+    })
+
+    const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
+    expect(row).toMatchObject({ status: 'hibernated', stopReason: 'parent' })
+    // A terminal transition is new unread information [spec:SP-6144]: stop
+    // resurfaces the session, where archive deliberately does not.
+    expect(row?.readAt).toBeNull()
+    expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+  })
+
+  it(`${MUST_NOT_CHANGE}: --force re-labels the park 'forced' (work may have been discarded)`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+
+    expect((await o.call.sessions.stop({ sessionId, force: true })).ok).toBe(true)
+
+    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.stopReason).toBe(
+      'forced',
+    )
+  })
+
+  it(`${MUST_NOT_CHANGE}: stopping an already-parked session is accepted and does not re-kill it`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    await o.call.sessions.stop({ sessionId })
+    const killsAfterFirst = o.daemon.filter((m) => m.type === 'kill').length
+
+    expect((await o.call.sessions.stop({ sessionId })).ok).toBe(true)
+
+    expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsAfterFirst)
+    // The row survives — stop keeps the branch, the transcript and the session.
+    expect(o.reg.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
   })
 })

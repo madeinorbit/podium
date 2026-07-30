@@ -158,6 +158,18 @@ export function makeOracle(
   reg.modules.sessions.attachDaemon(machineId, (msg) => {
     daemon.push(msg)
     for (const waiter of relayWaiters) waiter(msg)
+    // Answer the one RPC a session write makes of its daemon: `stop` inspects the
+    // worktree for unsaved work. A clean tree is the ordinary case; leaving it
+    // unanswered would turn every stop test into a 20s RPC timeout rather than a
+    // characterization. Tests that want the dirty-tree refusal drive it explicitly.
+    if (msg.type === 'repoOpRequest') {
+      reg.modules.sessions.onDaemonMessageFrom(machineId, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: '',
+      })
+    }
   })
   reg.modules.sessions.attachClient((msg) => client.push(msg))
   const repos = new RepoRegistry(reg, reg.sessionStore)
@@ -218,6 +230,27 @@ export async function waitFor(
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 1))
   }
+}
+
+// ---------------------------------------------------------------------------
+// PTY frames
+// ---------------------------------------------------------------------------
+
+/** Bracketed-paste wrapper the substrate types pasted text inside. */
+export const PASTE_START = '\u001b[200~'
+export const PASTE_END = '\u001b[201~'
+
+/**
+ * Every PTY input frame the server sent, decoded. Assertions compare the WHOLE
+ * sequence with exact equality — never a substring of a joined blob, which can
+ * match unrelated bytes and hide an added wrapper or a second frame (POD-743).
+ */
+export function ptyFrames(
+  daemon: ControlMessage[],
+): { inputOrigin: string | undefined; data: string }[] {
+  return daemon
+    .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
+    .map((m) => ({ inputOrigin: m.inputOrigin, data: Buffer.from(m.data, 'base64').toString() }))
 }
 
 /** The message a thrown/rejected write carries, with no substring matching. */
