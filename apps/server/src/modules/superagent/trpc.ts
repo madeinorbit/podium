@@ -60,7 +60,13 @@ import { SUPERAGENT_COMMANDS, type SuperagentProcName } from './registry'
 type MutationProcedure<N extends SuperagentProcName> = TRPCMutationProcedure<{
   meta: unknown
   input: z.input<(typeof SUPERAGENT_COMMANDS)[N]['contract']['input']>
-  output: ReturnType<(typeof SUPERAGENT_COMMANDS)[N]['handler']>
+  // `Awaited`, and it is load-bearing rather than tidy. Four of these handlers
+  // are `async`, and tRPC wraps the declared output in a Promise of its own — so
+  // a bare `ReturnType` gives the CLIENT `Promise<Promise<{…}>>`, which is
+  // structurally incompatible with `PodiumClientApi` and lands as an error in
+  // apps/web rather than here. Vitest is blind to it; the workspace typecheck
+  // is what found it.
+  output: Awaited<ReturnType<(typeof SUPERAGENT_COMMANDS)[N]['handler']>>
 }>
 
 /**

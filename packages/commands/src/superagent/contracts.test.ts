@@ -166,7 +166,11 @@ describe('the seven superagent thread contracts', () => {
   it('declares machine `use` on exactly the three commands that place work on compute', () => {
     const placesWork: SuperagentContractName[] = ['sendTurn', 'concierge', 'openInTerminal']
     for (const name of SEVEN) {
-      const contract = SUPERAGENT_CONTRACTS[name]
+      // Read through the ERASED type: the literal table's `policy` is a union of
+      // seven distinct shapes, only three of which have a `machineVerb` key at
+      // all, so a direct property read does not typecheck — and the union is
+      // itself the point being asserted.
+      const contract = SUPERAGENT_CONTRACTS[name] as AnyCommandContract
       const expected = placesWork.includes(name) ? 'use' : undefined
       expect([name, contract.policy.machineVerb]).toEqual([name, expected])
       expect([name, contract.policy.resource]).toEqual([

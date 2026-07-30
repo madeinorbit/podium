@@ -979,6 +979,86 @@ authz matrix green across four transports; offline classes + dead-letter UX
 runtime-verified; secrets split complete; ledger + as-built updated.
 `podium issue tree 290`.
 
+#### LEDGER ENTRY — POD-383 (3.3a superagent thread contracts): the dedupe, and what decided it
+
+**Seven contracts, one visibility class, and the class was READ rather than copied.**
+`sendTurn · interruptTurn · openInTerminal · clear · restart · startBtw · concierge` are
+now L1 contracts in `packages/commands/src/superagent/`, joined to `SuperagentService` in
+`modules/superagent/registry.ts`, with the `superagent:` router derived from the table.
+All seven write ONE row on ADR 1's matrix — `superagent-state` — which ADR 9 D8 S2
+classifies `personal` ("MY threads never surface in YOUR sidebar"). Deliberately NOT
+`per-user-state`: that class is for a facet whose value DIFFERS PER READER, and a thread's
+history, binding and turn machine are one fact owned by one person.
+
+**The assertion that pins it needed a probe to mean anything.** `visibilityClassOf()` is
+TOTAL and default-closed — it returns `'personal'` for a row id it has never heard of,
+which is every superagent contract's answer. Asserting the constant against it without
+first proving the row RESOLVES is a check that passes against a typo. The suite therefore
+asserts the row is declared, then asserts the class, then shows the backstop firing on a
+row id that does not exist. The same shape POD-731 used, and the reason it is used again is
+that the failure it prevents is invisible in a green run.
+
+**WHICH NAME SURVIVED WAS A MEASUREMENT, NOT A PREFERENCE.** `superagent.send` and
+`superagent.sendTurn` were two procedures with byte-identical input schemas and one body,
+both forwarding to `SuperagentService.sendTurn`. POD-1075's precedent is that PERSISTENCE
+decides between two names for one thing. The census: ELEVEN call sites name `sendTurn` —
+apps/web `SuperagentView` and `ChatView`, apps/mobile `SuperagentScreen`,
+`packages/client-core`'s engine, and the browser e2e that asserts on the outgoing request
+URL — and ZERO name `send`. The alias's own comment ("the generic entry the panel uses")
+was already false. It is DELETED, not re-homed or deprecated: tRPC serves by name over
+HTTP, so a client bundle older than this change would 404 on `send`, and that caveat is
+recorded rather than glossed — but a deprecation window would preserve a name nothing has
+ever sent, which is precisely how a fork survives a dedupe.
+
+**Delivery classes were decided per command, and the matrix row is NOT the answer.** The
+`superagent-state` row says `offline: offline-eligible`; that is a statement about
+REPLICATING THE ROWS, not about QUEUEING THESE COMMANDS, and conflating the two is how an
+outbox learns to replay a harness turn. Six of the seven govern a LIVE harness and refuse
+on liveness (a turn in flight, the terminal lock) — a refusal conditioned on liveness
+cannot be honoured at drain time, when the world has moved. `startBtw` runs no turn, upserts
+one row and is idempotent, so it is the one `offline-eligible` contract. Nothing names
+`outbox`: ADR 3 D3 serves a transport because a contract NAMES it, never because a class
+would have permitted it.
+
+**Machine `use` on three, and the line is where code can run.** `sendTurn`, `concierge` and
+`openInTerminal` place work on owned compute (readiness §3.1.4 M2's code-execution
+boundary), which forces `online-only` via D18.3 and
+`distinguishesUnauthorizedFromUnreachable: true` via M5 — a pairing
+`classificationErrors` enforces. `interruptTurn`, `restart`, `clear` and `startBtw` place
+nothing; classifying every touch of a running process as `use` would make the verb mean
+"near compute" instead of "may cause code to run".
+
+**THE ANCHOR FOLLOWED THE CODE, and the report says which of MOVED and VANISHED happened**
+(POD-1180's lesson, applied rather than cited). The duplicate PROCEDURE VANISHED: no file
+in the repo declares `superagent.send`. The surviving CALL MOVED: `ctx.superagent.sendTurn(`
+in `router.ts` became `s.sendTurn(` in the joined table, because the router is now derived.
+A detector still scanning only `router.ts` would have read the move as a win — its own
+throw guard fired instead, which is the guard working. Both homes are scanned now, so
+re-adding the alias in either is still counted. `send-turn-duplicate` 1 → 0; deletion audit
+194 → **193 sites**, 25 items, baseline ratcheted DOWN.
+
+**Two instruments, because neither is sufficient.** `scripts/audit-superagent-commands.ts`
+resolves no modules and reads source text; `modules/superagent/derived-surface.test.ts`
+inspects the ASSEMBLED `appRouter` object. POD-732's standard is that "an empty router
+satisfies every absence claim perfectly", so the runtime arm asserts the POSITIVE first and
+on the same procedure map — the seven are served as mutations, the two reads as queries,
+the nine paths are exactly those nine — before it asserts that `send` is absent. Mutation
+evidence: re-adding `send:` to the joined TABLE does not compile (`satisfies
+Record<SuperagentContractName, …>` rejects the key, TS2353) and is reported as INVALID
+non-evidence; the VALID kill is a hand-written `send:` procedure in the router, which
+compiles and is caught three ways — source gate, runtime test, and the deletion ratchet.
+
+**One defect this run's rules caught that vitest could not.** The derived procedure's output
+type was `ReturnType<handler>`, and four handlers are `async`, so tRPC wrapped an already-
+Promise output and shipped `Promise<Promise<{…}>>` to the client. Every server test stayed
+green; `apps/web` failed to typecheck against `PodiumClientApi`. `Awaited<>` is the fix, and
+the workspace typecheck is what found it — the in-package one said nothing, because the
+damage lands at the consumer.
+
+**Left for POD-386 (3.3d):** the machines/repos/specs half of the cutover. The superagent
+router is done here because a contract table with no dispatcher is mechanism without
+coverage; POD-386 inherits a router whose superagent arm is already derived and audited.
+
 ### Phase 4 — Node decomposition (POD-291) · exit gate POD-425
 
 **Scope:** gateway + plane inventory implementation (POD-317 → 387–391), fleet service
