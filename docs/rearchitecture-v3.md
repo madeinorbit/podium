@@ -803,9 +803,12 @@ per-user state family (POD-1076)** — both multi-user, 2026-07-29.
 **Cut lines:** no behavior change — representations re-derived, wire fixtures byte-stable
 (golden fixtures from POD-360). Narrow ports remain as named derivations.
 
-**Oracle status / audit counts:** filled at phase close. Audit items: hand-restated
-field definitions, raw-string ids (now incl. `messages/handoff.ts`), agent-kind/
-capability tables (five adapters since grok landed dc6537d6), stateDir.
+**Oracle status / audit counts:** measured at gate POD-423 (see its LEDGER ENTRY below) —
+**phase HELD OPEN**. Audit items: hand-restated field definitions (`session-shapes` 0,
+`issue-shapes` 0), **raw-string ids — NO AUDIT ITEM EXISTS; measured by grep at 66 sites,
+NOT zero**, agent-kind enums 0 (`capability-tables` 5 is POD-325 / Phase 5.3, not Phase 1),
+stateDir (`state-dir-defs`) 0. Deletion audit 25 items / 186 sites, baseline exact. Oracle
+RED on two inherited failures, neither Phase 1's.
 
 **POD-304 as-built (provenance envelope + ownership annotations).** Two decisions this
 section records because later phases depend on them:
@@ -868,6 +871,78 @@ decision nobody has made about whether the actor's agent arm names the agent ide
 **Verification steps (gate POD-423):** regenerate the gate evidence checklist against
 current main, not the 07-13 snapshot; audit items zero; oracle green; wire fixtures
 unchanged (incl. the handoff family); ledger + as-built updated. `podium issue tree 288`.
+
+#### LEDGER ENTRY — POD-423 (1.7 Phase 1 exit gate): HELD OPEN, and what the refusal is worth
+
+**The gate does not close.** Full evidence, every figure re-measured rather than quoted:
+`docs/gates/pod-423-phase-1-exit-gate.md`. Measured at `b812e549` from a branch **0 ahead /
+0 behind `issue/279-integration` with a clean tree** — an empty diff, which is what makes
+every not-mine claim below mechanistic rather than hopeful.
+
+**What is green, and it is most of it.** Workspace typecheck `--force` exit 0 with
+`Cached: 0 cached, 23 total`. Deletion audit **25 items / 186 sites, baseline exact** —
+*down* from the 194 the brief quoted and the 193 POD-383 recorded, i.e. the ratchet
+tightened. All six surface audits exit 0; boundaries 0 new; NUL clean; representation and
+change-row audits exit 0; wire goldens 176 tests green. Phase-1's baseline items are at
+zero: `session-shapes`, `issue-shapes`, `agent-kind-enums`, `state-dir-defs`,
+`representation-registry-rot`. `capability-tables: 5` is POD-325 / Phase 5.3 and is not
+Phase 1's to close.
+
+**Three blockers, and the first two are the same defect wearing different clothes.**
+
+1. **Raw-string ids are not at zero, and nothing measures them.** The gate's AC names four
+   audit items; three exist as baseline keys and are 0, and the fourth — raw-string ids —
+   **has no key in `rearch-audit-baseline.json` and no detector in `scripts/`.** POD-363's
+   AC promised that item would reach zero repo-wide; the item was never implemented, so the
+   zero was never measurable and no ratchet defends it. Direct grep finds **66 non-test
+   sites** naming an entity id as bare `z.string()` while the brand exists. The finding that
+   rules out "these are boundary parses" is that the inconsistency is **intra-file**:
+   `packages/commands/src/issues/contracts.ts` imports and uses `IssueIdField`/`UserIdField`
+   at 143–145, then writes `machineId`/`mutationId` as `z.string()` six times below;
+   `router.ts` carries `.pipe(SessionIdField)` and bare `machineId: z.string()` in the same
+   file. Inside `packages/model` itself, `fields/change.ts:132` leaves `mutationId` bare
+   while `MutationIdField` is exported. **POD-301, the parent whose scope is exactly this
+   flip, is `backlog`.** Four *other* bare ids in model are correct and documented
+   "UNBRANDED BY DECISION" (native/harness-minted ids) and must not be flipped —
+   checked individually, not waved through.
+
+2. **Fourteen live durable classes have no ADR 1 matrix row** (POD-385's sweep,
+   `docs/agents/pod-385-matrix-coverage-sweep.md`; POD-1194 filed but `proposed`,
+   `ready=false`). Phase 1's thesis is "every entity defined once in `packages/model`", and
+   fourteen unadjudicated classes qualify that thesis directly. Three are per-user-shaped
+   (`recap_watermarks`, `notification_facts`, `message_wake_cooldowns`) where the D4
+   backstop's `personal` is *wrong*, not merely absent. **This gate STATES it rather than
+   discovering it later**, which is the whole reason the item is in this entry.
+
+3. **"All Phase-1 children closed" fails literally** — POD-301, POD-1076 and POD-288 are all
+   `backlog`.
+
+**The generalisable lesson, which is (1) and (2) as one shape.** Both are gates whose
+REFUSING ARM CAN NEVER FIRE. `visibilityClassOf` is total and default-closed, so a class
+nobody classified and a class deliberately classified `personal` return the same value and
+both read green — `matrix.test.ts` can prove the backstop fires for a *synthetic* id and can
+never prove no *real* class is undeclared. The raw-string-id item is the same failure one
+level up: an AC that names an audit item which does not exist reads as satisfied forever,
+because there is nothing to run. **An audit item named in an AC but absent from the baseline
+is not a passing check; it is an unmeasured claim**, and the fix in both cases is a
+MEMBERSHIP gate — enumerate the population (schema tables; id-shaped fields) and require
+each member to be either classified or a declared omission. Neither is built here: POD-423
+verifies, it does not build.
+
+**Oracle RED, and neither red is Phase 1's.** unit is **1 failed / 7666 passed**, the single
+failure `apps/daemon/src/connectivity-state.test.ts` reconnect case — **isolated 3/3 green**,
+confirming POD-1184's load-flake (MEASURED). multi-instance fails inside `install`, where
+`bash -i` resolved `podium` to the host's interactive sudo lecture text — an environment
+artifact. Both are MECHANISTIC not-mine claims: the branch's diff is empty. Not re-measured
+on a detached checkout, and the entry says so.
+
+**Stated limits, because a gate that hides them is the thing it exists to prevent.** The
+66-site figure is my own grep over eight field NAMES, not an instrument — it cannot see a
+raw id under a ninth name. POD-385's sweep enumerated only the 54 `sqliteTable`
+declarations, so filesystem-backed and daemon-local stores were never swept and **the true
+count of unclassified classes is unknown and ≥ 14** (pspec, the class that started this, is
+exactly such a store). Wire-delta attribution (632/635 identical, 3 handoff) is POD-1162's
+measurement consumed as given per the split, not re-derived.
 
 ### Phase 2 — One sync kernel (POD-289) · exit gate POD-310 (HUMAN)
 
