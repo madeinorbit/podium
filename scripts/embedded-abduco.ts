@@ -1,10 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { abducoSupported, defaultAbducoCachePath } from '../packages/pty/src/abduco-bin.js'
 // Bun-compile-only: the prebuilt abduco binary, embedded into the executable. This
 // import uses Bun's `type: "file"` attribute and is only ever reached by the
 // `bun build --compile` daemon entry (scripts/daemon-compiled.ts), never by Node.
 import abducoEmbedded from '../dist-bun/abduco.bin' with { type: 'file' }
+import { abducoSupported, defaultAbducoCachePath } from '../packages/pty/src/abduco-bin.js'
 
 declare const Bun: { file(path: string): { arrayBuffer(): Promise<ArrayBuffer> } }
 
