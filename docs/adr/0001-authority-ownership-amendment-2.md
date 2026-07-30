@@ -301,7 +301,7 @@ for the moment an implementer is about to write `a.id === b.id`:
 | `InstanceId` | **Nothing.** Not unique in any scope the runtime can observe — it is a *label on a state root*, and `default` is the label of every unconfigured deployment on earth | Only that two things carry the same label | That they share a deployment, a database, a port triplet, a fleet, or anything else. Use the resolved **state root** (same host) or the **pairing relation** (across hosts) |
 | `MachineId` | One instance's `machines` table | The same daemon identity file, hence the same host **within that instance** | Anything across instances — and today the constant `'local'` is byte-equal in *every* instance while naming different hardware |
 | `UserId` | One instance's `User` aggregate | The same person **within that instance** | Anything across instances (D21.3: no identity portability) |
-| `InstanceServiceRole` | **A (host, instance) pair** — not the deployment. One server and one daemon *per host per instance*, enforced by port bind, state-root claim and unit name | The same role **class** | That the processes are the same process, or that only one may exist in the deployment. Identify a specific daemon by its `MachineId` (D16.3) |
+| `InstanceServiceRole` | **Not unique anywhere as an identity.** The intended *managed* topology is one server and one daemon per `(host, instance)` — a systemd arrangement, plus a real port-bind constraint on the **server** only (D16.3) | The same role **class** | That the processes are the same process, that only one may exist in the deployment, or that only one may exist on a host. Identify a specific daemon by its `MachineId` and pairing relation (D16.3) |
 
 **And symmetrically, for the other two id axes** — stated here because the same mistake is
 available on each:
@@ -383,11 +383,42 @@ sites are actually listed, is what makes the retirement enforceable rather than 
 
 **Decision.** The process-role axis carries no uniqueness constraint at the deployment level:
 
-| Scope | Constraint | Enforced by |
+**What a deployment is, precisely** — because D16.1 already settled it and the first draft of
+this sub-decision contradicted it:
+
+> A deployment is **one Authority**: one server process, its one database, its one feed, and
+> its one endpoint. A machine is **a member of that deployment iff it is paired to that
+> endpoint** — the pairing relation is the membership fact (D19.4's enrollment ledger is where
+> it is durably recorded). Hosts are **not** joined by sharing a state root: the server host
+> has its own state root, and **every paired daemon host has its own local state root** with
+> its own `instance.json` and `daemon.json`. A multi-host deployment therefore spans **several
+> state roots**, one per host, and that is its normal shape.
+
+Two corollaries, stated because the draft got both backwards:
+
+- **A paired remote daemon with its own local state root is NOT another deployment.** It is a
+  member of the deployment whose server it is paired to. Only the *server's* state root holds
+  the Authority's DB, feed and enrollment ledger.
+- **Two hosts both labelled `default` may be one deployment or two, and the label never says
+  which.** Server-plus-its-paired-daemon is the one-deployment case; two unrelated servers is
+  the two-deployment case. This is D16.1's rule applied — the label proves nothing in *either*
+  direction, so the draft's "two hosts labelled `default` are two deployments" over-claimed
+  just as badly as the error it was correcting.
+
+**Managed topology versus what is actually enforced.** These are different statements and the
+draft conflated them:
+
+| | Claim | Status |
 |---|---|---|
-| **One host, one instance** | At most one live `server` and one live `daemon` | The derived port triplet (`defaultInstancePorts`), the state-root claim (`ensureInstanceStateIdentity`), and the unit name (`instanceServiceName(role, id)`) — all three are per `(host, instance)` |
-| **One deployment, across hosts** | **No constraint on daemons.** A normal multi-machine deployment runs **one daemon per paired machine**, all live, all in the same deployment. This is the product's ordinary shape, not a degenerate case | — |
-| **One deployment, the Authority** | Exactly one `server` is the Authority (ADR 1 D1) — but this follows from a deployment *being* one state root, **not** from role-name uniqueness. Two hosts both labelled `default` are two deployments (D16.1), not two servers of one |
+| **Intended managed topology** | Per `(host, instance)`: one `server` unit and one `daemon` unit, named `podium-<id>-<role>.service` (`instanceServiceName`) | **A supervision arrangement.** systemd will not run two copies of one unit, which is what makes the topology intended and predictable — but it is a property of the *service manager*, not of identity, and a process started by hand is outside it |
+| **Server port triplet** (`defaultInstancePorts` → server / hook / agentRelay) | A second **server** for one instance on one host fails at bind | **Really enforced, for the server only.** Verified: the **daemon binds no listening port** — it dials out, and its per-instance runtime isolation is `ABDUCO_SOCKET_DIR` / `TMUX_TMPDIR` under the state root (`applyInstanceRuntimeEnv`). The triplet constrains nothing about daemons |
+| **State-root claim** (`ensureInstanceStateIdentity`) | "Only one process may claim a root" | **FALSE — it is not a mutex.** It refuses a *mismatched* marker and otherwise returns the existing one, so any number of processes with the same instance label share a root happily. Its `wx` create races only over *writing* the marker, not over holding it |
+| **Two live daemon processes for one instance on one host** | — | **Nothing in the runtime prevents it.** It is outside the managed topology and would contend over the durable-session sockets, but it is not refused by an identity check, and no code should assume it cannot happen |
+
+| Scope | Constraint |
+|---|---|
+| **One deployment, across hosts** | **No constraint on daemons.** A normal multi-machine deployment runs **one daemon per paired machine**, all live, all members of that one deployment. The product's ordinary shape, not a degenerate case |
+| **One deployment, the Authority** | Exactly one `server` is the Authority (ADR 1 D1). This follows from the Authority **being** one server endpoint / DB / feed that daemons pair *to* — **not** from role-name uniqueness, and **not** from every process sharing one state root |
 
 Therefore, normatively:
 
@@ -406,7 +437,19 @@ conflict (port bind, state claim)". The parenthetical was the giveaway: port bin
 claim are **host-local** mechanisms, so the conflict they produce is host-local, and the
 sentence silently promoted a host-scoped constraint to a deployment-scoped one. Podium's whole
 fleet model is N daemons per deployment; a record that says otherwise, in the document POD-734
-implements role threading from, is an invitation to write the singleton that breaks multi-machine.
+implements role threading from, is an invitation to write the singleton that breaks
+multi-machine.
+
+The second draft then over-corrected in a way that contradicted D16.1: it re-derived the unique
+Authority from "a deployment *being* one state root", which is only true of a single-host
+install, and concluded that two hosts labelled `default` are two deployments — which would
+classify a perfectly normal paired remote daemon, with its own local state root, as a separate
+deployment. Both errors have the same root cause: reaching for a *local* mechanism (a port, a
+directory, a marker file) to express a *distributed* fact. The Authority is one endpoint and one
+feed; membership in it is the pairing relation; and everything host-local — ports, roots, unit
+names, socket dirs — is supervision and isolation, not identity. Naming which claims are
+actually enforced, and which are merely the managed arrangement, is what stops the next reader
+from turning a systemd convention into an invariant.
 
 **Rationale (D16 overall).** POD-645's four questions are each locally answerable and jointly misleading:
 answer them one at a time and you get four defensible sentences that still permit an
@@ -673,8 +716,9 @@ authorise one.
 
      > **The revocation ledger survives database recreation and database rollback**, at the
      > same durability tier as the pairing root. Where the ledger and the database disagree
-     > about enrollment or revocation, **the ledger wins.** The ledger is append-only and is
-     > **not** restored, rewound, or reconciled backwards when the database is.
+     > about enrollment, revocation **or owner**, **the ledger wins** (D19.4d rule 4). The
+     > ledger is append-only and is **not** restored, rewound, or reconciled backwards when the
+     > database is.
 
      *Why this is load-bearing.* If revocation is recorded only as a fact that "outlives the
      `machines` row" — a DB-resident tombstone — then this sequence defeats the contract
@@ -707,11 +751,9 @@ authorise one.
 
      Two consequences that must not be re-decided by POD-1114:
 
-     1. **Ownership transfer is a ledger write, not only a database write.** Whoever implements
-        owner transfer (POD-318 / POD-1079) must append the new owner to the enrollment ledger
-        **in the same operation** that updates the row. Otherwise recovery resurrects a stale
-        owner — handing a machine back to a previous owner — which is a privilege escalation
-        with the same shape as the one grants-dropping avoids.
+     1. **Ownership transfer is a ledger write, and the ledger is the commit point.** See
+        **D19.4d** — "the same operation" is not available across two stores and must not be
+        asked for.
      2. **If the recorded owner no longer resolves** — a fully recreated database in which that
         `UserId` does not exist — the machine returns **QUARANTINED**: admins hold `see`,
         **nobody** holds `use`, and an admin must assign an owner explicitly before it is
@@ -726,6 +768,51 @@ authorise one.
      verify under instance B's, so the wrong-instance case is caught by cryptography rather
      than by an instance field on the wire — which is why D20 can stay absolute. This is the
      answer to §1.4's "three situations, one rejection" without touching the frames.
+
+   - **D19.4d — Owner transitions are CRASH-CONSISTENT by ordering, not by a shared
+     transaction.** The enrollment ledger is a file at the state-root tier and the `machines`
+     row is in SQLite; **there is no transaction spanning them**, so a requirement that they be
+     written "in the same operation" is unimplementable, and a crash between the two writes is
+     precisely the stale-owner escalation the clause was meant to prevent. Decided:
+
+     1. **The ledger append IS the owner transition.** It is the commit point. An owner change
+        is *effective* the instant the append is durable, whether or not the row was updated.
+     2. **`machines.owner` is a PROJECTION of the ledger, not an independent fact.** It is
+        reconciled from the ledger — at boot, and before any `use` / `manage` authorization
+        decision that reads it — so an authorization check can never be served from a stale
+        projection.
+     3. **Strict ordering: the database write may never precede a successful ledger commit.**
+        Ledger first, always. There is no path in which the row names an owner the ledger has
+        not recorded.
+     4. **D19.4a's precedence extends to ownership.** Where ledger and database disagree about
+        **owner** — not only about enrollment and revocation — **the ledger wins**, and the row
+        is repaired to match. The earlier scoping of ledger-wins to enrollment/revocation was
+        too narrow, and left owner as the one field where a rolled-back database could out-rank
+        the durable store.
+     5. **Observable failure and retry rule**, so POD-318 and POD-1114 cannot invent
+        incompatible dual-write protocols:
+
+        | Outcome | Effective owner | What the caller sees | Repair |
+        |---|---|---|---|
+        | Ledger append fails | **Old owner** — transfer did not happen | **Error.** The command failed | None needed; no row was touched |
+        | Append succeeds, then crash before the row update | **NEW owner** — the transition committed | Command may report success, or the caller may retry | Reconciliation repairs the row at next boot or next authorization read (rule 2) |
+        | Append succeeds, row update fails | **NEW owner** | Success | Same reconciliation |
+        | Retry of an already-appended transition | **NEW owner**, unchanged | Success | **Appends are idempotent**: a transition carries an id (or serial) and re-appending the same one is a no-op, never a second transition |
+
+     6. **The old owner must never be effective after a durable append.** This is the property
+        the regression test asserts, and it is the whole point of rules 1–4.
+     7. **Required regression test — crash between the writes.** Append an owner transition,
+        kill the process before the row update, restart, and assert that the **new** owner holds
+        `use` / `manage` and the **old** owner holds neither — with no manual repair step. A test
+        that only exercises the happy path does not discharge this decision.
+
+     Two notes on reach. The same commit-point rule governs **revocation**: the ledger append is
+     the revocation, and any DB-side tombstone is a projection of it — which is what makes
+     D19.4a's rollback guarantee hold end-to-end rather than only at read time. And this
+     decision is deliberately about *ordering and precedence*, not about a distributed-commit
+     protocol: two stores with no shared transaction can still be made safe by making one of
+     them authoritative and the other derived, which is the same shape ADR 1 D1 already uses for
+     Authority and Replica.
 
    - **D19.4c — The pairing root is NORMATIVE, not a suggested implementation.** Recorded
      because it was explicitly asked and explicitly answered at review (2026-07-30): the
@@ -1030,8 +1117,13 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 - [ ] Re-enrolment restores `owner` from the ledger, **drops all grants**, and **quarantines**
       (admins `see`, nobody `use`) when the recorded owner no longer resolves — never
       ownerless-and-ambient, never auto-assigned to an arbitrary admin (D19.4b).
-- [ ] Ownership transfer appends the new owner to the ledger **in the same operation** as the
-      row update, so recovery cannot resurrect a previous owner (D19.4b consequence 1).
+- [ ] Ownership transitions are crash-consistent by **ordering**, not by an impossible shared
+      transaction (D19.4d): the ledger append is the commit point, `machines.owner` is a
+      projection reconciled before any `use`/`manage` decision, the DB write never precedes a
+      durable append, ledger-wins covers **owner** as well as enrollment and revocation, and
+      appends are idempotent under retry.
+- [ ] A **crash-between-writes** regression test asserts the new owner holds `use`/`manage` and
+      the old owner holds neither, with no manual repair (D19.4d rule 7).
 - [ ] No code treats two live processes of one role as a conflict at deployment scope, and no
       registry, singleton or uniqueness assertion is keyed on `(instanceId, role)` — N daemons
       per deployment is the normal case (D16.3).
