@@ -160,7 +160,26 @@ its five-case probe was reproduced here independently (three cases red, so the p
 
 So: directly-written keys **are** excess-checked even with a spread in the same literal (d); a key
 supplied **inside** a conditional spread escapes (b) and `satisfies` does not rescue it (e); a
-**required** key supplied only via a spread **is** caught (c). **The exposure is specifically an
+**required** key supplied only via a spread **is** caught (c).
+
+**And a fourth clause, which says what the composition DOES buy at these sites.** POD-362 reported that
+branding still propagates through a conditional spread. Probed here — and the first probe was wrong in a
+way worth recording: using a *required* branded key conflated this with clause (c), since a required key
+via a conditional spread is unassignable regardless of its type. Re-probed with an **optional** key so
+clause (c) cannot fire:
+
+| Case (optional key, inside a conditional spread) | Result |
+|---|---|
+| branded key, raw `string` value | **TS2322** |
+| plain key, wrong primitive type | **TS2322** |
+| unknown (excess) key | no error |
+
+So it is **not** a fact about branding — it is the general fact, of which branding is one instance:
+**through a conditional spread the TYPE of every KNOWN key is still checked; only key-set MEMBERSHIP
+escapes.** That makes the precise statement of what composition buys at a conditional-spread producer:
+it propagates every field's *type* (brands included — which is why composing `RefIssueLike` caught
+eleven fixture sites), and it does **not** catch a *stale or misspelled optional* key. The exposure is
+key presence, not type correctness. **The exposure is specifically an
 OPTIONAL key inside a conditional spread** — which is exactly how a producer keeps emitting a field the
 model has renamed or dropped. "The annotation constrains nothing" was my overstatement, generalised
 from one observation; case (d) disproves it. The narrow rule is also the more useful one, because it
