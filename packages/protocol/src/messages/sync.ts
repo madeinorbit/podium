@@ -1,8 +1,12 @@
 import {
   AutomationRunWire,
   AutomationWire,
+  ChangeCursorSeqField,
+  ChangeEntityIdField,
+  ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
+  GlobalChangeOpField,
   IssueWire,
   SessionMeta,
 } from '@podium/model'
@@ -14,44 +18,47 @@ import { z } from 'zod'
 // entity's WIRE shape — the oplog speaks protocol, not DB rows. Present iff
 // op === 'upsert' (zod can't express that cross-field rule; producers guarantee it,
 // consumers treat a missing value on upsert as a drop-this-change).
-export const MetadataChangeOp = z.enum(['upsert', 'remove'])
+/**
+ * The op vocabulary a GLOBAL change row may carry — `@podium/model`'s, not a
+ * second copy (POD-305). `evict` is deliberately not a member: it is a
+ * per-principal fact and never a row in the one global log (ADR 2 Am1 D14.5).
+ */
+export const MetadataChangeOp = GlobalChangeOpField
 export type MetadataChangeOp = z.infer<typeof MetadataChangeOp>
+
+/**
+ * ONE arm of the change union (POD-305).
+ *
+ * The five arms below used to restate `seq`/`entity`/`id`/`op`/`value` verbatim,
+ * and so did `UnknownMetadataChange` — six copies of one field list, which is the
+ * restatement POD-305's acceptance criterion 3 and the `change-row-typings` audit
+ * item target. The FIELDS now come from `@podium/model`'s change vocabulary and
+ * the ARM SHAPE is composed here exactly once.
+ *
+ * Key ORDER is preserved exactly as it was (`seq`, `entity`, `id`, `op`, `value`):
+ * zod emits parsed keys in shape order, so a reordering here would change the
+ * serialization of every change row on the wire — a silent break in a refactor
+ * that is supposed to have none. `wire-golden.json` is the gate on that.
+ *
+ * `value` is present iff `op === 'upsert'`. Zod cannot express that cross-field
+ * rule; producers guarantee it and consumers treat a missing value on an upsert as
+ * a drop-this-change.
+ */
+const metadataChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
+  z.object({
+    seq: ChangeSeqField,
+    entity,
+    id: ChangeEntityIdField,
+    op: MetadataChangeOp,
+    value: value.optional(),
+  })
+
 export const MetadataChange = z.discriminatedUnion('entity', [
-  z.object({
-    seq: z.number().int().positive(),
-    entity: z.literal('session'),
-    id: z.string(),
-    op: MetadataChangeOp,
-    value: SessionMeta.optional(),
-  }),
-  z.object({
-    seq: z.number().int().positive(),
-    entity: z.literal('issue'),
-    id: z.string(),
-    op: MetadataChangeOp,
-    value: IssueWire.optional(),
-  }),
-  z.object({
-    seq: z.number().int().positive(),
-    entity: z.literal('conversation'),
-    id: z.string(),
-    op: MetadataChangeOp,
-    value: ConversationSummaryWire.optional(),
-  }),
-  z.object({
-    seq: z.number().int().positive(),
-    entity: z.literal('automation'),
-    id: z.string(),
-    op: MetadataChangeOp,
-    value: AutomationWire.optional(),
-  }),
-  z.object({
-    seq: z.number().int().positive(),
-    entity: z.literal('automationRun'),
-    id: z.string(),
-    op: MetadataChangeOp,
-    value: AutomationRunWire.optional(),
-  }),
+  metadataChangeArm(z.literal('session'), SessionMeta),
+  metadataChangeArm(z.literal('issue'), IssueWire),
+  metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
+  metadataChangeArm(z.literal('automation'), AutomationWire),
+  metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -77,15 +84,15 @@ export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 /** The catch-all arm: a change row whose entity kind this build doesn't know.
  *  Known kinds are EXCLUDED — a known-kind row with an invalid value must
  *  still fail parse (quarantine → heal), never sneak through the catch-all. */
-export const UnknownMetadataChange = z.object({
-  seq: z.number().int().positive(),
-  entity: z.string().refine((e) => !MetadataEntityKind.options.includes(e as MetadataEntityKind), {
+export const UnknownMetadataChange = metadataChangeArm(
+  // Not a `z.literal`, but the same POSITION in the same arm shape: an unknown
+  // kind is a change row like any other, and composing it here is what stops the
+  // catch-all from drifting away from the strict arms it has to stay parallel to.
+  z.string().refine((e) => !MetadataEntityKind.options.includes(e as MetadataEntityKind), {
     message: 'known entity kinds must parse through the strict MetadataChange union',
   }),
-  id: z.string(),
-  op: MetadataChangeOp,
-  value: z.unknown().optional(),
-})
+  z.unknown(),
+)
 export type UnknownMetadataChange = z.infer<typeof UnknownMetadataChange>
 
 export const MetadataChangeLenient = z.union([MetadataChange, UnknownMetadataChange])
@@ -125,13 +132,26 @@ export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLen
 // returned for a null cursor (bootstrap) or a cursor older than the retained log
 // (compaction) — it carries the full durable-entity state plus the cursor AS OF the
 // read, taken in the same tick, so no change falls between snapshot and stream.
-export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
+/**
+ * The delta arm, parameterized by how strictly its elements parse (POD-305).
+ *
+ * The strict and lenient results used to restate this arm and the whole snapshot
+ * arm side by side, which is how they drifted: the lenient copy already listed its
+ * keys in a different order from the strict one. One factory per arm means the two
+ * results differ in exactly the one thing they are supposed to differ in — element
+ * strictness — and in nothing else.
+ */
+const changesSinceDeltaArm = <C extends z.ZodTypeAny>(change: C) =>
   z.object({
     kind: z.literal('delta'),
-    fromExclusive: z.number().int().nonnegative().optional(),
-    changes: z.array(MetadataChange),
-    cursor: z.number().int().nonnegative(),
-  }),
+    fromExclusive: ChangeCursorSeqField.optional(),
+    changes: z.array(change),
+    cursor: ChangeCursorSeqField,
+  })
+
+/** The snapshot arm. Identical in both results — it is full durable state, and
+ *  there is no lenient reading of an entity list this build must render. */
+const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
@@ -140,8 +160,12 @@ export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),
     automationRuns: z.array(AutomationRunWire).optional(),
-    cursor: z.number().int().nonnegative(),
-  }),
+    cursor: ChangeCursorSeqField,
+  })
+
+export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
+  changesSinceDeltaArm(MetadataChange),
+  changesSinceSnapshotArm(),
 ])
 export type SyncChangesSinceResult = z.infer<typeof SyncChangesSinceResult>
 
@@ -166,22 +190,8 @@ export type SyncChangesSinceResultLenient =
  *  parse (it must never install, and the cursor must never advance past it
  *  silently). The snapshot arm is strict. */
 export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', [
-  z.object({
-    fromExclusive: z.number().int().nonnegative().optional(),
-    kind: z.literal('delta'),
-    changes: z.array(MetadataChangeLenient),
-    cursor: z.number().int().nonnegative(),
-  }),
-  z.object({
-    kind: z.literal('snapshot'),
-    sessions: z.array(SessionMeta),
-    issues: z.array(IssueWire),
-    conversations: z.array(ConversationSummaryWire),
-    diagnostics: z.array(ConversationDiagnosticWire),
-    automations: z.array(AutomationWire).optional(),
-    automationRuns: z.array(AutomationRunWire).optional(),
-    cursor: z.number().int().nonnegative(),
-  }),
+  changesSinceDeltaArm(MetadataChangeLenient),
+  changesSinceSnapshotArm(),
 ])
 
 /**

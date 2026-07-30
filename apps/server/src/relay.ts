@@ -403,7 +403,10 @@ export class SessionRegistry {
     // clients through.
     const funnel = new WriteFunnel({
       bus: this.bus,
-      ledger,
+      // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
+      // two over one store would each keep their own dedup baseline and their
+      // own ordered broadcast queue.
+      authority: ledger.authority,
       fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
       sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     })

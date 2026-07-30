@@ -1,5 +1,5 @@
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
-import type { Ledger } from '@podium/sync'
+import type { AuthorityPort, SequencedChange } from '@podium/sync'
 import type { EventBus } from './bus'
 
 export interface WriteFunnelDeps {
@@ -12,11 +12,22 @@ export interface WriteFunnelDeps {
    *  pipe (see {@link WriteFunnel.flushDeltas}). Called with a non-empty,
    *  seq-ordered batch. */
   sendDelta(changes: MetadataChange[]): void
-  /** The write-seam change log ([spec:SP-3fe2] #255/#256/#257) — the SINGLE
-   *  writer of the durable `changes` table. The funnel bridges its appends onto
-   *  the bus ('oplog.appended' fires for EVERY durable change) and into the
-   *  ordered delta pipe, and serves cursor reads through it. */
-  ledger: Pick<Ledger, 'onAppended' | 'changesSince' | 'cursor'>
+  /**
+   * THE AUTHORITY (POD-305) — the sync kernel's write seam and the SINGLE writer
+   * of the durable `changes` table.
+   *
+   * This used to be a `Pick<Ledger, …>`. The funnel now holds the kernel role
+   * itself: `run` goes through `authority.commit`, so the authorize→write order
+   * this class is named for is enforced by the kernel rather than by this class
+   * remembering to call things in order. What remains here is the LEGACY
+   * SNAPSHOT TAIL and the bus bridge — transport concerns of this app, which
+   * POD-308 deletes at the wire cutover.
+   *
+   * Must be the SAME instance the Ledger facade wraps (`ledger.authority`):
+   * two Authorities over one store would each keep their own dedup baseline and
+   * their own ordered queue.
+   */
+  authority: AuthorityPort
 }
 
 /**
@@ -57,9 +68,10 @@ export class WriteFunnel {
     // and delta clients' cursors advanced past N without ever healing the gap.
     // Enqueueing before the emit makes arrival order equal append order no
     // matter what a listener does.
-    deps.ledger.onAppended((changes) => {
-      this.queueDelta(changes)
-      deps.bus.emit('oplog.appended', { changes })
+    deps.authority.subscribe((changes) => {
+      const wire = changes.map(toWireChange)
+      this.queueDelta(wire)
+      deps.bus.emit('oplog.appended', { changes: wire })
     })
   }
 
@@ -69,8 +81,28 @@ export class WriteFunnel {
    * `authorize` throwing stops everything: a forbidden op must never write.
    */
   run<T>(op: { authorize?: () => void; write: () => T }): T {
-    op.authorize?.()
-    return op.write()
+    // Through the KERNEL, so the order is the Authority's to enforce rather than
+    // this method's to remember. `changes: () => []` is the honest declaration
+    // for these call sites: issue mail, subscriptions and locks are durable
+    // writes with no publishable change, so there is nothing to append — which
+    // is a different statement from "we did not get round to declaring it", and
+    // the empty array says so at each call rather than in a comment here.
+    //
+    // No `arbitrate`, so this cannot be rejected; the outcome is committed by
+    // construction. Asserted rather than cast, because "cannot happen" plus a
+    // cast is how a silently dropped write ships.
+    const outcome = this.deps.authority.commit({
+      ...(op.authorize === undefined ? {} : { authorize: op.authorize }),
+      write: op.write,
+      changes: () => [],
+    })
+    if (outcome.outcome !== 'committed') {
+      throw new Error(
+        `WriteFunnel.run: the Authority rejected a write it was never asked to arbitrate ` +
+          `(${outcome.reason}). That is a kernel invariant break, not a caller error.`,
+      )
+    }
+    return outcome.result
   }
 
   /**
@@ -90,11 +122,12 @@ export class WriteFunnel {
 
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
   changesSince(cursor: number | null): MetadataChange[] | null {
-    return this.deps.ledger.changesSince(cursor)
+    const changes = this.deps.authority.changesSince(cursor)
+    return changes === null ? null : changes.map(toWireChange)
   }
 
   cursor(): number {
-    return this.deps.ledger.cursor()
+    return this.deps.authority.cursor()
   }
 
   // ---- THE ordered metadataDelta pipe (#256) ----
@@ -133,4 +166,20 @@ export class WriteFunnel {
     this.pendingDelta = []
     this.deps.sendDelta(batch)
   }
+}
+
+/**
+ * The kernel's sequenced change → the pre-cutover wire row.
+ *
+ * The kernel spells the target-id key `entityId` and the wire spells it `id`.
+ * POD-308 owns reconciling the two at the cutover; until then this is the ONE
+ * place in the server where they meet, so that rename is one deletion.
+ */
+function toWireChange(change: SequencedChange): MetadataChange {
+  const base = { seq: change.seq, id: change.entityId, op: change.op }
+  return (
+    change.op === 'upsert'
+      ? { ...base, entity: change.entity, value: change.value }
+      : { ...base, entity: change.entity }
+  ) as MetadataChange
 }

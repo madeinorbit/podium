@@ -6,7 +6,7 @@
     "agent-kind-enums": 0,
     "capability-snapshots": 0,
     "capability-tables": 5,
-    "change-row-typings": 7,
+    "change-row-typings": 13,
     "cli-launch-plan-debt": 1,
     "composition-root-forward-refs": 1,
     "durable-host-sync-async-twins": 4,

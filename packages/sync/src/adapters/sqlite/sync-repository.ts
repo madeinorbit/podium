@@ -9,7 +9,7 @@
 import type { SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import type { ChangePrunePlan } from './change-log'
+import type { ChangePrunePlan } from '../../change-log'
 
 export class SyncRepository {
   constructor(private readonly db: SqlDatabase) {}
