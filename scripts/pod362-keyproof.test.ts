@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { machineScopedKey, parseMachineScopedKey } from '../packages/model/src/ids/keys'
+import { machineScopedKey, parseMachineScopedKey, resumeKey } from '../packages/model/src/ids/keys'
 
 describe('POD-362 machineScopedKey adoption is byte-compatible for real ids', () => {
   it('produces the SAME bytes the ad-hoc `${machineId}\\n${nativeId}` produced', () => {
@@ -24,5 +24,23 @@ describe('POD-362 machineScopedKey adoption is byte-compatible for real ids', ()
       machineId: 'm',
       nativeId: hostile,
     })
+  })
+})
+
+describe('POD-362 resumeKey adoption is byte-compatible too', () => {
+  it('matches the ad-hoc `${kind}:${value}` for every real resume ref shape', () => {
+    for (const [k, v] of [
+      ['claude', '0199f2aa-1c3d-7c9e-9a2b-1f2e3d4c5b6a'],
+      ['codex', 'rollout-2026-07-30T12-00-00'],
+      ['', ''], // session-identity's own `?? ''` default must still round-trip
+    ] as const) {
+      expect(resumeKey(k, v)).toBe(`${k}:${v}`)
+    }
+  })
+
+  it('and it fixes the collision the ad-hoc form had', () => {
+    // ('a','b:c') and ('a:b','c') are ONE string under the ad-hoc form.
+    expect(`a:${'b:c'}`).toBe(`${'a:b'}:c`)
+    expect(resumeKey('a', 'b:c')).not.toBe(resumeKey('a:b', 'c'))
   })
 })
