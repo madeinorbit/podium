@@ -143,7 +143,11 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     // The forgery: `hello.clientId` is a real payload field naming ANOTHER
     // connection (it drives the reconnect reclaim). A frame claiming to be
     // someone else must still be delivered as itself.
-    h.mux.routeClientFrame(h.id, { type: 'hello', clientId: 'attacker' })
+    h.mux.routeClientFrame(h.id, {
+      type: 'hello',
+      clientId: 'attacker',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+    })
     const call = vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls[0]
     expect(call?.[0].device).toBe(`client:${h.id}`)
     expect(call?.[1].id).toBe(h.id)
