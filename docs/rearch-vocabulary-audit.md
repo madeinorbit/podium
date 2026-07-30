@@ -320,6 +320,16 @@ affordance is ever wanted. That would be a **new** per-user row, never a reclass
 - `instance-partitions` is retained as a **regression guard at zero**, because "multi-user" and
   "multi-tenant" are the two words this programme most needs kept apart, and `annotations/
   matrix.test.ts` already fails a row that smuggles one in as a column value.
+- **POD-1168 widened the guard to the second syntax form.** It read only *a key on an
+  entity-shaped declaration*; a drizzle table is a CALL EXPRESSION, so the columns of all 56
+  physical tables were never enumerated and POD-1162's P4 plant of `instance_id` on `sessions`
+  was green across every gate. `physicalTableColumns` now parses `sqliteTable("<name>", { … })`
+  by form rather than by table list, and `instancePartitions` tests **both** spellings of each
+  column — the TS key and the SQL name, since `machineId: text("machine_id")` carries the
+  partition in either — against the SAME `INSTANCE_PARTITION_KEY` pattern, so there is one rule
+  and not two. The claim above ("no `instance_id` column in any migration") is now CHECKED rather
+  than asserted; the 151 deployment-partition sites are untouched, because an identifier, a
+  parameter or a config field of that name is not a column.
 
 ---
 
@@ -501,6 +511,10 @@ after writing, the test expected to die **named in advance**, and the revert ver
 | 6 | `MIN_JUSTIFICATION` 24 → 0 | `cannot justify itself` (3 tests) | **killed** |
 | 7 | capability scan returns `[]` | `fires on a serialized effective-capability snapshot` | **killed** |
 | 8 | instance-partition pattern never matches | `fires on an instance/tenant partition` | **killed** |
+| 8a | drizzle branch removed from `instancePartitions` | `fires on a planted partition column…`, `fires on a table OTHER than sessions` (2) | **killed** |
+| 8b | column spelling ignored (key only) | `fires on a planted partition column under either spelling` | **killed** |
+| 8c | implicit column name always the key | `parses every column…`, `…binds to the live schema`, + both firing tests (4) | **killed** |
+| 8d | table form matches only `"sessions"` | same 4 | **killed** |
 | 9 | per-user key loop `.slice(4)` | `fires on a per-user singleton` | **killed** |
 | 10 | `IssueRefHead.pick` → a fresh `z.string()` for `id` | see §8.2 | **killed, by exactly one instrument** |
 | 11 | rename a registry entry's symbol | see §8.3 | **killed, by the script and not the suite** |

@@ -84,7 +84,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving persists the flag AND parks a running session, keeping readAt untouched`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -112,7 +112,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: unarchiving does NOT resurrect the process — that stays an explicit resume`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -132,7 +132,7 @@ describe('oracle: setArchived', () => {
   it(`${MUST_NOT_CHANGE}: archiving an already-parked session does not re-kill it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -158,7 +158,7 @@ describe('oracle: read state', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
-    o.reg.modules.sessions.attachClient((m) => second.push(m))
+    o.reg.clientGateway.attachClient((m) => second.push(m))
 
     await o.call.sessions.markRead({ sessionId })
 
@@ -346,9 +346,9 @@ describe('oracle: composer drafts', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
-    const authorId = o.reg.modules.sessions.attachClient((m) => author.push(m))
+    const authorId = o.reg.clientGateway.attachClient((m) => author.push(m))
     const watcher: ServerMessage[] = []
-    o.reg.modules.sessions.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.attachClient((m) => watcher.push(m))
 
     o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 

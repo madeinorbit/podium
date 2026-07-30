@@ -1203,3 +1203,437 @@ stops matching, at the one command the field exists for."
 POD-381 also moved that rule out of a per-file test into the scan for exactly that reason, and made its
 FIRST test the instrument check — asserting the five current tables BY NAME, so "no violations" can only
 be read after "and it looked at these".
+
+### A fix I authorised caused a second defect, and the stream implementing it said so
+
+POD-373's POD-1161 work uncovered **POD-1163**: `run` rethrew from its catch, leaving the `inflight`
+promise **rejected** — and a rejected promise makes every later `.then(task)` skip its task. One refused
+durable commit wedged the replica permanently: `connect()` issued **zero** `changesSince` calls, the frame
+stayed buffered forever, the entry stayed `applied` forever, and `settled()` replayed the same stale error
+to every future caller. ADR 2 D7 requires every failure to resolve strictly downward and **terminate**;
+that terminated nothing.
+
+**My POD-1158 ruling is part of the cause.** Before it, a multi-region commit threw synchronously out of
+`receive()` and never entered that chain — so the shape existed but this failure class could not reach it.
+Routing those commits through `inflight`, the very change that let the async Outbox enrol at all, converted
+a caller-visible throw into a permanent wedge. Reachable on an ordinary path: ADR 6 D4.4 quota denial and a
+commit-time conflict both land there, neither being corruption.
+
+> A fix that changes WHERE a failure travels can convert a loud error into a silent wedge. When authorising
+> a seam change, ask what previously threw past the new path.
+
+Fixed in the same commit: `run` holds the FIRST unreported error ("a later failure cannot hide an earlier
+unreported one") and `settled()` surfaces it exactly once.
+
+### Fixing only the line the issue named would have left half the defect
+
+POD-1161's fix needed **two sites**, and POD-373's first mutant re-breaking the second one **survived** —
+no case drove `drainBuffer`'s path. Driving it needed a `changesSince` reply capped BELOW the head so a
+buffered frame chains exactly where a heal lands; otherwise every heal covers everything, the buffered
+frame is dropped as covered, and the drain's own commit never runs.
+
+Its diagnosis of why the whole class hid is the sharpest in the run: **entity truth survives an aborted
+install because a heal re-derives it; RETIREMENT does not, because provenance appears in the feed ONCE and
+no later frame carries it after the cursor passes.** The user-visible consequence was a stuck entry for a
+command that demonstrably applied, dead-lettered later as `max-age` — telling someone their write aged out
+unsent when it had in fact landed.
+
+### Two done-but-unclosable issues (POD-1154 biting again)
+
+POD-1161 and POD-1163 are both FIXED AND MERGED, and both sit in `proposed`, which a coordinator may
+neither promote nor close. Resolution recorded in each issue's state so a human can close on sight. This is
+the third distinct way POD-1154 has cost something: it blocked scheduling earlier, and now it blocks
+closing work that is demonstrably done.
+
+### The probe gate found three guardrails that did not work
+
+POD-1162 planted **13 deliberate-violation mutants against the real gates: 10 caught, 3 not.** The human
+had asked whether that gate was "actually worth anything"; this is the measured answer.
+
+**P4 was the worst, and its diagnosis was only HALF the cause.** An `instance_id` column on the `sessions`
+table was green across the audit, the model suite, tsgo, the migration suites and `store.test.ts` — so
+ADR 1 D5 ("multi-user is NOT multi-tenancy") had no enforcement where a tenant partition would actually be
+introduced. Two independent causes:
+
+1. `isFrozenFile` skipped anything under `/migrations/`. Right for the immutable SQL history in
+   `migrations/drizzle/`; wrong for `schema.ts`, which declares all 57 physical tables and is live source.
+   **The tell was already in the tree**: POD-368's registry lists `sessions` AT `migrations/schema.ts`, so
+   the registry named a file the audit could not read. *A path-scoped skip whose REASON does not apply to
+   everything the path matches.* Narrowed — and the unfreeze immediately found **three real hidden sites**
+   (`__local__` as a column DEFAULT at schema.ts:43/162/208), so the POD-318 ratchet had been counting 13
+   while the live schema carried three more.
+2. `instancePartitions` enumerates entity-shaped declarations and tests their KEYS, but
+   `sqliteTable("sessions", { instanceId: text("instance_id") })` is a CALL EXPRESSION. **I re-ran the
+   plant after fixing (1) and it STILL passed.** Dispatched as POD-1168.
+
+> Landing half a guardrail fix leaves the probe passing and LOOKS like a fix. Re-run the original probe
+> after fixing what you believe was the cause — the cause you found may not be the only one.
+
+**A baseline raise that is not laundering.** 13 → 16 because the detector's SCOPE widened, not because the
+code regressed. Refusing to raise it would have meant refusing to look. That is a different act from
+hiding a regression, and it needs the distinction stated at the site or the next reader reads it as the
+thing the never-rebaseline rule forbids.
+
+**Method worth copying from that gate:** P1's key probe pointed the REAL `Session` aggregate at a
+nonexistent matrix row so its declared class EQUALLED the default-closed value, making the missing-row
+check the only thing that could see it — and it established DIRECTION by *flipping* the fallback rather
+than asserting it. P2 planted in EVERY arm of the union. And it **re-derived POD-365's regeneration claim
+independently rather than citing it**, "since a regeneration is precisely how a wire change hides" — the
+one citation in the gate that should not have been trusted.
+
+### Ruling: an unmet criterion can be narrowed rather than left unmet
+
+POD-1162 refused to sign off "raw-string ids at zero" because POD-363 is blocked behind POD-362. I ruled
+that item **rides with POD-363 and gates the POD-308 wire cutover**, where id ENCODING actually matters —
+POD-351's walking skeleton needs the vocabulary and the command contracts, both landed, not a completed
+branded-id sweep. Recorded as a deliberate narrowing rather than left sitting as an unmet criterion, on
+the same reasoning that split POD-423: gate the thing that depends on it, not everything downstream.
+
+### CORRECTION: I wedged POD-362 myself, and `send --wake` never worked
+
+POD-1167 diagnosed the POD-362 stall and it overturns two things I recorded confidently above.
+
+**1. The wedge was my own `--urgency interrupt` mail, re-injected by the sweep.** Interrupt urgency is
+`ESC + inject` (`messages/service.ts:14`), not merely a strong nudge. My `msg_288c94f8` was captured
+09:49:12 and echoed in Claude at 09:49:13 and again 09:53:52 — but the live transcript handler **never
+emits the `transcript.delta` bus event** that `MessageService` consumes, so the ledger saw neither echo and
+the message stayed unconfirmed. At 09:55:31 the requeue sweep re-injected **while Claude was working**,
+`interruptText` sent ESC, and Claude recorded `[Request interrupted by user]` at 09:55:31.677. It was
+finally marked delivered at 10:00:06 — an eleven-minute gap I could have read as the tell.
+
+> `--urgency interrupt` ESCs a working session, and while delivery confirmation is broken it will do so
+> REPEATEDLY. Do not use it to nudge a session that is producing; use it only for something that must
+> preempt, and prefer `next-turn` otherwise. Filed as POD-1169.
+
+So the transcript entry I kept reading as evidence of a mysterious stall was **my own tooling**, arriving
+three times.
+
+**2. `podium session send --wake` did NOT recover it.** I recorded in POD-1159 and in the check-in prompt
+that this was the working recovery, and told agents so. It failed silently three times (11:25/11:35/11:45)
+with `git worktree add: fatal: path already exists`, because `stop` had cleared `issue.worktreePath` while
+the directory still existed — and the echo cap then marked the message **falsely delivered**. The
+`hibernated/working` status I took as proof of resumption meant nothing. POD-362 only actually restarted
+when I did the full manual teardown (`git branch -D` + `git worktree prune` + removing the stale
+directory), which is the same state POD-1167 identifies as the cause.
+
+> A status field and a "delivered" receipt are both instruments. Neither told the truth here. The only
+> honest signal was the one I eventually used: did a new commit appear.
+
+The earlier `API Error: 529` was a separate, real event — two distinct failures on the same issue, and I
+had collapsed them into one story.
+
+### The full picture: no message channel could reach POD-362
+
+POD-1170 completes POD-1167's diagnosis and corrects the fix I had just written into my own check-in
+prompt. Claude recorded the structured `[Request interrupted by user]` item at 09:55:31.677 **but no
+`session.phase` transition followed** — the row retained `phase=working` through hibernation.
+
+Next-turn mail drains at `onSessionIdle` (`messages/service.ts:975, 1073`). So with the phase stuck at
+`working`, that boundary never arrived. Which means all three channels were dead at once:
+
+| channel | outcome |
+|---|---|
+| `--urgency interrupt` | sweep re-injects, ESCs the working session, repeatedly |
+| `next-turn` | queues forever — `onSessionIdle` never fires |
+| `session send --wake` | fails on `worktree add: path already exists`, then falsely marked delivered |
+
+**So "use next-turn instead of interrupt" — the correction I made an hour ago — is right for a HEALTHY
+session and useless for a stuck one.** There was no message that could have reached POD-362 after
+09:55:31. The only thing that worked was the manual teardown: `git branch -D` + `git worktree prune` + rm
+the stale dir + `podium issue start`.
+
+> A session that has not committed in ~20 minutes and is not CPU-bound is not reachable by ANY channel.
+> Do not spend rounds messaging it. Tear the worktree down and restart it.
+
+Filed: POD-1169 (transcript bus wiring), POD-1170 (the missing phase transition). Both `proposed`.
+
+### POD-1167 refused a scope widening, correctly
+
+I offered to let POD-1167 carry POD-1169's fix as decomposition, to get around POD-1154 blocking me from
+starting a proposal. It declined: POD-1169's fix **ships independently**, so by the tracker's own litmus it
+stays a top-level `discovered-from` proposal, and reclassifying it would blur the instrument-vs-outcome
+distinction the incident established.
+
+That is the same principle I applied when I declined to launder POD-1140 and POD-1130 into sub-issues —
+and it is better that an agent held me to it than that I held myself to it. The litmus is "could the parent
+close with this untouched", not "would a sub-issue be more convenient for the coordinator".
+
+### The typecheck rule has TWO halves, and I had been giving one
+
+POD-729's single `mailProc()` branching on `policy.action` **typechecked perfectly in `apps/server` and
+broke `apps/web`**: `policy.action` is a union at the type level, so all nine procedures inferred as
+query-or-mutation and the CLIENT lost `.query`/`.mutate`. Found by the **workspace** typecheck, not the
+in-package one.
+
+> IN-PACKAGE catches "the program covers nothing" — two agents reported exit 0 from the repo root where no
+> program covered the package they were changing. WORKSPACE catches a cross-package INFERENCE break that is
+> invisible from inside the package that caused it. Neither substitutes for the other; run both and say
+> which found what.
+
+I had been telling the fleet in-package was *the* rule. It is half of it.
+
+Its fix is better than a revert: `mailQuery`/`mailMutation` split by wire verb, with a **boot-time** check
+against the declared action, so `mailQuery` on inbox dies with "mail.inboxConsume declares action write but
+is served as a query" — the viewer-grade widening it would otherwise have been.
+
+### Default-closed exposure silently deleted a shipped surface
+
+`mail.ledger`'s exposure omitted `relay`, but the daemon relay has always served it — that is how agents
+reach the ledger. Harmless while transports were hand-written and everything fell through one switch; the
+moment `exposure` became **default-closed**, it removed a live agent surface. Its own gate caught it, and
+it was corrected in the CONTRACT rather than patched at the site.
+
+> Default-closed is the right default AND a migration hazard: every surface that was previously served by
+> falling through a switch must be re-declared, and the ones nobody remembers are exactly the ones that
+> vanish. Audit the OLD switch's reachable set against the new exposure declarations.
+
+### Halving a duplicated surface is still a duplicated surface
+
+POD-728 deliberately left five procs (show, dismiss, status, pendingReminders, ask) for POD-729. POD-729
+cut over all five and deleted `MessageGate`'s switch entirely, rather than stopping at its brief's line —
+because `ask` was the one of the five that reaches **delivery**, so leaving it would have left a live send
+path no contract governs, which is the thing the issue exists to remove.
+
+It also closed a real bypass on the way: `sendText`/`resumeAndSend` called the delivery service DIRECTLY,
+so the human ceiling never bound them (it applies when an ADDRESS is resolved, and they resolved none) and
+their sender came from a private expression rather than `senderFromCapability`.
+
+### A stale brief keeps re-reporting the same drift
+
+POD-729 flagged that my brief said 252 audit sites while the file said 219 before it started — because the
+brief was written before POD-380/381/728/1162 landed. That is my staleness, not its drift. **A brief that
+quotes a moving number will keep generating this report**; quote the invariant ("baseline exact, do not
+rebaseline") rather than the current value.
+
+### A queued instruction never reached a HEALTHY agent (POD-1174)
+
+Distinct from the wedge cases. I mailed POD-382 its merge instruction at 13:54 with `--urgency next-turn`.
+Two hours later `mail status` still said **queued — not yet in its context**, and in that window the session
+had gone idle at least once (it sent me its own done-report) and returned to `live/working` with 28
+uncommitted files. It had a boundary to drain at and did not take it.
+
+I only noticed because I attempted the merge myself and found the branch had not moved — **the outcome, not
+the instrument, again.**
+
+So there are now three channels for one conceptual action, with different semantics and different silent
+failure modes:
+
+| channel | semantics | failure mode |
+|---|---|---|
+| `mail --urgency interrupt` | ESC + inject | sweep re-injects; wedged POD-362 for four hours |
+| `mail --urgency next-turn` | drains at `onSessionIdle` | **queues forever** if the boundary is missed |
+| `podium session send --text` | submits a real user turn | the one that works |
+
+> To give an agent an instruction, use `podium session send`. Mail is for correspondence, and its delivery
+> is boundary-dependent in a way its help does not say.
+
+### POD-382 found a delivery, not just a leak
+
+Its cross-command sweep caught a real existence oracle on first run: `sendText`/`resumeAndSend` fell
+through to the message substrate for non-agent callers, and **the substrate resolves targets from its own
+session list, which knows nothing about a principal.** A nonexistent id dead-lettered while an
+invisible-but-existing session came back `queued` — and the message was **DELIVERED to a session the
+principal may not see.**
+
+Worse than an information leak, and exactly what the sweep existed to find. Its fix pins the synthesized
+dead-letter value EQUAL to the substrate's own answer *by asking the substrate directly*, so the duplicated
+string is checked rather than trusted.
+
+It also corrected two of its own rules, the second being the shape I keep hitting: its visibility lint
+asserted `resource:machine <=> visibility:owned-compute` and fired on two correctly-classified contracts,
+because **the two fields answer different questions** — what a command WRITES versus what it authorizes
+AGAINST. A spawn authorizes against compute while writing a personal session. True where measured,
+generalised one scope too wide.
+
+**Confirmed: `podium session send` is the working channel.** After the mail sat queued two hours, the same
+instruction sent via `session send` reached POD-382 and it is mid-merge (`MERGE_HEAD` present, four files
+unmerged) within minutes. That settles POD-1174's recommendation from evidence rather than inference.
+
+## A CLEAN MERGE IS NOT A GREEN ONE — and an unverified merge on integration LEAKS TO SIBLINGS
+
+Two branches merged with ZERO conflicts this sweep and both were broken afterwards. Git having nothing to
+say is not evidence; it only ever compared the two diffs, never the resulting type graph.
+
+**POD-731 merged clean, then failed the workspace typecheck.** POD-382's commit `63c316e7` had added 39
+lines to `packages/commands/src/contract.ts` after POD-731 branched, making `visibility` REQUIRED on
+`CommandContract`.
+
+**I first recorded this as TWO distinct breaks. It is ONE break with two symptoms, and POD-731 corrected
+me with the evidence.** `TS2741` (eleven contracts missing `visibility`) is the CAUSE; `TS2352` (its two
+widening casts no longer "sufficiently overlap") is the SYMPTOM. The casts stopped overlapping because the
+objects genuinely no longer satisfied the interface — a required property was absent — not because the
+union they cast FROM had grown. Declaring `visibility` on the eleven took `packages/commands` AND
+`apps/server` to zero in one move, including the twelve errors in `modules/workflows/registry.ts`.
+
+**Why the distinction is worth the correction: the wrong remedy was one keystroke away and would have
+passed review.** TypeScript's own suggestion for TS2352 is to cast through `unknown`. That compiles — and
+leaves all eleven contracts with NO visibility class, silently defeating the compile-time half of the
+default-closed rule POD-382 had just landed. Green typecheck, rule gone. Treating the symptom as the break
+is what makes that remedy look correct. POD-731 also PROBED the casts rather than assuming: removing them
+reproduces TS2322 plus two TS2339s, so they are load-bearing and ordinary, and it left a note at the site
+so the next TS2352 there prompts a search for a missing field before a reach for `unknown`.
+
+**Vitest cannot see any of this.** It is type-level only: the test lane stays green while every build
+fails. Do not accept a passing suite as evidence against this class of break.
+
+**Diagnostic corollary, measured:** the workspace typecheck surfaced 2 errors, both pointing at the wrong
+file's wrong line. In-package `bunx tsgo --noEmit` gave 14, and the extra 12 named the cause in their
+first line. Run the WORKSPACE typecheck to decide whether something is broken; run the IN-PACKAGE one to
+find out why.
+
+**The propagation, which is the expensive part and was my error.** I left that merge on `issue/279-integration`
+while I ran the typecheck. In that ~20-minute window POD-351 merged integration, absorbed the broken commit,
+and now carries POD-731's workflow files through a merge commit I subsequently reset away — its tree has
+`packages/commands/src/workflows/*` even though POD-731's branch tip is not an ancestor of it. A merge that
+existed for twenty minutes is now permanently in a sibling's history.
+
+**THE RULE: verify BEFORE the merge commit is visible.** Merge with `--no-commit`, run the workspace
+typecheck, and only then commit — or accept that every sibling merging integration during your verification
+window inherits whatever you were about to reject. Resetting integration does NOT un-ship it.
+
+**Corollaries earned the same sweep:**
+
+- **Run BOTH typechecks after every merge, even when git reports no conflict.** In-package was clean while
+  the workspace one was red (POD-729 broke `apps/web` while `apps/server` passed; POD-731 broke
+  `packages/commands`).
+- **A trivial conflict on a heavily-edited file is a WARNING, not a relief.** POD-389's single hunk in
+  `sessions/service.ts` was two imports against a blank line only because POD-382 had rewritten that file an
+  hour earlier and git merged the rest silently. Verify both intents survived INDEPENDENTLY — 389's mux
+  removal AND 382's zero hand-written session mutations — rather than accepting the exit code.
+- **A branch you already merged can advance.** `podium issue cleanup` refused POD-382 because its tip had
+  moved one commit past what I closed it on. `git rev-list --count HEAD..<branch>` must be 0 at cleanup
+  time, not merely at close time.
+- **Do not fix another issue's classification to green the build.** POD-731's missing `visibility` is one
+  line per contract and is NOT mechanical: it names which ADR 9 D3 class the written state belongs to, it is
+  default-closed so a wrong guess cannot ride in, and guessing wrong bakes a wrong class into eleven
+  contracts at once. POD-351 found it and deliberately left it. Correct.
+- **The structural non-conflict.** POD-351 could not merge for a reason git cannot express: it had built
+  `renameProc` as a hand-written procedure and POD-382 deleted that entire surface, with
+  `scripts/audit-session-commands.ts` now failing the build if any session `.mutation(` appears in
+  `router.ts`. The fix was a re-point onto the derived surface — and the contract and reducer needed NO
+  changes, which is the first demonstration in this run that the port shapes actually hold.
+
+### Testing the MERGE tells you about the merge, not about the BASE
+
+POD-351 proved a base was red the right way once and the wrong way once, an hour apart, with the same
+instrument — the difference is worth keeping.
+
+**Right:** it checked out the base SHA **detached, in a clean throwaway worktree**, with none of its own
+commits present, ran the in-package typecheck, and got 15 errors. Sound: that measured the base.
+
+**Wrong:** it later merged integration INTO its branch, ran the same typecheck on its branch, got the same
+15 errors, and reported them as "still failing at 5919b2f0". Integration had zero of those errors —
+`git ls-tree -r --name-only HEAD -- packages/commands/src/workflows/` returns **0 files** there, so those
+files cannot fail there. What it measured was its own tree, which carries a ghost copy of another issue's
+work absorbed from a merge that was later reset away.
+
+**The rule: merging a base into your tree and testing the result tells you about the RESULT. Only a
+detached checkout of the base tells you about the base.** Same command, same instrument, different subject
+— and the failure is invisible, because the numbers are identical either way when your tree happens to
+contain the defect.
+
+The corollary for anyone claiming NOT MINE: name the SHA you measured and say how you obtained a tree at
+it. "I merged it and it still fails" is not a not-mine proof.
+
+### Two numbers agreeing across a join is not evidence about the join
+
+POD-351's line, and the cleanest statement of why the gates get re-run on a merged tree. Its deletion
+audit read 207 and integration's read 207 — and the typecheck still failed on the merge of the two. Equal
+measurements on either side of a join say nothing about the join, because the thing that breaks is
+precisely what neither side contains alone.
+
+**Corollary — simulate the merge instead of predicting it.** POD-351 predicted an ADD/ADD conflict on
+every workflow path once POD-731 re-landed, reasoning that the merge base for those paths predated
+POD-731 on both sides. Careful reasoning, checkable premise, wrong answer: merging POD-731's BRANCH brings
+its whole history, so its four original commits (`e5d70e75 811443bd 64eb6fa0 a4da872b` — already ancestors
+of POD-351) become ancestors of integration too, making them the merge base. POD-351's side is then
+unchanged from base and git takes the fix automatically.
+
+Verified by simulation in a throwaway detached worktree rather than by argument — merge A, then merge B,
+count conflicts, then compare BLOB HASHES to see which side won:
+
+    after 731: conflicts = 0
+    after 351: conflicts = 0, workflow-path conflicts = 0
+    merged contracts.ts blob == POD-731 branch blob (654882540d...), != POD-351 ghost (4e989728f2...)
+
+The blob comparison is the part that matters. "No conflicts" only says git did not ask; it does not say
+which version survived. Compare hashes to find out.
+
+**The contingency that WOULD have made the prediction true:** if the author rewrites those commits while
+fixing (rebase, amend, squash), the SHAs change, the originals survive only in the sibling's history, and
+the ADD/ADD appears exactly as predicted. This is a concrete reason the fan-out rule is *merge, never
+rebase* — a rebase downstream of a shared ghost turns a clean automatic merge into a conflict where the
+reflexive resolution silently reinstates the broken version.
+
+### The golden wire fixtures are STRUCTURALLY BLIND to composition drift — only `toBe` sees it
+
+This programme's core claim is "every concept defined once, and the other shapes COMPOSE that
+definition." The obvious way to verify it — run the wire goldens — cannot verify it at all, and it is
+worth being precise about why.
+
+A shape that RESTATES a field list instead of composing the shared schema produces **byte-identical
+wire output**. Branding is compile-time. So both golden suites
+(`packages/protocol/src/messages/wire-golden.json`, byte-for-byte; `src/__fixtures__/golden/*.json`,
+reflecting over export surfaces) pass on a restatement exactly as they pass on a composition. A green
+golden run is evidence the WIRE did not change; it is NOT evidence the vocabulary did not fork.
+
+**The only instrument that sees a fork is object identity.** Assert `toBe` against the shared schema
+INSTANCE — not `toEqual`, not a golden diff, not a snapshot. POD-351 did this deliberately and stated
+the reason: its target contract composes POD-380's schema instance asserted `toBe`, because a
+restatement "would be byte-identical and pass every golden fixture; only object identity sees the
+fork." That assertion was load-bearing — its shadow comparison could only claim to measure HANDLERS
+because both paths provably parsed ONE schema.
+
+**Corollaries:**
+
+- Any issue claiming "one definition site" owes a `toBe` identity assertion per consumer, or the claim
+  is unverifiable by construction rather than merely unverified.
+- A new retained representation belongs in POD-368's registry with its purpose, why its semantics
+  differ, its ADR 4 role and its composition state. An unregistered representation is how the previous
+  two attempts grew ~8 definitions of "a session".
+- Deriving a value (e.g. `evict` from the op vocabulary) rather than restating it is the same rule one
+  level down — and a derivation is checkable the same way.
+
+### A guard can be UNREACHABLE FROM THE SUITE BY CONSTRUCTION
+
+POD-391 deleted the `isAllowedWsOrigin` call from the WS upgrade handler and **all 20 tests across
+three origin/auth suites stayed green.** The CSWSH guard was mechanism-present and coverage-absent.
+
+The cause generalises well beyond this guard: the enforcing branch only runs when the backend's `Host`
+is a real network host, and **a test server necessarily binds loopback**. So the enforcing arm could
+not be reached from the suite at all. The one wiring test asserted the PERMISSIVE branch ("a
+loopback-bound backend accepts any Origin") — which passes just as well with the guard deleted. Fixed
+by forging the `Host` header (node routes by socket, not Host), giving four cases: `/client` refused,
+`/daemon` refused, same-origin admitted, no-Origin native peer admitted.
+
+**Ask of any security guard: what environmental fact does its enforcing branch depend on, and can the
+test environment ever produce that fact?** If not, every test you have is exercising the permissive
+arm, and the mutant that deletes the guard will survive.
+
+### Non-evidence: a mutant that does not APPLY, and a mutant that does not COMPILE
+
+Already recorded for the first. POD-391 added the second and reported one of its own that way rather
+than counting it: the mutant referenced an identifier that was unimported at that site, so it failed
+to COMPILE rather than failing an assertion. Both shapes read as success if you are counting rather
+than checking. Report them as INVALID, never as kills.
+
+It also reported a genuine SURVIVOR rather than quietly dropping it — client cap `0` leaves the storm
+test green, because a loopback socket drains synchronously so `bufferedAmount` never leaves 0 and
+`> limit` cannot bind however low the limit goes. The right response was not to delete the test but to
+write the limitation into the file header: the storm test's content is "a healthy recipient is neither
+reaped nor starved", NOT "the cap is 16MB". A 13/13 would have been worth less than this 12-killed,
+1-survived, 1-invalid.
+
+### Derived artifacts go stale SILENTLY, and the scripts lane is where that shows
+
+`scripts/visibility-mutability-inventory.test.ts` was RED on integration for several merges. POD-731
+split the single `workflows` ownership-matrix row into five and the GENERATED
+`docs/rearch-visibility-mutability-inventory.md` was not regenerated (32-of-53 in the doc against
+36-of-57 in the matrix). Nobody's package lane covers it.
+
+**My error, stated plainly: I ran the scripts lane after the POD-389 merge and then dropped it from
+the following sweeps.** The standing post-merge sweep is `apps/server`, `apps/daemon`, **`scripts`**,
+and the touched packages — the scripts lane is not optional, because it is the only lane that checks
+generated docs, ratchets and manifests against their sources. Same family: `bun run migration:manifest`
+after touching migrations, and `bun scripts/visibility-mutability-inventory.ts` after touching the
+ownership matrix.

@@ -2,7 +2,9 @@ import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState, Geometry } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { type ClientConn, Session } from './session'
+import type { ClientConn } from '../../gateway/client-registry'
+import { deviceClientPrincipal } from '../../gateway/client-principal'
+import { Session } from './session'
 
 const geo: Geometry = { cols: 80, rows: 24 }
 const CREATED = '2026-06-03T00:00:00.000Z'
@@ -27,7 +29,8 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   const sent: ServerMessage[] = []
   return {
     id,
-    send: (m) => sent.push(m),
+    principal: deviceClientPrincipal(id),
+    send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

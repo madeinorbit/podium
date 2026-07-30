@@ -222,7 +222,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   it(`${willChange('POD-1079', 'M5 requires unreachable to be DISTINGUISHABLE; today a send to an unreachable machine reports success')}: both send paths report ok/queued when the target's machine has gone away`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -231,7 +231,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       geometry: { cols: 80, rows: 24 },
     })
     // The machine drops off: no daemon socket, so nothing can reach the PTY.
-    o.reg.modules.sessions.detachDaemon('local')
+    o.reg.gateway.detachDaemon('local')
     expect(o.meta(sessionId).status).toBe('reconnecting')
     o.daemon.length = 0
 

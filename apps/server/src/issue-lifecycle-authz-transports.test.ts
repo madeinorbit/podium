@@ -162,9 +162,9 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       }).sessionId
       const machineId = 'lifecycle-machine'
       const hub = createAgentRelayHub((msg: DaemonMessage) =>
-        registry.modules.sessions.onDaemonMessageFrom(machineId, msg),
+        registry.gateway.routeDaemonFrame(machineId, msg),
       )
-      registry.modules.sessions.attachDaemon(machineId, (msg: ControlMessage) => {
+      registry.gateway.attachDaemon(machineId, (msg: ControlMessage) => {
         if (msg.type === 'agentRelayResult') hub.onResult(msg)
       })
       relayServer = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })

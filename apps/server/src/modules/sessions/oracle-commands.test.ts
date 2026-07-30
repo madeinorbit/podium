@@ -38,7 +38,7 @@ function goLive(
   sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
-  o.reg.modules.sessions.onDaemonMessageFrom('local', {
+  o.reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -46,13 +46,13 @@ function goLive(
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.modules.sessions.onDaemonMessageFrom('local', {
+  o.reg.gateway.routeDaemonFrame('local', {
     type: 'sessionResumeRef',
     sessionId,
     resume: RESUME,
     confidence: 'exact',
   })
-  o.reg.modules.sessions.onDaemonMessageFrom('local', {
+  o.reg.gateway.routeDaemonFrame('local', {
     type: 'agentState',
     sessionId,
     state: { phase, since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -91,7 +91,7 @@ describe('oracle: create', () => {
     // A second paired machine nobody "owns": there is no owner column today.
     o.store.machines.upsertMachine({ id: 'other', name: 'other', hostname: 'o', tokenHash: 'x' })
     const other: ControlMessage[] = []
-    o.reg.modules.sessions.attachDaemon('other', (m) => other.push(m))
+    o.reg.gateway.attachDaemon('other', (m) => other.push(m))
 
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
@@ -161,7 +161,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate REFUSES with a reason (never a throw) when the session is not running`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
+    o.reg.gateway.routeDaemonFrame('local', { type: 'agentExit', sessionId, code: 0 })
 
     expect(await o.call.sessions.hibernate({ sessionId })).toEqual({
       ok: false,
@@ -172,7 +172,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate refuses a live session with no resume ref — parking it would lose the conversation`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -231,13 +231,13 @@ describe('oracle: resurrect', () => {
   it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {
     const o = makeOracle()
     const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: agent.sessionId,
       code: 1,
     })
     const shell = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: shell.sessionId,
       code: 1,
@@ -273,7 +273,7 @@ describe('oracle: kill', () => {
     // broadcast to everyone, which is a different behaviour.
     const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
     const otherSeen: ControlMessage[] = []
-    o.reg.modules.sessions.attachDaemon('other', (m) => otherSeen.push(m))
+    o.reg.gateway.attachDaemon('other', (m) => otherSeen.push(m))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
       cwd: '/p',
@@ -327,8 +327,8 @@ describe('oracle: sendText / resumeAndSend', () => {
     // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
-    const controllerId = o.reg.modules.sessions.attachClient(() => {})
-    o.reg.modules.sessions.onClientMessage(controllerId, { type: 'attach', sessionId })
+    const controllerId = o.reg.clientGateway.attachClient(() => {})
+    o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
     expect(o.meta(sessionId).controllerId).toBe(controllerId)
     o.daemon.length = 0
 
@@ -425,7 +425,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
     expect(ptyFrames(o.daemon)).toEqual([])
 
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
       sessionId,
       state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },

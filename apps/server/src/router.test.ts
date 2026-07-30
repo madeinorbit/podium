@@ -12,7 +12,7 @@ import { appRouter } from './router'
 
 function caller() {
   const registry = new SessionRegistry()
-  registry.modules.sessions.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
@@ -26,7 +26,7 @@ describe('appRouter', () => {
     const registry = new SessionRegistry(undefined, undefined, {
       modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
-    registry.modules.sessions.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
@@ -154,7 +154,7 @@ describe('appRouter', () => {
   it('discovery.scan resolves via the registry', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
-    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
@@ -168,7 +168,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [],
@@ -180,7 +180,7 @@ describe('appRouter', () => {
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
-    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
@@ -195,7 +195,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'transcriptRead') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent')
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -207,7 +207,7 @@ describe('appRouter', () => {
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
     const registry = new SessionRegistry()
-    registry.modules.sessions.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon('local', () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
     const settings = registry.modules.settings as unknown as {
@@ -267,7 +267,7 @@ function repoCaller() {
   const registry = new SessionRegistry()
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol').ControlMessage[] = []
-  registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+  registry.gateway.attachDaemon('local', (m) => daemon.push(m))
   return {
     registry,
     repos,
@@ -377,7 +377,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(0)
     if (!req) throw new Error('no scanReposRequest')
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -404,7 +404,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],

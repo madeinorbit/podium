@@ -26,7 +26,7 @@ describe('approval broker relay e2e (#410)', () => {
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     sA = registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
     daemonInbox = []
-    registry.modules.sessions.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
+    registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
   })
 
   afterEach(() => {
@@ -35,7 +35,7 @@ describe('approval broker relay e2e (#410)', () => {
 
   const relay = async (proc: string, input: unknown): Promise<RelayResult> => {
     const before = daemonInbox.length
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `ir${before}`,
       sessionId: asSessionId(sA),
@@ -68,7 +68,7 @@ describe('approval broker relay e2e (#410)', () => {
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
-    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+    registry.gateway.routeDaemonFrame(machineId, {
       type: 'approvalExecResult',
       requestId: id,
       ok: true,

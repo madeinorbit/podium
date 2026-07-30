@@ -17,7 +17,7 @@
  * this file characterizes the server behaviour those replays depend on.
  */
 
-import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -32,18 +32,18 @@ import {
 afterEach(() => disposeOracles())
 
 /** Bind a claude-code session live and idle so a send lands immediately. */
-function goIdle(o: ReturnType<typeof makeOracle>, sessionId: SessionId): void {
-  o.reg.modules.sessions.onDaemonMessageFrom('local', {
+function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
+  o.reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     cmd: 'claude',
     cwd: '/p',
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  o.reg.modules.sessions.onDaemonMessageFrom('local', {
+  o.reg.gateway.routeDaemonFrame('local', {
     type: 'agentState',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
   })
 }
@@ -197,6 +197,48 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     expect(o.store.sync.getAppliedMutation('m-wake')).toBeDefined()
   })
 
+  /**
+   * THE DUPLICATE-DELIVERY TEST (POD-729's acceptance criterion).
+   *
+   * `sendText` and `resumeAndSend` no longer carry a hand-written
+   * `withMutation` wrapper — idempotency is the framework envelope's, applied
+   * once in `dispatchSessionCommand`. That is a claim about behaviour, so it is
+   * asserted against behaviour: the same mutationId replayed must put NO second
+   * frame on the PTY. Asserting it by reading the source would be exactly the
+   * inspection the criterion rules out.
+   *
+   * Note the counterfactual in the second half. Without it, a fixture where the
+   * FIRST send never reached the PTY would pass this test just as happily as a
+   * working dedup — two empty frame lists compare equal.
+   */
+  it(`${MUST_NOT_CHANGE}: sessions.sendText dedupes its replay — the framework envelope, with no wrapper of its own`, async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goIdle(o, sessionId)
+    o.daemon.length = 0
+
+    await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
+    await waitFor(() => ptyFrames(o.daemon).length > 0, 'the first chat send to reach the PTY')
+    const afterFirst = ptyFrames(o.daemon)
+    // The instrument can say YES: something actually got delivered.
+    expect(afterFirst.length).toBeGreaterThan(0)
+
+    await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
+
+    expect(ptyFrames(o.daemon)).toEqual(afterFirst)
+    expect(o.store.sync.getAppliedMutation('m-send')).toBeDefined()
+
+    // THE COUNTERFACTUAL: a DIFFERENT mutationId is a different write and must
+    // deliver again. Without this the assertion above would also hold for a
+    // server that had simply stopped sending.
+    await o.call.sessions.sendText({ sessionId, text: 'run it twice', mutationId: 'm-send-2' })
+    await waitFor(
+      () => ptyFrames(o.daemon).length > afterFirst.length,
+      'the second, distinctly-keyed send to reach the PTY',
+    )
+    expect(ptyFrames(o.daemon).length).toBeGreaterThan(afterFirst.length)
+  })
+
   it(`${MUST_NOT_CHANGE}: a replay returns the value RECORDED at first apply, not a fresh read`, async () => {
     const o = makeOracle()
     const a = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
@@ -224,7 +266,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -232,7 +274,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },

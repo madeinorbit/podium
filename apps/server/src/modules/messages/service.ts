@@ -2343,6 +2343,20 @@ export class MessageDeliveryService {
     } catch {}
   }
 
+  /**
+   * The ceiling object this service's apply-time port was built from, or
+   * `undefined` when no port is wired (the single-user default).
+   *
+   * Exists so `MessageGate` can REFUSE AT BOOT to be composed against a
+   * different ceiling than the one delivery enforces — POD-728 asked for that
+   * pairing and could only document it. Reading the tag rather than comparing
+   * behaviour is deliberate: two ceilings that happen to agree today are still
+   * two ceilings, and identity is the property the invariant is about.
+   */
+  get appliedCeiling(): unknown {
+    return (this.deps.authorizeAtApply as { ceiling?: unknown } | undefined)?.ceiling
+  }
+
   /** {@link MessageDeliveryDeps.authorizeAtApply}, with the absent-port default
    *  stated once. Never memoized: D8 re-authorizes on EVERY apply, and a cached
    *  answer is the capability snapshot D16 refuses, one layer down. */

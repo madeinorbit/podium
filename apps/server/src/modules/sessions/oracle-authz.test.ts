@@ -193,7 +193,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
   it(`${AGENT_ONLY}: a self-stop is allowed, reports deferredKill, and the kill reaches the daemon strictly AFTER the reply`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
     // The session must be RUNNING for a kill to be deferred at all.
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId: agentSessionId,
       cmd: 'bash',

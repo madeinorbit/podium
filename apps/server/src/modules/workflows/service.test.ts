@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import { type WorkflowCaller, WorkflowService, workflowInputs } from './service'
@@ -7,19 +7,19 @@ const operator: WorkflowCaller = {
   actor: { kind: 'operator', id: null },
   protectedWrite: true,
 }
-const agent = (sessionId: SessionId, issueId = 'issue-1'): WorkflowCaller => ({
-  actor: { kind: 'session', id: sessionId },
+const agent = (sessionId: string, issueId = 'issue-1'): WorkflowCaller => ({
+  actor: { kind: 'session', id: asSessionId(sessionId) },
   capability: {
     role: 'worker',
     scope: { kind: 'subtree', rootId: asIssueId(issueId) },
-    actorSessionId: sessionId,
+    actorSessionId: asSessionId(sessionId),
   },
 })
 
 describe('WorkflowService', () => {
   let store: SessionStore
   let service: WorkflowService
-  let notices: Array<{ sessionId: SessionId; text: string }>
+  let notices: Array<{ sessionId: string; text: string }>
   const sessions = new Map([
     [
       's1',
@@ -100,7 +100,7 @@ describe('WorkflowService', () => {
 
     const revised = service.revise(
       { workflowId: task.workflow.id, instructions: 'new task rules', steps: [] },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
     expect(revised.version).toBe(2)
     expect(store.workflows.getRevision(task.revision.id)?.instructions).toBe('task rules')
@@ -111,17 +111,26 @@ describe('WorkflowService', () => {
   })
 
   it('requires approval authority for agent global publication/default changes', () => {
+    // POD-731: the global-scope hole is closed, so the SETUP changes — an agent
+    // can no longer create the global workflow this case needs. The brake it
+    // asserts is unchanged and now covers create as well as publish.
+    expect(() =>
+      service.create(
+        { name: 'Candidate', description: '', scope: 'global', instructions: 'rules', steps: [] },
+        agent('s1'),
+      ),
+    ).toThrow('approval required')
     const created = service.create(
       { name: 'Candidate', description: '', scope: 'global', instructions: 'rules', steps: [] },
-      agent(asSessionId('s1')),
+      operator,
     )
-    expect(() => service.publish({ revisionId: created.revision.id }, agent(asSessionId('s1')))).toThrow(
+    expect(() => service.publish({ revisionId: created.revision.id }, agent('s1'))).toThrow(
       'approval required',
     )
     expect(() =>
       service.assign(
         { targetKind: 'global', targetId: '', revisionId: created.revision.id },
-        agent(asSessionId('s1')),
+        agent('s1'),
       ),
     ).toThrow('approval required')
     expect(
@@ -159,22 +168,24 @@ describe('WorkflowService', () => {
       { targetKind: 'issue', targetId: 'issue-other', revisionId: other.revision.id },
       operator,
     )
-    expect(service.list({}, agent(asSessionId('s1'))).map((workflow) => workflow.id)).toContain(own.workflow.id)
-    expect(service.list({}, agent(asSessionId('s1'))).map((workflow) => workflow.id)).not.toContain(
+    expect(service.list({}, agent('s1')).map((workflow) => workflow.id)).toContain(own.workflow.id)
+    expect(service.list({}, agent('s1')).map((workflow) => workflow.id)).not.toContain(
       other.workflow.id,
     )
-    expect(() => service.get({ id: other.workflow.id }, agent(asSessionId('s1')))).toThrow(
-      'outside this session',
-    )
-    expect(service.bindings({}, agent(asSessionId('s1')))).toMatchObject([
+    // POD-731 CONVERGENCE (ADR 3 Amendment 1 D20.2): an invisible workflow id
+    // fails identically to an unknown one.
+    expect(() => service.get({ id: other.workflow.id }, agent('s1'))).toThrow('unknown workflow')
+    expect(service.bindings({}, agent('s1'))).toMatchObject([
       { targetKind: 'issue', targetId: 'issue-1' },
     ])
-    expect(() =>
-      service.assign(
-        { targetKind: 'issue', targetId: 'issue-1', revisionId: other.revision.id },
-        agent(asSessionId('s1')),
-      ),
-    ).toThrow('outside this session')
+    expect(
+      () =>
+        service.assign(
+          { targetKind: 'issue', targetId: 'issue-1', revisionId: other.revision.id },
+          agent('s1'),
+        ),
+      // POD-731 CONVERGENCE (D20.2): a revision id no longer confirms existence.
+    ).toThrow('unknown workflow revision')
   })
 
   it('reports an unavailable execution profile in prime and checkpoint responses', () => {
@@ -203,17 +214,20 @@ describe('WorkflowService', () => {
       issueId: 'issue-1',
       revisionId: created.revision.id,
     })
-    expect(service.prime({}, agent(asSessionId('s1')))).toContain(
+    expect(service.prime({}, agent('s1'))).toContain(
       'Execution profile unavailable: profile-missing',
     )
+    // POD-731: an advance against a stepped run must name its step or carry a
+    // mutation id, so an unnamed delivery cannot be told apart from a duplicate.
     const checkpoint = service.checkpoint(
       {
         runId: run.id,
+        stepId: 'review',
         status: 'active',
         summary: '',
         evidence: { summary: '', tests: [], artifacts: [] },
       },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
     expect(checkpoint.warnings).toContain('execution profile profile-missing is unavailable')
   })
@@ -307,7 +321,7 @@ describe('WorkflowService', () => {
           observedAt: '2026-07-13T12:00:00.000Z',
         },
       },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
     expect(first.message).toBe('Step complete. Next: Review')
     expect(first.warnings).toContain('step completed with uncommitted worktree changes')
@@ -320,7 +334,7 @@ describe('WorkflowService', () => {
       `podium workflow assign-step review <child-session-id> --run ${run.id}`,
     )
 
-    service.assignStep({ runId: run.id, stepId: 'review', sessionId: asSessionId('s2') }, agent(asSessionId('s1')))
+    service.assignStep({ runId: run.id, stepId: 'review', sessionId: asSessionId('s2') }, agent('s1'))
     const completed = service.checkpoint(
       {
         runId: run.id,
@@ -329,7 +343,7 @@ describe('WorkflowService', () => {
         summary: 'reviewed',
         evidence: { summary: '', tests: [], artifacts: [] },
       },
-      agent(asSessionId('s2')),
+      agent('s2'),
     )
     expect(completed.run.status).toBe('complete')
     expect(completed.message).toBe('Workflow complete.')
@@ -364,7 +378,7 @@ describe('WorkflowService', () => {
         instructions: 'version two',
         steps: [{ id: 'build', title: 'Build', instructions: '', completionGuidance: '' }],
       },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
 
     const prepared = service.prepareStart({
@@ -378,17 +392,18 @@ describe('WorkflowService', () => {
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
     expect(rehydrated?.prompt).not.toContain('version two')
-    expect(service.prime({}, agent(asSessionId('s2')))).toContain('role: issue participant')
-    expect(service.status({}, agent(asSessionId('s2'))).id).toBe(run.id)
+    expect(service.prime({}, agent('s2'))).toContain('role: issue participant')
+    expect(service.status({}, agent('s2')).id).toBe(run.id)
     expect(() =>
       service.checkpoint(
         {
           runId: run.id,
+          stepId: 'build',
           status: 'active',
           summary: '',
           evidence: { summary: '', tests: [], artifacts: [] },
         },
-        agent(asSessionId('s2')),
+        agent('s2'),
       ),
     ).toThrow('not assigned')
     expect(() =>
@@ -419,12 +434,12 @@ describe('WorkflowService', () => {
       issueId: 'issue-1',
       revisionId: created.revision.id,
     })
-    expect(() => service.adopt({ revisionId: 'missing' }, agent(asSessionId('s1')))).toThrow(
+    expect(() => service.adopt({ revisionId: 'missing' }, agent('s1'))).toThrow(
       'unknown workflow revision',
     )
     expect(store.workflows.getRun(run.id)?.status).toBe('active')
     expect(() =>
-      service.adopt({ revisionId: created.revision.id, startStepId: 'missing' }, agent(asSessionId('s1'))),
+      service.adopt({ revisionId: created.revision.id, startStepId: 'missing' }, agent('s1')),
     ).toThrow('workflow has no step missing')
     expect(store.workflows.getRun(run.id)?.status).toBe('active')
   })
@@ -440,12 +455,14 @@ describe('WorkflowService', () => {
         ],
       }),
     ).toThrow('duplicate workflow step id')
-    expect(() =>
-      service.profileSave(
-        { name: 'Shared', accountId: 'acct', harness: 'codex', model: 'auto', effort: 'auto' },
-        agent(asSessionId('s1')),
-      ),
-    ).toThrow('only the operator')
+    expect(
+      () =>
+        service.profileSave(
+          { name: 'Shared', accountId: 'acct', harness: 'codex', model: 'auto', effort: 'auto' },
+          agent('s1'),
+        ),
+      // POD-731: the refusal names the ACCOUNT GRADE (ADR 1 D6), not a role class.
+    ).toThrow('only an administrator')
     expect(() =>
       workflowInputs.profileSave.parse({ name: 'Bad', accountId: 'acct', harness: 'unknown' }),
     ).toThrow()
@@ -481,11 +498,11 @@ describe('WorkflowService', () => {
           { id: 'build', title: 'Build', instructions: 'new', completionGuidance: '' },
         ],
       },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
     const adopted = service.adopt(
       { revisionId: secondRevision.id, startStepId: 'build' },
-      agent(asSessionId('s1')),
+      agent('s1'),
     )
     expect(adopted.supersedesRunId).toBe(first.id)
     expect(adopted.revision.id).toBe(secondRevision.id)

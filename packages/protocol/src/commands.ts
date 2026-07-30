@@ -1,3 +1,4 @@
+import type { VisibilityClass } from '@podium/model'
 import type { z } from 'zod'
 import type { MachineVerb } from './handshake/strategies/types'
 
@@ -170,6 +171,35 @@ export type ConflictClass =
   | 'cmd'
   | 'op-stream'
 
+/**
+ * THE VISIBILITY CLASS OF WHAT A COMMAND WRITES (POD-382; ADR 9 D3/D4, readiness
+ * §3.1.1 rules 1 and 2).
+ *
+ * `policy` already says WHOSE authority a write answers to. This says which of ADR
+ * 9's five classes the state it writes belongs to — the question a scoped feed and
+ * a share dialog both ask, and the one nothing on this contract could answer
+ * before. The vocabulary is `@podium/model`'s `VisibilityClass`, imported rather
+ * than restated: a local union with the same five members typechecks, encodes
+ * identically and drifts the first time ADR 9 gains a class.
+ *
+ * IT IS OPTIONAL ON THE TYPE AND MANDATORY ON THE SESSION FAMILY, and those are
+ * two different mechanisms on purpose (the same split `visibilityClassOf` and
+ * `matrix.test.ts` already carry for entity classes):
+ *
+ *   - {@link commandVisibility} resolves an absent declaration to `personal` —
+ *     private to its owner, never tenant-visible. The SEMANTIC backstop, which
+ *     holds with every test deleted.
+ *   - `scripts/audit-session-commands.ts` FAILS THE BUILD when a session-family
+ *     command omits it. Forgetting to classify must fail toward privacy AND
+ *     toward a red build; neither substitutes for the other.
+ *
+ * It is a DECLARATION, not a derivation from `policy.resource`, even though the
+ * two agree on every contract today and the audit checks that they agree. Deriving
+ * it would make the implication silent and unauditable, and would erase the place a
+ * legitimate exception could be written down and reviewed.
+ */
+export type { VisibilityClass }
+
 export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknown> {
   /** Input schema — the one validation source for tRPC/CLI/MCP alike. */
   input: In
@@ -189,6 +219,9 @@ export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknow
   redaction?: CommandRedaction
   /** ADR 1 conflict class this command's target arbitrates under. */
   conflict?: ConflictClass
+  /** VISIBILITY CLASS of the state this command writes — see {@link VisibilityClass}
+   *  above. Absent ⇒ `personal` (default-closed); required on the session family. */
+  visibility?: VisibilityClass
   /** Free-text decision record: a fork resolved on this contract, so the
    *  reasoning ships with the code rather than only in a commit message. */
   decision?: string
@@ -204,6 +237,18 @@ export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknow
  */
 export function commandExposure(def: CommandDef): readonly CommandTransport[] {
   return def.exposure ?? []
+}
+
+/**
+ * THE default-closed visibility read (ADR 9 D4, readiness §3.1.1 rule 1): an
+ * undeclared command writes `personal` state — private to its owner, never
+ * tenant-visible, never substrate.
+ *
+ * One implementation, like {@link commandExposure}, so no surface can grow its own
+ * `?? 'deployment-substrate'` convenience.
+ */
+export function commandVisibility(def: CommandDef): VisibilityClass {
+  return def.visibility ?? 'personal'
 }
 
 /** Whether `transport` may serve `def`. The single exposure gate. */

@@ -1,9 +1,20 @@
-import {
-  AgentKind,
-  asIssueId,
-  asSessionId,
+import { sessionSpawnerParentId } from '../../steward'
+import type {
+  AccountId,
+  ActorRef,
+  AgentRuntimeState,
+  AutomationRunWire,
+  AutomationWire,
+  Geometry,
+  IssueId,
+  IssueWire,
+  ResumeRef,
+  SessionId,
+  SessionMeta,
+  TranscriptItem,
+  WorkState,
 } from '@podium/model'
-import type { AccountId, ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueId, IssueWire, ResumeRef, SessionId, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import { AgentKind, asIssueId, asSessionId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -20,18 +31,23 @@ import type { AccountId, ActorRef, AgentRuntimeState, AutomationRunWire, Automat
  * overloading `null`.
  */
 export type SessionWirePrincipal = ActorRef
+
+import type { MachinePrincipal } from '@podium/protocol'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
+import type { ClientPrincipal } from '../../gateway/client-principal'
+import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  agentSupportsEffort,
+  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -49,7 +65,7 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import type { EntityChangeSpec } from '@podium/sync'
+import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 // OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
@@ -63,6 +79,7 @@ import {
   sessionsForIssue,
 } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
+import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -89,6 +106,9 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
+import { machineUseGateForCapability } from './handoff/access'
+import { HandoffCoordinator } from './handoff/coordinator'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import {
@@ -96,10 +116,8 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import { legacyAdminMachineUse } from './handoff/access'
-import { HandoffCoordinator } from './handoff/coordinator'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -112,7 +130,6 @@ import {
   type PublishWorkerMetrics,
 } from './publish-worker-client'
 import {
-  type ClientConn,
   type ClientPublicationAuthority,
   type PublicationAuthority,
   type Send,
@@ -239,12 +256,42 @@ interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
+   * `MutationLedger`. Threaded through rather than constructed here — the service
+   * owns no dedup of its own since `withMutation` was deleted, and a
+   * service-built ledger would be a second in-flight map over one durable table.
+   *
+   * Optional so the ~40 test fixtures that build a bare service literal keep
+   * compiling; absent means a private ledger over the same store, which is
+   * behaviourally identical for the synchronous presence writes that reach it and
+   * is the only path that can be reached without the composition root.
+   */
+  mutations?: MutationLedgerPort
   /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
    *  fan-out tail; session deltas ride its ordered pipe via the ledger bridge. */
   funnel: WriteFunnel
   /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
    *  write + declared session change atomically; loadFromStore reconciles. */
   ledger: SessionLedger
+  /**
+   * THE GATEWAY's client connection set (POD-390). Threaded in rather than
+   * constructed here: the mux owns the lifecycle, and a service-built registry
+   * would be a second connection set.
+   *
+   * Optional for the same reason `mutations` is — the ~40 test fixtures that
+   * build a bare service literal keep compiling, and absent means a private
+   * registry that only this service can reach (no socket can ever enter it), the
+   * client-plane mirror of the daemon mux's in-process peer form.
+   */
+  clients?: ClientRegistry
+  /**
+   * Evict a client connection through the GATEWAY (registry removal + the sweep),
+   * for the one place a feature initiates a disconnect: the reconnect reclaim,
+   * where a client's `hello` supersedes its own previous socket. Absent = the
+   * in-process fallback below.
+   */
+  disconnectClient?(id: string): void
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
@@ -266,13 +313,12 @@ interface SessionsServiceDeps {
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
-  /** Relayed agent op (modules/issues/relay-gate). */
-  runAgentRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>): void
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
-  /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
-  onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
+  /** Approval broker [spec:SP-edbb]: the attach snapshot. The daemon execution
+   *  OUTCOME no longer arrives here — `approvalExecResult` routes straight from
+   *  the gateway to the approvals port (POD-389). */
   approvalsPending(): ApprovalWire[]
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
@@ -309,7 +355,16 @@ export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
   readonly sessions = new Map<SessionId, Session>()
-  readonly clients = new Map<string, ClientConn>()
+  /**
+   * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
+   *
+   * Held as a reference, not constructed here: `gateway/client-mux.ts` adds and
+   * removes entries, and this service only READS the set to decide who a given
+   * message is for. That read is the fan-out's selection half and it stays a
+   * feature concern (see `gateway/client-registry.ts`); the delivery half is the
+   * registry's methods.
+   */
+  readonly clients: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
   private readonly observationLeases = new Map<SessionId, ObservationLeaseRecord>()
@@ -399,7 +454,6 @@ export class SessionsService {
   // Interim until POD-308 deletes the snapshot fan-out.
   private issueProjectionGeneration = 0
   private lastIssueProjectionGeneration = -1
-  private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
@@ -414,6 +468,8 @@ export class SessionsService {
   constructor(private readonly deps: SessionsServiceDeps) {
     this.store = deps.store
     this.now = deps.now
+    this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
+    this.clients = deps.clients ?? new ClientRegistry()
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
@@ -1055,20 +1111,20 @@ export class SessionsService {
     })
   }
 
-  attachDaemon(machineId: string, send: Send<ControlMessage>): void {
-    // Socket bookkeeping (set + machine-cache invalidation) lives in the machines
-    // module; the session orchestration around it stays here.
-    this.machines.attach(machineId, send)
-    // The local machine adopts every lingering `'__local__'` placeholder row/session/
-    // queue onto itself as it attaches. ensureLocalMachine already ran this at startup,
-    // but a session created in the gap between that and the daemon connecting (the boot
-    // race) is still attributed to `'__local__'` — adopting on attach reattributes it and
-    // carries its queued spawn over to this machine so it isn't dead-queued. Idempotent.
-    if (machineId === LOCAL_MACHINE_ID) this.machines.adoptPlaceholderRows(machineId)
-    // Flush control messages buffered while this machine was offline (e.g. a boot
-    // session's spawn produced before the local daemon ws connected). AFTER adoption,
-    // so messages carried over from the placeholder queue flush too.
-    this.machines.flushQueued(machineId)
+  /**
+   * A machine's daemon became reachable — the SESSION half of what `attachDaemon`
+   * used to do inline. The socket registration, the placeholder adoption, the
+   * queued-control flush, the machine broadcast and the `machine.connected` bus
+   * emit are the gateway's (`gateway/daemon-mux.ts`); everything below is session
+   * orchestration and stays here, in its original order.
+   *
+   * `principal` is the transport-resolved MACHINE principal (ADR 3 D7). Every
+   * write these steps make is a daemon-class observation attributed to that
+   * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
+   * class; `docs/multi-user-readiness.md` §3.1.6 S5).
+   */
+  onMachineAttached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
     // attempts parked while the daemon was away (single-flight + liveness wait make
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
@@ -1174,18 +1230,16 @@ export class SessionsService {
           }
         })
     }
-    this.machines.broadcastMachines()
-    this.bus.emit('machine.connected', { machineId })
   }
 
-  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
-    // A superseded socket's late close must not tear down the live registration, nor
-    // knock this machine's sessions back to 'reconnecting' behind the daemon's back.
-    if (!this.machines.detach(machineId, send)) return
-    // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
-    // module drops this machine's health sample + rebroadcasts BEFORE the session
-    // sweep below, exactly where the inline delete used to sit.
-    this.bus.emit('machine.disconnected', { machineId })
+  /**
+   * That machine's daemon went away — the SESSION half of `detachDaemon`. The
+   * superseded-socket guard, the `machine.disconnected` emit and the machine
+   * broadcast are the gateway's; this runs only once the gateway has decided the
+   * detach is real, in the same position it occupied before.
+   */
+  onMachineDetached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
     // restart/crash; durable masters survive in their own scopes). Drop only THIS
     // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
@@ -1206,7 +1260,6 @@ export class SessionsService {
       for (const session of changed) this.markVolatileSessionDirty(session.sessionId, ['status'])
       this.broadcastSessions()
     }
-    this.machines.broadcastMachines()
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
@@ -1931,7 +1984,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: SessionId, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: SessionId,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
@@ -2102,9 +2159,18 @@ export class SessionsService {
       sessions: this,
       store: this.store,
       now: () => this.now(),
+      mutations: this.mutations,
     })
     return this.presenceRegistry
   }
+
+  /**
+   * The framework's idempotency ledger — the composition root's instance when it
+   * supplied one, else a private one over the same durable table (see
+   * {@link SessionsServiceDeps.mutations}). Assigned in the constructor body, not
+   * as a field initializer: `this.store` is not set until then.
+   */
+  private readonly mutations: MutationLedgerPort
 
   /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
    *  send `setSessionDraft` are handled by that method's flag gate. */
@@ -2140,7 +2206,10 @@ export class SessionsService {
       at,
     })
     if (result.status === 'rejected') {
-      if (fromClientId) this.clients.get(fromClientId)?.send(this.draftDocWire(result.doc))
+      if (fromClientId) {
+        const origin = this.clients.get(fromClientId)
+        if (origin) this.clients.deliver(origin, this.draftDocWire(result.doc))
+      }
       return
     }
     if (!result.changed) return
@@ -2408,54 +2477,19 @@ export class SessionsService {
   }
 
   /**
-   * Idempotency wrapper (docs/spec/outbox-write-path.md §2.1): a mutation carrying
-   * an already-seen mutationId returns its recorded result WITHOUT re-running —
-   * what makes outbox replays and network retries safe. Check-run-record is one
-   * synchronous pass (no await), so replays can't interleave with the original.
+   * IDEMPOTENCY IS NOT THIS SERVICE'S ANYMORE (POD-382).
+   *
+   * `withMutation(mutationId, proc, fn)` lived here and every session write, plus
+   * the whole issue registry through an injected reference to it, wrapped itself in
+   * it. It is now `@podium/sync`'s `MutationLedger` — one implementation, called by
+   * the command envelopes (`PresenceRegistry.execute`, `dispatchSessionCommand`,
+   * `IssueCommandCtx.withMutation`) AFTER they authorize, never by a handler.
+   *
+   * Deliberately not re-exposed as a delegating method: a method here is a seam a
+   * new write can wrap itself in, which is exactly the per-proc shape POD-312 set
+   * out to delete. The service holds {@link SessionsService.mutations} privately
+   * for the presence envelope it builds and offers no public wrapper.
    */
-  /** Async mutations in flight, so a replay arriving before the original resolves
-   *  (e.g. both calls in one tRPC HTTP batch) joins the SAME promise instead of
-   *  re-running — the async analogue of the sync check-run-record pass. */
-  private readonly inFlightMutations = new Map<string, Promise<unknown>>()
-
-  withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T {
-    if (!mutationId) return fn()
-    const prior = this.store.sync.getAppliedMutation(mutationId)
-    if (prior !== undefined) return JSON.parse(prior) as T
-    const inFlight = this.inFlightMutations.get(mutationId)
-    if (inFlight !== undefined) return inFlight as T
-    const result = fn()
-    // An async proc (issues.create → createAndMaybeStart) must record its RESOLVED
-    // value: stringifying the pending Promise itself would durably record '{}' —
-    // poisoning every replay — and would mark a rejected mutation as applied.
-    if (result instanceof Promise) {
-      const tracked = result.then(
-        (value) => {
-          this.store.sync.recordAppliedMutation(
-            mutationId,
-            proc,
-            JSON.stringify(value ?? null),
-            this.now(),
-          )
-          this.inFlightMutations.delete(mutationId)
-          return value
-        },
-        (err) => {
-          this.inFlightMutations.delete(mutationId)
-          throw err
-        },
-      )
-      this.inFlightMutations.set(mutationId, tracked)
-      return tracked as T
-    }
-    this.store.sync.recordAppliedMutation(
-      mutationId,
-      proc,
-      JSON.stringify(result ?? null),
-      this.now(),
-    )
-    return result
-  }
 
   /**
    * The write funnel's session-metadata face: apply the field write, persist the
@@ -3137,7 +3171,20 @@ export class SessionsService {
    * the coordinator calls it again at each apply point.
    */
   machineUseGate: (caller: HandoffCaller) => AssertMachineUse = (caller) =>
-    legacyAdminMachineUse({ capability: caller.capability })
+    machineUseGateForCapability({
+      capability: caller.capability,
+      // POD-381's delegation index, read from live rows: an agent's chain is
+      // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
+      // cannot carry a delegator its parent lacks (D16.2).
+      // One parser for the `session:<id>` tag (POD-362): it brands what it
+      // EXTRACTS while leaving the tag itself raw, which entities/session.ts
+      // records as deliberate. This was the third hand-rolled copy of the slice.
+      parentSessionOf: (sessionId) =>
+        sessionSpawnerParentId(
+          this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
+        ),
+      ownership: ownershipFromMachines(this.machines),
+    })
 
   /**
    * ONE coordinator for the life of this service, not one per call: its
@@ -3170,7 +3217,8 @@ export class SessionsService {
       broadcastSessions: () => this.broadcastSessions(),
       onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onWorktreesChanged: (repoPath, machineId) => this.deps.onWorktreesChanged(repoPath, machineId),
+      onWorktreesChanged: (repoPath, machineId) =>
+        this.deps.onWorktreesChanged(repoPath, machineId),
       resumeSession: (resumeInput) => this.resumeSession(resumeInput),
       resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
       recordEvent: (event) => {
@@ -3957,38 +4005,22 @@ export class SessionsService {
     return resolveAccountEnv(this.store.accounts, accountId)
   }
 
-  // ---- ws data plane: clients ----
-  attachClient(send: Send<ServerMessage>, publication?: ClientPublicationAuthority): string {
-    const id = `c${this.nextClientNum++}`
-    this.clients.set(id, {
-      id,
-      send,
-      ...(publication ? { publication } : {}),
-      publicationBootstrapped: false,
-      publicationPending: false,
-      publicationRequestVersion: 0,
-      publicationBufferedChanges: [],
-      viewports: new Map(),
-      attached: new Set(),
-      // No caps until hello — the bootstrap snapshots below are sent to everyone
-      // (a delta client uses them as its initial paint, then takes a cursor via
-      // sync.changesSince and rides the metadataDelta stream).
-      caps: new Set(),
-      transcriptSubs: new Set(),
-      // Fail-safe toward notifying: a client counts as NOT watching until it
-      // tells us otherwise (every browser client sends `presence` right after
-      // connecting). Defaulting to visible:true let one stale/non-browser client
-      // silently suppress all mobile push forever.
-      visible: false,
-      // View-state defaults to "renders nothing, focuses nothing" until the client
-      // sends its first `viewState`. A session reads as unwatched (tier 3) until then.
-      viewVisible: new Set(),
-      focused: null,
-      // Rendered-mode map (native/chat) per session. Stored from viewState but NOT
-      // consulted by scheduling — see ClientConn.viewModes.
-      viewModes: {},
-    })
-    send({ type: 'welcome', clientId: id })
+  // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
+  /**
+   * A client connection was admitted: send it the world it is owed.
+   *
+   * This used to be the tail of `attachClient`, which also minted the id,
+   * registered the socket and sent `welcome`. Those are the gateway's now
+   * (POD-390) and this is what remains: the session/issue/conversation/machine
+   * bootstrap, byte-for-byte and in the same order.
+   *
+   * The `principal` is carried, not consulted — the bootstrap is NOT scoped by it
+   * today (the publication AUTHORITY is what narrows a scoped socket, exactly as
+   * before). POD-1077 is where a principal starts deciding content.
+   */
+  onClientAttached(_principal: ClientPrincipal, client: ClientConn): void {
+    const send = client.send
+    const publication = client.publication
     if (publication) this.schedulePreparedSessionPublications()
     else send({ type: 'sessionsChanged', sessions: this.listSessions() })
     // Until an authority supplies per-kind worlds, a scoped socket is explicitly
@@ -4021,7 +4053,6 @@ export class SessionsService {
       // needs-attention affordance for the next client. [spec:SP-a43e]
       for (const request of this.pendingOpenUrls.values()) send(request)
     }
-    return id
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */
@@ -4079,9 +4110,16 @@ export class SessionsService {
     })
   }
 
-  detachClient(id: string): void {
-    const client = this.clients.get(id)
-    if (!client) return
+  /**
+   * A client connection is gone: sweep the session state it held.
+   *
+   * The gateway has ALREADY removed it from the connection set when this runs
+   * (`client-mux.ts` explains why that ordering is behaviour-identical: every
+   * read below is off the connection object or the per-session client maps, and
+   * the two recomputes at the end always ran after the removal anyway).
+   */
+  onClientDetached(_principal: ClientPrincipal, client: ClientConn): void {
+    const id = client.id
     for (const sessionId of client.attached) {
       this.mutateSessionView(sessionId, (session) => session.detachClient(id), false)
     }
@@ -4090,7 +4128,6 @@ export class SessionsService {
     // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
     for (const sessionId of client.transcriptSubs)
       this.sessions.get(sessionId)?.unsubscribeTranscript(id)
-    this.clients.delete(id)
     // A gone client no longer attaches/views/focuses anything — recompute so the
     // sessions it was watching can drop priority (and the daemon stops relaying
     // them live).
@@ -4146,7 +4183,7 @@ export class SessionsService {
     const focused = clients.filter((client) => client.focused === request.sessionId)
     const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
     const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
-    for (const client of recipients) client.send(request)
+    for (const client of recipients) this.clients.deliver(client, request)
   }
 
   private onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
@@ -4168,7 +4205,7 @@ export class SessionsService {
     const request = this.pendingOpenUrls.get(requestKey)
     const session = this.sessions.get(message.sessionId)
     if (!request || !session || request.expiresAt <= this.now()) {
-      client.send({
+      this.clients.deliver(client, {
         type: 'sessionOpenUrlResult',
         sessionId: message.sessionId,
         requestId: message.requestId,
@@ -4208,12 +4245,36 @@ export class SessionsService {
     for (const sessionId of prior.attached) {
       this.sessions.get(sessionId)?.reassignController(priorId, next.id)
     }
-    this.detachClient(priorId)
+    // Disconnect through the GATEWAY: the connection set is its, so the removal
+    // and the sweep must stay one operation. The fallback is the in-process form
+    // (a service built without a gateway, i.e. a test fixture) and does exactly
+    // what the mux does.
+    if (this.deps.disconnectClient) this.deps.disconnectClient(priorId)
+    else if (this.clients.delete(priorId)) this.onClientDetached(prior.principal, prior)
   }
 
-  onClientMessage(id: string, msg: ClientMessage): void {
-    const client = this.clients.get(id)
-    if (!client) return
+  /**
+   * One SESSION-OWNED client frame, attributed to the connection it arrived on.
+   *
+   * This used to be `onClientMessage` — a switch over the WHOLE client union
+   * reached by id lookup, which made the sessions service the multiplexer AND
+   * the socket owner for the client plane. The mux is the gateway's now
+   * (POD-390); what remains is the session-owned subset the routing table
+   * assigns to this port, with `SessionsClientFrame` making that subset a
+   * compile-checked type rather than a comment. `ping`/`pong` is no longer here:
+   * a liveness echo is transport, and the gateway answers it.
+   *
+   * The principal is carried and not consulted: authorization on this plane is
+   * the command envelope's (`sessions.setDraft` below routes through it), and a
+   * device-grade principal has nothing to decide that today's single-user trust
+   * model does not already settle. See `gateway/client-principal.ts`.
+   */
+  onSessionClientFrame(
+    _principal: ClientPrincipal,
+    client: ClientConn,
+    msg: SessionsClientFrame,
+  ): void {
+    const id = client.id
     switch (msg.type) {
       case 'hello':
         // `hello.viewport` is a connection bootstrap hint, not a measured grid
@@ -4335,9 +4396,6 @@ export class SessionsService {
       case 'sessionOpenUrlDismiss':
         this.dismissOpenUrl(msg)
         break
-      case 'ping':
-        client.send({ type: 'pong' })
-        break
     }
   }
 
@@ -4390,21 +4448,26 @@ export class SessionsService {
     })
   }
 
-  // ---- ws data plane: daemon ----
-  /** Inbound daemon message, tagged with the machine it came from. Session-keyed
-   *  handlers (bind/agentFrame/agentExit/…) look up by sessionId and are machine-
-   *  agnostic; host-scoped ones (hostMetrics, conversation discovery) use machineId
-   *  to scope/tag their data; `*Result` replies settle in the RPC module. */
-  onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
+  // ---- the sessions FEATURE PORT for daemon frames (gateway/daemon-mux.ts) ----
+  /**
+   * One SESSION-OWNED daemon frame, attributed to the machine that sent it.
+   *
+   * This used to be `onDaemonMessageFrom` — a switch over the WHOLE daemon union,
+   * which made the sessions service the multiplexer for host metrics, repo scans,
+   * credential relays, approvals, the agent relay and every RPC reply. The mux is
+   * the gateway's now (POD-389); what remains is the session-keyed subset the
+   * routing table assigns to this port, and `SessionsDaemonFrame` makes that
+   * subset a compile-checked type rather than a comment.
+   *
+   * The frames are session-keyed and machine-agnostic in their LOOKUP, but the
+   * machine still matters: several cases refuse a frame from a machine that does
+   * not own the session (handoff leaves a stale daemon able to send late frames
+   * for a session id now hosted elsewhere), and every write they make is a
+   * daemon-class observation attributed to `principal`.
+   */
+  onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
+    const machineId = principal.machine
     switch (msg.type) {
-      case 'approvalExecResult': {
-        this.deps.onApprovalExecResult(msg)
-        return
-      }
-      case 'agentRelayRequest': {
-        this.deps.runAgentRelay(machineId, msg)
-        break
-      }
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
         // A daemon may only originate intents for sessions it owns. The bus is
@@ -4922,28 +4985,6 @@ export class SessionsService {
         this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
         break
       }
-      case 'scanResult': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        this.rpc.onScanResult(msg)
-        break
-      }
-      case 'conversationsChanged': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        break
-      }
-      case 'scanReposResult': {
-        this.rpc.onScanReposResult(msg)
-        break
-      }
-      case 'browseDirsResult': {
-        this.rpc.onBrowseDirsResult(msg)
-        break
-      }
-      case 'hostMetrics': {
-        const { type: _type, ...rest } = msg
-        this.hosts.onHostMetrics(machineId, rest)
-        break
-      }
       case 'sessionResumeRef': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
@@ -5095,102 +5136,6 @@ export class SessionsService {
         }
         break
       }
-      case 'handoffExportResult': {
-        this.rpc.onHandoffExportResult(msg)
-        break
-      }
-      case 'handoffChunkReadResult': {
-        this.rpc.onHandoffChunkReadResult(msg)
-        break
-      }
-      case 'handoffImportChunkResult': {
-        this.rpc.onHandoffImportChunkResult(msg)
-        break
-      }
-      case 'handoffImportResult': {
-        this.rpc.onHandoffImportResult(msg)
-        break
-      }
-      case 'workspaceExportResult': {
-        this.rpc.onWorkspaceExportResult(msg)
-        break
-      }
-      case 'workspaceImportResult': {
-        this.rpc.onWorkspaceImportResult(msg)
-        break
-      }
-      case 'workspaceCleanResult': {
-        this.rpc.onWorkspaceCleanResult(msg)
-        break
-      }
-      case 'repoOpResult': {
-        this.rpc.onRepoOpResult(msg)
-        break
-      }
-      case 'credentialExportResult': {
-        this.rpc.onCredentialExportResult(msg)
-        break
-      }
-      case 'credentialInstallResult': {
-        this.rpc.onCredentialInstallResult(msg)
-        break
-      }
-      case 'harnessExecResult': {
-        this.rpc.onHarnessExecResult(msg)
-        break
-      }
-      case 'headlessTurnEvent': {
-        this.headless.onTurnEvent(msg)
-        break
-      }
-      case 'headlessTurnResult': {
-        this.headless.onTurnResult(msg)
-        break
-      }
-      case 'headlessBindResult': {
-        this.headless.onBindResult(msg)
-        break
-      }
-      case 'usageResult': {
-        this.rpc.onUsageResult(msg)
-        break
-      }
-      case 'agentQuotaResult': {
-        this.rpc.onAgentQuotaResult(msg)
-        break
-      }
-      case 'transcriptReadResult': {
-        this.rpc.onTranscriptReadResult(msg)
-        break
-      }
-      case 'transcriptMirrorResult': {
-        this.conversations().onTranscriptMirrorResult(msg)
-        break
-      }
-      case 'imageUploadResult': {
-        this.rpc.onImageUploadResult(msg)
-        break
-      }
-      case 'memoryBreakdownResult': {
-        this.hosts.onMemoryBreakdownResult(msg)
-        break
-      }
-      case 'fileReadResult': {
-        this.rpc.onFileReadResult(msg)
-        break
-      }
-      case 'fileWriteResult': {
-        this.rpc.onFileWriteResult(msg)
-        break
-      }
-      case 'fileAssetResult': {
-        this.rpc.onFileAssetResult(msg)
-        break
-      }
-      case 'dirListResult': {
-        this.rpc.onDirListResult(msg)
-        break
-      }
     }
   }
 
@@ -5201,12 +5146,14 @@ export class SessionsService {
   /** Raw fan-out to every connected client. Typed LIVE-ONLY (modules/
    *  message-class, issue #190): durable entity messages must go through the
    *  write funnel's publish tail instead, so passing one here is a type error.
-   *  `exceptClientId` skips the originator (draft echo suppression). */
+   *  `exceptClientId` skips the originator (draft echo suppression).
+   *
+   *  The MECHANISM is the gateway registry's (POD-390); this method is the
+   *  feature's typed entry point to it, and the LiveServerMessage constraint is
+   *  why it stays a method rather than becoming a call to `registry.broadcast`
+   *  at 8 sites — the registry deliberately has no opinion about message class. */
   broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {
-    for (const c of this.clients.values()) {
-      if (c.id === opts.exceptClientId) continue
-      c.send(msg)
-    }
+    this.clients.broadcast(msg, opts)
   }
 
   // Coalescing state for broadcastSessions() (bind-storm fix). Design: the FIRST
@@ -5370,9 +5317,9 @@ export class SessionsService {
     for (const c of this.clients.values()) {
       if (c.publication && (snapshot.type === 'sessionsChanged' || !c.publication.global)) continue
       if (c.caps.has(CAP_METADATA_DELTA)) {
-        if (opts.snapshotToCapClients) c.send(snapshot)
+        if (opts.snapshotToCapClients) this.clients.deliver(c, snapshot)
       } else {
-        c.send(snapshot)
+        this.clients.deliver(c, snapshot)
       }
     }
   }
@@ -5451,7 +5398,8 @@ export class SessionsService {
       (sessionId) => !allowed.has(sessionId) && !alreadyRemoved.has(sessionId),
     )
     if (removedSessionIds.length === 0) return
-    client.publication.sendPrepared(
+    this.clients.deliverPrepared(
+      client,
       JSON.stringify({ type: 'sessionViewDelta', removedSessionIds } satisfies ServerMessage),
     )
     for (const sessionId of removedSessionIds) alreadyRemoved.add(sessionId)
@@ -5554,7 +5502,7 @@ export class SessionsService {
             ) {
               continue
             }
-            client.publication.sendPrepared(publication.bytes)
+            this.clients.deliverPrepared(client, publication.bytes)
             client.publicationBootstrapped = true
             client.publicationPending = false
             client.publicationAccepted = {
@@ -5571,7 +5519,8 @@ export class SessionsService {
               for (const changes of buffered) {
                 const last = changes.at(-1)
                 if (!last) continue
-                client.publication.sendPrepared(
+                this.clients.deliverPrepared(
+                  client,
                   JSON.stringify({
                     type: 'metadataDelta',
                     seq: last.seq,
@@ -5625,7 +5574,7 @@ export class SessionsService {
     for (const c of this.clients.values()) {
       if (!c.caps.has(CAP_METADATA_DELTA)) continue
       if (!c.publication) {
-        c.send(delta)
+        this.clients.deliver(c, delta)
         continue
       }
       // Scoped publication clients never see the raw global batch. The worker
@@ -5640,7 +5589,7 @@ export class SessionsService {
         continue
       }
       encoded ??= JSON.stringify(delta)
-      c.publication.sendPrepared(encoded)
+      this.clients.deliverPrepared(c, encoded)
     }
   }
 

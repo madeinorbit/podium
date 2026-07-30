@@ -35,14 +35,14 @@ async function harness() {
   const bindReqs: BindReq[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
-  registry.modules.sessions.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon('local', (m) => {
     if (m.type === 'headlessTurnRequest') turnReqs.push(m)
     if (m.type === 'headlessBind') bindReqs.push(m)
     if (m.type === 'spawn') spawns.push(m)
     if (m.type === 'headlessInterrupt') interrupts.push(m.sessionId)
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.modules.sessions.onDaemonMessageFrom('local', {
+        registry.gateway.routeDaemonFrame('local', {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -52,7 +52,7 @@ async function harness() {
     }
     if (m.type === 'transcriptRead') {
       queueMicrotask(() =>
-        registry.modules.sessions.onDaemonMessageFrom('local', {
+        registry.gateway.routeDaemonFrame('local', {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -67,13 +67,13 @@ async function harness() {
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
-  registry.modules.sessions.attachClient((m) => clientMsgs.push(m))
+  registry.clientGateway.attachClient((m) => clientMsgs.push(m))
   const activity = () => clientMsgs.flatMap((m) => (m.type === 'headlessActivity' ? [m] : []))
   const resolveTurn = (
     req: TurnReq,
     result?: { ok?: boolean; error?: string; harnessSessionId?: string; output?: string },
   ) => {
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'headlessTurnResult',
       requestId: req.requestId,
       ok: result?.ok ?? true,
@@ -309,7 +309,7 @@ describe('sendTurn (headless harness turns)', () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     const req = h.turnReqs[0]!
-    h.registry.modules.sessions.onDaemonMessageFrom('local', {
+    h.registry.gateway.routeDaemonFrame('local', {
       type: 'headlessTurnEvent',
       requestId: req.requestId,
       sessionId: podiumSessionId,
@@ -582,7 +582,7 @@ describe('boot reconciliation for headless sessions', () => {
     const reborn = new SessionRegistry(store)
     registries.push(reborn)
     const replayed: TurnReq[] = []
-    reborn.modules.sessions.attachDaemon('local', (message) => {
+    reborn.gateway.attachDaemon('local', (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
@@ -610,7 +610,7 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
-    reborn.modules.sessions.attachDaemon('local', (message) => {
+    reborn.gateway.attachDaemon('local', (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
     })
@@ -629,7 +629,7 @@ describe('boot reconciliation for headless sessions', () => {
     })
     expect(replay.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
 
-    reborn.modules.sessions.onDaemonMessageFrom('local', {
+    reborn.gateway.routeDaemonFrame('local', {
       type: 'headlessTurnResult',
       requestId: replay.requestId,
       ok: true,
@@ -662,11 +662,11 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []
-    reborn.modules.sessions.attachDaemon('local', (m) => {
+    reborn.gateway.attachDaemon('local', (m) => {
       if (m.type === 'headlessBind') {
         binds.push(m)
         queueMicrotask(() =>
-          reborn.modules.sessions.onDaemonMessageFrom('local', {
+          reborn.gateway.routeDaemonFrame('local', {
             type: 'headlessBindResult',
             requestId: m.requestId,
             ok: true,

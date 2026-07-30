@@ -43,7 +43,6 @@
  * throw a "forbidden" error the way an issue command does.
  */
 
-import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
 import {
   asIssueId,
   asSessionId,
@@ -55,6 +54,8 @@ import {
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
+import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { SessionsService } from './service'
 
@@ -120,10 +121,7 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
  */
-export function soleHumanWsPrincipal(
-  capability: Capability,
-  clientId: string,
-): PresencePrincipal {
+export function soleHumanWsPrincipal(capability: Capability, clientId: string): PresencePrincipal {
   return { ...soleHumanPrincipal(capability), clientId }
 }
 
@@ -143,6 +141,16 @@ export interface PresenceDeps {
   sessions: SessionsService
   store: SessionStore
   now: () => number
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382) — `@podium/sync`'s `MutationLedger`, the ONE
+   * implementation, injected rather than re-implemented here.
+   *
+   * This envelope used to hold its own copy of check-run-record over
+   * `store.sync`. Two copies over one durable table is how a replay applies
+   * twice, and the copy here was the second of three; the third was
+   * `SessionsService.withMutation`, which this issue deleted.
+   */
+  mutations: MutationLedgerPort
 }
 
 /**
@@ -397,26 +405,15 @@ export class PresenceRegistry {
       return { outcome: 'denied' }
     }
 
-    // 4. IDEMPOTENCY — framework-owned, one implementation, no per-handler seam.
+    // 4. IDEMPOTENCY + 5. THE HANDLER — the framework's ledger runs the handler at
+    //    most once per mutationId and reports which happened. One implementation,
+    //    shared with the command plane and the issue registry, and no per-handler
+    //    seam to omit it from.
     const mutationId = typeof input.mutationId === 'string' ? input.mutationId : undefined
-    if (mutationId) {
-      const prior = this.deps.store.sync.getAppliedMutation(mutationId)
-      if (prior !== undefined) {
-        return { outcome: 'replayed', value: JSON.parse(prior) as unknown }
-      }
-    }
-
-    // 5. THE HANDLER.
-    const value = registration.handler(input, principal, this.deps)
-    if (mutationId) {
-      this.deps.store.sync.recordAppliedMutation(
-        mutationId,
-        name,
-        JSON.stringify(value ?? null),
-        this.deps.now(),
-      )
-    }
-    return { outcome: 'applied', value }
+    const applied = this.deps.mutations.apply(mutationId, name, () =>
+      registration.handler(input, principal, this.deps),
+    )
+    return { outcome: applied.outcome, value: applied.value }
   }
 
   private authorizeOrDeny(
@@ -435,7 +432,10 @@ export class PresenceRegistry {
     // The self-scoping check, stated positively rather than relying on the target
     // resolver having built the row from the principal: a resolver that ever reads
     // a userId out of the payload would be caught here.
-    if (policy.scope === 'self' && (target.kind !== 'per-user-row' || target.userId !== principal.userId)) {
+    if (
+      policy.scope === 'self' &&
+      (target.kind !== 'per-user-row' || target.userId !== principal.userId)
+    ) {
       return DENIED
     }
     return authorize(principal.capability, policy.action, target) === 'allow' ? 'allow' : DENIED

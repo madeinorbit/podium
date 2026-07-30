@@ -1,5 +1,4 @@
-import { asSessionId } from '@podium/model'
-import type { SessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -24,7 +23,7 @@ const bind = (sessionId: SessionId) =>
 
 function regWithDaemon() {
   const reg = new SessionRegistry()
-  reg.modules.sessions.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon('local', () => {})
   return reg
 }
 
@@ -33,17 +32,17 @@ function liveSession(reg: SessionRegistry): string {
     agentKind: 'claude-code',
     cwd: '/repo',
   })
-  reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+  reg.gateway.routeDaemonFrame('local', bind(sessionId))
   return sessionId
 }
 
 /** Acquire `name` as the given live session via the relay dispatcher. */
-async function acquireAs(reg: SessionRegistry, sessionId: SessionId, name: string): Promise<void> {
+async function acquireAs(reg: SessionRegistry, sessionId: string, name: string): Promise<void> {
   const r = (await reg.modules.lockCommands.dispatch(
-    { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId } },
+    { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(sessionId) } },
     'acquire',
     { repoPath: '/repo', name },
-  )) as { granted: boolean; lock: { holder: { sessionId: SessionId | null } } }
+  )) as { granted: boolean; lock: { holder: { sessionId: string | null } } }
   expect(r.granted).toBe(true)
   expect(r.lock.holder.sessionId).toBe(sessionId)
 }
@@ -57,8 +56,8 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = regWithDaemon()
     const dying = liveSession(reg)
     const survivor = liveSession(reg)
-    await acquireAs(reg, asSessionId(dying), 'held-by-dying')
-    await acquireAs(reg, asSessionId(survivor), 'held-by-survivor')
+    await acquireAs(reg, dying, 'held-by-dying')
+    await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
     const q = (await reg.modules.lockCommands.dispatch(
       { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(dying) } },
@@ -67,7 +66,7 @@ describe('session.exited → lock auto-release wiring', () => {
     )) as { granted: boolean }
     expect(q.granted).toBe(false)
 
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: asSessionId(dying),
       code: 0,
@@ -82,7 +81,7 @@ describe('session.exited → lock auto-release wiring', () => {
   it('killSession releases locks even though the row is deleted before agentExit (finding 1)', async () => {
     const reg = regWithDaemon()
     const victim = liveSession(reg)
-    await acquireAs(reg, asSessionId(victim), 'merge:main')
+    await acquireAs(reg, victim, 'merge:main')
     reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
     expect(lockNames(reg)).toEqual([])
     reg.dispose()
@@ -92,7 +91,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = regWithDaemon()
     const victim = liveSession(reg)
     const waiter = liveSession(reg)
-    await acquireAs(reg, asSessionId(victim), 'merge:main')
+    await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
       { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(waiter) } },
       'acquire',
@@ -107,16 +106,16 @@ describe('session.exited → lock auto-release wiring', () => {
   it('hibernation keeps the leases (intentional park, not a death)', async () => {
     const reg = regWithDaemon()
     const parked = liveSession(reg)
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId: asSessionId(parked),
       resume: { kind: 'claude', value: 'conv-1' },
     })
-    await acquireAs(reg, asSessionId(parked), 'merge:main')
+    await acquireAs(reg, parked, 'merge:main')
     const r = reg.modules.sessions.hibernateSession({ sessionId: asSessionId(parked) })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no release.
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: asSessionId(parked),
       code: 0,
@@ -128,8 +127,8 @@ describe('session.exited → lock auto-release wiring', () => {
   it('spawnError releases locks too (status flips to exited without an agentExit round-trip)', async () => {
     const reg = regWithDaemon()
     const doomed = liveSession(reg)
-    await acquireAs(reg, asSessionId(doomed), 'merge:main')
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    await acquireAs(reg, doomed, 'merge:main')
+    reg.gateway.routeDaemonFrame('local', {
       type: 'spawnError',
       sessionId: asSessionId(doomed),
       message: 'boom',

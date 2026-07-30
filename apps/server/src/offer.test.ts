@@ -1,4 +1,4 @@
-import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,7 +29,7 @@ const OFFER = {
   ],
 }
 
-function metaOffer(reg: SessionRegistry, sessionId: SessionId) {
+function metaOffer(reg: SessionRegistry, sessionId: string) {
   return reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
 }
 
@@ -172,7 +172,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     function seed() {
       const reg = new SessionRegistry()
-      reg.modules.sessions.attachDaemon('local', () => {})
+      reg.gateway.attachDaemon('local', () => {})
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -184,14 +184,14 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // Raw PTY keystrokes from the controlling client — bumps lastInputAtMs.
     // Pinned a minute after the offer: same-ms input would not count as "after"
     // (strictly-greater, matching the boot reconcile).
-    function typeIntoPty(reg: SessionRegistry, sessionId: SessionId, afterIso: string) {
-      const clientId = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
+      const clientId = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: asSessionId(sessionId) })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
       try {
-        reg.modules.sessions.onClientMessage(clientId, {
+        reg.clientGateway.routeClientFrame(clientId, {
           type: 'input',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           data: Buffer.from('fix it\r').toString('base64'),
         })
       } finally {
@@ -204,7 +204,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('entering working after the user typed into the PTY consumes it', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -214,7 +214,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', () => {
       const { reg, sessionId, createdAt } = seed()
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -225,7 +225,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: working(minusMinute(createdAt)),
@@ -237,7 +237,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const { reg, sessionId, createdAt } = seed()
       typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: idle(plusMinute(createdAt)),
@@ -245,14 +245,14 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
       // ENTRY into working counts, so an offer set mid-turn survives its turn.
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       typeIntoPty(reg, sessionId, createdAt)
-      reg.modules.sessions.onDaemonMessageFrom('local', {
+      reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(plusMinute(createdAt))),

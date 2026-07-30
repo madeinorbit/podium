@@ -29,10 +29,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  registry.modules.sessions.attachDaemon('local', (m) => {
+  registry.gateway.attachDaemon('local', (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.modules.sessions.onDaemonMessageFrom('local', {
+        registry.gateway.routeDaemonFrame('local', {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -43,7 +43,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     if (m.type === 'headlessTurnRequest') {
       turnReqs.push(m)
       queueMicrotask(() =>
-        registry.modules.sessions.onDaemonMessageFrom('local', {
+        registry.gateway.routeDaemonFrame('local', {
           type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,
@@ -407,7 +407,7 @@ describe('concierge threads (issue #64)', () => {
 describe('search_all tool', () => {
   it('wraps the real searchAll: renders one line per typed hit plus the data payload', async () => {
     const { registry, sa } = await harness()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     const issue = registry.issues.create({
       repoPath: '/r',
       title: 'replace the flux capacitor',

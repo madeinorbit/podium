@@ -53,11 +53,11 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
     // REAL daemon relay hub, its `send` feeding the server's REAL WS dispatch. This is the
     // daemon→server direction (the daemon initiates an agentRelayRequest on the agent's behalf).
     const hub = createAgentRelayHub((msg: DaemonMessage) =>
-      registry.modules.sessions.onDaemonMessageFrom(machineId, msg),
+      registry.gateway.routeDaemonFrame(machineId, msg),
     )
     // REAL server→daemon channel: route the agentRelayResult the registry sends back into the hub
     // so it can resolve the correlated relay promise.
-    registry.modules.sessions.attachDaemon(machineId, (m: ControlMessage) => {
+    registry.gateway.attachDaemon(machineId, (m: ControlMessage) => {
       if (m.type === 'agentRelayResult') hub.onResult(m)
     })
     // REAL loopback HTTP relay server the agent's CLI posts to.

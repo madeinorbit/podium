@@ -22,14 +22,14 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipFromMachines } from '../../machine-access'
+import { machinesForPrincipal } from './command-ctx'
 import {
   createdOwnership,
   dispatchSessionCommand,
-  type SessionCommandDeps,
   SessionCommandCtx,
+  type SessionCommandDeps,
   spawnedByFor,
 } from './command-plane'
-import { machinesForPrincipal } from './command-ctx'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import type { SessionVisibility } from './session-access'
 
@@ -45,14 +45,14 @@ const human = (id: UserId): CommandPrincipal => ({
 })
 
 const agentFor = (
-  sessionId: SessionId,
+  sessionId: string,
   onBehalfOf: UserId,
   chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
-  agentSessionId: sessionId,
+  agentSessionId: asSessionId(sessionId),
   onBehalfOf,
-  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: sessionId },
+  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
   chain,
 })
 
@@ -90,7 +90,23 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => modules.sessions,
-    messages: () => modules.messages,
+    // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
+    // fixture binds the port the same way the composition root does — from the
+    // principal's own capability, through the real gate. Substituting the
+    // delivery service here instead would have let these tests pass while the
+    // production path went around the mail policy, which is precisely the
+    // bypass POD-729 exists to close.
+    mailSend: (input) =>
+      modules.messageGate.dispatch(
+        'capability' in principal
+          ? principal.capability
+          : { role: 'admin', scope: { kind: 'all' } },
+        undefined,
+        'send',
+        input,
+        'relay',
+        'immediate',
+      )!,
     createDraftIssue: (repoPath, agentKind, issueId) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId),
     access: {
@@ -98,15 +114,22 @@ function ctxFor(
       issues: modules.issues,
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
+    rpc: () => modules.rpc,
     ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
+    mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
 }
 
 /** A fixture with one paired machine row that HAS an owner to be denied on. */
-function oracleWithPairedMachine(): { o: Oracle; rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }> } {
+function oracleWithPairedMachine(): {
+  o: Oracle
+  rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>
+} {
   const o = makeOracle({ machineId: 'box', offlineMachines: [{ id: 'box', name: 'The Box' }] })
-  const rows = new Map([['box', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'The Box' }]])
+  const rows = new Map([
+    ['box', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'The Box' }],
+  ])
   return { o, rows }
 }
 
@@ -161,37 +184,37 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
-  it.each(['kill', 'hibernate', 'resurrect', 'sendText', 'resumeAndSend', 'continue'] as const)(
-    'denies %s against a session living on a machine the principal may not use',
-    async (command) => {
-      const { o, rows } = oracleWithPairedMachine()
-      const ownership = ownershipTable(rows)
-      const owner = ctxFor(o, human(INSTANCE_OWNER), { ownership })
-      const spawned = (await dispatchSessionCommand(owner, 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'box',
-      })) as { sessionId: SessionId }
-      const input =
-        command === 'sendText' || command === 'resumeAndSend'
-          ? { sessionId: spawned.sessionId, text: 'hello' }
-          : { sessionId: spawned.sessionId }
+  it.each([
+    'kill',
+    'hibernate',
+    'resurrect',
+    'sendText',
+    'resumeAndSend',
+    'continue',
+  ] as const)('denies %s against a session living on a machine the principal may not use', async (command) => {
+    const { o, rows } = oracleWithPairedMachine()
+    const ownership = ownershipTable(rows)
+    const owner = ctxFor(o, human(INSTANCE_OWNER), { ownership })
+    const spawned = (await dispatchSessionCommand(owner, 'create', {
+      agentKind: 'shell',
+      cwd: '/p',
+      machineId: 'box',
+    })) as { sessionId: string }
+    const input =
+      command === 'sendText' || command === 'resumeAndSend'
+        ? { sessionId: spawned.sessionId, text: 'hello' }
+        : { sessionId: spawned.sessionId }
 
-      // The machine changes hands: the colleague now owns it and the instance
-      // owner holds nothing on it.
-      rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
+    // The machine changes hands: the colleague now owns it and the instance
+    // owner holds nothing on it.
+    rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
 
-      expect(
-        await messageOf(() =>
-          dispatchSessionCommand(
-            ctxFor(o, human(INSTANCE_OWNER), { ownership }),
-            command,
-            input,
-          ),
-        ),
-      ).toBe("unknown machine 'box'")
-    },
-  )
+    expect(
+      await messageOf(() =>
+        dispatchSessionCommand(ctxFor(o, human(INSTANCE_OWNER), { ownership }), command, input),
+      ),
+    ).toBe("unknown machine 'box'")
+  })
 
   it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on `local`", async () => {
     // The default ownership index — the one the router actually builds — over
@@ -267,13 +290,13 @@ describe('delegation, resolved live at every apply', () => {
       name: 'The Box',
     })
     const ownership = ownershipTable(rows)
-    const worker = agentFor(asSessionId('agent-1'), INSTANCE_OWNER)
+    const worker = agentFor('agent-1', INSTANCE_OWNER)
 
     const first = (await dispatchSessionCommand(ctxFor(o, worker, { ownership }), 'create', {
       agentKind: 'shell',
       cwd: '/p',
       machineId: 'box',
-    })) as { sessionId: SessionId }
+    })) as { sessionId: string }
     expect(first.sessionId).toEqual(expect.any(String))
 
     // Revoke the HUMAN's grant. Nothing is told about the agent; nothing kills it.
@@ -302,7 +325,7 @@ describe('delegation, resolved live at every apply', () => {
     // `use` denial below would be indistinguishable from unreachability — the
     // exact conflation D18.5 exists to prevent, arriving in the test that is
     // supposed to prove it.
-    o.reg.modules.sessions.attachDaemon('b', () => {})
+    o.reg.gateway.attachDaemon('b', () => {})
     const ownership = ownershipTable(
       new Map([
         ['a', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'A' }],
@@ -313,7 +336,7 @@ describe('delegation, resolved live at every apply', () => {
       // human gate.
       new Map([['parent', ['a']]]),
     )
-    const child = agentFor(asSessionId('child'), INSTANCE_OWNER, [asSessionId('parent')])
+    const child = agentFor('child', INSTANCE_OWNER, [asSessionId('parent')])
 
     // The human may spawn on 'b'...
     await expect(
@@ -383,7 +406,7 @@ describe('invisible fails exactly like nonexistent', () => {
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const agent = agentFor(asSessionId('agent-1'), INSTANCE_OWNER)
+    const agent = agentFor('agent-1', INSTANCE_OWNER)
     const hidden = ctxFor(o, agent, { visibility: () => false })
     const visible = ctxFor(o, agent)
 
@@ -412,10 +435,10 @@ describe('attribution and ownership come from the principal', () => {
       agentKind: 'claude-code',
       cwd: '/p',
       machineId: 'box',
-    })) as { sessionId: SessionId }
-    o.reg.modules.sessions.onDaemonMessageFrom('box', {
+    })) as { sessionId: string }
+    o.reg.gateway.routeDaemonFrame('box', {
       type: 'bind',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       cmd: 'claude',
       cwd: '/p',
       agentKind: 'claude-code',
@@ -437,7 +460,7 @@ describe('attribution and ownership come from the principal', () => {
   })
 
   it('a created session is owned by the onBehalfOf human, with the agent as actor', () => {
-    const owned = createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), undefined)
+    const owned = createdOwnership(agentFor('agent-1', COLLEAGUE), undefined)
 
     expect(owned).toEqual({
       owner: COLLEAGUE,
@@ -445,12 +468,12 @@ describe('attribution and ownership come from the principal', () => {
       inheritedFrom: { kind: 'principal' },
     })
     // The actor half is what the shipped `spawnedBy` column already speaks.
-    expect(spawnedByFor(agentFor(asSessionId('agent-1'), COLLEAGUE))).toBe('session:agent-1')
+    expect(spawnedByFor(agentFor('agent-1', COLLEAGUE))).toBe('session:agent-1')
     expect(spawnedByFor(human(COLLEAGUE))).toBe('user')
   })
 
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
-    const underIssue = createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), {
+    const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
       id: 'podium-7',
       owner: INSTANCE_OWNER,
     })
@@ -464,7 +487,7 @@ describe('attribution and ownership come from the principal', () => {
     })
     // An issue with no owner recorded yet falls back to the delegating human,
     // never to nobody: the draft vessel is OWNED.
-    expect(createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), { id: 'draft-1' }).owner).toBe(
+    expect(createdOwnership(agentFor('agent-1', COLLEAGUE), { id: 'draft-1' }).owner).toBe(
       COLLEAGUE,
     )
   })

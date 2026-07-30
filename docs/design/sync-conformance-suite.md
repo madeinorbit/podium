@@ -92,7 +92,7 @@ path, with a third refusal proving the normalizer does not flatten everything) �
   against a target its **human** can see; "did not retry" is asserted as the count
   stopping, beside a legal write in the same drain that did apply.
 
-## Two things this suite found the hard way
+## What this suite found the hard way
 
 ### The all-green probe (POD-1161)
 
@@ -113,8 +113,34 @@ before its transaction commits, so an aborted attempt consumes the buffered fram
 the retry starts empty. Only the **retirement** is lost — entity truth is re-derived by a
 re-bootstrap by construction, which is exactly why it hides — leaving a stuck entry for a
 command that demonstrably applied, which later dead-letters with a misleading `max-age`.
-Filed as POD-1161; the suite pins today's behaviour so it goes red when fixed, with a
-positive control beside it.
+Filed as POD-1161 and **now fixed**, in both places the defect existed: `install` and
+`drainBuffer` both took the whole buffer and emptied it before committing. A frame is now
+consumed only *after* its commit is durable, which is the same shape POD-1158 used for
+every other post-commit observation. The pin was inverted rather than deleted.
+
+The second site is why the fix had to be the **concept** and not the named line: the first
+mutant that re-broke `drainBuffer` **survived**, because no case drove that path. Driving it
+needed a `changesSince` reply capped below the head (`changesSinceCeiling`) so a buffered
+frame chains on exactly where a heal lands — otherwise every heal covers everything and the
+buffered frame is dropped as covered, and the drain's own commit never runs.
+
+### The wedge behind it (POD-1163)
+
+Writing that case surfaced something worse. `Replica.run` rethrew from its `catch`, leaving
+`inflight` **rejected** — and a rejected promise makes every later `.then(task)` skip its
+task. One refused durable commit stopped the replica permanently: `connect()` took its
+transition and issued **zero** `changesSince` calls, the frame sat buffered forever, and
+`settled()` replayed the same stale error to every future caller. Posture read healthy
+throughout, which is why the assertion that catches it is the **heal count**, not the
+posture.
+
+POD-1158 is part of the cause and the doc says so: before it, a multi-region commit threw
+synchronously out of `receive()` and never entered that chain. Routing those commits
+through `inflight` — the thing that let the async Outbox enrol at all — turned a
+caller-visible throw into a wedge. `run` now holds the first unreported error and
+`settled()` surfaces it exactly once; recovery needs nothing further, because the commit
+did not apply, so the cursor did not advance, so the next frame is a gap and the ladder
+does the rest.
 
 ## The survivor worth remembering
 

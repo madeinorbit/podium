@@ -3,6 +3,10 @@
  * Amendment 1 (POD-1073) and ADR 1 Amendment 1 (POD-1071) added when Podium
  * became multi-user within one tenant.
  *
+ * PORT REFERENCE: `docs/command-and-reducer-ports.md` documents these shapes for
+ * POD-372 (optimistic overlay) and POD-311 (Phase 3, which populates contracts and
+ * reducers broadly). `sessions/rename.ts` is the worked example POD-351 established.
+ *
  * L1 RULE: this file is pure data and pure functions. It may reference
  * `@podium/model` and `@podium/protocol` (schemas, brands, the principal
  * taxonomy) and nothing else. A handler lives with its L3 feature and is joined
@@ -211,11 +215,79 @@ export type ErrorConsistency =
 // D6 — optional optimistic reducer
 // ---------------------------------------------------------------------------
 
+/**
+ * The actor half of the authored attribution pair, BY KIND ONLY (POD-351).
+ *
+ * A reducer receives this and never an identity. `session.rename`'s arbitration
+ * ([spec:SP-eb60]) turns on human-versus-agent, so a reducer that could not see
+ * the kind could never predict a refusal — and the rejection member below would
+ * be a shape with no possible caller. It learns "an agent wrote this"; it has no
+ * argument with which to ask "may this agent write this".
+ *
+ * Structurally compatible with `@podium/sync`'s `PendingAttribution` by
+ * construction and by assertion, NOT by coincidence — see the note on
+ * {@link OptimisticEffect}.
+ */
+export interface AuthoredAttribution {
+  /** The human the write is on behalf of (ADR 9 D5 A4's provisional owner). */
+  readonly onBehalfOf: string
+  /** Opaque to the Replica; a reducer reads only `kind`. */
+  readonly actor: unknown
+}
+
+/**
+ * WHAT A REDUCER SAYS A PENDING COMMAND WOULD DO — the contract layer's copy of
+ * the kernel's `OptimisticEffect`.
+ *
+ * ## Why this is declared twice, and why that is not the redefinition the ADRs forbid
+ *
+ * `packages/sync/src/replica/` is DIRECTION-LOCKED: it imports nothing outside
+ * itself but the span port (`check-boundaries` rule 10, ADR 1 D1 / ADR 2
+ * Amendment 1 D12.7), because a Replica that could reach the contract vocabulary
+ * would be a Replica that could interpret commands — which is arbitration. So the
+ * kernel declares the port it CONSUMES, and this package declares the vocabulary
+ * it PROVIDES. That is a port declared by the consumer and implemented by the
+ * provider, joined by an adapter at the composition root; it is the same
+ * hexagonal shape the rest of the pack uses, not a second home for one fact.
+ *
+ * ## What stops them drifting, since two declarations can
+ *
+ * Structural compatibility is asserted BIDIRECTIONALLY at the composition root
+ * where both types are importable, with a non-vacuity probe beside it — an
+ * assignment that compiles proves nothing if it would compile against anything.
+ * A member added on one side and not the other fails that assertion at build
+ * time. The alternative — putting this in `@podium/model` — would move a
+ * command-plane concept into the L0 leaf that ADR 4 reserves for entity
+ * vocabulary, to avoid a duplication that is already caught.
+ */
+export type OptimisticEffect =
+  /** The provisional value after this command. Materialises a row if there is none. */
+  | { readonly kind: 'value'; readonly value: unknown }
+  /** Optimistically absent — the command removes the row from the view. */
+  | { readonly kind: 'absent' }
+  /** No client-derivable effect. Render pending; never guess (ADR 3 D6). */
+  | { readonly kind: 'no-reducer' }
+  /**
+   * The reducer PREDICTS the authority will refuse, and can say why (POD-351).
+   * Advisory only: the command stays queued and is still judged live at apply.
+   * Derivable from the authoritative row + the command; never from a principal.
+   */
+  | { readonly kind: 'rejected'; readonly reason: string }
+
+/**
+ * ADR 3 D6's optional optimistic reducer. Pure, total, and handed no principal.
+ *
+ * `local` is the authoritative row from the principal's slice, or `undefined`
+ * when the slice holds none — the only case in which a reducer may materialise
+ * one. `authored` is the pair the write was recorded under, forwarded from the
+ * Outbox verbatim.
+ */
 export type OptimisticReducer<In> = (args: {
   input: In
   local: unknown
   now: string
-}) => unknown | null
+  authored?: AuthoredAttribution
+}) => OptimisticEffect
 
 // ---------------------------------------------------------------------------
 // The contract
@@ -233,6 +305,24 @@ export type OptimisticReducer<In> = (args: {
 export interface CommandContractBase {
   /** Stable dotted wire name (`mail.send`). */
   readonly name: string
+  /**
+   * THE VISIBILITY CLASS OF WHAT THIS COMMAND WRITES (POD-382; ADR 9 D3/D4,
+   * readiness §3.1.1 rules 1 and 2).
+   *
+   * `policy` says whose authority a write answers to and which rows it may touch.
+   * This says which of ADR 9's five classes the state belongs to — the question a
+   * scoped feed and a share dialog both ask, and the one nothing on this contract
+   * could answer before.
+   *
+   * REQUIRED, like every other field here, and for the reason the file header
+   * gives: a missing visibility class must mean "personal and private" (ADR 9 D4),
+   * and that default is not reachable if the field can simply be absent. The
+   * semantic backstop still exists for anything constructed outside this type
+   * (`visibilityClassOf` in `@podium/model`, `commandVisibility` in
+   * `@podium/protocol`); this is the compile-time half, and neither substitutes
+   * for the other.
+   */
+  readonly visibility: VisibilityClass
   /** Positive integer, starts at 1; bumped on an incompatible schema change. */
   readonly version: number
   readonly policy: CommandPolicy
@@ -279,6 +369,20 @@ export type ContractInput<C extends { readonly input: z.ZodTypeAny }> = z.infer<
  * `online-sensitive` (D4 rule 1), and a command taking a caller-supplied target
  * id must have answered D20.
  */
+/**
+ * Dotted names allowed to be `offline-eligible` DESPITE placing work on owned
+ * compute (D18.3). Empty in this package today, and the emptiness is the claim:
+ * the one known exception fleet-wide is `sessions.resumeAndSend`, whose
+ * offline-eligibility the client outbox oracle pins as must-not-change, and it
+ * lives in the protocol-side table until POD-311 folds that table in here — at
+ * which point it belongs in this list rather than in a second rule.
+ *
+ * An entry here is a licence, so it is checked: `contract.test.ts` asserts every
+ * name in this list belongs to a contract that actually exists. A licence for an
+ * undeclared command would silently pre-authorize whoever next used that name.
+ */
+export const MACHINE_USE_OFFLINE_EXCEPTIONS: readonly string[] = []
+
 export function classificationErrors(contract: AnyCommandContract): string[] {
   const errs: string[] = []
   const at = (msg: string): void => {
@@ -321,6 +425,28 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
       'machine `use` must keep unauthorized distinguishable from unreachable (readiness §3.1.4 M5)',
     )
   }
+  // D18.3 — a command that EXECUTES on owned compute may not be queued and
+  // replayed after the world has moved. Added by POD-642, whose `sessions.handoff`
+  // is the first `use` tenant of this package.
+  //
+  // A LINT AND NOT A DERIVATION, deliberately, per the rule the coordinator
+  // adopted fleet-wide while POD-380 and POD-381 settled it: `delivery.class` stays
+  // EXPLICIT with its reasoning in `outboxReconciliation`, and D18.3 is enforced as
+  // a check over that declaration. Deriving the class from the verb would make the
+  // implication silent and unauditable — and it would erase the one legitimate
+  // exception the protocol-side table carries (`sessions.resumeAndSend`, which the
+  // client outbox oracle pins as offline-eligible must-not-change). MAKE THE
+  // EXCEPTION VISIBLE, DO NOT MAKE THE RULE SILENT: an exception belongs in the
+  // list below, named, where a reader can find it.
+  if (
+    contract.policy.machineVerb === 'use' &&
+    contract.delivery.class === 'offline-eligible' &&
+    !MACHINE_USE_OFFLINE_EXCEPTIONS.includes(contract.name)
+  ) {
+    at(
+      'machine `use` executes on someone else’s hardware and may not be offline-eligible (ADR 3 Amendment 1 D18.3) — name it in MACHINE_USE_OFFLINE_EXCEPTIONS if it genuinely is one',
+    )
+  }
   // D17: an actor that is not stamped from the capability is an actor a payload
   // could set. There is deliberately no `from-payload` member; this catches the
   // other half — a pair that claims a human but has no delegation to resolve it.
@@ -344,6 +470,27 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
     at('a command that creates entities must declare their owner (ADR 9 D5 A4)')
   }
   if (contract.ownership.note.trim() === '') at('ownership.note is required')
+  // ADR 9 D3/D6, ONE DIRECTION ONLY, and the asymmetry is the whole point.
+  //
+  // `visibility` classifies THE STATE THE COMMAND WRITES; `policy.resource` names
+  // what it authorizes AGAINST. For most of this fleet those differ on purpose: a
+  // spawn, a handoff and an agent-spawn all authorize against a MACHINE (`use`, a
+  // code-execution boundary — readiness §3.1.4 M2) while what they write is a
+  // SESSION, which is personal. So a `machine` resource does NOT imply
+  // `owned-compute` state, and the first draft of this lint asserted that it did —
+  // it fired on `mail.spawnAgent` and on `sessions.rename` inside another test's
+  // fixture, both of which were correctly classified. The machine side is already
+  // covered: `machineVerb` is required for a `machine` resource, checked above.
+  //
+  // What DOES hold is the converse: a command that writes owned-compute state — a
+  // machine row, a pairing, a fleet membership — must be authorized against the
+  // machine, because there is nothing else for its grants to hang on.
+  if (contract.visibility === 'owned-compute' && contract.policy.resource !== 'machine') {
+    at('visibility `owned-compute` must name the `machine` resource (ADR 9 D6)')
+  }
+  if (contract.visibility === 'secret' && contract.delivery.class !== 'online-sensitive') {
+    at('a `secret` visibility class forces `online-sensitive` (ADR 3 D4 rule 1)')
+  }
   if (contract.errorConsistency.note.trim() === '') at('errorConsistency.note is required')
   return errs
 }

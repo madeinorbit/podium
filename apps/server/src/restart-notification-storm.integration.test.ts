@@ -126,7 +126,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       let registry = new SessionRegistry(store, { ntfy, telegram })
       const controls: ControlMessage[] = []
       const attach = () =>
-        registry.modules.sessions.attachDaemon('local', (msg) => controls.push(msg))
+        registry.gateway.attachDaemon('local', (msg) => controls.push(msg))
       attach()
       registry.modules.settings.setSettings(
         normalizeSettings({
@@ -140,7 +140,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           autoContinue: { enabled: true, promptDismissed: true },
         }),
       )
-      registry.modules.sessions.attachClient((message) => web.push(message))
+      registry.clientGateway.attachClient((message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)
       registry.modules.sessions.createSession({
@@ -154,7 +154,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         cwd: join(root, 'child'),
         spawnedBy: `session:${parentId}`,
       })
-      registry.modules.sessions.onDaemonMessageFrom('local', {
+      registry.gateway.routeDaemonFrame('local', {
         type: 'sessionResumeRef',
         sessionId: childId,
         resume: {
@@ -175,7 +175,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         return lease.observationGeneration
       }
       const deliver = (value: AgentObservation) =>
-        registry.modules.sessions.onDaemonMessageFrom('local', {
+        registry.gateway.routeDaemonFrame('local', {
           type: 'agentObservation',
           observation: value,
         })
@@ -243,7 +243,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         if (kind === 'daemon-only') {
           // The server survives. Replacing the daemon forces a provider-history
           // fold against the durable checkpoint after the new lease is issued.
-          registry.modules.sessions.detachDaemon('local')
+          registry.gateway.detachDaemon('local')
           attach()
         } else {
           // Both server restart modes reopen the durable store. Their daemon
@@ -253,7 +253,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           store.close()
           store = new SessionStore(dbPath)
           registry = new SessionRegistry(store, { ntfy, telegram })
-          registry.modules.sessions.attachClient((message) => web.push(message))
+          registry.clientGateway.attachClient((message) => web.push(message))
           attach()
         }
         const generation = currentGeneration()

@@ -55,6 +55,7 @@ describe('computeOverlay — the overlay is f(replica row, pending commands)', (
       origin: 'authority',
       pending: [],
       unapplied: [],
+      rejected: [],
     })
   })
 
@@ -108,6 +109,7 @@ describe('computeOverlay — the overlay is f(replica row, pending commands)', (
       origin: 'none',
       pending: [],
       unapplied: [],
+      rejected: [],
     })
   })
 })
@@ -244,12 +246,20 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
     // Default-closed (readiness §3.1.1): an unclassified class is personal/private,
     // so there must be nowhere here for "tenant-visible" to appear. Asserting the
     // exact key set is the assertion — a new optional key would fail this.
+    //
+    // `rejected` was added by POD-351 and this list was updated DELIBERATELY, which
+    // is the only honest way past a guard like this one. It is admissible because it
+    // carries an ARBITRATION reason derived from the authoritative row (see the
+    // reducer port's note on `rejected`), not a visibility class, an owner or a
+    // grant. The test below pins that distinction rather than leaving this comment
+    // to carry it.
     expect(Object.keys(result).sort()).toEqual([
       'origin',
       'pending',
       'present',
       'provisionalActor',
       'provisionalOwner',
+      'rejected',
       'unapplied',
       'value',
     ])
@@ -323,5 +333,154 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
     // command that brought it back, not by the authority that used to own it.
     expect(result.value).toEqual({ name: 'again' })
     expect(result.provisionalOwner).toBe('user-ada')
+  })
+})
+
+/**
+ * THE PREDICTED-REFUSAL PATH (POD-351) — the member POD-372 left the port without
+ * and POD-311 will populate broadly.
+ *
+ * The reducer here is deliberately CLOSER to the real one than the stub at the top
+ * of this file: it reads the authored actor's KIND, because the arbitration
+ * [spec:SP-eb60] governs turns on human-versus-agent and a reducer that could not
+ * see that could never return `rejected` at all. That is the difference between a
+ * member with a caller and a member with none.
+ */
+describe('a reducer may PREDICT a refusal, and the projection must not swallow it', () => {
+  /** Rename with SP-eb60's arbitration: a user-set name is sovereign. */
+  const arbitrating = (
+    base: unknown | undefined,
+    command: unknown,
+    authored?: PendingMutation['attribution'],
+  ): OptimisticEffect => {
+    const c = command as { kind?: string; name?: string }
+    if (c.kind !== 'session.rename') return { kind: 'no-reducer' }
+    const row = base as { name?: string; nameSource?: string } | undefined
+    const actor = authored?.actor as { kind?: string } | undefined
+    const byAgent = actor?.kind === 'agent-session'
+    if (byAgent && row?.nameSource === 'user') {
+      return { kind: 'rejected', reason: `named by the user ("${row.name}")` }
+    }
+    // Clearing the name clears the source, exactly as the shipped service does:
+    // an unnamed session is namable by an agent again. Modelling this faithfully in
+    // the fixture is what makes the "keeps folding" case below a real sequence
+    // rather than one contrived to pass.
+    const cleared = (c.name ?? '').trim() === ''
+    return {
+      kind: 'value',
+      value: {
+        ...(row ?? {}),
+        name: c.name,
+        nameSource: cleared ? undefined : byAgent ? 'agent' : 'user',
+      },
+    }
+  }
+
+  const byAgent = (id: string, name: string) =>
+    cmd(id, { kind: 'session.rename', name }, {
+      onBehalfOf: 'user-mike',
+      actor: { kind: 'agent-session', sessionId: 'sess-9' },
+    })
+  const byHuman = (id: string, name: string) =>
+    cmd(id, { kind: 'session.rename', name }, {
+      onBehalfOf: 'user-mike',
+      actor: { kind: 'user', userId: 'user-mike' },
+    })
+
+  const withArbitration = (partial: Partial<OverlayInputs>) =>
+    computeOverlay({
+      base: undefined,
+      exit: undefined,
+      pending: [],
+      reduce: arbitrating,
+      ...partial,
+    })
+
+  it('carries the reason out, and leaves the authoritative value exactly where it was', () => {
+    const result = withArbitration({
+      base: row({ name: 'chosen by me', nameSource: 'user' }),
+      pending: [byAgent('m1', 'agent guess')],
+    })
+
+    // The value did NOT move: this is the whole point of a distinct member.
+    expect(result.value).toEqual({ name: 'chosen by me', nameSource: 'user' })
+    expect(result.origin).toBe('authority')
+    expect(result.rejected).toEqual([
+      { mutationId: 'm1', reason: 'named by the user ("chosen by me")' },
+    ])
+    // And it is reported as unapplied too, so a caller counting "not shown" is right.
+    expect(result.unapplied).toEqual(['m1'])
+  })
+
+  /**
+   * THE COUNTERFACTUAL for the name above. Every assertion in this describe would
+   * also pass against a reducer that returned `no-reducer` for an agent rename —
+   * the value would not move and `unapplied` would name m1 — EXCEPT that `rejected`
+   * would be empty and no reason would reach the UI. So the claim "must not swallow
+   * it" is only a claim if a no-reducer command in the SAME fixture produces an
+   * empty `rejected`. It does, and that is what separates the two answers.
+   */
+  it('distinguishes a PREDICTED refusal from an unknown effect in one fold', () => {
+    const result = withArbitration({
+      base: row({ name: 'chosen by me', nameSource: 'user' }),
+      pending: [
+        byAgent('m1', 'agent guess'),
+        cmd('m2', { kind: 'session.share', with: 'someone' }), // no reducer
+      ],
+    })
+
+    expect(result.unapplied).toEqual(['m1', 'm2'])
+    // Only m1 carries a reason. m2 is in flight with no guess — a spinner, not a
+    // rejection — and conflating them is how the routine multi-user path (§3.3)
+    // would get rendered as an indefinite pending state.
+    expect(result.rejected).toEqual([
+      { mutationId: 'm1', reason: 'named by the user ("chosen by me")' },
+    ])
+  })
+
+  it('predicts nothing for the SAME command authored by a human — the actor kind decides', () => {
+    // The vacuity check on the fixture above: if the reducer ignored `authored`,
+    // this would reject too, and the previous test would prove nothing about the
+    // arbitration. Same base, same name, same everything but the actor.
+    const result = withArbitration({
+      base: row({ name: 'chosen by me', nameSource: 'user' }),
+      pending: [byHuman('m1', 'renamed by me')],
+    })
+
+    expect(result.rejected).toEqual([])
+    expect(result.value).toEqual({ name: 'renamed by me', nameSource: 'user' })
+    expect(result.origin).toBe('optimistic')
+  })
+
+  it('keeps folding after a prediction: a later command is judged on its own merits', () => {
+    // Clearing the name clears `nameSource` (the shipped service does exactly
+    // this), which unblocks the agent rename that follows it. A fold that stopped
+    // at the first `rejected` would render a state the authority never reaches.
+    const result = withArbitration({
+      base: row({ name: 'chosen by me', nameSource: 'user' }),
+      pending: [
+        byAgent('m1', 'too early'),
+        byHuman('m2', ''),
+        byAgent('m3', 'now allowed'),
+      ],
+    })
+
+    expect(result.rejected.map((r) => r.mutationId)).toEqual(['m1'])
+    expect(result.value).toEqual({ name: 'now allowed', nameSource: 'agent' })
+  })
+
+  it('reports NO prediction for an entity that left the view — the row drops first', () => {
+    // Rule 2 runs before any reducer, so there is no reason to report. Reporting
+    // one would mean naming a cause, and for an `evict` the cause is a revoked
+    // share — the visibility fact this projection is forbidden to know.
+    const result = withArbitration({
+      base: row({ name: 'chosen by me', nameSource: 'user' }),
+      exit: 'evicted' as ExitKind,
+      pending: [byAgent('m1', 'agent guess')],
+    })
+
+    expect(result.present).toBe(false)
+    expect(result.rejected).toEqual([])
+    expect(result.unapplied).toEqual(['m1'])
   })
 })

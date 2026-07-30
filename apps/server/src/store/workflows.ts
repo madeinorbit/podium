@@ -541,19 +541,31 @@ export class WorkflowsRepository {
       .run(runId, stepId)
   }
 
+  /**
+   * The append-only run history — and the ONLY durable audit trail this surface
+   * has (POD-730 §9: there is no reader in the product, and these appends must
+   * not be dropped on the assumption nothing reads them).
+   *
+   * `actor` is WHICH agent or session acted; `onBehalfOf` is WHICH HUMAN it
+   * acted for — ADR 9 D5 A3's pair, not a substitution. Both come from the
+   * transport principal; neither is reachable from payload.
+   */
   appendEvent(input: {
     workflowId?: string | null
     runId?: string | null
     kind: string
     actor: WorkflowActor
+    /** The delegating human. `null`/absent = a system principal, or a row from
+     *  before the column existed — never "the operator" by default. */
+    onBehalfOf?: string | null
     payload?: Record<string, unknown>
     now: string
   }): void {
     this.db
       .prepare(
         `INSERT INTO workflow_events
-          (workflow_id, run_id, kind, actor_kind, actor_id, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          (workflow_id, run_id, kind, actor_kind, actor_id, on_behalf_of, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.workflowId ?? null,
@@ -561,6 +573,7 @@ export class WorkflowsRepository {
         input.kind,
         input.actor.kind,
         input.actor.id,
+        input.onBehalfOf ?? null,
         JSON.stringify(input.payload ?? {}),
         input.now,
       )

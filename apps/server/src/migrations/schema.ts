@@ -777,6 +777,13 @@ export const workflowEvents = sqliteTable("workflow_events", {
 	kind: text().notNull(),
 	actorKind: text("actor_kind").notNull(),
 	actorId: text("actor_id"),
+	// ADR 9 D5 A3 (POD-731): attribution is a PAIR. `actor_*` above is WHICH agent
+	// or session acted; this is WHICH HUMAN it acted for, stamped from the
+	// transport principal and never from payload. Nullable because rows written
+	// before this column have no human recorded and inventing one would be a lie
+	// in an audit trail — and because a `system` principal has none by
+	// construction (ADR 3 Amendment 1 D14.2/D21).
+	onBehalfOf: text("on_behalf_of"),
 	payloadJson: text("payload_json", {"mode":"json"}).default({}).notNull(),
 	createdAt: text("created_at").notNull(),
 },

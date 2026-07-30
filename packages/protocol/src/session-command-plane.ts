@@ -114,6 +114,20 @@ const spawns: NonNullable<CommandDef['policy']> = {
   machineVerb: 'use',
 }
 
+/**
+ * VISIBILITY CLASS, DECLARED PER CONTRACT (POD-382; ADR 9 D3/D4).
+ *
+ * Every command here writes SESSION state, which is the `personal` class — private
+ * to the session's owner, shareable by grant. That is true even for the two
+ * spawn-shaped commands whose `policy.resource` is the MACHINE: the machine is what
+ * authorizes the request (`use`, owned compute), the session is what the command
+ * writes, and readiness §3.1.4 M2 is the reason those must not be collapsed into
+ * one bit. The audit checks the pair (`personal` state gated by a `machine`
+ * resource is the declared shape for this whole class), so a command that ever
+ * writes owned-compute state has to say so and be reviewed.
+ */
+const PERSONAL = 'personal' as const
+
 /** The human seams: web + CLI over tRPC, plus the trusted in-process MCP. */
 const OPERATOR: CommandDef['exposure'] = ['trpc', 'mcp']
 
@@ -144,6 +158,7 @@ const create: CommandDef = {
   input: createInput,
   action: 'write',
   policy: spawns,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [], note: 'a cwd and a harness name are not secrets' },
@@ -164,6 +179,7 @@ const resume: CommandDef = {
   input: resumeInput,
   action: 'write',
   policy: spawns,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -175,6 +191,7 @@ const kill: CommandDef = {
   input: targetInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -187,6 +204,7 @@ const hibernate: CommandDef = {
   input: targetInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -199,6 +217,7 @@ const resurrect: CommandDef = {
   input: targetInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -209,6 +228,7 @@ const sendText: CommandDef = {
   input: sendInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: AGENT,
   offline: 'online-only',
   redaction: {
@@ -224,6 +244,7 @@ const resumeAndSend: CommandDef = {
   input: sendInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: AGENT,
   // See the file header: the ONE offline-eligible member of this class.
   offline: 'eligible',
@@ -244,6 +265,7 @@ const answerAskUserQuestion: CommandDef = {
   input: answerInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -256,6 +278,7 @@ const continueSession: CommandDef = {
   input: targetInput,
   action: 'write',
   policy: executes,
+  visibility: PERSONAL,
   exposure: AGENT,
   offline: 'online-only',
   redaction: { fields: [] },
@@ -263,6 +286,99 @@ const continueSession: CommandDef = {
   decision:
     'Types the retry only when the agent phase is errored and the session is live; a parked target refuses, because a dead PTY would swallow it.',
 }
+
+/**
+ * CLEAN END [spec:SP-9904] — stop the process, free the worktree, keep the branch.
+ *
+ * MIGRATED BY POD-382 FOR THE OPERATOR PATH ONLY, and the boundary is deliberate.
+ * `sessions.stop` had two hand-written implementations that differed in ways
+ * nobody chose: the tRPC procedure (no authorization of any kind beyond the
+ * cookie, `force` discards a dirty tree, returns its refusal) and a ~50-line relay
+ * arm (target taken from the CAPABILITY when no id is given — self-stop — an
+ * issue-access gate, an issueless parent/`--outside-scope` rule, and a THROW on
+ * refusal). This contract adopts the tRPC one, which is what the router served and
+ * what POD-379 pinned for that transport, and adds the machine `use` gate that
+ * path never had.
+ *
+ * The relay arm is therefore NOT exposed here and NOT deleted: its target
+ * resolution, its gate and its error shape are three separate pinned behaviours,
+ * and folding them in is the rest of POD-381's cutover, not this issue's. Because
+ * `exposure` is default-closed and lists `trpc`/`mcp` only, the surviving arm is
+ * visible as a residue the session-surface audit counts and names, rather than as
+ * an exposure this contract silently claims to cover.
+ */
+const stopInput = z.object({ sessionId: z.string(), force: z.boolean().optional() })
+
+const stop: CommandDef = {
+  input: stopInput,
+  action: 'write',
+  policy: executes,
+  visibility: PERSONAL,
+  exposure: OPERATOR,
+  offline: 'online-only',
+  redaction: { fields: [], note: 'a session id and a force flag are not secrets' },
+  conflict: 'cmd',
+  decision:
+    'Adopts the OPERATOR path (router.ts): `force` discards a dirty tree and a refusal comes back as `{ok:false, reason}` rather than as a throw — both POD-379-pinned for tRPC. The agent/relay arm keeps its self-stop target resolution and its throwing refusal and is left in place, counted as a named residue by scripts/audit-session-commands.ts; it is the remainder of POD-381’s cutover. The `use` gate is NEW on this path: stopping a process is execution on the machine it runs on, and the tRPC route had no machine check at all.',
+}
+
+/**
+ * PASTE AN IMAGE INTO A PROMPT — the daemon writes it under
+ * `~/.podium/uploads/<sessionId>/` on the session's machine and hands back the
+ * absolute path, because harnesses read images by path.
+ *
+ * A WRITE ON SOMEONE'S DISK, so it is the `use` verb and not a read: it is the
+ * clearest small case of readiness §3.1.4 M2 — the bytes land on the machine
+ * owner's filesystem, with their quota and their backups, and a principal who may
+ * see a session on a machine it may not use must not be able to put files there.
+ */
+const uploadImageInput = z.object({
+  sessionId: z.string(),
+  filename: z.string().max(255),
+  mimeType: z.string().max(100),
+  /** ~7.5 MB decoded — the router's shipped bound, kept exactly. */
+  dataBase64: z.string().max(10 * 1024 * 1024),
+})
+
+const uploadImage: CommandDef = {
+  input: uploadImageInput,
+  action: 'write',
+  policy: executes,
+  visibility: PERSONAL,
+  exposure: ['trpc'],
+  offline: 'online-only',
+  redaction: {
+    fields: ['dataBase64'],
+    note: 'THE ONLY REDACTED FIELD IN THE SESSION FAMILY. A pasted screenshot is user content whose bytes must never reach a log line, an error message or a persisted mutation envelope — and at up to 10 MB of base64 it would also be the largest thing this instance ever logged. filename and mimeType stay: a redacted path is unsupportable.',
+  },
+  conflict: 'cmd',
+  decision:
+    'trpc ONLY. No relay exposure: an agent already writes files on its own machine directly, so a relayed upload would be a second, weaker way to put bytes on a machine it may not use. Bounds are the router’s verbatim; the daemon-timeout and daemon-error shapes are preserved by the handler (TIMEOUT when no daemon answers, INTERNAL_SERVER_ERROR with the daemon’s message) because POD-379 pins both.',
+}
+
+/**
+ * `sessions.ask` — THE SEANCE — IS NOT IN THIS TABLE, and the absence is a decision.
+ *
+ * POD-382 briefly declared it here, because the tRPC procedure was still
+ * hand-written and this issue had to delete it. While that work was in flight
+ * POD-729 cut the whole agent-mail surface over to `@podium/commands` INCLUDING
+ * `ask`, for the reason its own commit gives: `ask` reaches DELIVERY, so leaving it
+ * out would have left a live send path no contract governs.
+ *
+ * Two contracts for one command is a vocabulary fork — the thing this programme
+ * exists to end — so the duplicate was deleted rather than reconciled. `ask` is a
+ * MESSAGES command, its contract is the mail table's, its schema is that
+ * contract's instance, and the sessions router serves it through the mail
+ * derivation (`mailMutation('ask')`). The session-surface manifest records it with
+ * source `mail`, so the audit still sees it and still refuses a hand-written one.
+ *
+ * The one thing the merge did NOT carry over: POD-382's contract declared
+ * `machineVerb: 'use'`, because a question is delivered at `lifecycle: 'wake'` and
+ * waking a parked session starts a process on someone's machine. The mail contract
+ * makes no such declaration. Reported to the coordinator rather than resolved here —
+ * it is the mail family's call, and adding a gate to another issue's contract during
+ * a merge is exactly how a policy change gets made by accident.
+ */
 
 /** `sessions.*` — the command plane (POD-381). Presence is POD-380's table. */
 export const sessionCommandPlane = defineCommands('sessions', {
@@ -275,6 +391,8 @@ export const sessionCommandPlane = defineCommands('sessions', {
   resumeAndSend,
   resurrect,
   sendText,
+  stop,
+  uploadImage,
 })
 
 /** Every `sessions.<key>` in the command plane. */
@@ -310,4 +428,6 @@ export const sessionCommandPlaneInputs = {
   resumeAndSend: sendInput,
   resurrect: targetInput,
   sendText: sendInput,
+  stop: stopInput,
+  uploadImage: uploadImageInput,
 } as const

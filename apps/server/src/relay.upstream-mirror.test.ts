@@ -40,7 +40,7 @@ function hubConversation(id: string): ConversationSummaryWire {
 function makeNode() {
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store)
-  registry.modules.sessions.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon('local', () => {})
   return { store, registry }
 }
 
@@ -97,7 +97,7 @@ describe('upstream mirror (registry surface)', () => {
   it('upstream sessions flow through the broadcast pipeline to node clients', () => {
     const { registry } = makeNode()
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     inbox.length = 0
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
     registry.modules.sessions.flushBroadcasts()
@@ -111,7 +111,7 @@ describe('upstream mirror (registry surface)', () => {
     const { registry } = makeNode()
     registry.modules.conversations.setUpstreamConversations([hubConversation('conv-hub-1')])
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     const msg = inbox.find((m) => m.type === 'conversationsChanged')
     expect(msg).toBeDefined()
     if (msg?.type !== 'conversationsChanged') return

@@ -8,6 +8,12 @@
  * divergent local decisions). The projection that CONSUMES this port is
  * `./overlay-projection`; it is a pure function and holds no state.
  *
+ * THE PORT SHAPES AND THE DECISIONS BAKED INTO THEM ARE DOCUMENTED IN
+ * `docs/command-and-reducer-ports.md` — the reference POD-372 and POD-311 build on,
+ * including which refusals a reducer may PREDICT (arbitration off the authoritative
+ * row) versus which it may never evaluate (authorization), and the per-user-state
+ * template warning for Phase 3.
+ *
  * Two properties the Replica relies on and neither invents:
  *
  * 1. **The overlay is DERIVED, never stored twice** (ADR 4 D7 — normalization law
@@ -85,6 +91,50 @@ export type OptimisticEffect =
    * effect at all, and inventing one is how an optimistic render becomes a lie.
    */
   | { readonly kind: 'no-reducer' }
+  /**
+   * The command will NOT apply, and the reducer can say why (POD-351).
+   *
+   * ## Why this is a distinct member and not `no-reducer`
+   *
+   * `no-reducer` means "I cannot derive the effect"; this means "I have derived
+   * that there is no effect". Both leave the value where it was, so a projection
+   * that collapsed them would render identically — and the user would be told
+   * "in flight" about a write that is already decided against. The difference is
+   * the whole reject-and-rebase surface (POD-316), which readiness §3.3 moves
+   * from a rare edge case to a ROUTINE path under multi-user. A routine path
+   * needs a representable outcome, not an absence.
+   *
+   * ## Why a reducer may say this WITHOUT becoming an authorization surface
+   *
+   * The line is WRITER ARBITRATION versus VISIBILITY, and it is not a fine one:
+   *
+   *   - Permitted: a refusal derivable from the AUTHORITATIVE ROW the principal
+   *     was already given, plus the command itself. `session.rename` is the
+   *     motivating case — [spec:SP-eb60] makes a user-set `name` sovereign over
+   *     an agent-set one, so `base.nameSource === 'user'` decides the outcome of
+   *     an agent-authored rename with no principal, no grant and no capability
+   *     consulted. The row said so; the reducer only read it.
+   *   - FORBIDDEN: anything derived from who the principal IS or what it may
+   *     see. That is `authorize()`'s job at the authority, live at every apply
+   *     (ADR 3 D8). A reducer has no principal argument, so it cannot do this
+   *     even by accident — which is the property, not the convention.
+   *
+   * The distinction matters because the two failure modes are opposite. A
+   * mispredicted ARBITRATION is a cosmetic flicker the authority corrects on the
+   * next frame. A mispredicted AUTHORIZATION would render content or an effect
+   * the principal is not entitled to, which is exactly the "second, untrusted
+   * authorization surface" ADR 2 Amendment 1 D12.7 exists to forbid.
+   *
+   * ## The prediction is ADVISORY and the authority still decides
+   *
+   * A reducer returning this has NOT rejected anything — it has predicted that
+   * the authority will. The command stays queued, still drains, and is still
+   * judged live at apply. Anything else would be the replica arbitrating: a
+   * client that dropped the write on its own prediction would lose a write that
+   * a concurrent `name = ''` (which clears `nameSource`, see the service) would
+   * have made perfectly applicable by the time it landed.
+   */
+  | { readonly kind: 'rejected'; readonly reason: string }
 
 /** One applied change's provenance, as the outbox needs to see it (ADR 2 D8). */
 export interface RetirementIntent {
@@ -101,13 +151,39 @@ export interface OptimisticOverlayPort {
    * The reducer seam (POD-372/POD-351). `base` is `undefined` when the principal's
    * slice holds no row — the only case in which a reducer may materialise one.
    *
-   * The reducer is a PURE function of (base, command) and nothing else. It is
-   * never handed a principal, a grant or a visibility class, so it cannot evaluate
-   * authorization even by accident: optimism is about the EFFECT of a command the
-   * authority has not yet applied, never about the RIGHT to issue it (ADR 1 D1,
-   * widened by readiness §3.1).
+   * The reducer is a PURE function of (base, command, authored) and nothing else.
+   * It is never handed a principal, a grant or a visibility class, so it cannot
+   * evaluate authorization even by accident: optimism is about the EFFECT of a
+   * command the authority has not yet applied, never about the RIGHT to issue it
+   * (ADR 1 D1, widened by readiness §3.1).
+   *
+   * `authored` is the entry's recorded {@link PendingAttribution}, forwarded
+   * VERBATIM (POD-351). Three things about it are deliberate:
+   *
+   *  1. **The Replica does not read it.** It carries the value from the outbox to
+   *     the reducer the same way it already carries it to `provisionalOwner` —
+   *     untouched, and typed with `actor: unknown` so there is nothing here to
+   *     branch on. The direction lint would catch an inspection; the type makes
+   *     one uninteresting to attempt.
+   *  2. **It is what makes the rejection path REACHABLE.** `session.rename`'s
+   *     arbitration ([spec:SP-eb60]) turns on whether an AGENT or a HUMAN authored
+   *     the write. Without the authored pair a reducer cannot tell those apart, and
+   *     `rejected` would be a member with no possible caller — mechanism presence
+   *     rather than coverage. The reducer reads the actor's KIND, never its id.
+   *  3. **It is not a principal, and must not grow into one.** It is the pair the
+   *     write was AUTHORED under, already stamped from the authenticated transport
+   *     by the Outbox (ADR 3 D7/D17). A reducer learns "an agent wrote this", never
+   *     "this agent may write this" — the second question has no argument to ask
+   *     it with, here or anywhere in this file.
+   *
+   * Optional because a reducer that ignores attribution is the common case and
+   * must not be forced to declare a parameter it does not read.
    */
-  reduce(base: unknown | undefined, command: unknown): OptimisticEffect
+  reduce(
+    base: unknown | undefined,
+    command: unknown,
+    authored?: PendingAttribution,
+  ): OptimisticEffect
   /**
    * Called ONCE PER TRANSACTION with every provenance-bearing change that
    * transaction applied, in FEED ORDER, deduplicated. The Replica reports the

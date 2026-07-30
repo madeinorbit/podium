@@ -3,132 +3,86 @@
  * Amendment 1 D18.
  *
  * ===========================================================================
- * THIS FILE IS A SEAM WITH A KNOWN SUCCESSOR, AND THAT IS THE POINT
+ * THIS FILE USED TO CONTAIN A POLICY. NOW IT CONTAINS ONE CALL.
  * ===========================================================================
  *
- * Machine ownership (`owner` + a per-machine grant list) is POD-1079's
- * deliverable and the `machines` table has neither yet; the shared resolver is
- * POD-381's `apps/server/src/machine-access.ts`
- * (`checkMachineUse(principal, machineId, ownership)` →
- * `'absent' | 'unauthorized' | undefined`), which is not on this branch at the
- * time of writing. So this module defines WHERE the decision is taken and hands
- * the coordinator an {@link AssertMachineUse}; what it is backed BY is one
- * function call, replaced by POD-381's `ctx.assertMachineUse` and POD-1079's
- * grant table without moving the check point. That ordering is deliberate — the
- * brief asks for the check point now so that enabling real grants is a POLICY
- * change and not a second migration through the handoff path.
+ * While POD-381 was in flight this module carried a stand-in: an admin-only
+ * backing plus a `grantedMachineUse` shaped like the grant table POD-1079 will
+ * land, so the denial paths this issue must prove were testable before the shared
+ * resolver existed. Both are DELETED. `apps/server/src/machine-access.ts` is now
+ * on the branch and it is the one answer:
  *
- * ===========================================================================
- * WHY THE TWO FAILURES ARE SPELLED THE WAY THEY ARE
- * ===========================================================================
+ *   `checkMachineUse(principal, machineId, ownership)` →
+ *       `'absent' | 'unauthorized' | undefined`
  *
- * `absent` covers a machine that does not exist AND a machine the principal
- * cannot `see`, with ONE message. That is §3.1.5's consistent-error rule applied
- * to machines: if an invisible machine answered differently from a nonexistent
- * one, the handoff path would be a fleet-enumeration oracle — probe ids, read the
- * errors, learn a colleague's machine list. The general question of which
- * existence facts may leak is left open by §3.1.2 and is NOT settled here; what
- * is settled is the default-closed reading for this one surface, taken from the
- * shared helper rather than decided per handler.
+ * Two rules that were mine to state and are now THEIRS to enforce, kept here as
+ * the reason this file is a call and not a copy:
  *
- * `unauthorized` is reachable only for a machine the principal CAN see. That is
- * what makes "denied" distinguishable from "offline" (§3.1.4 M5): a machine you
- * can see but may not use says so, and never gets silently retargeted to
- * somewhere you can use. Both halves of M5 fail in the same direction — closed.
+ *   - `absent` covers a machine that does not exist AND one the principal cannot
+ *     `see`, with one message, so the handoff path is not a fleet-enumeration
+ *     oracle (§3.1.5's consistent-error rule applied to machines);
+ *   - `unauthorized` is reachable only INSIDE the see set, which is what keeps
+ *     "denied" distinguishable from "offline" for a machine the principal can see
+ *     (§3.1.4 M5). The two rules pull in opposite directions and the shared
+ *     resolver is where that tension is settled once.
+ *
+ * THE LOCAL SENTINEL IS NOT EXEMPTED, and this is the second time that mattered.
+ * `machine-access.ts` resolves `local` / `__local__` to a SYNTHESIZED row owned by
+ * the instance owner, so the sentinels run through the ordinary rules; POD-381
+ * found that after an exemption-shaped fix broke 24 oracle tests. My own first cut
+ * hit the same class from the other side — it asked whether the machineId was in
+ * the machine list, which refused a handoff FROM the local machine on installs
+ * whose `local` row is written lazily. The generalisation, and the reason there is
+ * no existence question left in this file: A RIGHTS GATE THAT ALSO ANSWERS
+ * EXISTENCE GETS ONE OF THE TWO QUESTIONS WRONG. Existence and reachability are
+ * the choreography's answers (`target machine is offline`); this gate answers only
+ * "may this caller use it".
  */
 
-import type { Capability } from '@podium/model'
-import { machineUseAllowed, type ResolvedMachine, type UserId } from '@podium/protocol'
+import type { Capability, SessionId } from '@podium/model'
+import { type CommandPrincipal, resolvePrincipal } from '../../../command-principal'
+import {
+  checkMachineUse,
+  machineAccessMessage,
+  type MachineOwnershipIndex,
+} from '../../../machine-access'
 import type { AssertMachineUse } from './ports'
 
-export type MachineUseFailure = 'absent' | 'unauthorized'
-
 /**
- * The rendered refusal. Replaced by POD-381's `machineAccessMessage` at the
- * merge; kept identical in SHAPE (failure + machine id) so the swap is a call
- * change and not a message change.
+ * The gate, over a principal and an ownership index — both resolved by the
+ * caller, neither captured here.
+ *
+ * A FACTORY, and the closure re-reads on every call, because the coordinator
+ * calls the gate again at each apply point: before the irreversible kill and
+ * again before the import leg. A gate that answered from a captured decision
+ * would turn ADR 3 D8's apply-time re-authorization into a replay of one
+ * dispatch-time answer, which is exactly the rights snapshot D16 forbids.
  */
-export const machineUseMessage = (failure: MachineUseFailure, machineId: string): string =>
-  failure === 'absent'
-    ? `unknown machine '${machineId}'`
-    : `not authorized to use machine '${machineId}'`
-
-export class MachineUseDenied extends Error {
-  constructor(
-    readonly failure: MachineUseFailure,
-    readonly machineId: string,
-  ) {
-    super(machineUseMessage(failure, machineId))
-    this.name = 'MachineUseDenied'
+export const machineUseGateFor = (deps: {
+  principal: CommandPrincipal
+  ownership: MachineOwnershipIndex
+}): AssertMachineUse => {
+  return (machineId: string) => {
+    const failure = checkMachineUse(deps.principal, machineId, deps.ownership)
+    if (!failure) return
+    throw new Error(
+      machineAccessMessage(failure, machineId, deps.ownership.rowFor(machineId)?.name),
+    )
   }
 }
 
 /**
- * TODAY'S BACKING for the check point, and a deliberately narrow one.
- *
- * Until POD-1079 lands `owner` + grants there is nothing to resolve a per-machine
- * grant FROM, so the only holder of `use` is an admin-scoped capability — which
- * is exactly what every shipped call site is (`sessions.handoff` is exposed on
- * `trpc` only, and "every HTTP caller is the OPERATOR today" per the router
- * context). So this preserves current behaviour for every real caller while
- * refusing a constrained principal rather than guessing a grant for it.
- *
- * A NON-ADMIN PRINCIPAL IS TOLD `absent`, NOT `unauthorized`. It holds no `see`
- * on any machine either — there is no grant list to hold one in — and
- * `unauthorized` is defined as reachable only inside the see set. Answering
- * `absent` is therefore both the fail-closed direction and the non-leaking one.
- *
- * IT DOES NOT ANSWER WHETHER THE MACHINE EXISTS, and that is a correction rather
- * than an omission: a first draft refused an id that was not in the machine list,
- * which looked like defence in depth and was a regression. Existence and
- * reachability are the choreography's own answers ('target machine is offline'),
- * and folding them into the rights gate refused a handoff FROM the local machine
- * on any install whose `local` row is written lazily — `oracle-errors.test.ts`
- * has exactly that fixture. The invisible-equals-nonexistent property belongs to
- * the grant backing below, where visibility is a concept at all; under an
- * admin-only backing there is no invisible machine to conflate with a missing one.
+ * The same gate from a transport capability — the shape the composition root
+ * uses. `delegations` is POD-381's index: it walks `spawnedBy` from live rows, so
+ * an agent's chain roots at exactly one human and a sub-agent cannot carry a
+ * delegator its parent lacks (D16.2). Nothing is read from payload.
  */
-export const legacyAdminMachineUse =
-  (deps: { capability: Capability }): AssertMachineUse =>
-  (machineId: string) => {
-    const admin = deps.capability.role === 'admin' && deps.capability.scope.kind === 'all'
-    if (!admin) throw new MachineUseDenied('absent', machineId)
-  }
-
-/**
- * THE SHAPE POD-1079's GRANT TABLE PLUGS INTO — built here so the denial paths
- * this issue must prove are testable before the table exists, and so landing the
- * table is a swap at the composition root rather than new logic in the handler.
- *
- * `use` resolution itself is NOT re-derived: it is `machineUseAllowed` from
- * `@podium/protocol` (the all-in-one guard — an owner-less machine grants `use`
- * to NOBODY), read through the ownership record this resolver is given. `see` is
- * owner, any grant holder, or an admin (§3.1.4 M1's default holders).
- */
-export const grantedMachineUse =
-  (deps: {
-    /** The subject rights resolve for: the on-behalf-of human (ADR 9 D5 A1).
-     *  A function, not a value — rights are re-resolved on every call, which is
-     *  what makes the apply-time checkpoints in the coordinator mean anything. */
-    subject: () => UserId | null
-    admin: () => boolean
-    ownershipOf: (machineId: string) => ResolvedMachine | undefined
-  }): AssertMachineUse =>
-  (machineId: string) => {
-    const ownership = deps.ownershipOf(machineId)
-    const subject = deps.subject()
-    // `see` has no shared helper (the verb table is POD-1079's), so it is
-    // resolved here: owner, any grant holder, or an admin — §3.1.4 M1's default
-    // holders. Not visible ⇒ answer exactly as for a machine that does not exist.
-    const canSee =
-      ownership !== undefined &&
-      (deps.admin() ||
-        (subject !== null &&
-          (ownership.owner === subject ||
-            ownership.grants.some((grant) => grant.subject === subject))))
-    if (ownership === undefined || !canSee) throw new MachineUseDenied('absent', machineId)
-    // `use` IS the shared helper. Not re-derived here on purpose: it is the
-    // all-in-one guard (an owner-less machine grants `use` to NOBODY), and a
-    // second copy of that rule is how one of them ends up fail-open.
-    if (!machineUseAllowed(ownership, subject)) throw new MachineUseDenied('unauthorized', machineId)
-  }
+export const machineUseGateForCapability = (deps: {
+  capability: Capability
+  parentSessionOf: (sessionId: SessionId) => SessionId | undefined
+  ownership: MachineOwnershipIndex
+}): AssertMachineUse =>
+  machineUseGateFor({
+    principal: resolvePrincipal(deps.capability, { parentSessionOf: deps.parentSessionOf }),
+    ownership: deps.ownership,
+  })

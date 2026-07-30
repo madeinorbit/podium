@@ -1,5 +1,6 @@
 import { asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { type IssueCommandDeps, IssueCommandDispatcher } from './modules/issues/registry'
@@ -44,7 +45,13 @@ function harness(
     isUpstreamIssue: () => false,
     forwardIssueMutation: async () => undefined,
     upstreamIssueRepoPaths: () => new Set(),
-    withMutation: (_mutationId, _proc, fn) => fn(),
+    // A ledger with no durable store: never dedupes, so every call runs — the
+    // pass-through this file's cases assume. Idempotency itself is characterized
+    // in packages/sync/src/mutation-ledger.test.ts, not here.
+    mutations: new MutationLedger(
+      { getAppliedMutation: () => undefined, recordAppliedMutation: () => {} },
+      () => 0,
+    ),
     listSessions: () => [],
     repoPaths: () => ['/r'],
     inferRepoFromPath: () => undefined,

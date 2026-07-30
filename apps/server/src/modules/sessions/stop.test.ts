@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -30,7 +30,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   const reg = new SessionRegistry()
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+  reg.gateway.attachDaemon('local', (m) => daemon.push(m))
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
@@ -56,18 +56,18 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   }
 }
 
-function bindLive(reg: SessionRegistry, sessionId: SessionId, cwd: string): void {
-  reg.modules.sessions.onDaemonMessageFrom('local', {
+function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
+  reg.gateway.routeDaemonFrame('local', {
     type: 'bind',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     cmd: 'claude',
     cwd,
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  reg.modules.sessions.onDaemonMessageFrom('local', {
+  reg.gateway.routeDaemonFrame('local', {
     type: 'sessionResumeRef',
-    sessionId,
+    sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
   })
 }
