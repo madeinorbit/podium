@@ -162,6 +162,27 @@ one, which is what separates the two categories below — a net count alone cann
 The 19 new sites are filed as POD-1102, `discovered-from` POD-861, mapped to the
 phase issues that delete them (POD-314, POD-333, POD-308, POD-318, POD-325).
 
+### 2026-07-30 — POD-386 cuts the spec surface over: 2 vanished, 1 moved
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `router-triple-access` | 61 → 58 | **2 vanished, 1 relocated.** Three `mods(ctx).specs.<verb>(input)` reach-throughs left `router.ts` when `specs.create · save · remove` became derived. One came back as a single `mods(ctx).specs` in `apps/server/src/modules/specs/trpc.ts` — the derivation reaches the service once for all three — so the honest accounting is that **two** call sites are genuinely gone and one changed address. The detector scans `router.ts` only (POD-1180), so it reads the relocation as part of the win; it is written down here instead. |
+
+**Why the detector was not extended to the new home.** It would have to be
+extended to `modules/fleet/handlers.ts` and `modules/superagent/registry.ts` in
+the same breath — POD-384 moved seven sites into the first — and re-scoping a
+counter mid-phase raises the number, which the ratchet forbids and which would
+bury three real deletions under a definitional change. The detector's scope is
+POD-314's to widen at the cutover it owns; POD-1180 already records the blind
+spot. What this issue owes is the site-by-site account above, not a redefinition.
+
+**The whole-file instrument this issue did add** is a different measurement and
+does not overlap: `scripts/audit-router-mutations.ts` censuses every top-level
+`t.router(` literal in `router.ts` and ratchets the hand-written `.mutation(`
+total (31 at this commit, down from 34). Unlike `router-triple-access` it names
+every remaining key and its owning issue, so a decrease has to say WHICH key
+vanished — the check that makes a shrinking number mean something.
+
 ### 2026-07-30 — POD-368 redefines the two vocabulary items and adds four (closing POD-302)
 
 `session-shapes` and `issue-shapes` were `^export (interface|type|class) X` over
