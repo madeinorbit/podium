@@ -88,13 +88,28 @@ certifies its entire range), or healed. Applying a fragment of a certified range
 acceptance D13 forbids, and it would need re-validating to be safe — so the strict rule is also
 the cheap one.
 
-**The ladder terminates.** A buffered frame that cannot chain from a freshly installed snapshot
-is DISCARDED, not re-buffered. Re-buffering it was an infinite ladder: install → heal →
-"re-bootstrap" → install → the same frame, forever, with no exit. A bootstrap has just
-delivered authoritative truth, so a frame buffered around the walk is not worth holding the
-ladder open for; one heal catches up, resolved against the authority rather than against a
-stale local buffer. `settled()` fails loudly rather than hanging if this ever regresses,
-because a non-terminating ladder presents as a hang and not as a failing assertion.
+**The ladder terminates**, and it has needed fixing twice.
+
+A buffered frame that cannot chain from a freshly installed snapshot is DISCARDED, not
+re-buffered. Re-buffering it was an infinite ladder: install → heal → "re-bootstrap" →
+install → the same frame, forever, with no exit. A bootstrap has just delivered authoritative
+truth, so a frame buffered around the walk is not worth holding the ladder open for; one heal
+catches up, resolved against the authority rather than against a stale local buffer.
+
+Rung 5 was the second. A walk escalates to `onCorruption` **at most once**: that call starts a
+fresh walk with a fresh attempt budget, so a store which stays corrupt renewed its own bound
+every attempt and never reached `D6-EXHAUSTED`. A corruption walk that meets corruption again
+now consumes an attempt (`D6-RESTART`) instead of escalating.
+
+**A non-terminating ladder is not detectable from inside the suite.** The paragraph here used
+to claim `settled()` "fails loudly rather than hanging" if this regresses. That is not true and
+was measured to be untrue: restoring the rung-5 loop as a mutant hangs the runner with **no
+output at all**, not even the reporter's banner, and `settled()`'s 50-drain guard never
+surfaces. Each cycle completes entirely within microtasks, so the timer and macrotask queues
+are starved — vitest cannot fire its own `testTimeout` and cannot flush a single line. That is
+why this module's lane once hung for ten minutes and was read as a loaded machine. Treat a
+silent hang in `packages/sync` as a suspected ladder loop, and bisect it with `-t` per
+`describe`; do not wait for an assertion that cannot arrive.
 
 ### 4.1 The outbox survives every rung
 
