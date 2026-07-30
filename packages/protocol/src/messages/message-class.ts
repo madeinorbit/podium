@@ -45,17 +45,33 @@ export type MessageSyncClass = (typeof MESSAGE_SYNC_CLASSES)[number]
 
 /** Server→client. Entity frames may ONLY be produced by the write funnel. */
 export const SERVER_PLANE_CLASS = {
-  // Durable entity snapshots/deltas — funnel-only.
+  // WIRE v1 full-list entity snapshots. Their CLASS is unchanged — they are
+  // still entity truth a replica recovers — but their PRODUCER is not: after
+  // POD-308 no module builds them. The legacy v1 edge adapter synthesises them
+  // from feed frames at the connection boundary, so they are a translation of
+  // the one pipeline rather than a second pipeline beside it, and they are
+  // deleted when that adapter expires.
   sessionsChanged: 'control.entity',
   issuesChanged: 'control.entity',
   issueUpdated: 'control.entity',
   conversationsChanged: 'control.entity',
   automationsChanged: 'control.entity',
   automationRunsChanged: 'control.entity',
-  // Oplog batch; a gap enters ADR 2 D7's healing ladder. Under ADR 2
-  // Amendment 1 D13 this frame also carries the covered range, so a watermark
-  // is this same frame with an empty change list — NOT a new message class.
+  // WIRE v1 (pre-cutover) oplog batch. Still classified because the frame still
+  // EXISTS — but after POD-308 nothing in the server produces it except the
+  // legacy v1 edge adapter, and it leaves with that adapter. Its covered range
+  // (`fromExclusive`) is OPTIONAL, which is why it could not become the scoped
+  // feed's frame: see `./feed.ts`.
   metadataDelta: 'control.entity',
+
+  // WIRE v2 (POD-308) — the scoped feed on the wire. All four are control.entity
+  // and none may ever be stream: a lost rescope or a lost watermark is a
+  // permanent invisible gap, which is the failure ADR 2 D2 documents and ADR 7
+  // Amendment 1 D16.3 classifies against.
+  feedDelta: 'control.entity',
+  feedBootstrap: 'control.entity',
+  feedRescope: 'control.entity',
+  feedResyncRequired: 'control.entity',
 
   // Connection-scoped handshake/keepalive frames (single client, not fan-out).
   welcome: 'stream.live',

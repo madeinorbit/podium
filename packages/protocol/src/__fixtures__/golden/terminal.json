@@ -428,12 +428,18 @@
           "rows": 1,
           "dpr": 1
         },
-        "caps": ["caps[0]"]
+        "caps": ["caps[0]"],
+        "wireVersion": 1,
+        "feedCursor": {
+          "feedId": "feedCursor.feedId",
+          "epoch": "feedCursor.epoch",
+          "seq": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1},\"caps\":[\"caps[0]\"]}"
+      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1},\"caps\":[\"caps[0]\"],\"wireVersion\":1,\"feedCursor\":{\"feedId\":\"feedCursor.feedId\",\"epoch\":\"feedCursor.epoch\",\"seq\":1}}"
     },
     {
       "schema": "InputMessage",

@@ -8,11 +8,28 @@ import { z } from 'zod'
  * SEMANTICS ARE ADR 2's. This module is the PORT's expression of them: the
  * covered range that makes contiguity hold over a filtered view, the third
  * member of the delete family (`evict`), and the `rescope` control frame. The
- * scoped-feed KERNEL is Phase 2 (POD-1077) and is deliberately not built here;
- * the wire landing of these fields on `metadataDelta` / `MetadataChangeOp` is
- * POD-1077's, negotiated by capability rather than a `WIRE_VERSION` bump
- * (ADR 2 D4).
+ * scoped-feed KERNEL is Phase 2 (POD-1077); the WIRE landing of these fields is
+ * POD-308's cutover, and it lands them as their own frame family
+ * (`../messages/feed.ts`) rather than by widening `metadataDelta` — see that
+ * file's header for why the pre-cutover frame could not carry them.
  */
+
+/**
+ * The feed's seq-continuity generation, as the WIRE spells it (ADR 2 D1).
+ *
+ * A STRING, and that is the decision rather than a convenience. D1 forbids a
+ * counter outright — restoring one backup twice re-mints the same value and hands
+ * a different timeline an epoch clients have already accepted — and
+ * `@podium/sync`'s `FeedIdentityRegistry.assertOpaqueEpoch` REFUSES a decimal
+ * integer at the minting boundary. This port previously declared
+ * `z.number().int()`, which is precisely the shape that guard exists to reject:
+ * the two could never have met, and the wire would have been the place they
+ * failed to. Corrected at the cutover (POD-308) because the cutover is the first
+ * moment an epoch actually crosses the wire.
+ *
+ * Compared by EQUALITY ONLY. There is no ordering on an epoch anywhere.
+ */
+export const FeedEpochField = z.string().min(1)
 
 /**
  * ADR 2 D1's cursor triple, unchanged by scoping: global `seq` stays GLOBAL and
@@ -20,7 +37,7 @@ import { z } from 'zod'
  */
 export const FeedCursor = z.object({
   feedId: z.string().min(1),
-  epoch: z.number().int().nonnegative(),
+  epoch: FeedEpochField,
   seq: z.number().int().nonnegative(),
 })
 export type FeedCursor = z.infer<typeof FeedCursor>
@@ -104,11 +121,21 @@ export type ScopedChange = z.infer<typeof ScopedChange>
  */
 export const ScopedDeltaFrame = z.object({
   feedId: z.string().min(1),
-  epoch: z.number().int().nonnegative(),
+  epoch: FeedEpochField,
   /** Exclusive lower bound of the certified range. */
   fromSeq: z.number().int().nonnegative(),
   /** Inclusive upper bound — the batch stamp. */
   seq: z.number().int().nonnegative(),
+  /**
+   * ADR 2 D5's retention floor, REQUIRED on every certified frame — the same
+   * decision, and for the same reason, as `DeltaFrame.minAvailableSeq` in
+   * `@podium/sync`'s replica types (POD-306). Optional here would be read as
+   * `?? 0` at every use site, and 0 is exactly the value meaning "nothing has
+   * been pruned, your cursor is fine" — so an authority that forgot to publish
+   * it would be indistinguishable from one whose log is complete, and D7 rung 2
+   * would silently never fire.
+   */
+  minAvailableSeq: z.number().int().nonnegative(),
   /** Every visible change in `(fromSeq, seq]`, in `seq` order. MAY be empty. */
   changes: z.array(ScopedChange),
 })
@@ -144,6 +171,11 @@ export const coalesceCertifiedRanges = (
     epoch: first.epoch,
     fromSeq: first.fromSeq,
     seq: second.seq,
+    // The LATER floor, not the earlier one and not the lower one. A merged frame
+    // certifies through `second.seq`, so it must advertise retention as of that
+    // point — carrying `first`'s floor would tell a replica the log still holds
+    // ground that was pruned between the two frames, and rung 2 would not fire.
+    minAvailableSeq: second.minAvailableSeq,
     changes: [...first.changes, ...second.changes],
   }
 }
@@ -160,7 +192,7 @@ export const coalesceCertifiedRanges = (
 export const RescopeFrame = z.object({
   type: z.literal('rescope'),
   feedId: z.string().min(1),
-  epoch: z.number().int().nonnegative(),
+  epoch: FeedEpochField,
   /** The seq the rights change occupies in the global log (D14.3). */
   seq: z.number().int().nonnegative(),
   /**
