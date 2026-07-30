@@ -39,6 +39,18 @@ export * from './entities/transcript'
 // POD-363 retire the uses).
 export * from './entities/wire-input'
 export * from './exhaustive'
+
+// The SHARED FIELD SCHEMAS (POD-365, 1.4b) — one vocabulary, composed by the
+// canonical aggregates and by every representation, never restated. See
+// `fields/README.md` for the four rules that keep them useful, in particular
+// rule 2: leave room for principal-dependent projection, do not build it.
+export * from './fields/attribution'
+export * from './fields/issue'
+export * from './fields/op-stream'
+export * from './fields/ownership'
+export * from './fields/per-user-key'
+export * from './fields/session'
+
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
 export * from './identity/git-identity'
 export * from './identity/session-identity'
