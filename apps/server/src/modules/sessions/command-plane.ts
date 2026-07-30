@@ -33,10 +33,10 @@
 
 import type { AgentKind } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
-import { sessionCommandPlane } from '@podium/protocol'
+import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
+import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
-import { LOCAL_PLACEHOLDER } from '../../local-machine'
 import {
   checkMachineUse,
   machineAccessMessage,
@@ -126,10 +126,11 @@ export class SessionCommandCtx {
    * as a repeat.
    */
   assertMachineUse(machineId: string): void {
-    // The pre-daemon placeholder is not a machine anyone can be denied on: it
-    // means "no daemon has attached yet", and the spawn stays queued until one
-    // does — at which point the placement gate is what runs.
-    if (machineId === LOCAL_PLACEHOLDER) return
+    // No sentinel exemption here: `machine-access.ts` resolves the local
+    // sentinels to a SYNTHESIZED host row owned by the instance owner, so they
+    // go through the same rules as any other machine. An early return here
+    // would have been an exemption, and M4 is precisely the case where the host
+    // machine must NOT be ambient team compute.
     const failure = checkMachineUse(this.principal, machineId, this.deps.ownership)
     if (!failure) return
     throw new Error(
@@ -230,25 +231,17 @@ export function createdOwnership(
 // Handlers
 // ---------------------------------------------------------------------------
 
-type CreateInput = {
-  agentKind?: AgentKind
-  cwd: string
-  title?: string
-  machineId?: string
-  issueId?: string
-  workflowRevisionId?: string
-  sessionId?: string
-  draftIssue?: { repoPath: string; issueId?: string }
-  mutationId?: string
-}
-type ResumeInput = {
-  agentKind: AgentKind
-  cwd: string
-  resume: { kind: string; value: string }
-  conversationId: string
-  title?: string
-  machineId?: string
-}
+/**
+ * The handler-side input types are INFERRED from the contract schemas, never
+ * restated beside them.
+ *
+ * A hand-written mirror of a zod object is a second declaration of the session
+ * vocabulary: it typechecks, it encodes identically, and it drifts the first
+ * time either side gains a field. `scripts/rearch-audit.ts` counts exactly that
+ * as debt, and it counted these two before they were derived.
+ */
+type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
+type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type SendInput = { sessionId: string; text: string; mutationId?: string }
 type TargetInput = { sessionId: string }
 type AnswerInput = { sessionId: string; choices: { optionIndices: number[] }[] }

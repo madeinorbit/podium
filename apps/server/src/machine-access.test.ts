@@ -106,6 +106,46 @@ describe('the pre-accounts default preserves today: one account owns every paire
   })
 })
 
+describe('the local sentinels are a synthesized host row, not an exemption', () => {
+  // `local` and `__local__` routinely have NO machines-table row: a fresh
+  // session sits on the placeholder until a real machine adopts it, and on a
+  // single-machine install nothing ever does.
+  const noRows = ownershipTable(new Map())
+
+  it.each(['local', '__local__'])(
+    'the instance owner may use %s even with no row in the table',
+    (sentinel) => {
+      expect(checkMachineUse(user(OWNER), sentinel, noRows)).toBeUndefined()
+    },
+  )
+
+  it('M4 still holds on the sentinel: a second human is refused, exactly like anywhere else', () => {
+    // This is the property the arm would destroy if it granted by id rather
+    // than by resolving an owner. The host is owned by whoever set the instance
+    // up; authenticating to a server running on their Mac confers nothing.
+    expect(checkMachineUse(user(COLLEAGUE), 'local', noRows)).toBe('absent')
+    expect(checkMachineUse(user(COLLEAGUE), '__local__', noRows)).toBe('absent')
+  })
+
+  it('the arm covers the sentinels and NOTHING else — an unknown id is still absent', () => {
+    // The guard against the arm becoming the permissive default: these ids are
+    // unknown in exactly the same way the sentinels are, and they stay refused.
+    for (const unknown of ['localhost', 'local-2', 'Local', '__local', 'not-local', 'box']) {
+      expect(checkMachineUse(user(OWNER), unknown, noRows)).toBe('absent')
+    }
+  })
+
+  it('a REAL row for the sentinel wins over the synthesized one', () => {
+    // `ensureLocalMachine` seeds `local` on a normal boot, and once POD-1079
+    // gives that row an owner, the row is the authority — the synthesized answer
+    // is a fallback for its absence, not an override of its content.
+    const owned = ownershipTable(new Map([['local', { owner: COLLEAGUE, grants: [] }]]))
+
+    expect(checkMachineUse(user(COLLEAGUE), 'local', owned)).toBeUndefined()
+    expect(checkMachineUse(user(OWNER), 'local', owned)).toBe('absent')
+  })
+})
+
 describe('absent / unauthorized are two different answers', () => {
   it('a machine the principal cannot SEE fails identically to one that was never paired', () => {
     const ownership = ownershipTable(

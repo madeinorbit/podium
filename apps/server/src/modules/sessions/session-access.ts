@@ -32,17 +32,20 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
-import type { Capability } from '@podium/model'
+import type { Capability, SessionMeta } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
 
-/** The live-session facts this resolver needs; a `SessionMeta` satisfies it. */
-export interface SessionTargetRow {
-  sessionId: string
-  cwd: string
-  issueId?: string | undefined
-  spawnedBy?: string | undefined
-}
+/**
+ * The live-session facts this resolver needs — a PICK of the model's own
+ * `SessionMeta`, not a restatement of four of its keys.
+ *
+ * Writing the four field types out again would typecheck, encode identically and
+ * be a second declaration of the session vocabulary; `scripts/rearch-audit.ts`
+ * counts that as debt and counted this before it was a Pick. The narrowing is
+ * still real — this module must not reach for a field it has not asked for.
+ */
+export type SessionTargetRow = Pick<SessionMeta, 'sessionId' | 'cwd' | 'issueId' | 'spawnedBy'>
 
 /**
  * Is this session visible to the principal's delegating HUMAN?

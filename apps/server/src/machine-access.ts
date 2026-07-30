@@ -68,6 +68,7 @@ import type { MachineGrant, MachineId, MachineVerb, UserId } from '@podium/proto
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { INSTANCE_OWNER, onBehalfOfUser } from './command-principal'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
 
 /**
  * One machine's ownership facts — structurally the handshake's
@@ -128,6 +129,42 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
   }
 }
 
+/**
+ * THE LOCAL SENTINELS, and why they need an arm of their own.
+ *
+ * `local` (`LOCAL_MACHINE_ID`) and `__local__` (`LOCAL_PLACEHOLDER`) are
+ * SENTINELS, not machine ids — `packages/model/src/ids/brands.ts` says branding
+ * is shape and not identity, so `MachineId.parse('local')` succeeds and branding
+ * one LAUNDERS it, which is why POD-318 exists as a carve-out and why the machine
+ * id sites are deliberately unbranded. A freshly created session sits on the
+ * placeholder until a real machine adopts it (measured by POD-366), and on a
+ * single-machine install nothing ever adopts it.
+ *
+ * So a sentinel routinely has NO ROW in the machines table, and a gate that reads
+ * "no row ⇒ absent" refuses the product's own default state. Handling it by
+ * making a missing row permissive would be the opposite mistake: it would hand
+ * `use` on every unknown machine to everyone and turn the default-closed posture
+ * inside out.
+ *
+ * The arm is therefore a SYNTHESIZED ROW, not an exemption: the sentinel is the
+ * host this process runs on, so it is owned by whoever set the instance up, with
+ * no additional grants. Every rule below then applies to it unchanged — which is
+ * exactly what readiness §3.1.4 M4 demands, because the all-in-one case is the
+ * sharpest one: authenticating to a server running on someone's Mac must not
+ * confer execute on that Mac. A second human gets the same `absent` here as on
+ * any machine they do not own.
+ */
+const LOCAL_SENTINELS: readonly string[] = [LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER]
+
+export const isLocalSentinel = (machineId: string): boolean =>
+  LOCAL_SENTINELS.includes(machineId)
+
+const sentinelRow = (machineId: string): MachineOwnershipRow => ({
+  machine: machineId as MachineId,
+  owner: INSTANCE_OWNER,
+  grants: [],
+})
+
 const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<MachineVerb> => {
   const verbs = new Set<MachineVerb>()
   if (subject === null || row.owner === null) return verbs
@@ -165,7 +202,10 @@ export function machineVerbsFor(
   machineId: string,
   ownership: MachineOwnershipIndex,
 ): ReadonlySet<MachineVerb> {
-  const row = ownership.rowFor(machineId)
+  // The sentinel arm runs BEFORE the row lookup, and a real row still wins when
+  // one exists (`ensureLocalMachine` seeds `local` on a normal boot).
+  const row =
+    ownership.rowFor(machineId) ?? (isLocalSentinel(machineId) ? sentinelRow(machineId) : undefined)
   if (!row) return new Set()
   if (principal.kind === 'system') return new Set<MachineVerb>(['see', 'use'])
   const held = verbsFromRow(row, onBehalfOfUser(principal))

@@ -9,6 +9,7 @@ import {
   commandPlaneContract,
   commandPlaneNames,
   sessionCommandPlane,
+  sessionCommandPlaneInputs,
 } from './session-command-plane'
 
 const defs = Object.entries(sessionCommandPlane.defs)
@@ -82,6 +83,27 @@ describe('the command-plane table', () => {
     expect(isExposedOn(sessionCommandPlane.defs.create, 'trpc')).toBe(true)
     // No command-plane write is served on the raw websocket surface.
     for (const [, def] of defs) expect(isExposedOn(def, 'ws')).toBe(false)
+  })
+
+  it.each(defs)(
+    '%s: the exported input schema IS the contract’s instance, not a copy of it',
+    (key, def) => {
+      // `toBe`, never `toEqual`. The router builds its procedures on
+      // sessionCommandPlaneInputs for the precise types CommandDef's widened
+      // ZodTypeAny cannot give it; if that map ever held a FRESH z.object with
+      // the same keys, every value assertion in this file would still pass, the
+      // wire bytes would be identical, and the two would silently drift apart at
+      // the first schema edit. Only instance identity sees that.
+      expect(sessionCommandPlaneInputs[key as keyof typeof sessionCommandPlaneInputs]).toBe(
+        def.input,
+      )
+    },
+  )
+
+  it('the exported input map covers every contract and nothing else', () => {
+    expect(Object.keys(sessionCommandPlaneInputs).sort()).toEqual(
+      Object.keys(sessionCommandPlane.defs).sort(),
+    )
   })
 
   it('input schemas are live and reject the shapes the router rejected', () => {
