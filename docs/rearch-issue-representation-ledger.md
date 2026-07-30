@@ -143,10 +143,28 @@ claim is false, and this ledger does not make it.**
 Verified on this base, not inferred: in `crud.ts update()`,
 `patch = { ...patch, ...(!('defaultModel' in patch) ? { defaultModel: 'auto' } : {}), … }` assigns to
 an `IssuePatch`-typed variable, and renaming the inner key to `defaultModelTYPO` leaves
-`--filter @podium/server typecheck` at **exit 0**. TypeScript applies excess-property checking to a
-literal's own properties, not to properties arriving through a spread. **Appending
-`satisfies IssuePatch` to the outer literal does not close it either** — tested; the typo still
-compiles. `satisfies` is load-bearing only once the literal is fully spelled out.
+`--filter @podium/server typecheck` at **exit 0**. **Appending `satisfies IssuePatch` to the outer
+literal does not close it either** — tested; the typo still compiles.
+
+**The precise rule — narrower than this ledger's first revision claimed, and than the fleet broadcast
+that quoted it.** POD-366 re-checked a mapper of the same shape *expecting* a survivor and got a kill;
+its five-case probe was reproduced here independently (three cases red, so the probe proves itself):
+
+| Case | Result |
+|---|---|
+| `const a: T = { req, bogus: 1 }` | **TS2353** |
+| `const b: T = { req, ...(cond ? { bogus: 1 } : {}) }` | no error |
+| `const c: T = { ...(cond ? { req } : {}) }` | **TS2322** |
+| `const d: T = { req, bogus: 1, ...(cond ? { opt } : {}) }` | **TS2353** |
+| `const e = { req, ...(cond ? { bogus: 1 } : {}) } satisfies T` | no error |
+
+So: directly-written keys **are** excess-checked even with a spread in the same literal (d); a key
+supplied **inside** a conditional spread escapes (b) and `satisfies` does not rescue it (e); a
+**required** key supplied only via a spread **is** caught (c). **The exposure is specifically an
+OPTIONAL key inside a conditional spread** — which is exactly how a producer keeps emitting a field the
+model has renamed or dropped. "The annotation constrains nothing" was my overstatement, generalised
+from one observation; case (d) disproves it. The narrow rule is also the more useful one, because it
+gives the sweep a triage criterion instead of licensing a rewrite of literals that were already safe.
 
 So `CreateIssueInput` and `IssuePatch` are correctly composed, and their *types* now have one home —
 but the propagation guarantee stops at those producers. Filed as **POD-1138** (a repo-wide producer
