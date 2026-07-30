@@ -17,8 +17,8 @@ multi-user within one tenant, private by default); ADR 9
 win**. Already-approved contracts that are **ratified here, not reopened**:
 `docs/reattachment-design.md` (2026-07-18) and `docs/spec/conversation-registry.md`
 (2026-07-02). The current-state inventory in §3.4 and §10 is sourced from POD-364's
-`docs/rearch-field-schema-inventory.md` (commit `1475c062`, **unmerged**, on
-`issue/364-1-4a-field-schema-inventory-map-every-se`).
+`docs/rearch-field-schema-inventory.md` (commit `1475c062`, **merged into
+`issue/279-integration`** 2026-07-30).
 
 ---
 
@@ -1061,7 +1061,7 @@ that record unblocks POD-415, POD-416, POD-417, POD-644 and POD-737.
   race-free bootstrap-to-live handoff, the one side-effect gate
 - `docs/spec/conversation-registry.md` (2026-07-02) — `ConversationId`, segments, the
   identity discipline, the transcript locator
-- POD-364 `docs/rearch-field-schema-inventory.md` (`1475c062`, **unmerged**) — the 28
+- POD-364 `docs/rearch-field-schema-inventory.md` (`1475c062`, merged) — the 28
   session representations and the field→meaning map behind §3.4 and §10
 - [spec:SP-fccf] Codex session identity · [spec:SP-15aa] instance runtime namespace
   (`c28463a6`) · [spec:SP-3f7a] portable session package · [spec:SP-eb60] naming doctrine
