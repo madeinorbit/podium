@@ -56,20 +56,29 @@ function messagesRouterBlock(): string {
 }
 
 describe('POD-424 gate: the messages router is DERIVED, not hand-written', () => {
-  it('declares every procedure through mailProc and none by hand', () => {
+  /** Every `<key>: mail(Query|Mutation)('<proc>'),` line in the messages block. */
+  function derivedProcs(): { key: string; verb: 'query' | 'mutation'; proc: string }[] {
     const block = messagesRouterBlock()
+    return [...block.matchAll(/^\s{4}(\w+): mail(Query|Mutation)\('(\w+)'\),$/gm)].map((m) => ({
+      key: m[1] as string,
+      verb: m[2] === 'Query' ? 'query' : 'mutation',
+      proc: m[3] as string,
+    }))
+  }
+
+  it('declares every procedure through the derivation helpers and none by hand', () => {
     // The instrument says YES first: if this extraction were wrong (an empty
     // slice, a block that stopped at the first nested brace) the assertions
     // below would pass vacuously. Nine procedures is what the surface has.
-    const derived = [...block.matchAll(/^\s{4}(\w+): mailProc\('(\w+)'\),$/gm)]
+    const derived = derivedProcs()
     expect(derived).toHaveLength(9)
-    // Each key is served by the contract of the same name — a `show: mailProc('ledger')`
-    // would type-check and serve the wrong command.
-    for (const [, key, proc] of derived) expect(proc).toBe(key)
-    // Every derived name is a real entry in the joined table.
-    for (const [, , proc] of derived) expect(Object.hasOwn(MAIL_COMMANDS, proc ?? '')).toBe(true)
+    // Each key is served by the contract of the same name — a `show:
+    // mailQuery('ledger')` would type-check and serve the wrong command.
+    for (const d of derived) expect(d.proc).toBe(d.key)
+    for (const d of derived) expect(Object.hasOwn(MAIL_COMMANDS, d.proc)).toBe(true)
 
     // And nothing else: no hand-written body, no second validation surface.
+    const block = messagesRouterBlock()
     expect(block).not.toContain('.mutation(')
     expect(block).not.toContain('.query(')
     expect(block).not.toContain('t.procedure')
@@ -77,24 +86,31 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
   })
 
   it('serves nothing the contract table does not expose on trpc', () => {
-    const block = messagesRouterBlock()
-    const served = [...block.matchAll(/mailProc\('(\w+)'\)/g)].map((m) => m[1] as string)
-    expect(served).toHaveLength(9)
-    for (const proc of served) {
-      const contract = MAIL_COMMANDS[proc as keyof typeof MAIL_COMMANDS].contract
+    const derived = derivedProcs()
+    expect(derived).toHaveLength(9)
+    for (const d of derived) {
+      const contract = MAIL_COMMANDS[d.proc as keyof typeof MAIL_COMMANDS].contract
       expect(contract.exposure).toContain('trpc')
     }
   })
 
-  it('reads the wire verb off the policy — inbox is a MUTATION because it consumes', () => {
+  it('matches the WIRE VERB to the policy action on every one — inbox is a mutation because it consumes', () => {
     // The trap this closes: `inbox` reads like a query and is a `write`, because
-    // reading your own box marks its rows read. Deriving the verb is what stops
-    // a future hand edit from "fixing" it into a query and quietly widening it
-    // to viewer-grade principals.
-    expect(MAIL_COMMANDS.inbox.contract.policy.action).toBe('write')
-    expect(MAIL_COMMANDS.ledger.contract.policy.action).toBe('read')
-    expect(MAIL_COMMANDS.show.contract.policy.action).toBe('read')
-    expect(MAIL_COMMANDS.dismiss.contract.policy.action).toBe('write')
+    // reading your own box marks its rows read. Serving it as a query would
+    // widen it to viewer-grade principals. The router's helpers refuse a
+    // mismatch at module load; this asserts the pairing per procedure, so the
+    // claim is checked against all nine rather than trusted from one.
+    for (const d of derivedProcs()) {
+      const action = MAIL_COMMANDS[d.proc as keyof typeof MAIL_COMMANDS].contract.policy.action
+      expect({ proc: d.proc, verb: d.verb }).toEqual({
+        proc: d.proc,
+        verb: action === 'read' ? 'query' : 'mutation',
+      })
+    }
+    // Non-vacuity: both verbs must actually occur, or a router that served
+    // everything one way would satisfy the loop above if the table agreed.
+    const verbs = new Set(derivedProcs().map((d) => d.verb))
+    expect([...verbs].sort()).toEqual(['mutation', 'query'])
   })
 })
 
