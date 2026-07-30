@@ -5,7 +5,7 @@ import { RELAY } from './_harness'
 
 test.skip(
   ({ isMobile }) => isMobile,
-  'desktop test (Settings nav button lives in the <aside> Sidebar)',
+  'desktop test (the Settings nav button lives in the top bar; POD-318 moved it out of the <aside> Sidebar, and POD-420 repointed these locators)',
 )
 test.describe.configure({ timeout: 90_000 })
 
@@ -83,7 +83,7 @@ test('native account profile labels render when available', async ({ page }) => 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   await page
-    .locator('aside')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('region', { name: 'Settings' })
@@ -112,7 +112,7 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   await openShell(page)
 
   await page
-    .locator('aside')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
@@ -146,7 +146,7 @@ test('new sessions exposes and persists both Grok implementation models', async 
   await openShell(page)
 
   await page
-    .locator('aside')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const section = newSessionsSection(page)
@@ -187,7 +187,7 @@ test('superagent uses shared Codex model and effort dropdowns', async ({ page })
   await openShell(page)
 
   await page
-    .locator('aside')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('region', { name: 'Settings' })
@@ -221,7 +221,7 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
   await openShell(page)
 
   await page
-    .locator('aside')
+    .getByRole('banner')
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('region', { name: 'Settings' })
@@ -245,7 +245,7 @@ test('idle-session convergence target round-trips and renders', async ({ page })
   await trpc.settings.set.mutate(normalizeSettings({ hibernation: { maxIdleSessions: null } }))
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('region', { name: 'Settings' })
   await settings.getByRole('button', { name: 'Hibernation', exact: true }).click()
   const input = settings.getByRole('spinbutton', { name: 'Maximum idle sessions' })
