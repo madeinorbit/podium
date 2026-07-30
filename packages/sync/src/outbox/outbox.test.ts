@@ -1534,27 +1534,76 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
     expect(store.durable().map((r) => r.mutationId)).toContain(a.mutationId)
   })
 
-  it('two principal-bound instances stage keyed mutations in ONE shared span and both survive', async () => {
+  it('two principal-bound instances RETIRE into one shared span and both survive', async () => {
+    // This test used to enqueue from both instances inside an open transaction and
+    // claim they shared it. Once the ambient join was removed (round 6) that stopped
+    // being true — enqueue is a user action and takes no span, so both writes were
+    // independent and the name was a lie, introduced by my own fix. Rewritten to
+    // share a span through the seam that actually threads one: retirement.
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const ada = await harness(() => applied, { store, clock, unitOfWork: uow, idPrefix: 'ada-' })
+    const ada = await harness(() => applied, { store, clock, idPrefix: 'ada-' })
     const grace = await harness(() => applied, {
       store,
       clock,
-      unitOfWork: uow,
       principal: 'u-grace',
       idPrefix: 'grace-',
     })
+    const adas = await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+    const graces = await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+    const keep = await ada.outbox.enqueue(close('POD-3', { attribution: ADA }))
+    await ada.outbox.drain()
+    await grace.outbox.drain()
+    const writesBefore = store.writes
 
-    await uow.transact(async () => {
-      await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
-      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+    await uow.transact(async (span) => {
+      await ada.outbox.retireAllApplied([adas.mutationId], span)
+      await grace.outbox.retireAllApplied([graces.mutationId], span)
     })
 
-    expect(store.durable().map((r) => r.mutationId)).toEqual(['ada-1', 'grace-1'])
-    expect(ada.outbox.all().map((r) => r.mutationId)).toEqual(['ada-1'])
-    expect(grace.outbox.all().map((r) => r.mutationId)).toEqual(['grace-1'])
+    // Both retirements landed, and neither instance's staging replaced the other's:
+    // the span accumulated two participants' keyed deltas.
+    expect(store.durable().map((r) => r.mutationId)).toEqual([keep.mutationId])
+    expect(ada.outbox.all().map((r) => r.mutationId)).toEqual([keep.mutationId])
+    expect(grace.outbox.all()).toEqual([])
+    // ONE physical write for the whole transaction, not one per participant: both
+    // instances stage into the same store's per-span draft, so the span publishes
+    // once. (I asserted two here first and the count corrected me — the accumulating
+    // draft is doing more than I credited it with.)
+    expect(store.writes).toBe(writesBefore + 1)
+  })
+
+  it('aborts a shared span for BOTH participants, retiring neither', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => applied, { store, clock, idPrefix: 'ada-' })
+    const grace = await harness(() => applied, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'grace-',
+    })
+    const adas = await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+    const graces = await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+    await ada.outbox.drain()
+    await grace.outbox.drain()
+    const before = JSON.stringify(store.durable())
+
+    await expect(
+      uow.transact(async (span) => {
+        await ada.outbox.retireAllApplied([adas.mutationId], span)
+        await grace.outbox.retireAllApplied([graces.mutationId], span)
+        throw new Error('shared span aborts')
+      }),
+    ).rejects.toThrow(/shared span aborts/)
+
+    expect(JSON.stringify(store.durable())).toBe(before)
+    expect(ada.outbox.all().map((r) => r.mutationId)).toEqual([adas.mutationId])
+    expect(grace.outbox.all().map((r) => r.mutationId)).toEqual([graces.mutationId])
+    expect(types(ada.events)).not.toContain('retired')
+    expect(types(grace.events)).not.toContain('retired')
   })
 
   it('refuses to write a key owned by another principal, even inside a shared span', async () => {

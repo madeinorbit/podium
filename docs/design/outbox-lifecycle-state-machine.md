@@ -156,6 +156,28 @@ recognise it too. Both shapes mean "another writer won" and both re-stage. A com
 arriving through the CALLER's own ambient span is not ours to retry, so it propagates: their
 transaction is already dead and retrying our part alone would be meaningless.
 
+### The transaction rule, as clarified with POD-369
+
+Five clauses, agreed after POD-370's reviewer found the ambient-join defect. POD-369 confirmed this
+is the literal ADR 6 D4.1 boundary — *"a single kernel operation that touches more than one of
+{entities, cursor, outbox, overlay} commits in one storage transaction"* — so the no-per-write-
+fallback rule forbids silently splitting ONE multi-region commit, and does not require an otherwise
+single-store enqueue to be wrapped in a unit of work:
+
+1. A lone enqueue, cancel or single-region transition may call one atomic store operation directly.
+   It must resolve only after that durable operation commits, and a failure must leave both durable
+   and in-memory pre-state.
+2. A logical operation spanning entity/cache + cursor + outbox/overlay MUST receive and explicitly
+   thread one `SyncSpan` through every enrolled write.
+3. No operation joins because some process-wide or ambient transaction happens to exist. Joining
+   occurs only when the caller hands it the span.
+4. A call with no span is independent: it must never fulfil on the strength of another caller's
+   uncommitted transaction, and must never be rolled back by that caller's abort.
+5. In-memory and conformance stores isolate staged mutations per span and publish atomically after
+   validation. Abort discards the private draft; it never repairs shared state by snapshot restore
+   or undo writes. Keyed and FIFO order is preserved by the staged draft rather than reconstructed
+   during abort.
+
 **Joining is explicit; independent transactions are serialized.** There is no ambient "current
 transaction" a mutation can join, because a process-wide flag cannot tell lexical nesting from an
 unrelated concurrent caller — with one, a plain `enqueue` issued while somebody else's transaction
