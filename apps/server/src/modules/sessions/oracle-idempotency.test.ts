@@ -288,13 +288,30 @@ describe('oracle: the writes with NO replay protection', () => {
     expect(o.store.sync.getAppliedMutation('m-pin')).toBeUndefined()
   })
 
-  it(`${MUST_NOT_CHANGE}: the lifecycle commands take no mutationId — kill / hibernate / resurrect / handoff are not replay-protected`, async () => {
+  it(`${MUST_NOT_CHANGE}: the lifecycle commands take no mutationId — kill, hibernate, resurrect and handoff each record NOTHING to replay against`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
-    await o.call.sessions.kill({ sessionId })
-    // A second kill of the same id is simply another (no-op) apply, with nothing
-    // recorded that a replay could short-circuit against.
+    // The name says four commands, so all four are exercised. tRPC strips the
+    // unknown key, so the call succeeds and nothing is recorded — which is the
+    // characterization: these routes have no replay protection to lose.
+    const ids = {
+      kill: 'm-kill',
+      hibernate: 'm-hibernate',
+      resurrect: 'm-resurrect',
+      handoff: 'm-handoff',
+    }
+    await o.call.sessions.hibernate({ sessionId, mutationId: ids.hibernate } as never)
+    await o.call.sessions.resurrect({ sessionId, mutationId: ids.resurrect } as never)
+    await o.call.sessions
+      .handoff({ sessionId, machineId: 'nowhere', mutationId: ids.handoff } as never)
+      .catch(() => undefined)
+    await o.call.sessions.kill({ sessionId, mutationId: ids.kill } as never)
+
+    for (const id of Object.values(ids)) {
+      expect(o.store.sync.getAppliedMutation(id)).toBeUndefined()
+    }
+    // And a second kill is simply another (no-op) apply, not a deduped replay.
     await expect(o.call.sessions.kill({ sessionId })).resolves.toBeUndefined()
     expect(o.store.sessions.loadDeletedSessions()).toHaveLength(1)
   })

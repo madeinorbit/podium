@@ -139,27 +139,49 @@ describe('oracle: not-found shape, per write', () => {
     expect(woken.disposition).toBe('dead_letter')
   })
 
-  it(`${EXISTENCE_ORACLE}: via the RELAY, a send to an unknown session fails with a distinct message from an authz denial`, async () => {
+  it(`${EXISTENCE_ORACLE}: via the RELAY, not-found and authz-denied are DIFFERENT messages — the send path is an existence oracle today`, async () => {
     const o = makeOracle()
-    const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const a = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const b = o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
     const agent = o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
+    // A session that EXISTS but is outside the caller's subtree — the invisible
+    // case's closest present-day analogue.
+    const stranger = o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/.worktrees/b',
+      issueId: b.id,
+    })
 
-    const reply = await o.relay({
+    const notFound = await o.relay({
       requestId: 'send-ghost',
       sessionId: agent.sessionId,
       router: 'sessions',
       proc: 'sendText',
       input: { sessionId: GHOST, text: 'hi' },
     })
+    const denied = await o.relay({
+      requestId: 'send-denied',
+      sessionId: agent.sessionId,
+      router: 'sessions',
+      proc: 'sendText',
+      input: { sessionId: stranger.sessionId, text: 'hi' },
+    })
 
-    // Today "does not exist" and "you may not touch it" are DIFFERENT strings —
-    // exactly the existence-oracle shape §3.1.5 has to close later.
-    expect(reply.ok).toBe(false)
-    expect(reply.error).toBe('session not found')
+    // The name claims DISTINCT, so the test compares them rather than pinning one
+    // and trusting the reader. Both are pinned exactly, and their difference is
+    // asserted — that difference IS the existence oracle §3.1.5 has to close.
+    expect(notFound.ok).toBe(false)
+    expect(denied.ok).toBe(false)
+    expect(notFound.error).toBe('session not found')
+    expect(denied.error).toBe(
+      `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
+    )
+    expect(notFound.error).not.toBe(denied.error)
   })
 })
 

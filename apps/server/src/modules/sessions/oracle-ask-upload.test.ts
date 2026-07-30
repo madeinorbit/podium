@@ -249,7 +249,11 @@ describe('oracle: sessions.ask (the seance)', () => {
 })
 
 describe('oracle: sessions.uploadImage', () => {
-  it(`${MUST_NOT_CHANGE}: a successful upload returns the daemon's absolute path, and the request carries the bytes to the SESSION's machine`, async () => {
+  // NAME AUDIT: this used to be called "carries the bytes to the SESSION's
+  // machine" while running on a one-machine fixture, so it passed with the
+  // routing argument dropped. The routing claim now lives — and is only made —
+  // in the two-machine test below. This one checks the payload round trip.
+  it(`${MUST_NOT_CHANGE}: a successful upload returns the daemon's absolute path and forwards filename, mimeType and bytes verbatim`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     answerUploads(o, (msg) => ({ path: `/home/agent/.podium/uploads/${msg.sessionId}/x.png` }))
@@ -310,19 +314,23 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it(`${willChange('POD-1079', 'machines become owned compute; use defaults to the owner only')}: an upload is routed to the SESSION's machine, whichever machine that is, with no ownership check`, async () => {
-    // A second paired machine that is NOT the default, hosting the session. It
-    // must be declared before the registry so its inventory is cached, and it
-    // must report the harness or placement refuses the spawn.
+    // The second machine gets its own responder; the DEFAULT machine keeps the
+    // recorder makeOracle installed and is never re-attached. Swapping the local
+    // handler mid-test was a needless moving part — attachDaemon has retarget
+    // side effects, and a handler swap is exactly the kind of ordering
+    // dependence that makes a test flake instead of characterize.
     const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), 'other')
-    const localSeen = answerUploads(o, () => ({ path: '/on/local/x.png' }), 'local')
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
       machineId: 'other',
     })
+    // Placement first, routing second: if this ever fails, the fixture is wrong,
+    // not the behaviour under test.
+    expect(o.meta(sessionId).machineId).toBe('other')
     otherSeen.length = 0
-    localSeen.length = 0
+    o.daemon.length = 0
 
     const result = await o.call.sessions.uploadImage({
       sessionId,
@@ -332,8 +340,9 @@ describe('oracle: sessions.uploadImage', () => {
     })
 
     // The bytes land on the machine that RUNS the session, so the returned path
-    // is valid in that session's prompt. Dropping the routing argument would send
-    // every upload to the default machine and this assertion is what catches it.
+    // is valid in that session's prompt. Dropping the routing argument sends
+    // every upload to the default machine, and these two assertions together —
+    // the request AT 'other', and NOTHING at the default — are what catch it.
     expect(result).toEqual({ path: '/on/other/x.png' })
     expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toEqual([
       expect.objectContaining({
@@ -344,8 +353,7 @@ describe('oracle: sessions.uploadImage', () => {
         dataBase64: Buffer.from('bytes').toString('base64'),
       }),
     ])
-    // And the default machine sees NOTHING — the discriminating half.
-    expect(localSeen.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+    expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
   })
 
   it(`${willChange('POD-1073', 'invisible must later fail identically to nonexistent — §3.1.5')}: an upload for an UNKNOWN session is dispatched anyway, to the default machine`, async () => {

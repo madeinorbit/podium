@@ -265,14 +265,25 @@ describe('oracle: kill', () => {
     expect(tombstone?.deletedByIssueId).toBeNull()
   })
 
-  it(`${MUST_NOT_CHANGE}: kill signals the owning daemon and publishes the removal to clients`, async () => {
-    const o = makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    goLive(o, sessionId)
+  it(`${MUST_NOT_CHANGE}: kill signals the OWNING daemon — and only that one — and publishes the removal to clients`, async () => {
+    // "Owning" is only assertable when a NON-owning machine exists to stay
+    // silent. On a one-machine fixture the same assertion passes for a kill
+    // broadcast to everyone, which is a different behaviour.
+    const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
+    const otherSeen: ControlMessage[] = []
+    o.reg.modules.sessions.attachDaemon('other', (m) => otherSeen.push(m))
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'shell',
+      cwd: '/p',
+      machineId: 'other',
+    })
+    otherSeen.length = 0
+    o.daemon.length = 0
 
     await o.call.sessions.kill({ sessionId })
 
-    expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+    expect(otherSeen).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+    expect(o.daemon.filter((m) => m.type === 'kill')).toEqual([])
     await waitFor(
       () =>
         o.client.some(
@@ -311,8 +322,12 @@ describe('oracle: sendText / resumeAndSend', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
-    // Another client holds control; the chat send must still land.
-    o.reg.modules.sessions.attachClient(() => {})
+    // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
+    // that is not this caller — otherwise the test passes on a session nobody
+    // controls and proves nothing about gating.
+    const controllerId = o.reg.modules.sessions.attachClient(() => {})
+    o.reg.modules.sessions.onClientMessage(controllerId, { type: 'attach', sessionId })
+    expect(o.meta(sessionId).controllerId).toBe(controllerId)
     o.daemon.length = 0
 
     expect((await o.call.sessions.sendText({ sessionId, text: 'still lands' })).ok).toBe(true)

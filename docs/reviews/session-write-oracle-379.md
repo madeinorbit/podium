@@ -117,6 +117,30 @@ Twenty-seven mutants, twenty-seven caught. The one mutation that did NOT red a t
 `packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
 `SessionsService.typeText`, and mutating THAT is the row above.
 
+## The name audit (POD-279 broadcast: "a test that asserts its own name")
+
+The upload-routing miss was not a one-off. A pass over every test name in this suite that makes a
+SPECIFIC claim — this machine, this order, this principal, this reason, this count — found four more
+where the assertion checked something adjacent, all now fixed:
+
+| Test | The claim its body did not check | Fix |
+|---|---|---|
+| "carries the bytes to the SESSION's machine" | ran on a one-machine fixture, so "which machine" was unassertable | renamed to what it checks; the routing claim now lives only in the two-machine test |
+| "kill signals the OWNING daemon" | one machine, so a kill broadcast to everyone would pass | second machine added; asserts it stays silent |
+| "sendText bypasses CONTROLLER gating" | no controller was ever established | attaches a controller and asserts `controllerId` before sending |
+| "kill / hibernate / resurrect / handoff are not replay-protected" | exercised `kill` only | all four exercised; each asserted to record nothing |
+| "a send … fails with a distinct message from an authz denial" | never compared the two messages | both produced in one test and asserted different |
+
+The general form of the trap, worth more than the individual fixes: **a name that says "routed to X"
+needs a fixture containing a Y that could have received it.** A single-machine fixture cannot express
+that claim however the assertion is written, so the name will outrun the body no matter how carefully
+the body is written.
+
+One flake was found and fixed during the same pass: the two-machine upload test re-attached the
+default machine's daemon handler mid-test, and `attachDaemon` has retarget side effects. It failed
+1 run in 3 under load. Rewritten so no handler is ever swapped; 8 consecutive clean runs, and the
+routing mutant still reds.
+
 ## Deliberate deviations
 
 - **Handoff runs against two paired machines with SCRIPTED daemons**, not the POD-498 iso harness.
