@@ -7,11 +7,11 @@
 
 import type { MutationId } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SyncCommitConflict } from '../../span'
 import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
-import type { IdbFactoryLike, IdbOpenRequestLike } from './idb'
+import { SyncCommitConflict } from '../../span'
 import { indexedDbInstantiation } from './conformance'
+import type { IdbFactoryLike, IdbOpenRequestLike } from './idb'
 import { ENTITY_STORE, OUTBOX_STORE, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION } from './schema'
 import { type DurabilityDegradation, IndexedDbSyncStore } from './store'
 import { freshFactory, readDurable } from './test-support'
@@ -49,9 +49,10 @@ describe('IndexedDbSyncStore', () => {
     })
 
   const put = async (store: IndexedDbSyncStore, id: string): Promise<void> => {
-    const result = await store
-      .viewFor(PRINCIPAL)
-      .outbox.apply({ put: [record(id)], expect: [{ mutationId: id as MutationId, expect: 'absent' }] })
+    const result = await store.viewFor(PRINCIPAL).outbox.apply({
+      put: [record(id)],
+      expect: [{ mutationId: id as MutationId, expect: 'absent' }],
+    })
     expect(result).toEqual({ ok: true })
   }
 
@@ -126,7 +127,10 @@ describe('IndexedDbSyncStore', () => {
       await expect(
         tabB.unitOfWork.transact(async (span) => {
           await tabB.viewFor(PRINCIPAL).outbox.apply(
-            { remove: ['m-1' as MutationId], expect: [{ mutationId: 'm-1' as MutationId, expect: 'queued' }] },
+            {
+              remove: ['m-1' as MutationId],
+              expect: [{ mutationId: 'm-1' as MutationId, expect: 'queued' }],
+            },
             span,
           )
         }),
@@ -149,7 +153,10 @@ describe('IndexedDbSyncStore', () => {
       const tab = await open()
       await tab.unitOfWork.transact(async (span) => {
         await tab.viewFor(PRINCIPAL).outbox.apply(
-          { remove: ['m-1' as MutationId], expect: [{ mutationId: 'm-1' as MutationId, expect: 'queued' }] },
+          {
+            remove: ['m-1' as MutationId],
+            expect: [{ mutationId: 'm-1' as MutationId, expect: 'queued' }],
+          },
           span,
         )
       })
@@ -164,7 +171,10 @@ describe('IndexedDbSyncStore', () => {
       // version than this build understands cannot be read. IndexedDB refuses the
       // open with a VersionError, which is the real poison signal — no injector.
       await new Promise<void>((resolve, reject) => {
-        const request: IdbOpenRequestLike = factory.open(REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION + 5)
+        const request: IdbOpenRequestLike = factory.open(
+          REPLICA_DB_NAME,
+          REPLICA_SCHEMA_VERSION + 5,
+        )
         request.onupgradeneeded = () => {
           request.result.createObjectStore('from-the-future', { keyPath: 'id' })
         }
@@ -281,7 +291,9 @@ describe('IndexedDbSyncStore', () => {
       store.viewFor('ada').cache.discardCache()
       await store.settled()
       expect(store.viewFor('ada').cache.read('issue', 'SHARED')).toBeUndefined()
-      expect(store.viewFor('grace').cache.read('issue', 'SHARED')?.value).toEqual({ owner: 'grace' })
+      expect(store.viewFor('grace').cache.read('issue', 'SHARED')?.value).toEqual({
+        owner: 'grace',
+      })
       expect((await readDurable(factory))[ENTITY_STORE]).toHaveLength(1)
       store.close()
     })

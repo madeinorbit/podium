@@ -62,22 +62,22 @@
 import type { MutationId } from '@podium/protocol'
 import type {
   OutboxApplyResult,
+  OutboxRecordExpectation,
   OutboxStoreMutation,
   OutboxStorePort,
-  OutboxRecordExpectation,
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
 import type {
   CacheMutation,
-  ReplicaCacheStore,
   OwnedSyncSpan,
+  ReplicaCacheStore,
   SyncSpan,
   SyncSpanParticipant,
   SyncUnitOfWork,
 } from '../../replica/ports'
 import { ReplicaStoreCorruptError } from '../../replica/ports'
-import { SyncCommitConflict } from '../../span'
 import type { Cursor, EntityRecord } from '../../replica/types'
+import { SyncCommitConflict } from '../../span'
 import {
   type IdbDatabaseLike,
   type IdbFactoryLike,
@@ -698,7 +698,7 @@ export class IndexedDbStoreView {
   readonly outbox: OutboxStorePort
 
   constructor(
-    private readonly store: IndexedDbSyncStore,
+    store: IndexedDbSyncStore,
     private readonly principal: string,
   ) {
     this.cache = new IndexedDbCacheStore(store, principal)

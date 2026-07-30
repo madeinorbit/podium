@@ -42,11 +42,7 @@ import type { OutboxRecord } from '../../outbox/records'
 import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
 import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } from './schema'
-import {
-  type DurabilityDegradation,
-  IndexedDbSyncStore,
-  type IndexedDbStoreView,
-} from './store'
+import { type DurabilityDegradation, type IndexedDbStoreView, IndexedDbSyncStore } from './store'
 import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
 
 const PRINCIPAL = 'ada'
@@ -124,12 +120,12 @@ describe('IndexedDB adapter — kill between writes, at every boundary', () => {
    * THE OPERATION EVERY CASE CRASHES INSIDE — one transaction over all three
    * regions, which is the only shape in which a torn mix is even expressible.
    */
-  async function commitAllThree(view: IndexedDbStoreView, store: IndexedDbSyncStore): Promise<void> {
+  async function commitAllThree(
+    view: IndexedDbStoreView,
+    store: IndexedDbSyncStore,
+  ): Promise<void> {
     await store.unitOfWork.transact(async (span) => {
-      await view.outbox.apply(
-        { remove: [M], expect: [{ mutationId: M, expect: 'applied' }] },
-        span,
-      )
+      await view.outbox.apply({ remove: [M], expect: [{ mutationId: M, expect: 'applied' }] }, span)
       view.cache.applyAtomic(
         {
           operations: [

@@ -27,7 +27,6 @@
  */
 
 import { IDBFactory } from 'fake-indexeddb'
-import { ALL_STORES, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION, upgradeSchema } from './schema'
 import type {
   IdbDatabaseLike,
   IdbFactoryLike,
@@ -36,6 +35,7 @@ import type {
   IdbRequestLike,
   IdbTransactionLike,
 } from './idb'
+import { ALL_STORES, REPLICA_DB_NAME, REPLICA_SCHEMA_VERSION, upgradeSchema } from './schema'
 
 /** A brand-new, empty IndexedDB origin. One per test; nothing is shared. */
 export const freshFactory = (): IdbFactoryLike => new IDBFactory() as unknown as IdbFactoryLike
@@ -156,7 +156,10 @@ export class FaultyIdbFactory implements IdbFactoryLike {
   }
 }
 
-function wrapOpenRequest(request: IdbOpenRequestLike, factory: FaultyIdbFactory): IdbOpenRequestLike {
+function wrapOpenRequest(
+  request: IdbOpenRequestLike,
+  factory: FaultyIdbFactory,
+): IdbOpenRequestLike {
   const wrapper: IdbOpenRequestLike = {
     get result() {
       return wrapDatabase(request.result, factory)
@@ -199,7 +202,12 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
   let writeIndex = 0
   let injected: Error | undefined
   const wrapper: IdbTransactionLike = {
-    objectStore: (name) => wrapObjectStore(tx.objectStore(name), () => deny(), () => killAfter()),
+    objectStore: (name) =>
+      wrapObjectStore(
+        tx.objectStore(name),
+        () => deny(),
+        () => killAfter(),
+      ),
     abort: () => {
       tx.abort()
     },
@@ -208,9 +216,7 @@ function wrapTransaction(tx: IdbTransactionLike, factory: FaultyIdbFactory): Idb
       // failure as the transaction's error, and the adapter's quota branch keys on
       // exactly that. Falling back to the engine's own error keeps every other
       // abort honest.
-      return injected !== undefined
-        ? { name: injected.name, message: injected.message }
-        : tx.error
+      return injected !== undefined ? { name: injected.name, message: injected.message } : tx.error
     },
     oncomplete: null,
     onerror: null,

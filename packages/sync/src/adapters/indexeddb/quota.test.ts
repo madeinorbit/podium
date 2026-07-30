@@ -33,12 +33,7 @@ import type { Cursor } from '../../replica/types'
 import type { IdbFactoryLike } from './idb'
 import { CURSOR_KEY, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME } from './schema'
 import { type DurabilityDegradation, IndexedDbSyncStore } from './store'
-import {
-  FaultyIdbFactory,
-  freshFactory,
-  QuotaExceededDomError,
-  readDurable,
-} from './test-support'
+import { FaultyIdbFactory, freshFactory, QuotaExceededDomError, readDurable } from './test-support'
 
 const PRINCIPAL = 'ada'
 const M1: MutationId = 'm-1' as MutationId
@@ -79,7 +74,10 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
   const commit = async (store: IndexedDbSyncStore, id: MutationId, cursor: Cursor, v: number) => {
     const view = store.viewFor(PRINCIPAL)
     await store.unitOfWork.transact(async (span) => {
-      await view.outbox.apply({ put: [record(id)], expect: [{ mutationId: id, expect: 'absent' }] }, span)
+      await view.outbox.apply(
+        { put: [record(id)], expect: [{ mutationId: id, expect: 'absent' }] },
+        span,
+      )
       view.cache.applyAtomic(
         {
           operations: [
@@ -228,10 +226,9 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
     it('the spy CAN say yes — it records a touch when something actually reaches it', () => {
       // The positive control this whole case rests on. An absence reported by an
       // instrument that cannot report a presence is not evidence.
-      ;(globalThis as { localStorage?: { setItem: (k: string, v: string) => void } }).localStorage?.setItem(
-        'podium.probe',
-        'x',
-      )
+      ;(
+        globalThis as { localStorage?: { setItem: (k: string, v: string) => void } }
+      ).localStorage?.setItem('podium.probe', 'x')
       expect(touched).toContain('setItem')
     })
 
