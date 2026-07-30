@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryReplicaStore } from './memory-store'
-import type { OptimisticOverlayPort, PendingMutation } from './overlay'
+import type { OptimisticOverlayPort, PendingMutation, RetirementIntent } from './overlay'
 import type { KnownKindValidatorPort } from './ports'
 import { Replica } from './replica'
 import {
@@ -866,19 +866,29 @@ describe('the replica never arbitrates', () => {
 // ───────────────────────────────────────────────────────────────────────────────
 describe('the optimistic-overlay reducer seam', () => {
   /** A FAKE reducer. The real vocabulary is POD-351's contract; this only proves the port. */
-  function fakeOverlay(): OptimisticOverlayPort & { retired: unknown[]; queue: PendingMutation[] } {
+  function fakeOverlay(): OptimisticOverlayPort & {
+    retired: RetirementIntent[]
+    /** One entry per CALL, so the suite can prove batching and not just content. */
+    batches: RetirementIntent[][]
+    queue: PendingMutation[]
+  } {
     const queue: PendingMutation[] = []
-    const retired: unknown[] = []
+    const retired: RetirementIntent[] = []
+    const batches: RetirementIntent[][] = []
     return {
       queue,
       retired,
+      batches,
       pending: (entity, entityId) =>
         queue.filter((p) => p.entity === entity && p.entityId === entityId),
       reduce: (base, command) => ({ ...(base as object | undefined), ...(command as object) }),
-      retire: (match) => {
-        retired.push(match)
-        const index = queue.findIndex((p) => p.mutationId === match.mutationId)
-        if (index >= 0) queue.splice(index, 1)
+      retire: (matches) => {
+        batches.push([...matches])
+        for (const match of matches) {
+          retired.push(match)
+          const index = queue.findIndex((p) => p.mutationId === match.mutationId)
+          if (index >= 0) queue.splice(index, 1)
+        }
       },
     }
   }
@@ -952,11 +962,11 @@ describe('the optimistic-overlay reducer seam', () => {
     // A delete I authored must retire its outbox entry exactly as an edit does;
     // previously only the upsert branch retired, so a tombstone caused by my own
     // command left its overlay entry pending forever.
-    expect(overlay.retired.map((r) => (r as { mutationId?: string }).mutationId)).toEqual([
-      'm-del',
-      'm-ev',
-      'm-up',
-    ])
+    expect(overlay.retired.map((r) => r.mutationId)).toEqual(['m-del', 'm-ev', 'm-up'])
+    // ONE call for the whole frame. Per-change calls let a second retirement
+    // resurrect the first when both stage from the same pre-commit outbox
+    // snapshot inside a shared unit of work (POD-370's re-review).
+    expect(overlay.batches).toHaveLength(1)
   })
 
   it('retires through the BOOTSTRAP path too, not only live and heal', async () => {
@@ -977,9 +987,8 @@ describe('the optimistic-overlay reducer seam', () => {
     await h.replica.settled()
 
     // The bootstrap replay used to be a second emission path that retired nothing.
-    expect(overlay.retired.map((r) => (r as { mutationId?: string }).mutationId)).toEqual([
-      'm-buffered',
-    ])
+    expect(overlay.retired.map((r) => r.mutationId)).toEqual(['m-buffered'])
+    expect(overlay.batches).toHaveLength(1)
   })
 
   it('survives a rescope, because it is derived from the outbox rather than cached', async () => {

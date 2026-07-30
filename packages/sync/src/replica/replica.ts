@@ -35,7 +35,7 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import type { OptimisticOverlayPort } from './overlay'
+import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
 import {
   type AuthorityReadPort,
   type CacheMutation,
@@ -359,7 +359,29 @@ export class Replica {
     this.cursorValue = nextCursor
     this.counters.pendingGap = false
 
-    return this.emitApplied(changes, nextCursor)
+    const retirements: RetirementIntent[] = []
+    const rowId = this.emitApplied(changes, nextCursor, retirements)
+    this.submitRetirements(retirements)
+    return rowId
+  }
+
+  /**
+   * ONE call per transaction, deduplicated by provenance identity. Two changes in
+   * one frame can carry the same mutationId (an edit and its own follow-up), and
+   * a duplicate intent is at best noise and at worst a second retirement of an
+   * entry the first already removed.
+   */
+  private submitRetirements(retirements: readonly RetirementIntent[]): void {
+    if (retirements.length === 0) return
+    const seen = new Set<string>()
+    const batch: RetirementIntent[] = []
+    for (const intent of retirements) {
+      const key = `${intent.entity}\u0000${intent.entityId}\u0000${intent.mutationId ?? ''}\u0000${intent.causationId ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      batch.push(intent)
+    }
+    this.overlayPort?.retire(batch)
   }
 
   /**
@@ -376,7 +398,11 @@ export class Replica {
    * Emission happens strictly AFTER the commit, so no observer can see
    * uncommitted state.
    */
-  private emitApplied(changes: readonly ChangeEnvelope[], cursor: Cursor): string {
+  private emitApplied(
+    changes: readonly ChangeEnvelope[],
+    cursor: Cursor,
+    retirements: RetirementIntent[],
+  ): string {
     let sawEvict = false
     let sawRemove = false
     let sawReadmit = false
@@ -416,8 +442,10 @@ export class Replica {
       // ADR 2 D8 — retirement is EXACT, by envelope provenance, for EVERY op that
       // carries it. A delete I authored must retire its outbox entry exactly as an
       // edit I authored does; matching on values instead would be arbitration.
+      // COLLECTED here and submitted once per transaction by the caller — see
+      // OptimisticOverlayPort.retire for why per-change calls are unsafe.
       if (change.causationId !== undefined || change.mutationId !== undefined) {
-        this.overlayPort?.retire({
+        retirements.push({
           entity: change.entity,
           entityId: change.entityId,
           causationId: change.causationId,
@@ -702,9 +730,17 @@ export class Replica {
     // Same emission/retirement semantics as the live and heal paths — one
     // function, so a change applied through a bootstrap retires its outbox entry
     // exactly as a change applied live does.
+    //
+    // The retirement batch is aggregated across EVERY buffered frame that this
+    // install actually included, and submitted once for the whole transaction.
+    // Frames that were dropped as covered, or left behind at the install gap,
+    // contribute nothing: retiring a command whose effect never landed would tell
+    // the user their write was accepted when it was not.
+    const retirements: RetirementIntent[] = []
     for (const emission of emissions) {
-      this.emitApplied(emission.changes, emission.cursor)
+      this.emitApplied(emission.changes, emission.cursor, retirements)
     }
+    this.submitRetirements(retirements)
 
     this.setPosture('live')
     if (gapAt >= 0) {

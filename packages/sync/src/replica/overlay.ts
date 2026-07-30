@@ -32,6 +32,14 @@ export interface PendingMutation {
   readonly command: unknown
 }
 
+/** One applied change's provenance, as the outbox needs to see it (ADR 2 D8). */
+export interface RetirementIntent {
+  readonly entity: string
+  readonly entityId: string
+  readonly causationId?: string
+  readonly mutationId?: string
+}
+
 export interface OptimisticOverlayPort {
   /** Pending commands for this entity, in author order. Supplied by the outbox (POD-370). */
   pending(entity: string, entityId: string): readonly PendingMutation[]
@@ -41,14 +49,20 @@ export interface OptimisticOverlayPort {
    */
   reduce(base: unknown | undefined, command: unknown): unknown
   /**
-   * Called once per applied change that carries provenance, so the outbox can
-   * retire the matching entry. The Replica reports the fact; it does not decide
-   * what the outbox should do with it.
+   * Called ONCE PER TRANSACTION with every provenance-bearing change that
+   * transaction applied, deduplicated. The Replica reports the facts; it does not
+   * decide what the outbox should do with them.
+   *
+   * A batch rather than a call per change, because per-change calls are unsafe
+   * inside a shared unit of work: two retirements in one span each stage from the
+   * same pre-commit outbox snapshot, so the second resurrects the first
+   * (POD-370's re-review). One frame routinely carries several provenance-bearing
+   * changes, so the replica was handing the outbox exactly that sequence.
+   *
+   * Only changes that were ACTUALLY APPLIED contribute. A frame that was dropped,
+   * rejected at rung 3, or left buffered contributes nothing — retiring a command
+   * whose effect never landed would tell the user their write was accepted when it
+   * was not.
    */
-  retire(match: {
-    readonly entity: string
-    readonly entityId: string
-    readonly causationId?: string
-    readonly mutationId?: string
-  }): void
+  retire(matches: readonly RetirementIntent[]): void
 }
