@@ -1732,3 +1732,39 @@ cleanly, changed nothing, and read as a PASS. Third distinct way a mutant can be
 failed-to-apply and failed-to-compile. Its fix is the general one: **every perturbation must name the
 command it perturbs and DIFF THE FIELD FIRST**, asserting the mutant actually changed the value before
 reading the result.
+
+### "A column that CAN name a person is not an authenticator that DOES"
+
+POD-1075's line, and the correct handling of a promotion that looks due but isn't. It landed per-user
+`client_sessions` — the MODEL obstacle to guarding the reconnect reclaim — and still left
+`CLIENT_PRINCIPAL_GRADE` at `device`, because `auth-store.ts` is still one shared password, so two
+connections presenting it remain indistinguishable AS PERSONS. Promoting the grade would have been a
+well-typed lie. It put the reason in both docstrings so the next reader does not re-derive it.
+
+**Generalisation: landing the schema that makes a check EXPRESSIBLE is not landing the authenticator
+that makes it TRUE.** Say which half you shipped.
+
+### When two names for one thing disagree, PERSISTENCE decides — not aesthetics
+
+POD-1172 (`SOLE_USER_ID` "user:sole" vs `INSTANCE_OWNER` "instance-owner") was resolved onto
+`FIRST_ADMIN_USER_ID` = "user:sole". The reason generalises: POD-380's migration had **already written
+that value into every pin, snooze and tab-order row**, and a migration is frozen history. Choosing the
+other name would have cost a second data migration to re-key correct rows in order to change a string
+no user ever sees. The loser was minted in memory and persisted nowhere, so retiring it cost nothing.
+
+**And the deletion was made SAFE, not merely complete.** Removing POD-351's `samePrincipal` bridge and
+its tripwire, it added the POSITIVE control the bridge existed to make pass: *an agent whose human IS
+the sole human MAY write*. Without it, the denial test can be satisfied by a ceiling that refuses
+everything — which is exactly what the unreconciled constants did, and what nothing in that suite
+distinguished from correctness. Deleting a bridge without adding its positive control converts a known
+bug into an invisible one.
+
+### Default-absent beats default-present at a wire boundary
+
+`UserWire` is a `pick` from the R1 aggregate, so a new R1 field is absent from the wire BY DEFAULT.
+An omit-list inverts that: a new field ships to the wire unless someone remembers, and the mistake is
+invisible in the diff because the diff shows only the new field, not the omit-list that failed to grow.
+Credential material is a separate schema on its own matrix row, so `UserWire` has no key to forget to
+strip. Same instinct one layer down: `createClientSession` takes the user as a REQUIRED parameter,
+because a store-level default is the one place per-user login could silently keep writing one id for
+everybody while every session still works.
