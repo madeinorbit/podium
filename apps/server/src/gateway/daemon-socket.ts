@@ -37,7 +37,7 @@ import type { PairingGrant } from '../modules/machines/service'
 import type { SessionRegistry } from '../relay'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { safeSend, warnDroppedFrame } from './ws-send'
+import { warnDroppedFrame } from './ws-send'
 
 /** Freshly-attached daemons get polled this often (see the attach site) … */
 const INVENTORY_SETTLE_INTERVAL_MS = 10_000
@@ -119,7 +119,9 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // ("malformed reply"), and refuses, looping forever. The successful `paired` or
       // `helloOk` reply must be the first frame. (The daemon end now NAMES that
       // failure — `traffic-before-ack` in the shared dialer — instead of looping.)
-      send = (msg) => safeSend(ws, msg, DAEMON_PLANE_LIVENESS.sendBufferLimitBytes)
+      // The plane applies its own budget (POD-391): this file never names a byte
+      // count, so it cannot name the client plane's.
+      send = DAEMON_PLANE_LIVENESS.sink(ws).send
       registry.gateway.attachDaemon(principal, send)
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory

@@ -20,7 +20,6 @@ import {
   CLIENT_PLANE_LIVENESS,
   DAEMON_PLANE_LIVENESS,
   type HeartbeatSocket,
-  sweepPlaneLiveness,
 } from './plane-liveness'
 
 export interface WsHandle {
@@ -161,23 +160,18 @@ export function attachWebSockets(
     ws.on('pong', () => aliveClients.add(ws))
   })
 
-  const heartbeat = setInterval(
-    () => sweepPlaneLiveness(clientWss.clients, aliveClients),
-    CLIENT_PLANE_LIVENESS.heartbeatIntervalMs,
-  )
-  heartbeat.unref?.()
+  // Each plane schedules its OWN sweep at its OWN cadence (POD-391). This file
+  // no longer builds the timers, so it cannot pair a socket set with the other
+  // plane's interval — `wss.clients` is a live Set, re-iterated each tick.
+  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(clientWss.clients, aliveClients)
   // The daemon link gets the same dead-socket sweep the client link has always had;
   // terminating a wedged daemon fires its `close` → the gateway's detachDaemon.
-  const daemonHeartbeat = setInterval(
-    () => sweepPlaneLiveness(daemonWss.clients, aliveDaemons),
-    DAEMON_PLANE_LIVENESS.heartbeatIntervalMs,
-  )
-  daemonHeartbeat.unref?.()
+  const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemonWss.clients, aliveDaemons)
 
   return {
     close() {
-      clearInterval(heartbeat)
-      clearInterval(daemonHeartbeat)
+      clientHeartbeat.stop()
+      daemonHeartbeat.stop()
       return new Promise<void>((resolve) => {
         // Terminate existing connections so wss.close() resolves immediately rather
         // than waiting for clients to disconnect on their own.
