@@ -3037,6 +3037,7 @@ export class SessionsService {
    * empty map — a guard that still looked implemented.
    */
   private handoffs(): HandoffCoordinator {
+    if (this.handoffCoordinator) return this.handoffCoordinator
     const ports: HandoffPorts = {
       rpc: this.rpc,
       getSession: (sessionId) => this.sessions.get(sessionId),
@@ -3068,7 +3069,7 @@ export class SessionsService {
       },
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     }
-    this.handoffCoordinator ??= new HandoffCoordinator(ports)
+    this.handoffCoordinator = new HandoffCoordinator(ports)
     return this.handoffCoordinator
   }
 

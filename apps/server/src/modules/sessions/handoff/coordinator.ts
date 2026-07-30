@@ -60,7 +60,7 @@ import { capabilityAttribution, HandoffManifestV1 } from '@podium/model'
 import { agentSupportsHandoff } from '@podium/protocol'
 import type { Session } from '../session'
 import { transferHandoffPackage, verifiedBundleBases, verifiedCommonBundleBases } from '../handoff-transfer'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts, HandoffRepo } from './ports'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './ports'
 
 export interface HandoffInput {
   sessionId: string
@@ -446,7 +446,3 @@ export class HandoffCoordinator {
     })
   }
 }
-
-/** Re-exported so the composition root can type its repo list without reaching
- *  into the ports module for one name. */
-export type { HandoffRepo }
