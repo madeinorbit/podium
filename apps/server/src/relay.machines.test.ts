@@ -22,8 +22,8 @@ function regWithTwoDaemons() {
   const reg = new SessionRegistry(store)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
-  reg.modules.sessions.attachDaemon('m1', (msg) => m1.push(msg))
-  reg.modules.sessions.attachDaemon('m2', (msg) => m2.push(msg))
+  reg.gateway.attachDaemon('m1', (msg) => m1.push(msg))
+  reg.gateway.attachDaemon('m2', (msg) => m2.push(msg))
   return { reg, m1, m2 }
 }
 
@@ -57,7 +57,7 @@ describe('multi-daemon routing', () => {
     })
     m1.length = 0
 
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-a' },
@@ -87,7 +87,7 @@ describe('multi-daemon routing', () => {
     m1.length = 0
     m2.length = 0
 
-    reg.modules.sessions.onDaemonMessageFrom('m2', {
+    reg.gateway.routeDaemonFrame('m2', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'foreign-thread' },
@@ -116,7 +116,7 @@ describe('multi-daemon routing', () => {
       machineId: 'm2',
     }).sessionId
     // mark both live as a bind would
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'bind',
       sessionId: a,
       cmd: 'x',
@@ -124,7 +124,7 @@ describe('multi-daemon routing', () => {
       agentKind: 'shell',
       geometry: { cols: 80, rows: 24 },
     })
-    reg.modules.sessions.onDaemonMessageFrom('m2', {
+    reg.gateway.routeDaemonFrame('m2', {
       type: 'bind',
       sessionId: b,
       cmd: 'x',
@@ -132,7 +132,7 @@ describe('multi-daemon routing', () => {
       agentKind: 'shell',
       geometry: { cols: 80, rows: 24 },
     })
-    reg.modules.sessions.detachDaemon('m1')
+    reg.gateway.detachDaemon('m1')
     const meta = (id: string) => reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
     expect(meta(a)?.status).toBe('reconnecting')
     expect(meta(b)?.status).toBe('live')
@@ -143,7 +143,7 @@ describe('multi-daemon routing', () => {
     const machines = reg.modules.machines.listMachines()
     expect(machines.find((m) => m.id === 'm1')?.online).toBe(true)
     expect(machines.find((m) => m.id === 'm2')?.online).toBe(true)
-    reg.modules.sessions.detachDaemon('m1')
+    reg.gateway.detachDaemon('m1')
     const after = reg.modules.machines.listMachines()
     expect(after.find((m) => m.id === 'm1')?.online).toBe(false)
     expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
@@ -166,13 +166,13 @@ describe('multi-daemon routing', () => {
     const { reg } = regWithTwoDaemons()
     const sent: import('@podium/protocol').ServerMessage[] = []
     reg.modules.sessions.attachClient((m) => sent.push(m))
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'hostMetrics',
       hostname: 'one',
       sampledAt: '2026-06-11T00:00:00.000Z',
       memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    reg.modules.sessions.onDaemonMessageFrom('m2', {
+    reg.gateway.routeDaemonFrame('m2', {
       type: 'hostMetrics',
       hostname: 'two',
       sampledAt: '2026-06-11T00:00:00.000Z',
@@ -189,7 +189,7 @@ describe('multi-daemon routing', () => {
     const ids = last?.hosts.map((h) => h.machineId).sort()
     expect(ids).toEqual(['m1', 'm2'])
     // detaching m1 drops only its sample
-    reg.modules.sessions.detachDaemon('m1')
+    reg.gateway.detachDaemon('m1')
     const afterDetach = sent
       .filter(
         (
@@ -230,11 +230,11 @@ async function handoffRegistry(
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
   const sha = 'a'.repeat(40)
-  reg.modules.sessions.attachDaemon('m1', (msg) => {
+  reg.gateway.attachDaemon('m1', (msg) => {
     source.push(msg)
     if (msg.type === 'repoOpRequest') {
       const exists = msg.args?.ref === 'main'
-      reg.modules.sessions.onDaemonMessageFrom('m1', {
+      reg.gateway.routeDaemonFrame('m1', {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok: exists,
@@ -260,7 +260,7 @@ async function handoffRegistry(
         sourceMachineId: 'm1',
         exportedAt: new Date().toISOString(),
       }
-      reg.modules.sessions.onDaemonMessageFrom(
+      reg.gateway.routeDaemonFrame(
         'm1',
         opts.failExport
           ? {
@@ -280,7 +280,7 @@ async function handoffRegistry(
       )
     }
     if (msg.type === 'handoffChunkReadRequest')
-      reg.modules.sessions.onDaemonMessageFrom('m1', {
+      reg.gateway.routeDaemonFrame('m1', {
         type: 'handoffChunkReadResult',
         requestId: msg.requestId,
         ok: true,
@@ -289,10 +289,10 @@ async function handoffRegistry(
         eof: true,
       })
   })
-  reg.modules.sessions.attachDaemon('m2', (msg) => {
+  reg.gateway.attachDaemon('m2', (msg) => {
     target.push(msg)
     if (msg.type === 'browseDirsRequest')
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'browseDirsResult',
         requestId: msg.requestId,
         listing: {
@@ -304,7 +304,7 @@ async function handoffRegistry(
       })
     if (msg.type === 'repoOpRequest' && msg.op === 'clone') {
       targetRepoPath = msg.args?.path ?? targetRepoPath
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok: true,
@@ -312,7 +312,7 @@ async function handoffRegistry(
       })
     } else if (msg.type === 'repoOpRequest') {
       const exists = msg.args?.ref === sha
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'repoOpResult',
         requestId: msg.requestId,
         ok: exists,
@@ -320,14 +320,14 @@ async function handoffRegistry(
       })
     }
     if (msg.type === 'handoffImportChunk')
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'handoffImportChunkResult',
         requestId: msg.requestId,
         ok: true,
         sizeBytes: msg.offset + Buffer.from(msg.data, 'base64').length,
       })
     if (msg.type === 'handoffImportRequest')
-      reg.modules.sessions.onDaemonMessageFrom('m2', {
+      reg.gateway.routeDaemonFrame('m2', {
         type: 'handoffImportResult',
         requestId: msg.requestId,
         ok: true,
@@ -386,7 +386,7 @@ describe('session handoff orchestration', () => {
     const { reg, sessionId } = await handoffRegistry()
     await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
 
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/source/repo/.worktrees/stale',
@@ -397,7 +397,7 @@ describe('session handoff orchestration', () => {
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x' },
     ])
 
-    reg.modules.sessions.onDaemonMessageFrom('m2', {
+    reg.gateway.routeDaemonFrame('m2', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/target/repo/.worktrees/x/apps/web',
@@ -465,7 +465,7 @@ describe('session handoff orchestration', () => {
     const { reg, source, sessionId, issueId } = await handoffRegistry({ withIssue: true })
     // The old daemon restamped only the session after rollback; kind=none does not
     // adopt the stale location onto the issue, so its real worktree survives.
-    reg.modules.sessions.onDaemonMessageFrom('m1', {
+    reg.gateway.routeDaemonFrame('m1', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/old-machine/repo',

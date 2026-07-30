@@ -26,10 +26,10 @@ describe('SessionRegistry conversation registry', () => {
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     const inbox: ServerMessage[] = []
     registry.modules.sessions.attachClient((m) => inbox.push(m))
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],
       diagnostics: [],
@@ -44,7 +44,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(sub?.podiumId).not.toBe(parent?.podiumId)
 
     // Re-scan: identities are stable, not re-minted.
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1')],
       diagnostics: [],
@@ -57,15 +57,15 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', () => {
     const registry = makeRegistry()
     const daemon: unknown[] = []
-    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    registry.gateway.attachDaemon('local', (m) => daemon.push(m))
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/moved/to' })
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
@@ -82,10 +82,10 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('local', () => {})
+    registry.gateway.attachDaemon('local', () => {})
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
 
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
@@ -95,7 +95,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    registry.modules.sessions.onDaemonMessageFrom('local', {
+    registry.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },

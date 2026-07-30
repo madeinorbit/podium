@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../hub/pairing'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
-import { wireDaemonSocket } from '../wsServer'
+import { wireDaemonSocket } from './daemon-socket'
 import { createMachineDirectory } from './machine-directory'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
@@ -46,7 +46,7 @@ const frame = (o: unknown) => Buffer.from(JSON.stringify(o))
 describe('the daemon socket speaks the permanent envelope', () => {
   it('authenticates an envelope hello carrying a machine token', () => {
     const reg = registryWithMachine()
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(
@@ -59,7 +59,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
         claims: { hostname: 'box' },
       }),
     )
-    expect(attach).toHaveBeenCalledWith('m1', expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.any(Function))
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
     const reply = ws.sent.map((s) => JSON.parse(s) as { type: string; assignedId?: string })
@@ -68,7 +68,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
 
   it('refuses an envelope hello on an unsupported wire version, before auth', () => {
     const reg = registryWithMachine()
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(
@@ -88,7 +88,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
 
   it('ignores reserved node capabilities without granting anything (ADR 5 D4.4)', () => {
     const reg = registryWithMachine()
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(
@@ -102,7 +102,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       }),
     )
     // Attached as an ordinary machine; no elevation, and no accepted caps.
-    expect(attach).toHaveBeenCalledWith('m1', expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.any(Function))
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })
 })
@@ -124,7 +124,7 @@ describe('handshake order at the real gateway', () => {
 
   it('a rejected socket stays rejected: the peer cannot retry into an attach', () => {
     const reg = registryWithMachine()
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // Wrong token first …
@@ -138,12 +138,12 @@ describe('handshake order at the real gateway', () => {
 
   it('still routes ordinary control traffic after the handshake', () => {
     const reg = registryWithMachine()
-    const onMsg = vi.spyOn(reg.modules.sessions, 'onDaemonMessageFrom').mockImplementation(() => {})
+    const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     ws.emit('message', frame({ type: 'agentExit', sessionId: 's1', code: 0 }))
-    expect(onMsg).toHaveBeenCalledWith('m1', expect.objectContaining({ type: 'agentExit' }))
+    expect(onMsg).toHaveBeenCalledWith(expect.objectContaining({ kind: 'machine', machine: 'm1' }), expect.objectContaining({ type: 'agentExit' }))
   })
 })
 
@@ -151,7 +151,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('a valid token presented under another machine id is refused, not rebound', () => {
     const reg = registryWithMachine('m1', 'tok')
     reg.modules.machines.listMachines() // warm the cache; irrelevant to the assertion
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(

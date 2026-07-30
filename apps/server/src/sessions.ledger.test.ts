@@ -109,7 +109,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const cursor = cursorOf(registry)
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', nativeSubagentCount: 0 },
@@ -127,7 +127,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const cursor = cursorOf(registry)
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'title',
       sessionId,
       title: 'a real durable title',
@@ -426,12 +426,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     // Attaching the local daemon adopts the placeholder session onto LOCAL_MACHINE_ID.
-    registry.modules.sessions.attachDaemon(LOCAL_MACHINE_ID, () => {})
+    registry.gateway.attachDaemon(LOCAL_MACHINE_ID, () => {})
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
     // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
     // the disconnect seam captures the touched sessions as one explicit batch.
-    registry.modules.sessions.detachDaemon(LOCAL_MACHINE_ID)
+    registry.gateway.detachDaemon(LOCAL_MACHINE_ID)
     registry.modules.sessions.flushBroadcasts()
     const healed = registry.modules.sessions.syncChangesSince(cursor)
     expect(healed.kind).toBe('delta')
@@ -512,7 +512,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const afterCreate = registry.modules.sessions.sessionsGeneration()
 
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: '2026-07-10T00:00:00.000Z', nativeSubagentCount: 0 },

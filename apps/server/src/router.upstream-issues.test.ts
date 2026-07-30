@@ -64,7 +64,7 @@ afterEach(() => {
 function makeNode(repoPaths: string[] = []) {
   const registry = new SessionRegistry()
   registries.push(registry)
-  registry.modules.sessions.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon('local', () => {})
   const forwarded: { proc: string; input: Record<string, unknown> }[] = []
   const forwarder: IssueUpstreamForwarder = {
     async forward(proc, input) {

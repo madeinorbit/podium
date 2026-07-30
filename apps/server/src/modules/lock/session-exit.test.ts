@@ -22,7 +22,7 @@ const bind = (sessionId: string) =>
 
 function regWithDaemon() {
   const reg = new SessionRegistry()
-  reg.modules.sessions.attachDaemon('local', () => {})
+  reg.gateway.attachDaemon('local', () => {})
   return reg
 }
 
@@ -31,7 +31,7 @@ function liveSession(reg: SessionRegistry): string {
     agentKind: 'claude-code',
     cwd: '/repo',
   })
-  reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+  reg.gateway.routeDaemonFrame('local', bind(sessionId))
   return sessionId
 }
 
@@ -65,7 +65,7 @@ describe('session.exited → lock auto-release wiring', () => {
     )) as { granted: boolean }
     expect(q.granted).toBe(false)
 
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: dying,
       code: 0,
@@ -105,7 +105,7 @@ describe('session.exited → lock auto-release wiring', () => {
   it('hibernation keeps the leases (intentional park, not a death)', async () => {
     const reg = regWithDaemon()
     const parked = liveSession(reg)
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'sessionResumeRef',
       sessionId: parked,
       resume: { kind: 'claude', value: 'conv-1' },
@@ -114,7 +114,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const r = reg.modules.sessions.hibernateSession({ sessionId: parked })
     expect(r.ok).toBe(true)
     // The hibernate kill produces an agentExit like any death — still no release.
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'agentExit',
       sessionId: parked,
       code: 0,
@@ -127,7 +127,7 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = regWithDaemon()
     const doomed = liveSession(reg)
     await acquireAs(reg, doomed, 'merge:main')
-    reg.modules.sessions.onDaemonMessageFrom('local', {
+    reg.gateway.routeDaemonFrame('local', {
       type: 'spawnError',
       sessionId: doomed,
       message: 'boom',

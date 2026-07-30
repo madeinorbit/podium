@@ -28,6 +28,8 @@ import { AgentKind, asIssueId } from '@podium/model'
  */
 export type SessionWirePrincipal = ActorRef
 
+import type { MachinePrincipal } from '@podium/protocol'
+import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
@@ -286,13 +288,12 @@ interface SessionsServiceDeps {
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
-  /** Relayed agent op (modules/issues/relay-gate). */
-  runAgentRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>): void
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: string): void
-  /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
-  onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
+  /** Approval broker [spec:SP-edbb]: the attach snapshot. The daemon execution
+   *  OUTCOME no longer arrives here — `approvalExecResult` routes straight from
+   *  the gateway to the approvals port (POD-389). */
   approvalsPending(): ApprovalWire[]
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
@@ -1073,20 +1074,20 @@ export class SessionsService {
     })
   }
 
-  attachDaemon(machineId: string, send: Send<ControlMessage>): void {
-    // Socket bookkeeping (set + machine-cache invalidation) lives in the machines
-    // module; the session orchestration around it stays here.
-    this.machines.attach(machineId, send)
-    // The local machine adopts every lingering `'__local__'` placeholder row/session/
-    // queue onto itself as it attaches. ensureLocalMachine already ran this at startup,
-    // but a session created in the gap between that and the daemon connecting (the boot
-    // race) is still attributed to `'__local__'` — adopting on attach reattributes it and
-    // carries its queued spawn over to this machine so it isn't dead-queued. Idempotent.
-    if (machineId === LOCAL_MACHINE_ID) this.machines.adoptPlaceholderRows(machineId)
-    // Flush control messages buffered while this machine was offline (e.g. a boot
-    // session's spawn produced before the local daemon ws connected). AFTER adoption,
-    // so messages carried over from the placeholder queue flush too.
-    this.machines.flushQueued(machineId)
+  /**
+   * A machine's daemon became reachable — the SESSION half of what `attachDaemon`
+   * used to do inline. The socket registration, the placeholder adoption, the
+   * queued-control flush, the machine broadcast and the `machine.connected` bus
+   * emit are the gateway's (`gateway/daemon-mux.ts`); everything below is session
+   * orchestration and stays here, in its original order.
+   *
+   * `principal` is the transport-resolved MACHINE principal (ADR 3 D7). Every
+   * write these steps make is a daemon-class observation attributed to that
+   * machine — never to a person, and with no on-behalf-of (ADR 1's daemon writer
+   * class; `docs/multi-user-readiness.md` §3.1.6 S5).
+   */
+  onMachineAttached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
     // attempts parked while the daemon was away (single-flight + liveness wait make
     // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
@@ -1192,18 +1193,16 @@ export class SessionsService {
           }
         })
     }
-    this.machines.broadcastMachines()
-    this.bus.emit('machine.connected', { machineId })
   }
 
-  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
-    // A superseded socket's late close must not tear down the live registration, nor
-    // knock this machine's sessions back to 'reconnecting' behind the daemon's back.
-    if (!this.machines.detach(machineId, send)) return
-    // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
-    // module drops this machine's health sample + rebroadcasts BEFORE the session
-    // sweep below, exactly where the inline delete used to sit.
-    this.bus.emit('machine.disconnected', { machineId })
+  /**
+   * That machine's daemon went away — the SESSION half of `detachDaemon`. The
+   * superseded-socket guard, the `machine.disconnected` emit and the machine
+   * broadcast are the gateway's; this runs only once the gateway has decided the
+   * detach is real, in the same position it occupied before.
+   */
+  onMachineDetached(principal: MachinePrincipal): void {
+    const machineId = principal.machine
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
     // restart/crash; durable masters survive in their own scopes). Drop only THIS
     // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
@@ -1224,7 +1223,6 @@ export class SessionsService {
       for (const session of changed) this.markVolatileSessionDirty(session.sessionId, ['status'])
       this.broadcastSessions()
     }
-    this.machines.broadcastMachines()
   }
 
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
@@ -4389,21 +4387,26 @@ export class SessionsService {
     })
   }
 
-  // ---- ws data plane: daemon ----
-  /** Inbound daemon message, tagged with the machine it came from. Session-keyed
-   *  handlers (bind/agentFrame/agentExit/…) look up by sessionId and are machine-
-   *  agnostic; host-scoped ones (hostMetrics, conversation discovery) use machineId
-   *  to scope/tag their data; `*Result` replies settle in the RPC module. */
-  onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
+  // ---- the sessions FEATURE PORT for daemon frames (gateway/daemon-mux.ts) ----
+  /**
+   * One SESSION-OWNED daemon frame, attributed to the machine that sent it.
+   *
+   * This used to be `onDaemonMessageFrom` — a switch over the WHOLE daemon union,
+   * which made the sessions service the multiplexer for host metrics, repo scans,
+   * credential relays, approvals, the agent relay and every RPC reply. The mux is
+   * the gateway's now (POD-389); what remains is the session-keyed subset the
+   * routing table assigns to this port, and `SessionsDaemonFrame` makes that
+   * subset a compile-checked type rather than a comment.
+   *
+   * The frames are session-keyed and machine-agnostic in their LOOKUP, but the
+   * machine still matters: several cases refuse a frame from a machine that does
+   * not own the session (handoff leaves a stale daemon able to send late frames
+   * for a session id now hosted elsewhere), and every write they make is a
+   * daemon-class observation attributed to `principal`.
+   */
+  onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
+    const machineId = principal.machine
     switch (msg.type) {
-      case 'approvalExecResult': {
-        this.deps.onApprovalExecResult(msg)
-        return
-      }
-      case 'agentRelayRequest': {
-        this.deps.runAgentRelay(machineId, msg)
-        break
-      }
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
         // A daemon may only originate intents for sessions it owns. The bus is
@@ -4921,28 +4924,6 @@ export class SessionsService {
         this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
         break
       }
-      case 'scanResult': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        this.rpc.onScanResult(msg)
-        break
-      }
-      case 'conversationsChanged': {
-        this.conversations().onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        break
-      }
-      case 'scanReposResult': {
-        this.rpc.onScanReposResult(msg)
-        break
-      }
-      case 'browseDirsResult': {
-        this.rpc.onBrowseDirsResult(msg)
-        break
-      }
-      case 'hostMetrics': {
-        const { type: _type, ...rest } = msg
-        this.hosts.onHostMetrics(machineId, rest)
-        break
-      }
       case 'sessionResumeRef': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
@@ -5092,102 +5073,6 @@ export class SessionsService {
             })
           }
         }
-        break
-      }
-      case 'handoffExportResult': {
-        this.rpc.onHandoffExportResult(msg)
-        break
-      }
-      case 'handoffChunkReadResult': {
-        this.rpc.onHandoffChunkReadResult(msg)
-        break
-      }
-      case 'handoffImportChunkResult': {
-        this.rpc.onHandoffImportChunkResult(msg)
-        break
-      }
-      case 'handoffImportResult': {
-        this.rpc.onHandoffImportResult(msg)
-        break
-      }
-      case 'workspaceExportResult': {
-        this.rpc.onWorkspaceExportResult(msg)
-        break
-      }
-      case 'workspaceImportResult': {
-        this.rpc.onWorkspaceImportResult(msg)
-        break
-      }
-      case 'workspaceCleanResult': {
-        this.rpc.onWorkspaceCleanResult(msg)
-        break
-      }
-      case 'repoOpResult': {
-        this.rpc.onRepoOpResult(msg)
-        break
-      }
-      case 'credentialExportResult': {
-        this.rpc.onCredentialExportResult(msg)
-        break
-      }
-      case 'credentialInstallResult': {
-        this.rpc.onCredentialInstallResult(msg)
-        break
-      }
-      case 'harnessExecResult': {
-        this.rpc.onHarnessExecResult(msg)
-        break
-      }
-      case 'headlessTurnEvent': {
-        this.headless.onTurnEvent(msg)
-        break
-      }
-      case 'headlessTurnResult': {
-        this.headless.onTurnResult(msg)
-        break
-      }
-      case 'headlessBindResult': {
-        this.headless.onBindResult(msg)
-        break
-      }
-      case 'usageResult': {
-        this.rpc.onUsageResult(msg)
-        break
-      }
-      case 'agentQuotaResult': {
-        this.rpc.onAgentQuotaResult(msg)
-        break
-      }
-      case 'transcriptReadResult': {
-        this.rpc.onTranscriptReadResult(msg)
-        break
-      }
-      case 'transcriptMirrorResult': {
-        this.conversations().onTranscriptMirrorResult(msg)
-        break
-      }
-      case 'imageUploadResult': {
-        this.rpc.onImageUploadResult(msg)
-        break
-      }
-      case 'memoryBreakdownResult': {
-        this.hosts.onMemoryBreakdownResult(msg)
-        break
-      }
-      case 'fileReadResult': {
-        this.rpc.onFileReadResult(msg)
-        break
-      }
-      case 'fileWriteResult': {
-        this.rpc.onFileWriteResult(msg)
-        break
-      }
-      case 'fileAssetResult': {
-        this.rpc.onFileAssetResult(msg)
-        break
-      }
-      case 'dirListResult': {
-        this.rpc.onDirListResult(msg)
         break
       }
     }
