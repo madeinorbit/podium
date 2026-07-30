@@ -1321,3 +1321,39 @@ directory), which is the same state POD-1167 identifies as the cause.
 
 The earlier `API Error: 529` was a separate, real event — two distinct failures on the same issue, and I
 had collapsed them into one story.
+
+### The full picture: no message channel could reach POD-362
+
+POD-1170 completes POD-1167's diagnosis and corrects the fix I had just written into my own check-in
+prompt. Claude recorded the structured `[Request interrupted by user]` item at 09:55:31.677 **but no
+`session.phase` transition followed** — the row retained `phase=working` through hibernation.
+
+Next-turn mail drains at `onSessionIdle` (`messages/service.ts:975, 1073`). So with the phase stuck at
+`working`, that boundary never arrived. Which means all three channels were dead at once:
+
+| channel | outcome |
+|---|---|
+| `--urgency interrupt` | sweep re-injects, ESCs the working session, repeatedly |
+| `next-turn` | queues forever — `onSessionIdle` never fires |
+| `session send --wake` | fails on `worktree add: path already exists`, then falsely marked delivered |
+
+**So "use next-turn instead of interrupt" — the correction I made an hour ago — is right for a HEALTHY
+session and useless for a stuck one.** There was no message that could have reached POD-362 after
+09:55:31. The only thing that worked was the manual teardown: `git branch -D` + `git worktree prune` + rm
+the stale dir + `podium issue start`.
+
+> A session that has not committed in ~20 minutes and is not CPU-bound is not reachable by ANY channel.
+> Do not spend rounds messaging it. Tear the worktree down and restart it.
+
+Filed: POD-1169 (transcript bus wiring), POD-1170 (the missing phase transition). Both `proposed`.
+
+### POD-1167 refused a scope widening, correctly
+
+I offered to let POD-1167 carry POD-1169's fix as decomposition, to get around POD-1154 blocking me from
+starting a proposal. It declined: POD-1169's fix **ships independently**, so by the tracker's own litmus it
+stays a top-level `discovered-from` proposal, and reclassifying it would blur the instrument-vs-outcome
+distinction the incident established.
+
+That is the same principle I applied when I declined to launder POD-1140 and POD-1130 into sub-issues —
+and it is better that an agent held me to it than that I held myself to it. The litmus is "could the parent
+close with this untouched", not "would a sub-issue be more convenient for the coordinator".
