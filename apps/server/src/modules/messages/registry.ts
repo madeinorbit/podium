@@ -16,17 +16,26 @@
 import {
   type AnyCommandContract,
   awaitAgentContract,
+  mailAskContract,
+  mailDismissContract,
   mailInboxConsumeContract,
   mailLedgerContract,
+  mailPendingRemindersContract,
   mailReplyContract,
   mailSendContract,
+  mailShowContract,
+  mailStatusContract,
   registryClassificationErrors,
   spawnAgentContract,
+  type TransportTag,
 } from '@podium/commands'
+import { askHandler } from './handlers/ask'
 import { awaitAgentHandler } from './handlers/await-agent'
 import type { MailHandlerContext } from './handlers/context'
 import { inboxConsumeHandler } from './handlers/inbox-consume'
 import { ledgerHandler } from './handlers/ledger'
+import { pendingRemindersHandler } from './handlers/pending-reminders'
+import { dismissHandler, showHandler, statusHandler } from './handlers/projections'
 import { replyHandler } from './handlers/reply'
 import { sendHandler } from './handlers/send'
 import { spawnAgentHandler } from './handlers/spawn-agent'
@@ -38,10 +47,17 @@ export interface MailCommand {
 }
 
 /**
- * The joined table, keyed by the BARE proc name the shipped gate dispatches on
- * (`send`, `inbox`, …) so the relay's existing wire names keep working through
- * the cutover. The contract's own dotted name (`mail.send`) is the wire name
- * POD-729 moves to.
+ * The joined table, keyed by the BARE proc name every transport dispatches on
+ * (`send`, `inbox`, …) — the shipped wire names, kept: renaming the wire is a
+ * client-compatibility change and this issue is a cutover, not a rename. The
+ * contract's own dotted name (`mail.send`) is the identity the audit and the
+ * classification lint read.
+ *
+ * COMPLETE AS OF POD-729. Every proc `MessageGate` ever served is in this table;
+ * the switch it used to fall through to is gone. That is what makes "one authz
+ * path, not one per transport" a structural fact rather than a convention — the
+ * relay arm and the tRPC arm both arrive here, and there is no second place left
+ * to arrive.
  */
 export const MAIL_COMMANDS = {
   send: { contract: mailSendContract, handler: sendHandler },
@@ -50,6 +66,14 @@ export const MAIL_COMMANDS = {
   awaitAgent: { contract: awaitAgentContract, handler: awaitAgentHandler },
   inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },
   ledger: { contract: mailLedgerContract, handler: ledgerHandler },
+  show: { contract: mailShowContract, handler: showHandler },
+  dismiss: { contract: mailDismissContract, handler: dismissHandler },
+  status: { contract: mailStatusContract, handler: statusHandler },
+  pendingReminders: {
+    contract: mailPendingRemindersContract,
+    handler: pendingRemindersHandler,
+  },
+  ask: { contract: mailAskContract, handler: askHandler },
 } as const satisfies Record<string, MailCommand>
 
 export type MailProcName = keyof typeof MAIL_COMMANDS
@@ -70,6 +94,17 @@ export function dispatchMailCommand(
   const { contract, handler } = MAIL_COMMANDS[proc]
   const input = contract.input.parse(rawInput)
   return (handler as (c: MailHandlerContext, i: unknown) => unknown)(ctx, input)
+}
+
+/**
+ * ADR 3 D3, enforced rather than documented: a transport may only serve a
+ * command whose `exposure` names it. Default-closed — an unknown proc name is
+ * `false`, not "probably fine" — so a typo at a call site removes a surface
+ * loudly instead of opening one silently.
+ */
+export function isMailProcExposedOn(proc: string, transport: TransportTag): boolean {
+  if (!isMailProc(proc)) return false
+  return MAIL_COMMANDS[proc].contract.exposure.includes(transport)
 }
 
 /** The classification lint over the joined table — see the registry test. */

@@ -353,52 +353,32 @@ const uploadImage: CommandDef = {
 }
 
 /**
- * THE SEANCE [spec:SP-34d7 read-toolkit tier 4] — a question message at next-turn
- * with a wake, then a BOUNDED wait for the ack.
+ * `sessions.ask` — THE SEANCE — IS NOT IN THIS TABLE, and the absence is a decision.
  *
- * THE ONE CONTRACT IN THIS TABLE THAT DOES NOT OWN ITS OWN SCHEMA OR ITS OWN
- * GATE, and both exceptions are recorded rather than papered over:
+ * POD-382 briefly declared it here, because the tRPC procedure was still
+ * hand-written and this issue had to delete it. While that work was in flight
+ * POD-729 cut the whole agent-mail surface over to `@podium/commands` INCLUDING
+ * `ask`, for the reason its own commit gives: `ask` reaches DELIVERY, so leaving it
+ * out would have left a live send path no contract governs.
  *
- *  - `input: z.unknown()`. `ask` is a MESSAGES command whose real contract is
- *    POD-729's (`@podium/commands`' mail table); its input schema lives with the
- *    MessageGate, which parses it. Restating that schema here would be a second
- *    declaration of the messaging vocabulary — the exact drift ADR 3 D1's
- *    one-validation-source rule exists to prevent — so the passthrough is
- *    deliberate and the schema stays where the handler is.
- *  - Its authorization is the MessageGate's session-target gate — the SAME code path
- *    the relay send arm uses, which is why this is the one session mutation whose two
- *    transports never diverged. The `use` verb is checked on top of it rather than
- *    instead of it: a question is delivered at `lifecycle: 'wake'`, so asking one can
- *    WAKE A PARKED SESSION — that is a process starting on someone's machine, exactly
- *    like `resumeAndSend`, and the first draft of this contract got it wrong by
- *    reasoning only about the durable message row.
+ * Two contracts for one command is a vocabulary fork — the thing this programme
+ * exists to end — so the duplicate was deleted rather than reconciled. `ask` is a
+ * MESSAGES command, its contract is the mail table's, its schema is that
+ * contract's instance, and the sessions router serves it through the mail
+ * derivation (`mailMutation('ask')`). The session-surface manifest records it with
+ * source `mail`, so the audit still sees it and still refuses a hand-written one.
  *
- * `exposure: ['trpc']`, and that is a POLICY statement POD-379 pinned as a trap:
- * `relay.ts` has an `if (proc === 'ask')` branch, but `RELAY_ALLOWED.sessions` does
- * not list `ask`, and the allowlist runs first — so the branch is unreachable and
- * agents do not have the seance. A cutover that merged the two lists would SILENTLY
- * GRANT it. Declaring `trpc` alone keeps that a decision.
+ * The one thing the merge did NOT carry over: POD-382's contract declared
+ * `machineVerb: 'use'`, because a question is delivered at `lifecycle: 'wake'` and
+ * waking a parked session starts a process on someone's machine. The mail contract
+ * makes no such declaration. Reported to the coordinator rather than resolved here —
+ * it is the mail family's call, and adding a gate to another issue's contract during
+ * a merge is exactly how a policy change gets made by accident.
  */
-const ask: CommandDef = {
-  input: z.unknown(),
-  action: 'write',
-  policy: executes,
-  visibility: PERSONAL,
-  exposure: ['trpc'],
-  offline: 'online-only',
-  redaction: {
-    fields: [],
-    note: 'the question body is user-authored content already durable in the message ledger; redacting it here would hide it from the row that carries it',
-  },
-  conflict: 'cmd',
-  decision:
-    'Carries NO mutationId and must not grow one: POD-379 pins that a repeated ask asks AGAIN (two question rows) and that nothing is recorded to dedupe against — a live conversation must fail fast rather than queue or coalesce. Not relay-exposed: see the allowlist trap above.',
-}
 
 /** `sessions.*` — the command plane (POD-381). Presence is POD-380's table. */
 export const sessionCommandPlane = defineCommands('sessions', {
   answerAskUserQuestion,
-  ask,
   continue: continueSession,
   create,
   hibernate,
@@ -436,7 +416,6 @@ export function commandPlaneContract(key: string): CommandDef | undefined {
  */
 export const sessionCommandPlaneInputs = {
   answerAskUserQuestion: answerInput,
-  ask: ask.input,
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,

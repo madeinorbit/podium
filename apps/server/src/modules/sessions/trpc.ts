@@ -211,21 +211,31 @@ type PlaneProcedure<K extends SessionCommandKey> = TRPCMutationProcedure<{
 type PlaneProcedures = { [K in SessionCommandKey]: PlaneProcedure<K> }
 
 function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> {
-  return (
-    t.procedure
-      // THE CONTRACT'S OWN SCHEMA INSTANCE, not a restatement beside it. The
-      // dispatcher parses that same instance again, which is not redundant: this
-      // parse types the client, the dispatcher's is what makes an unparsed input
-      // unreachable from any other transport.
-      .input(sessionCommandPlaneInputs[key])
-      .mutation(({ ctx, input }) =>
-        dispatchSessionCommand(
-          sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
-          key,
-          input,
-        ),
-      ) as PlaneProcedure<K>
-  )
+  // THE CONTRACT'S OWN SCHEMA INSTANCE at runtime — not a restatement beside it —
+  // WIDENED for the builder's benefit only. With `key` still generic,
+  // `sessionCommandPlaneInputs[key]` is a UNION of eleven schemas, and tRPC's
+  // builder then tries to reconcile eleven input/output pairs in one signature; it
+  // picks one and rejects the rest. Widening here and stating the precise type in
+  // the RETURN is what keeps the client exact: `PlaneProcedure<K>` is derived from
+  // the same table, so `AppRouter` carries the real input and output types even
+  // though this line does not.
+  const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
+  const built = t.procedure
+    .input(schema)
+    .mutation(({ ctx, input }): unknown =>
+      dispatchSessionCommand(
+        sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+        key,
+        input,
+      ),
+    )
+  // The precise type is asserted ONCE, here, from the same tables the runtime uses:
+  // `PlaneProcedure<K>` reads its input off `sessionCommandPlaneInputs[K]` and its
+  // output off the handler table, so the client sees the real pair. The resolver's
+  // own return is deliberately `unknown` — with `K` generic, letting the builder
+  // infer means reconciling eleven input/output pairs in one signature, which it
+  // does by picking one and rejecting the other ten.
+  return built as unknown as PlaneProcedure<K>
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +271,7 @@ function handoffProcedure(): HandoffProcedure {
 // ---------------------------------------------------------------------------
 
 /** Which envelope serves a derived procedure. */
-export type SessionSurfaceSource = 'presence' | 'command-plane' | 'handoff'
+export type SessionSurfaceSource = 'presence' | 'command-plane' | 'handoff' | 'mail'
 
 /**
  * ONE ROW PER DERIVED MUTATION — the manifest the cutover audit reads.
@@ -354,6 +364,16 @@ export function sessionSurfaceManifest(): SessionSurfaceEntry[] {
     // Handoff's exposure is `['trpc']` on its own contract in `@podium/commands`;
     // it is a single entry rather than a table walk because it is a single command.
     { name: 'sessions.handoff', router: 'sessions', key: 'handoff', source: 'handoff' },
+    // `sessions.ask` — DECLARED HERE, BUILT IN router.ts, and the split is the point.
+    //
+    // POD-729 cut the seance over to the MAIL contract table (it reaches delivery, so
+    // a send path no contract governs was the hole that cutover closed), and the
+    // sessions router serves it through that family's own derivation,
+    // `mailMutation('ask')`. It is recorded in this manifest anyway because the audit
+    // reads the manifest to decide whether a mutation on a session-family router is
+    // accounted for — leaving it out would make POD-729's derived procedure look like
+    // a hand-written one, and taking it out of the audit's sight would be worse.
+    { name: 'sessions.ask', router: 'sessions', key: 'ask', source: 'mail' },
   ]
 }
 
@@ -379,6 +399,9 @@ export function sessionFamilyProcedures(): {
     tabs: {},
   }
   for (const entry of sessionSurfaceManifest()) {
+    // `mail` entries are built by the mail family's own derivation in router.ts —
+    // one command, one contract, one builder. See the manifest note on sessions.ask.
+    if (entry.source === 'mail') continue
     const bucket = grouped[entry.router]
     if (!bucket) throw new Error(`no router bucket for ${entry.name}`)
     bucket[entry.key] =

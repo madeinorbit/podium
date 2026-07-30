@@ -1,7 +1,8 @@
 # POD-382 — 3.2 cutover: the derived session surface, framework idempotency, and the audit
 
 Branch `issue/382-3-2d-cutover-delete-hand-written-session`, base `issue/279-integration`
-at branch-point `04613369`.
+at branch-point `04613369`, merged up to `0e7b8617` (POD-729 mail cutover + POD-1168).
+See "the integration merge" at the end for the four conflicts and how each was decided.
 
 ---
 
@@ -14,7 +15,7 @@ at branch-point `04613369`.
 | Audit fails the build when a session-family command omits its visibility class or its owner-or-grant policy; unclassified defaults to private, and the default is tested | **MET** | `visibility` declared on all 11 presence + 12 command-plane contracts and on `sessions.handoff`. Two mechanisms, neither substituting: `commandVisibility()` resolves an absent declaration to `personal`, and both audit halves fail the build on the omission. Mutant M2 (delete one contract's visibility) killed the script check AND the runtime totality test. |
 | Audit asserts no per-user field remains an instance-wide singleton | **PARTLY MET — the honest split is stated below** | Pins, snoozes and tab order are keyed `(userId, …)` and asserted with two DIFFERENT actors (Alice writes, Bob's rows stay empty). `readAt` is still a column on the session row: POD-1076 owns the storage move and POD-380 recorded why it waits (POD-1077's scoped feed). What this gate proves is that its COMMAND is already `scope: 'self'` / `per-user-state`, so the remaining move is storage-only — no contract, wire or replica change. Reported as a named residue rather than as a green claim. |
 | Attribution assertion on one representative command per class | **MET** | Presence: the pair decides `nameSource`, and a payload-supplied `humanDirect`/`actor`/`onBehalfOf` is ignored. Command plane: `spawnedBy` stamped from the principal (agent → `session:<id>`, human → `user`), payload identity parsed away. Handoff: the durable record carries `actor` + `onBehalfOf` together, with the contract's own declaration asserted so an empty event list cannot pass. |
-| No route to spawn / resume / send / kill / handoff bypasses the machine `use` check, including the all-in-one `local` case | **MET** | Table-driven over create · resume · sendText · kill · stop · uploadImage · ask: a principal holding `see` and not `use` is refused with `you do not have access to run agents on machine 'The Box'`. All-in-one: a colleague authenticated to the instance gets `unknown machine 'local'` on the sentinel — outside the see set, so identical to a never-paired id. Non-vacuity case: the owner succeeds at the same commands. Mutant M5 (delete the gate) killed 4 cases. |
+| No route to spawn / resume / send / kill / handoff bypasses the machine `use` check, including the all-in-one `local` case | **MET** | Table-driven over create · resume · sendText · kill · stop · uploadImage: a principal holding `see` and not `use` is refused with `you do not have access to run agents on machine 'The Box'`. All-in-one: a colleague authenticated to the instance gets `unknown machine 'local'` on the sentinel — outside the see set, so identical to a never-paired id. Non-vacuity case: the owner succeeds at the same commands. Mutant M5 (delete the gate) killed 4 cases. |
 | Cross-command sweep: invisible session and invisible machine fail identically to nonexistent ones | **MET — and it caught a real defect** | Eight targeted commands answer an invisible session exactly as a nonexistent one, with a can-say-yes case proving a VISIBLE target differs. An invisible machine answers `unknown machine 'box'`, byte-identical to a never-paired id. The sweep found the send path leaking existence — see the finding below. |
 | No session reducer renders a rescope / evict as a deletion | **MET, as a check plus a tripwire** | Asserted where the rule is decided: POD-369's `REPLICA_TRANSITIONS` row `D14-EVICT` states *"MUST NOT surface as a deletion, emit a domain delete, or write a tombstone"*, filtered on `op=evict` (not on the word, which also appears in `D14-READMIT` stating a different rule). Plus a tripwire on the premise: no session contract carries a rescope/evict op yet — POD-1077 adds it before the POD-308 cutover, and when it does this fails. |
 | Session e2e from the web UI and `podium session` CLI green | **MET, with a base-red set proved identical** | CLI: `apps/cli` 300 passed / 20 skipped. Integration e2e: `bun run test:e2e` 7 files / 27 passed. Web UI: Playwright `chromium-desktop` — the harness could not start at all on the base (below), and once repaired the pass/fail set is **byte-identical to a clean checkout of the branch point**. See the side-by-side. |
@@ -198,3 +199,75 @@ real clicks — the runtime verification the session change actually needed.
 - **`sessions.ask` keeps `z.unknown()` as its contract input.** Its real schema lives
   with the MessageGate that parses it, and its contract is POD-729's; restating it in
   `@podium/protocol` would be a second declaration of the messaging vocabulary.
+
+
+---
+
+## The integration merge (0e7b8617)
+
+Four conflicts. POD-729 flipped the whole agent-mail surface onto contracts while this
+branch was in flight, so three of the four are the same two files changing for related
+reasons.
+
+### `sessions.ask` — the substantive one, and a duplicate contract deleted
+
+POD-382 had given `ask` a command-plane contract, because the acceptance criteria
+required deleting the last hand-written session mutation and a deletion needs a
+replacement. POD-729 landed first with `ask` cut over to the MAIL table, for a reason
+that is better than mine: `ask` reaches DELIVERY, so leaving it out of the mail cutover
+would have left a live send path no contract governs.
+
+**Two contracts for one command is a vocabulary fork — the thing this programme exists
+to end — so the duplicate was deleted, not reconciled.** `ask` is a messages command,
+its contract is the mail table's, its schema is that contract's instance, and the
+sessions router serves it through `mailMutation('ask')`. The session-surface manifest
+records it with source `mail`, so the audit still sees it and still refuses a
+hand-written one; `sessionFamilyProcedures()` skips it, because one command must have
+one builder.
+
+**One thing did NOT survive the merge, and it is a finding rather than a loss.**
+POD-382's contract declared `machineVerb: 'use'`, because a question is delivered at
+`lifecycle: 'wake'` and waking a parked session starts a process on someone's machine.
+The mail contract makes no such declaration, and `ask` is therefore no longer in this
+gate's machine-use table. Reported to the coordinator rather than fixed here: adding a
+gate to another issue's contract during a merge is how a policy change gets made by
+accident.
+
+### The baseline — measured, and the arithmetic closes exactly
+
+Both sides banked a decrease, so neither number was right:
+
+| | `router-triple-access` |
+|---|---|
+| branch point `04613369` | 101 |
+| POD-729 alone | 92 (−9) |
+| POD-382 alone | 94 (−7) |
+| **merged tree, measured** | **86** |
+
+−9 and −7 sum to −16, and the measured decrease is −15. The missing one is an OVERLAP,
+and it is identifiable rather than inferred: `router.ts:523` at the branch point was
+`mods(ctx).messageGate.dispatch(…, 'ask', …)` — the hand-written `sessions.ask` body.
+POD-729 deleted it by re-pointing `ask` at `mailMutation`; POD-382 deleted it by
+removing the hand-written procedure. Both counted it. **9 + 7 − 1 = 15, exactly
+additive once the shared site is accounted for**, which is the evidence the arithmetic
+was asked to produce. Every other item in the merged baseline is byte-identical to
+integration's.
+
+### VANISHED vs MOVED — and 5 of them MOVED
+
+The check the coordinator asked for, run against the destination rather than the
+source, and it does not come out clean:
+
+`scripts/rearch-audit.ts`'s `router-triple-access` detector has **one root:
+`apps/server/src/router.ts`**. Five of this branch's seven removals are reach-through
+expressions that now live in `apps/server/src/modules/sessions/trpc.ts` —
+`mods(ctx).sessions`, `ctx.registry.sessionStore`, `mods(ctx).mutations`,
+`sessionCommandCtx(mods(ctx), …)`, `mods(ctx).sessions.handoffSession`. They are not
+gone; they are in a file the detector does not scan. Two genuinely disappeared (the
+deleted duplicate procedure bodies), and POD-729's nine are all real — its new
+`modules/messages/**` files match none of the four patterns.
+
+**So the ratchet under-reports by construction whenever a router body is extracted to a
+module**, which is exactly what POD-314's phase is going to do many more times. Widening
+the detector's roots is that issue's call, not this one's, and it changes everyone's
+number — so it is reported here rather than done here.

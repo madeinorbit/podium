@@ -149,9 +149,19 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => modules.sessions,
-    messages: () => modules.messages,
+    // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
+    // the delivery service — the capability is closed over here, at the composition
+    // root, exactly as `sessionCommandCtx` does it.
+    mailSend: (input) =>
+      modules.messageGate.dispatch(
+        principal.kind === 'system' ? OPERATOR : principal.capability,
+        undefined,
+        'send',
+        input,
+        'trpc',
+        'immediate',
+      )!,
     rpc: () => modules.rpc,
-    seance: () => modules.messageGate,
     createDraftIssue: (repoPath, agentKind, issueId) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId),
     access: {
@@ -218,9 +228,11 @@ describe('AC1 · the session surface is derived, in both directions', () => {
     expect(mutations).not.toContain('sessions.list')
   })
 
-  it('the manifest covers all three envelopes — a missing source would silently narrow the audit', () => {
+  it('the manifest covers all four envelopes — a missing source would silently narrow the audit', () => {
     const sources = new Set(sessionSurfaceManifest().map((entry) => entry.source))
-    expect([...sources].sort()).toEqual(['command-plane', 'handoff', 'presence'])
+    // FOUR since the POD-729 merge: `mail` is `sessions.ask`, whose contract belongs
+    // to the mail table and whose procedure is built by that family's derivation.
+    expect([...sources].sort()).toEqual(['command-plane', 'handoff', 'mail', 'presence'])
   })
 })
 
@@ -672,7 +684,6 @@ const GATED: { key: SessionCommandKey; input: (sessionId: string) => unknown }[]
       dataBase64: 'AA==',
     }),
   },
-  { key: 'ask', input: (sessionId) => ({ sessionId, question: 'hi?', timeoutSeconds: 0 }) },
 ]
 
 describe('AC6 · the machine `use` gate is on the only remaining path', () => {

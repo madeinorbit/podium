@@ -90,7 +90,23 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => modules.sessions,
-    messages: () => modules.messages,
+    // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
+    // fixture binds the port the same way the composition root does — from the
+    // principal's own capability, through the real gate. Substituting the
+    // delivery service here instead would have let these tests pass while the
+    // production path went around the mail policy, which is precisely the
+    // bypass POD-729 exists to close.
+    mailSend: (input) =>
+      modules.messageGate.dispatch(
+        'capability' in principal
+          ? principal.capability
+          : { role: 'admin', scope: { kind: 'all' } },
+        undefined,
+        'send',
+        input,
+        'relay',
+        'immediate',
+      )!,
     createDraftIssue: (repoPath, agentKind, issueId) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId),
     access: {
@@ -99,7 +115,6 @@ function ctxFor(
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     rpc: () => modules.rpc,
-    seance: () => modules.messageGate,
     ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
     mutations: modules.mutations,
   }

@@ -5,6 +5,7 @@ import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/
 import {
   entityShapedDeclarations,
   ISSUE_VOCABULARY,
+  physicalTableColumns,
   SESSION_VOCABULARY,
 } from './representation-audit'
 import {
@@ -129,11 +130,24 @@ describe('isTestFile / isFrozenFile', () => {
     expect(isTestFile('apps/server/src/store.ts')).toBe(false)
   })
 
-  it('freezes migrations and generated files', () => {
+  it('freezes the migration HISTORY and generated files, but not live migration source', () => {
     // Past migrations are immutable history; no phase issue can delete a
     // placeholder out of one, so counting them would pin the audit above zero.
-    expect(isFrozenFile('apps/server/src/migrations/schema.ts')).toBe(true)
+    // That reason applies to the timestamped SQL under drizzle/ — and NOT to the
+    // rest of migrations/, which is live editable source.
+    expect(isFrozenFile('apps/server/src/migrations/drizzle/20260715135845_baseline/x.sql')).toBe(
+      true,
+    )
     expect(isFrozenFile('apps/server/src/migrations/drizzle-manifest.generated.ts')).toBe(true)
+
+    // POD-1166: schema.ts declares all 57 physical tables and MUST be audited.
+    // Freezing it made an instance_id column on `sessions` invisible to every
+    // detector here, so ADR 1 D5 had no enforcement where a tenant partition
+    // would actually be introduced. Unfreezing it also revealed three real
+    // `__local__` column defaults the placeholder ratchet had never counted.
+    expect(isFrozenFile('apps/server/src/migrations/schema.ts')).toBe(false)
+    expect(isFrozenFile('apps/server/src/migrations/applier.ts')).toBe(false)
+
     expect(isFrozenFile('apps/server/src/store.ts')).toBe(false)
   })
 })
@@ -148,14 +162,21 @@ describe('grep', () => {
     ])
   })
 
-  it('skips tests and frozen files by default', () => {
+  it('skips tests and the frozen migration history, but reads live migration source', () => {
     const ctx = ctxOf({
       'apps/server/src/a.test.ts': `const x = '__local__'`,
+      // Frozen: immutable SQL history under drizzle/.
+      'apps/server/src/migrations/drizzle/20260715135845_baseline/up.ts': `const w = '__local__'`,
+      // NOT frozen since POD-1166: live source that happens to sit in migrations/.
       'apps/server/src/migrations/schema.ts': `const y = '__local__'`,
       'apps/server/src/b.ts': `const z = '__local__'`,
     })
     const sites = grep(ctx, { roots: ['apps'], pattern: /__local__/ })
-    expect(sites.map((s) => s.file)).toEqual(['apps/server/src/b.ts'])
+    // schema.ts is READ; the timestamped history and the test file are skipped.
+    expect(sites.map((s) => s.file).sort()).toEqual([
+      'apps/server/src/b.ts',
+      'apps/server/src/migrations/schema.ts',
+    ])
   })
 
   it('honours a root that names a single file', () => {
@@ -551,6 +572,20 @@ describe('against the live repo', () => {
     // defaulted at the seam) and its role note records why it is filed R3 rather
     // than inventing an ADR 4 role.
     expect(RETAINED_REPRESENTATIONS.length).toBe(44)
+  })
+
+  it('the physical-table parser still binds to the live schema', () => {
+    // `instance-partitions` is zero-by-design on BOTH its syntax forms, so each
+    // one needs its own population anchor: a parser that stopped seeing drizzle
+    // tables would report the same zero as a schema with no partition column.
+    // These are floors, not pins — adding a table or a column must not red the
+    // suite, only losing the ability to see them.
+    const cols = physicalTableColumns(loadContext(repoRoot))
+    expect(new Set(cols.map((c) => c.table)).size, 'parsed NO physical table').toBeGreaterThan(50)
+    expect(cols.length, 'parsed NO table column').toBeGreaterThan(400)
+    // And it reads the SQL name, not just the key — `machine_id` under
+    // `machineId` is the form a partition column would take.
+    expect(cols.some((c) => c.key === 'machineId' && c.column === 'machine_id')).toBe(true)
   })
 
   it('reports real files for every site', () => {

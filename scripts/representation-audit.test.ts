@@ -11,6 +11,7 @@ import {
   instancePartitions,
   NOT_A_REPRESENTATION,
   perUserSingletons,
+  physicalTableColumns,
   unregisteredRestatements,
 } from './representation-audit'
 
@@ -189,6 +190,107 @@ describe('the forbidden key classes fire on planted keys', () => {
   })
 })
 
+/**
+ * THE SECOND SYNTAX FORM (POD-1168). A drizzle table is a CALL EXPRESSION whose
+ * columns live in an object argument, so no key of it is ever a key of a
+ * declaration — POD-1162's P4 planted `instance_id` on `sessions` and every gate
+ * stayed green. These fix the concept, not the line: a partition is caught
+ * wherever it can be WRITTEN.
+ */
+describe('instancePartitions — the drizzle column form', () => {
+  const SCHEMA = `
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core"
+
+export const sessions = sqliteTable("sessions", {
+	id: text().primaryKey(),
+	agentKind: text("agent_kind").notNull(),
+	machineId: text("machine_id").default("__local__").notNull(),
+	archived: integer().default(0).notNull(),
+}, (table) => [
+	index("sessions_archived_idx").on(table.archived),
+])
+
+export const issues = sqliteTable("issues", {
+	id: text().primaryKey(),
+	title: text().notNull(),
+})
+`
+  const schemaCtx = (source: string) => ctxOf(source, 'apps/server/src/migrations/schema.ts')
+
+  /** The instrument must be able to say YES about the population it parses. */
+  it('parses every column of every table, including the implicitly-named ones', () => {
+    const cols = physicalTableColumns(schemaCtx(SCHEMA))
+    expect(cols.map((c) => `${c.table}.${c.column}`)).toEqual([
+      'sessions.id',
+      'sessions.agent_kind',
+      'sessions.machine_id',
+      'sessions.archived',
+      'issues.id',
+      'issues.title',
+    ])
+    // `id: text()` names its column after the key — the form that carries no
+    // string argument at all.
+    expect(cols[0]).toMatchObject({ key: 'id', column: 'id' })
+  })
+
+  it('is SILENT on the live schema as it stands — no partition column exists', () => {
+    expect(instancePartitions(schemaCtx(SCHEMA))).toEqual([])
+  })
+
+  it('fires on a planted partition column under either spelling, on any table', () => {
+    const cases: [string, string][] = [
+      // [planted column line, expected site text]
+      ['instanceId: text("instance_id"),', 'sessions.instance_id (column)'],
+      ['tenantId: text("tenant_id"),', 'sessions.tenant_id (column)'],
+      // camelCase key, snake_case column — and the reverse. Either spelling
+      // alone is the partition.
+      ['instanceId: text("owning_thing"),', 'sessions.owning_thing (column)'],
+      ['owningThing: text("tenant_id"),', 'sessions.tenant_id (column)'],
+      // No string argument: the key IS the column name.
+      ['tenantId: text(),', 'sessions.tenantId (column)'],
+    ]
+    for (const [line, expected] of cases) {
+      const planted = SCHEMA.replace(
+        '\tid: text().primaryKey(),',
+        `\t${line}\n\tid: text().primaryKey(),`,
+      )
+      expect(planted, line).not.toEqual(SCHEMA)
+      expect(
+        instancePartitions(schemaCtx(planted)).map((s) => s.text),
+        line,
+      ).toEqual([expected])
+    }
+  })
+
+  it('fires on a table OTHER than sessions — the rule is the form, not a table list', () => {
+    const planted = SCHEMA.replace(
+      '\ttitle: text().notNull(),',
+      '\ttitle: text().notNull(),\n\tinstanceId: text("instance_id"),',
+    )
+    expect(instancePartitions(schemaCtx(planted)).map((s) => s.text)).toEqual([
+      'issues.instance_id (column)',
+    ])
+  })
+
+  /**
+   * ADR 1 D5's DEPLOYMENT partition is a real and permitted concept — POD-368
+   * verified the ~150 `instanceId` sites in the tree are exactly that. What is
+   * forbidden is a per-row partition COLUMN, so an identifier, a parameter or a
+   * config field of that name must not read as one.
+   */
+  it('does NOT fire on deployment-partition code that merely mentions instanceId', () => {
+    const legitimate = `
+const instanceId = resolveInstanceId()
+export function forInstance(instanceId: string, tenantId: string) {
+  return { instanceId, tenantId }
+}
+export const config = { instanceId: process.env.INSTANCE_ID }
+`
+    expect(instancePartitions(ctxOf(legitimate))).toEqual([])
+    expect(physicalTableColumns(ctxOf(legitimate))).toEqual([])
+  })
+})
+
 describe('the two checks whose live answer is ZERO can say non-zero', () => {
   /**
    * `representation-registry-rot` reports 0, and a zero from a check nobody has
@@ -283,7 +385,12 @@ describe('the detector’s two judgement calls are pinned', () => {
     // in an excluded file is still counted.
     // 31 + POD-1153's `HANDOFF_BUNDLE_CORE`, the shape both handoff format arms
     // spread. Bumping this number is the deliberate act the pin exists to force.
-    expect(NOT_A_REPRESENTATION.length).toBe(32)
+    // 32 -> 34: POD-381 moved sessions.create / sessions.resume's procedure inputs
+    // out of `appRouter` onto their command contracts, so `createInput` and
+    // `resumeInput` are excluded at their NEW address for the reason `appRouter`
+    // already carried. Excluding them by their old container alone would have made
+    // the audit's answer depend on which file the transport edge happens to live in.
+    expect(NOT_A_REPRESENTATION.length).toBe(34)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)

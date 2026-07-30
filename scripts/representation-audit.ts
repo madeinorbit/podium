@@ -679,6 +679,123 @@ export function capabilitySnapshots(ctx: AuditContext): AuditSite[] {
  */
 const INSTANCE_PARTITION_KEY = /^(instance_?id|tenant_?id)$/i
 
+/**
+ * A drizzle table declaration: `export const sessions = sqliteTable("sessions", {`.
+ *
+ * The dialect prefix is left open (`sqlite`/`pg`/`mysql`) because the concept —
+ * a physical table declared as code — is what this reads, not today's engine.
+ */
+const PHYSICAL_TABLE =
+  /^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:\w+\.)?(?:sqlite|pg|mysql)Table\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/
+
+/**
+ * One column inside such a table body: `machineId: text("machine_id").notNull()`.
+ *
+ * The SQL name argument is OPTIONAL — `id: text()` names its column after the
+ * key — so both the key and the quoted name have to be read, and either one may
+ * be the spelling that carries the partition.
+ */
+const PHYSICAL_COLUMN = /^\s*(\w+)\s*:\s*(?:\w+\.)?\w+\(\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)?/
+
+/**
+ * The body of the columns object as `(segment, offset)` pairs — one per
+ * top-level member, split on commas at depth 1 so a nested call or object
+ * cannot end a column early. Quoted spans are walked as text: a brace or paren
+ * inside a string literal must not move the depth.
+ *
+ * Returns `null` if the object never closes, which is a truncated file rather
+ * than a clean tree.
+ */
+function objectMembers(src: string, open: number): { text: string; at: number }[] | null {
+  const members: { text: string; at: number }[] = []
+  let depth = 0
+  let start = open + 1
+  let quote: string | null = null
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i] as string
+    if (quote) {
+      if (ch === '\\') i++
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch
+      continue
+    }
+    if (ch === '{' || ch === '[' || ch === '(') depth++
+    else if (ch === '}' || ch === ']' || ch === ')') {
+      depth--
+      if (depth === 0) {
+        members.push({ text: src.slice(start, i), at: start })
+        return members
+      }
+    } else if (ch === ',' && depth === 1) {
+      members.push({ text: src.slice(start, i), at: start })
+      start = i + 1
+    }
+  }
+  return null
+}
+
+export interface PhysicalColumn {
+  readonly file: string
+  readonly line: number
+  /** The SQL table name as declared in the call's first argument. */
+  readonly table: string
+  /** The TypeScript property key. */
+  readonly key: string
+  /** The SQL column name — the quoted argument, or the key when it is omitted. */
+  readonly column: string
+}
+
+/**
+ * Every column of every physical table declared as drizzle schema-as-code.
+ *
+ * `entityShapedDeclarations` cannot see these: a table is a CALL EXPRESSION with
+ * an object literal argument, not a declaration whose own keys are the shape, so
+ * its columns are never enumerated as keys. That is one concept — "a partition
+ * column" — written in a second syntax, and a detector that covers only the
+ * first is indistinguishable from a clean tree (POD-1162 P4 planted
+ * `instance_id` on `sessions` and every gate stayed green).
+ *
+ * Brace depth is tracked from the table call so the columns object is
+ * distinguished from a trailing `(t) => [...]` constraint callback.
+ */
+export function physicalTableColumns(ctx: AuditContext): PhysicalColumn[] {
+  const out: PhysicalColumn[] = []
+  const table = new RegExp(PHYSICAL_TABLE.source, 'gm')
+  for (const f of ctx.files) {
+    if (f.isTest) continue
+    // The timestamped SQL under `migrations/drizzle/` is immutable history and
+    // generated files are rebuilt from it; neither is where a column is authored.
+    if (f.file.includes('/migrations/drizzle/') || f.file.endsWith('.generated.ts')) continue
+
+    const src = f.stripped
+    table.lastIndex = 0
+    for (let m = table.exec(src); m; m = table.exec(src)) {
+      const name = (m[2] ?? m[3] ?? m[4]) as string
+      const open = src.indexOf('{', m.index + m[0].length)
+      if (open === -1) continue
+      const members = objectMembers(src, open)
+      if (!members) continue
+      for (const member of members) {
+        const col = PHYSICAL_COLUMN.exec(member.text)
+        if (!col) continue
+        const key = col[1] as string
+        const offset = member.at + (col.index + col[0].indexOf(key))
+        out.push({
+          file: f.file,
+          line: src.slice(0, offset).split('\n').length,
+          table: name,
+          key,
+          column: col[2] ?? col[3] ?? col[4] ?? key,
+        })
+      }
+    }
+  }
+  return out
+}
+
 export function instancePartitions(ctx: AuditContext): AuditSite[] {
   const sites: AuditSite[] = []
   for (const d of entityShapedDeclarations(ctx)) {
@@ -687,6 +804,14 @@ export function instancePartitions(ctx: AuditContext): AuditSite[] {
       if (INSTANCE_PARTITION_KEY.test(key)) {
         sites.push({ file: d.file, line: d.line, text: `${d.symbol}.${key}` })
       }
+    }
+  }
+  // The same concept, written as a column on a physical table. Both spellings
+  // are read — a snake_case column under a camelCase key, or the reverse — and
+  // the SAME pattern decides, so there is one rule here and not two.
+  for (const c of physicalTableColumns(ctx)) {
+    if (INSTANCE_PARTITION_KEY.test(c.key) || INSTANCE_PARTITION_KEY.test(c.column)) {
+      sites.push({ file: c.file, line: c.line, text: `${c.table}.${c.column} (column)` })
     }
   }
   return sites
