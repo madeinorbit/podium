@@ -65,18 +65,37 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     all: 'allow',
     none: 'confirm-required',
     subtree: 'confirm-required',
+    // POD-380: an owner-or-grant capability says nothing about issue TREES, and a
+    // self capability reaches only its own per-user row. Both are 'forbidden' for
+    // an issue target rather than 'confirm-required' — deliberately NOT overridable,
+    // because `--outside-scope` confirms crossing an issue boundary (ADR 3 D2) and
+    // must not double as a general escalation into another class.
+    owned: 'forbidden',
+    self: 'forbidden',
   }
 
   const SCOPES: Record<IssueScope['kind'], IssueScope> = {
     all: { kind: 'all' },
     none: { kind: 'none' },
     subtree: { kind: 'subtree', rootId: 'elsewhere' },
+    owned: { kind: 'owned', userId: 'u1' },
+    self: { kind: 'self', userId: 'u1' },
   }
 
   it('every declared scope kind has an explicit rule for an out-of-scope write', () => {
     for (const [kind, expected] of Object.entries(EXPECTED_FOR_EXISTING_ISSUE)) {
       const scope = SCOPES[kind as IssueScope['kind']]
-      expect(authorize(cap(scope), 'write', { id: 'i1' })).toBe(expected)
+      expect(authorize(cap(scope), 'write', { id: 'i1' }), kind).toBe(expected)
+    }
+  })
+
+  it('the new scopes are not override-liftable on an issue target', () => {
+    // The claim above says "deliberately NOT overridable". This is the assertion
+    // for it: without this, 'forbidden' could be a confirm-required in disguise.
+    for (const kind of ['owned', 'self'] as const) {
+      expect(authorize(cap(SCOPES[kind]), 'write', { id: 'i1' }, { override: true }), kind).toBe(
+        'forbidden',
+      )
     }
   })
 
@@ -89,5 +108,95 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     expect(withActor.actorSessionId).toBe('s1')
     // The seam is carried, not consulted: authz decisions do not read it.
     expect(authorize(withActor, 'write', { id: 'root' })).toBe('allow')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-380 — owner-or-grant and self scopes (docs/multi-user-readiness.md §3.1.1, §3.3)
+// ---------------------------------------------------------------------------
+
+/** An owned entity target: a session, with its owner and its grant list. */
+const session = (owner: string | null, grants?: string[]) =>
+  ({ kind: 'owned', id: 's1', owner, ...(grants ? { grants } : {}) }) as const
+
+describe('owner-or-grant scope (the personal class)', () => {
+  const alice = cap({ kind: 'owned', userId: 'alice' })
+
+  it('allows the OWNER and allows a GRANTEE', () => {
+    expect(authorize(alice, 'write', session('alice'))).toBe('allow')
+    expect(authorize(alice, 'write', session('bob', ['alice']))).toBe('allow')
+  })
+
+  it('denies a principal who is neither owner nor grantee', () => {
+    // The counterfactual for the two allows above: same capability, same target
+    // shape, only the owner/grants differ.
+    expect(authorize(alice, 'write', session('bob'))).toBe('forbidden')
+    expect(authorize(alice, 'write', session('bob', ['carol']))).toBe('forbidden')
+  })
+
+  it('an UNOWNED entity is denied, not ambient — default-closed (§3.1.1, §3.1.4 M4)', () => {
+    expect(authorize(alice, 'write', session(null))).toBe('forbidden')
+    // And a grant list on an unowned row does not resurrect it: an owner is the
+    // thing a grant hangs off, so "granted on an unowned entity" is incoherent.
+    expect(authorize(alice, 'write', session(null, ['alice']))).toBe('forbidden')
+  })
+
+  it('--outside-scope does NOT lift an ownership denial', () => {
+    // ADR 3 D2's override confirms crossing an ISSUE boundary. Letting it lift an
+    // ownership refusal would make it a general escalation into another person's
+    // private state.
+    expect(authorize(alice, 'write', session('bob'), { override: true })).toBe('forbidden')
+  })
+
+  it('does not reach ANY per-user row, including its own (§3.3 non-grantable)', () => {
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'alice' })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+  })
+
+  it('reads stay allowed — visibility is the feed’s job, not this function’s', () => {
+    // authorize() is scope-free for reads by design (see the docstring). Scoping
+    // WHAT a principal can see is POD-1077's watermarked feed, and duplicating a
+    // read gate here would be the second permission check invariant 2 forbids.
+    expect(authorize(alice, 'read', session('bob'))).toBe('allow')
+  })
+})
+
+describe('self scope (per-user state)', () => {
+  const alice = cap({ kind: 'self', userId: 'alice' })
+
+  it('allows a principal to write its OWN row', () => {
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
+  })
+
+  it('DENIES writing another principal’s row — the self-scoping property', () => {
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: 'bob' }, { override: true })).toBe(
+      'forbidden',
+    )
+  })
+
+  it('cannot write a SHARED entity — a self capability is not a weak owner-or-grant', () => {
+    // Without this, a per-user capability could rename the session its read state
+    // is about, which would make `self` an owner-or-grant scope wearing the wrong
+    // name.
+    expect(authorize(alice, 'write', session('alice'))).toBe('forbidden')
+  })
+
+  it('an admin ROLE does not widen a self scope — role and scope are independent gates', () => {
+    const adminSelf = cap({ kind: 'self', userId: 'alice' }, 'admin')
+    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'bob' })).toBe('forbidden')
+    // The counterfactual: the same admin capability CAN manage its own row, so the
+    // denial above is the scope talking and not a blanket refusal.
+    expect(authorize(adminSelf, 'manage', { kind: 'per-user-row', userId: 'alice' })).toBe('allow')
+  })
+})
+
+describe('OPERATOR keeps its unconstrained reach across the new target kinds', () => {
+  it('writes an owned entity it does not own, and any per-user row', () => {
+    // Today's single shared password resolves to admin/all, and POD-380 must not
+    // change that: the migration is behaviour-preserving until POD-1075 mints a
+    // real user principal. `scope: 'all'` short-circuits before target kind is read.
+    expect(authorize(OPERATOR, 'write', session('somebody-else'))).toBe('allow')
+    expect(authorize(OPERATOR, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('allow')
   })
 })
