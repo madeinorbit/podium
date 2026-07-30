@@ -144,6 +144,35 @@ POD-1071 owns that file under stated file discipline and needed no change.
   plus 10 `packages/harness` files that were only *moved* verbatim. All reverted, so
   the relocation stays reviewable as a relocation.
 
+## Two self-inflicted bugs worth knowing about
+
+Both were found by acting on the coordinator's standing-rule broadcast rather than by
+trusting a green summary line.
+
+**A phantom deletion that would have corrupted POD-325's guardrail.** The
+`capability-tables` detector in `scripts/rearch-audit.ts` is scoped by PATH PREFIX and
+patterns on the TYPE NAME. This move tripped both independently — the file left
+`packages/agent-bridge`, *and* `Record<HarnessAgent, HarnessAdapter>` became
+`Record<BuiltinHarnessKind, AgentManifest>`. The audit reported `capability-tables:
+5 -> 4` and offered `--update-baseline` to "lock the win in". Nothing had been
+deleted; the table sits at `packages/harness/src/registry.ts:30` and POD-398 still has
+to fold it in. Fixed by making the detector **span both homes** and both key-type
+names, then verified **per-site**: the site reappears at its new path, count back to 5,
+POD-325 correctly still cannot close. The top-line total read 264 before *and* after —
+it never moved, exactly as the broadcast warned.
+
+The other path-prefix detector, `durable-host-sync-async-twins`, is hard-scoped to
+`packages/agent-bridge/src/`. Its four sites are in `abduco.ts`/`tmux.ts`, which
+stayed, so its per-site output is byte-identical to the base. Widening it belongs to
+POD-396 when it moves those files; deliberately not touched here.
+
+**A literal NUL byte in this diff.** The `(machineId, homeDir)` cache key used a raw
+NUL separator. `git diff --stat` printed `Bin 2766 -> 3499 bytes` and `grep` for a
+visible line returned nothing and exited 1. Rewritten as a `\u0000` escape — same
+runtime value, diff reads as text, and the collision-proof property is retained.
+(The first attempt at that fix's own commit message was rejected for the same reason:
+the byte got pasted into the prose describing the fix.)
+
 ## Verification
 
 Scoped and targeted; the host was swap-thrashing throughout (load 58–173 on 8 cores,
@@ -158,6 +187,9 @@ Scoped and targeted; the host was swap-thrashing throughout (load 58–173 on 8 
 | `scripts/{check-boundaries,architecture-manifest}.test.ts` | 180 passed |
 | agent-smoke, the two moved real-binary skips | both collect from new paths; cursor passes, opencode skips (binary absent) |
 | `bun scripts/check-boundaries.ts` | **byte-identical to the unmodified base**: 69 violations each |
+| `bun scripts/rearch-audit.ts` | `OK — 21 items, 264 sites remaining (baseline exact)` |
+| `bun scripts/check-no-nul-bytes.ts` | ok; and no `Bin` marker anywhere in the diff |
+| **full lane** under the test-lane lease | **5278 passed**, 19 skipped, 411 files; the 1 failure was the audit baseline gate catching the phantom zero above, now fixed (audit exits 0, suite re-runs 51/51) |
 
 **Base-redness proven, not assumed.** The boundaries gate was already red on
 `201dd989` (the fan-out branch point). That commit was extracted with `git archive`
