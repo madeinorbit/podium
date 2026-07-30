@@ -86,6 +86,14 @@ async function handoffFixture(
     /** Fires when the SOURCE receives the export request — i.e. after the kill and
      *  before the import leg. The window a mid-transfer revocation lands in. */
     onExport?: () => void
+    /** Fires when the TARGET is asked to prove a bundle base — i.e. after the
+     *  dispatch-time checks passed and BEFORE anything irreversible. A hook rather
+     *  than a re-attached daemon on purpose: a hand-written stand-in that answers
+     *  only the probe leaves the later legs unanswered, so a mutant that removes
+     *  the pre-kill re-check HANGS to a test timeout instead of failing on its
+     *  assertion — the POD-379 round-4 failure mode, in a file that has to stay
+     *  sharp because two of its tests exist to catch exactly that mutant. */
+    onTargetProbe?: () => void
   } = {},
 ): Promise<HandoffFixture> {
   const store = new SessionStore(':memory:')
@@ -174,6 +182,7 @@ async function handoffFixture(
       // The bundle-base handshake: the target proves which of the source's SHAs
       // it already has. `targetHasBase: false` is the d73e9121 shape — a target
       // that shares no verified commit with the source.
+      opts.onTargetProbe?.()
       const ok = opts.targetHasBase === false ? false : msg.args?.ref === SHA
       reg.modules.sessions.onDaemonMessageFrom('m2', {
         type: 'repoOpResult',
@@ -549,22 +558,13 @@ describe('oracle: mid-transfer crash', () => {
     const caller: { capability: Capability } = {
       capability: { role: 'admin', scope: { kind: 'all' } },
     }
-    const f = await handoffFixture()
     let seenTargetProbe = 0
-    f.reg.modules.sessions.attachDaemon('m2', (msg) => {
-      f.target.push(msg)
-      f.timeline.push({ machine: 'm2', type: msg.type, msg })
-      if (msg.type === 'repoOpRequest') {
+    const f = await handoffFixture({
+      onTargetProbe: () => {
         seenTargetProbe += 1
         // Revoke while the base handshake is still in flight.
         caller.capability.role = 'worker'
-        f.reg.modules.sessions.onDaemonMessageFrom('m2', {
-          type: 'repoOpResult',
-          requestId: msg.requestId,
-          ok: true,
-          output: SHA,
-        })
-      }
+      },
     })
 
     expect(
@@ -748,6 +748,29 @@ describe('oracle: duplicate dispatch', () => {
     expect(f.count('m3', 'repoOpRequest')).toBe(0)
     expect(f.count('m3', 'handoffImportRequest')).toBe(0)
     expect(meta(f)).toMatchObject({ machineId: 'm2' })
+  })
+
+  it(`${MUST_NOT_CHANGE}: a caller JOINING an in-flight transfer is authorized with its OWN rights, not the initiator's`, async () => {
+    const f = await handoffFixture()
+
+    // The operator starts the move; a constrained caller asks for the same move
+    // while it is in flight. Coalescing is a latency optimisation and must not
+    // become an authorization one: the joiner is refused on its own rights and
+    // never learns the transfer succeeded.
+    const initiator = f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: OPERATOR },
+    )
+    const joiner = f.reg.modules.sessions.handoffSession(
+      { sessionId: f.sessionId, machineId: 'm2' },
+      { capability: { role: 'worker', scope: { kind: 'all' } } },
+    )
+
+    await expect(joiner).rejects.toThrow("unknown machine 'm1'")
+    // And the initiator's transfer is unharmed — the refusal touched only the
+    // caller that was refused, which is the other half of the claim.
+    await expect(initiator).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
+    expect(f.count('m2', 'handoffImportRequest')).toBe(1)
   })
 
   it(`${MUST_NOT_CHANGE}: a FAILED transfer releases the single-flight slot, so the move can be retried instead of being wedged`, async () => {

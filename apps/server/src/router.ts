@@ -414,7 +414,13 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => mods(ctx).sessions.killSession(input)),
     handoff: t.procedure
       .input(z.object({ sessionId: z.string(), machineId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.handoffSession(input)),
+      // The caller is passed as a SEPARATE argument, from the context's
+      // capability — never out of `input` (ADR 3 D7: payload identity is inert).
+      // Handoff is a `use` operation on both machines, and this is where the
+      // principal that must hold it comes from.
+      .mutation(({ ctx, input }) =>
+        mods(ctx).sessions.handoffSession(input, { capability: ctx.capability }),
+      ),
     continue: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.continueSession(input)),
