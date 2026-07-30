@@ -43,7 +43,6 @@
  * throw a "forbidden" error the way an issue command does.
  */
 
-import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
 import {
   type AuthTarget,
   authorize,
@@ -51,6 +50,7 @@ import {
   capabilityAttribution,
   SOLE_USER_ID,
 } from '@podium/model'
+import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
 import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { SessionsService } from './service'
@@ -117,10 +117,7 @@ export function soleHumanPrincipal(capability: Capability): PresencePrincipal {
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
  */
-export function soleHumanWsPrincipal(
-  capability: Capability,
-  clientId: string,
-): PresencePrincipal {
+export function soleHumanWsPrincipal(capability: Capability, clientId: string): PresencePrincipal {
   return { ...soleHumanPrincipal(capability), clientId }
 }
 
@@ -418,7 +415,10 @@ export class PresenceRegistry {
     // The self-scoping check, stated positively rather than relying on the target
     // resolver having built the row from the principal: a resolver that ever reads
     // a userId out of the payload would be caught here.
-    if (policy.scope === 'self' && (target.kind !== 'per-user-row' || target.userId !== principal.userId)) {
+    if (
+      policy.scope === 'self' &&
+      (target.kind !== 'per-user-row' || target.userId !== principal.userId)
+    ) {
       return DENIED
     }
     return authorize(principal.capability, policy.action, target) === 'allow' ? 'allow' : DENIED

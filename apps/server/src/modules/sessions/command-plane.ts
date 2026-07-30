@@ -33,19 +33,23 @@
 
 import type { AgentKind } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
-import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
-import type { z } from 'zod'
+import { sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/protocol'
 import type { MutationLedgerPort } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
+import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
 import {
   checkMachineUse,
-  machineAccessMessage,
   type MachineOwnershipIndex,
+  machineAccessMessage,
   machineUseDecision,
 } from '../../machine-access'
+import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
+import type { MessageGate } from '../messages/gate'
 import type { MessageDeliveryService } from '../messages/service'
+import type { SessionsService } from './service'
 import {
   assertMayCommandSession,
   resolveSessionTarget,
@@ -53,7 +57,6 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
-import type { SessionsService } from './service'
 
 // ---------------------------------------------------------------------------
 // Execution context
@@ -77,10 +80,20 @@ export type SessionCommandServices = Pick<
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
+  | 'stopSession'
 >
 
 /** The substrate both chat paths ride (#237) [spec:SP-34d7]. */
 export type SessionMessageSend = Pick<MessageDeliveryService, 'send'>
+
+/** The daemon round-trip `uploadImage` is (bytes to the session's machine, an
+ *  absolute path back). A `Pick` of the real service, not a restated signature. */
+export type SessionDaemonRpc = Pick<DaemonRpcService, 'uploadImage'>
+
+/** The seance's own gate and handler (#237) [spec:SP-34d7 tier 4). `ask` keeps the
+ *  MessageGate's authz — the SAME path the relay send arm uses — so this dep is a
+ *  delegation and not a second gate. See the contract's decision record. */
+export type SessionSeance = Pick<MessageGate, 'dispatch'>
 
 export interface SessionCommandDeps {
   sessions(): SessionCommandServices
@@ -91,6 +104,10 @@ export interface SessionCommandDeps {
     agentKind: AgentKind | undefined,
     issueId?: string,
   ): { id: string }
+  /** The daemon control leg for `uploadImage`. */
+  rpc(): SessionDaemonRpc
+  /** The message gate `ask` delegates to. */
+  seance(): SessionSeance
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
   /**
@@ -373,6 +390,82 @@ export const SESSION_COMMAND_HANDLERS = {
   continue: (ctx: SessionCommandCtx, input: TargetInput) => {
     if (!ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
     return ctx.sessions.continueSession(input)
+  },
+
+  /**
+   * Clean end, OPERATOR path (POD-382). The refusal is RETURNED, never thrown —
+   * POD-379 pins that for tRPC — so an absent target answers with the service's own
+   * `unknown session`, which is also what an invisible one must answer once
+   * visibility is real. The relay arm keeps its self-stop resolution and its throw;
+   * see the contract.
+   */
+  stop: (ctx: SessionCommandCtx, input: { sessionId: string; force?: boolean }) => {
+    if (!ctx.target(input.sessionId, 'sessions.stop')) {
+      return Promise.resolve({ ok: false, reason: 'unknown session' })
+    }
+    return ctx.sessions.stopSession(input)
+  },
+
+  /**
+   * Bytes onto the session's machine, an absolute path back.
+   *
+   * NO EXISTENCE GATE, deliberately, and this is the one handler where that is a
+   * preservation rather than an omission: POD-379 pins that an upload for an
+   * unknown session is dispatched to the default machine anyway, and tags the
+   * change as POD-1073's. Adding the gate here would silently take a pinned
+   * behaviour from another issue.
+   *
+   * The MACHINE gate is applied, because it is this class's whole point: the bytes
+   * land on the machine that runs the session (routing is a must-not-change
+   * invariant), so putting them there is the `use` verb. With no owner column yet
+   * an ownerless machine still allows — which is exactly POD-379's `willChange`
+   * characterization for POD-1079, unchanged by this migration.
+   */
+  uploadImage: async (
+    ctx: SessionCommandCtx,
+    input: { sessionId: string; filename: string; mimeType: string; dataBase64: string },
+  ) => {
+    const row = ctx.sessions.listSessions().find((s) => s.sessionId === input.sessionId)
+    if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)
+    const result = await ctx.deps.rpc().uploadImage(input)
+    if (result.error) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: result.error })
+    }
+    if (!result.path) {
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: 'no daemon answered the image upload request',
+      })
+    }
+    return result
+  },
+
+  /**
+   * The seance — delegated to the MessageGate, which owns its schema and its gate
+   * (see the contract's decision record). The non-null assertion is the router's,
+   * kept: the gate returns `undefined` only for a proc it does not implement, and
+   * `ask` is one it does, so an `undefined` here would be a wiring bug and not a
+   * refusal to represent.
+   */
+  ask: (ctx: SessionCommandCtx, input: unknown) => {
+    // The `use` gate, on top of the MessageGate's own target gate and not instead
+    // of it. A question is delivered at `lifecycle: 'wake'`, so asking one can start
+    // a process on the target's machine — the same reason `resumeAndSend` carries the
+    // verb. Resolved from the ROW, so an absent target skips it and reaches the
+    // gate's pinned `session not found` rather than a differently-worded refusal.
+    const raw = input as { sessionId?: unknown }
+    if (typeof raw?.sessionId === 'string') {
+      const row = ctx.sessions.listSessions().find((s) => s.sessionId === raw.sessionId)
+      if (row?.machineId !== undefined) ctx.assertMachineUse(row.machineId)
+    }
+    // A SYSTEM principal has no capability by construction (ADR 3 Am1 D21: no
+    // human, and unreachable from every transport), and the gate needs one. Made
+    // LOUD rather than defaulted to an operator: substituting a capability here
+    // would be exactly the "never act AS a person" rule broken in one line.
+    if (ctx.principal.kind === 'system') {
+      throw new Error('sessions.ask has no system path — a seance needs a human to answer to')
+    }
+    return ctx.deps.seance().dispatch(ctx.principal.capability, ctx.overrideScope, 'ask', input)!
   },
 } satisfies Record<keyof typeof sessionCommandPlane.defs, Handler>
 

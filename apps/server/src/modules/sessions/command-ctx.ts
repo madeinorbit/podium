@@ -12,8 +12,8 @@ import type { Capability } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import {
   canSeeMachine,
-  machineUseDecision,
   type MachineOwnershipIndex,
+  machineUseDecision,
   ownershipFromMachines,
 } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
@@ -37,7 +37,9 @@ export function sessionCommandCtx(
   const principal = resolvePrincipal(capability, {
     parentSessionOf: (sessionId) => {
       const spawnedBy = sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy
-      return spawnedBy?.startsWith('session:') === true ? spawnedBy.slice('session:'.length) : undefined
+      return spawnedBy?.startsWith('session:') === true
+        ? spawnedBy.slice('session:'.length)
+        : undefined
     },
   })
   const deps: SessionCommandDeps = {
@@ -50,6 +52,8 @@ export function sessionCommandCtx(
       issues,
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
+    rpc: () => modules.rpc,
+    seance: () => modules.messageGate,
     ownership: ownershipFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other

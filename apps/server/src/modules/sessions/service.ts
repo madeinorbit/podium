@@ -1,8 +1,16 @@
-import {
-  AgentKind,
-  asIssueId,
+import type {
+  ActorRef,
+  AgentRuntimeState,
+  AutomationRunWire,
+  AutomationWire,
+  Geometry,
+  IssueWire,
+  ResumeRef,
+  SessionMeta,
+  TranscriptItem,
+  WorkState,
 } from '@podium/model'
-import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import { AgentKind, asIssueId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -19,18 +27,18 @@ import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Ge
  * overloading `null`.
  */
 export type SessionWirePrincipal = ActorRef
+
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  agentSupportsEffort,
+  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -61,8 +69,8 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { ownershipFromMachines } from '../../machine-access'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -88,6 +96,9 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
+import { machineUseGateForCapability } from './handoff/access'
+import { HandoffCoordinator } from './handoff/coordinator'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import {
@@ -95,10 +106,8 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import { machineUseGateForCapability } from './handoff/access'
-import { HandoffCoordinator } from './handoff/coordinator'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -1936,7 +1945,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: string,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
@@ -3161,7 +3174,8 @@ export class SessionsService {
       broadcastSessions: () => this.broadcastSessions(),
       onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onWorktreesChanged: (repoPath, machineId) => this.deps.onWorktreesChanged(repoPath, machineId),
+      onWorktreesChanged: (repoPath, machineId) =>
+        this.deps.onWorktreesChanged(repoPath, machineId),
       resumeSession: (resumeInput) => this.resumeSession(resumeInput),
       resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
       recordEvent: (event) => {

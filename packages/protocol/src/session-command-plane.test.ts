@@ -23,9 +23,15 @@ const defs = Object.entries(sessionCommandPlane.defs)
 const OFFLINE_ELIGIBLE_EXCEPTION = 'resumeAndSend'
 
 describe('the command-plane table', () => {
-  it('covers exactly the nine procs this issue migrates, and not handoff', () => {
+  it('covers exactly the twelve command-plane procs, and not handoff', () => {
+    // NINE were POD-381's. `stop`, `uploadImage` and `ask` were added by POD-382,
+    // which had to delete the last hand-written session mutations from router.ts and
+    // could only do that by giving them contracts. The list is exact rather than a
+    // `toContain` so a thirteenth arrival has to edit this line — and so a command
+    // silently REMOVED from the table cannot pass either.
     expect(commandPlaneNames().sort()).toEqual([
       'sessions.answerAskUserQuestion',
+      'sessions.ask',
       'sessions.continue',
       'sessions.create',
       'sessions.hibernate',
@@ -34,6 +40,8 @@ describe('the command-plane table', () => {
       'sessions.resumeAndSend',
       'sessions.resurrect',
       'sessions.sendText',
+      'sessions.stop',
+      'sessions.uploadImage',
     ])
     // POD-642's, and it must not drift into this table by accident.
     expect(commandPlaneContract('handoff')).toBeUndefined()
@@ -72,20 +80,17 @@ describe('the command-plane table', () => {
     for (const [, def] of defs) expect(isExposedOn(def, 'ws')).toBe(false)
   })
 
-  it.each(defs)(
-    '%s: the exported input schema IS the contract’s instance, not a copy of it',
-    (key, def) => {
-      // `toBe`, never `toEqual`. The router builds its procedures on
-      // sessionCommandPlaneInputs for the precise types CommandDef's widened
-      // ZodTypeAny cannot give it; if that map ever held a FRESH z.object with
-      // the same keys, every value assertion in this file would still pass, the
-      // wire bytes would be identical, and the two would silently drift apart at
-      // the first schema edit. Only instance identity sees that.
-      expect(sessionCommandPlaneInputs[key as keyof typeof sessionCommandPlaneInputs]).toBe(
-        def.input,
-      )
-    },
-  )
+  it.each(
+    defs,
+  )('%s: the exported input schema IS the contract’s instance, not a copy of it', (key, def) => {
+    // `toBe`, never `toEqual`. The router builds its procedures on
+    // sessionCommandPlaneInputs for the precise types CommandDef's widened
+    // ZodTypeAny cannot give it; if that map ever held a FRESH z.object with
+    // the same keys, every value assertion in this file would still pass, the
+    // wire bytes would be identical, and the two would silently drift apart at
+    // the first schema edit. Only instance identity sees that.
+    expect(sessionCommandPlaneInputs[key as keyof typeof sessionCommandPlaneInputs]).toBe(def.input)
+  })
 
   it('the exported input map covers every contract and nothing else', () => {
     expect(Object.keys(sessionCommandPlaneInputs).sort()).toEqual(
@@ -93,7 +98,7 @@ describe('the command-plane table', () => {
     )
   })
 
-  it('the vocabularies are the MODEL\'s instances, not same-valued copies', () => {
+  it("the vocabularies are the MODEL's instances, not same-valued copies", () => {
     // `toBe`, never a comparison of accepted values. A forked z.enum with
     // identical members parses, encodes and passes every golden case
     // identically — POD-380 found exactly that defect in its own contracts

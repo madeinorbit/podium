@@ -105,11 +105,7 @@ export class MutationLedger {
    * and a proc-qualified key would let the same queued write apply twice by
    * arriving on two transports.
    */
-  apply<T>(
-    mutationId: string | undefined,
-    proc: string,
-    body: () => T,
-  ): MutationApplication<T> {
+  apply<T>(mutationId: string | undefined, proc: string, body: () => T): MutationApplication<T> {
     if (!mutationId) return { outcome: 'applied', value: body() }
 
     const prior = this.store.getAppliedMutation(mutationId)
@@ -149,12 +145,7 @@ export class MutationLedger {
   }
 
   private record(mutationId: string, proc: string, value: unknown): void {
-    this.store.recordAppliedMutation(
-      mutationId,
-      proc,
-      JSON.stringify(value ?? null),
-      this.now(),
-    )
+    this.store.recordAppliedMutation(mutationId, proc, JSON.stringify(value ?? null), this.now())
   }
 }
 

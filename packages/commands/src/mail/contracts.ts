@@ -164,6 +164,7 @@ export const awaitAgentInput = z.object({
 export const mailSendContract: CommandContract<typeof mailSendInput> = {
   name: 'mail.send',
   version: 1,
+  visibility: 'personal',
   input: mailSendInput,
   policy: {
     action: 'write',
@@ -202,6 +203,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
 export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
   name: 'mail.reply',
   version: 1,
+  visibility: 'personal',
   input: mailReplyInput,
   policy: {
     action: 'write',
@@ -237,6 +239,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
 export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
   name: 'mail.spawnAgent',
   version: 1,
+  visibility: 'personal',
   input: spawnAgentInput,
   policy: {
     action: 'write',
@@ -316,6 +319,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
 export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
   name: 'mail.awaitAgent',
   version: 1,
+  visibility: 'personal',
   input: awaitAgentInput,
   policy: {
     action: 'write',
@@ -377,6 +381,7 @@ export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
 export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = {
   name: 'mail.inboxConsume',
   version: 1,
+  visibility: 'personal',
   input: mailInboxInput,
   policy: {
     action: 'write',
@@ -429,6 +434,7 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
 export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
   name: 'mail.ledger',
   version: 1,
+  visibility: 'personal',
   input: mailLedgerInput,
   policy: {
     action: 'read',
