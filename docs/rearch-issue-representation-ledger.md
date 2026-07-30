@@ -447,7 +447,22 @@ lie about it.
 capture that retained only its last 12 lines, so grepping for the failing test names returned nothing
 — not "no match" but "the match was discarded". Re-run into a log this session controlled.
 
-**Mutation evidence.** Nine mutants, all killed, product file reverted clean after each (one at a
+**Mutation protocol, and why the survivor-shaped result was re-checked.** A mutant that FAILS TO APPLY
+is indistinguishable from a mutant that survives — both print a green suite, and the bias is toward the
+most intricate code, whose coverage you most wanted to prove (POD-366's finding, broadcast by the
+coordinator). Every mutant here used exact-string replacement asserting the text changed, and the two
+results that could be ambiguous were re-run under the full three-assertion protocol: **pattern matched
+exactly once** (not at-least-once — a pattern hitting a different field of the same name also reads as
+a survivor), **file hash changed**, and **the mutant text grepped back out of the file after writing**.
+Reverts verified with `git diff --quiet`.
+
+Re-checked that way: the survivor-shaped compound auto-archive mutant (applied at 1 site, hash
+`0e1c6c7b`→`8d5dcba1`, text confirmed present → 3 tests red) and the most load-bearing single claim,
+the `clearNeedsHuman` characterization mutant (1 site, `fe71f94f`→`b0b2028b`, text confirmed → exactly
+its own test red). A kill is self-proving — something went red, so the mutant applied; only
+survivor-shaped results are ambiguous, which is why those are the ones re-verified.
+
+**Mutation evidence.** Eleven mutants, all killed, product file reverted clean after each (one at a
 time, and after committing — an early revert-to-HEAD during this work discarded uncommitted edits,
 which is the reason the order is commit-then-mutate):
 
@@ -462,6 +477,8 @@ which is the reason the order is commit-then-mutate):
 | fold `title` into the opaque-reference pick | `opaque-reference is a NARROWING …` |
 | `archived: z.literal(false)` → `z.boolean()` | `refuses an ALREADY-ARCHIVED issue …` (only) |
 | `deletedAt: z.null()` → `z.string().nullable()` | `refuses a DELETED issue …` (only) |
+| `IssueGraph` gains an edge/node referential-integrity refinement | `an edge may name an id absent from nodes …` |
+| `IssueGraphNode` wrapped in a refinement (loses `.pick`/`.extend`) | the projection-narrowing test (module-level `TypeError` — a coarse kill: it breaks the file rather than the assertion, recorded as such) |
 
 No survivors — but one **apparent** survivor is worth recording, because the lesson generalises.
 
