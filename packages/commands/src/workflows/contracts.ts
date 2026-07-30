@@ -224,6 +224,35 @@ const OWNED_BY_HUMAN = (creates: readonly string[], note: string) =>
     note,
   }) as const
 
+/**
+ * THE VISIBILITY CLASS OF WHAT EVERY WORKFLOW COMMAND WRITES (POD-382's field,
+ * ADR 9 D3/D4, readiness §3.1.1).
+ *
+ * ONE CONSTANT FOR ALL ELEVEN, and the sameness is a finding rather than a
+ * rubber stamp: POD-731 declared all five workflow classes — definitions,
+ * revisions, bindings, execution profiles and runs — on ADR 1's ownership
+ * matrix, and every one of them resolved `personal`. A command writes state in
+ * one of those five classes and nothing else, so there is no eleven-way
+ * judgement to make here and pretending otherwise by writing the literal out
+ * eleven times would invite someone to change one of them in isolation.
+ *
+ * IT IS NOT A GUESS AND IT IS NOT INDEPENDENT OF THE MATRIX: `contracts.test.ts`
+ * asserts this value against `visibilityClassOf()` for each matrix row a command
+ * writes, so if POD-1071 ever reclassifies one of the five, the contracts go RED
+ * rather than quietly disagreeing with the row they are supposed to mirror. That
+ * check is the reason this is a constant and not a comment.
+ *
+ * NOTE what is deliberately NOT here. `execution_profiles` carries ADR 1 D6's
+ * `secret: 'secret-presence'` on its matrix row, which is a different column
+ * answering a different question — the row holds credential and machine
+ * REFERENCES, not values, so its ADR 9 visibility class is `personal` and its
+ * ADR 1 secret class is `secret-presence`. Declaring `secret` here would satisfy
+ * POD-382's new lint (that class forces `online-sensitive`, which `profileSave`
+ * already is) while contradicting the matrix row, which is exactly the drift the
+ * test above exists to catch.
+ */
+const WORKFLOW_VISIBILITY = 'personal' as const
+
 // ---------------------------------------------------------------------------
 // LIBRARY CRUD
 // ---------------------------------------------------------------------------
@@ -238,6 +267,7 @@ export const workflowCreateInput = scopeInput.extend({
 export const workflowCreateContract = {
   name: 'workflows.create',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowCreateInput,
   policy: {
     action: 'write',
@@ -281,6 +311,7 @@ export const workflowReviseInput = z.object({
 export const workflowReviseContract = {
   name: 'workflows.revise',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowReviseInput,
   policy: {
     action: 'write',
@@ -316,6 +347,7 @@ export const workflowForkInput = scopeInput.extend({
 export const workflowForkContract = {
   name: 'workflows.fork',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowForkInput,
   policy: {
     action: 'write',
@@ -347,6 +379,7 @@ export const workflowPublishInput = z.object({ revisionId: z.string().min(1) })
 export const workflowPublishContract = {
   name: 'workflows.publish',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowPublishInput,
   policy: {
     action: 'manage',
@@ -378,6 +411,7 @@ export const workflowAssignInput = z.object({
 export const workflowAssignContract = {
   name: 'workflows.assign',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowAssignInput,
   policy: {
     action: 'write',
@@ -446,6 +480,7 @@ export const workflowProfileSaveInput = z.object({
 export const workflowProfileSaveContract = {
   name: 'workflows.profileSave',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowProfileSaveInput,
   policy: {
     action: 'manage',
@@ -550,6 +585,7 @@ export const workflowCheckpointInput = z.object({
 export const workflowCheckpointContract = {
   name: 'workflows.checkpoint',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowCheckpointInput,
   policy: advancePolicy(
     'The coordinator or the step’s ASSIGNEE may checkpoint — the shipped rule, minus its operator ' +
@@ -583,6 +619,7 @@ export const workflowAssignStepInput = z.object({
 export const workflowAssignStepContract = {
   name: 'workflows.assignStep',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowAssignStepInput,
   policy: advancePolicy(
     'Coordinator-only. Assigning a step places work on a session, and under readiness §3.1.4 M5 that ' +
@@ -620,6 +657,7 @@ export const workflowSkipInput = z.object({
 export const workflowSkipContract = {
   name: 'workflows.skip',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowSkipInput,
   policy: advancePolicy(
     'Coordinator-only, and only the CURRENT step may be skipped — the state-machine invariant, which ' +
@@ -649,6 +687,7 @@ export const workflowRetryInput = z.object({
 export const workflowRetryContract = {
   name: 'workflows.retry',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowRetryInput,
   policy: advancePolicy(
     'Coordinator-only. The invariant is that no step may be retried once a LATER step has left ' +
@@ -679,6 +718,7 @@ export const workflowAdoptInput = z.object({
 export const workflowAdoptContract = {
   name: 'workflows.adopt',
   version: 1,
+  visibility: WORKFLOW_VISIBILITY,
   input: workflowAdoptInput,
   policy: advancePolicy(
     'Coordinator-only, and only on an ACTIVE or BLOCKED run. Adopt reads a revision as well as ' +
@@ -736,8 +776,25 @@ export const WORKFLOW_CONTRACTS = {
 
 export type WorkflowContractName = keyof typeof WORKFLOW_CONTRACTS
 
-/** The five advances, derived from the `advance` declaration rather than
- *  restated — a second list is a second thing to forget to update. */
+/**
+ * The five advances, derived from the `advance` declaration rather than
+ * restated — a second list is a second thing to forget to update.
+ *
+ * THE TWO WIDENING CASTS BELOW ARE ORDINARY, AND THE NOTE IS HERE BECAUSE THEY
+ * ONCE LOOKED LIKE SOMETHING ELSE. `Object.entries` widens a literal key type
+ * to `string`, and `advance` is absent from the six library contracts' concrete
+ * types, so a heterogeneous read of the table needs both. They are NOT variance
+ * workarounds.
+ *
+ * When POD-382 added the required `visibility` field to `CommandContractBase`,
+ * these two lines were the errors that surfaced (TS2352, "neither type
+ * sufficiently overlaps"), and TypeScript's suggested remedy — cast through
+ * `unknown` — would have compiled. It would also have left all eleven contracts
+ * with NO visibility class, silently defeating the compile-time half of the
+ * default-closed rule that both POD-382 and this issue exist to enforce. The
+ * cast was reporting a missing required PROPERTY, not a variance problem. If
+ * these ever go red again, look for the field before reaching for `unknown`.
+ */
 export const WORKFLOW_ADVANCE_NAMES: readonly WorkflowContractName[] = (
   Object.entries(WORKFLOW_CONTRACTS) as [WorkflowContractName, WorkflowCommandContract][]
 )

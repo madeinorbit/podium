@@ -8,6 +8,7 @@
  * nothing wrong, and the two have been confused on this codebase before.
  */
 
+import { OWNERSHIP_MATRIX, visibilityClassOf } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   type AnyCommandContract,
@@ -48,6 +49,18 @@ const ELEVEN: readonly WorkflowContractName[] = [
   'retry',
   'adopt',
 ]
+
+/**
+ * Is this id a row the matrix actually declares?
+ *
+ * `visibilityClassOf` is TOTAL and default-closed — an unknown id resolves to
+ * `personal` — which is correct as a semantic backstop and useless as a
+ * spell-checker: a mistyped row id would resolve `personal`, match every
+ * workflow contract, and pass. This distinguishes "declared personal" from
+ * "never heard of it", which is the distinction the test above needs.
+ */
+const isDeclaredMatrixRow = (row: string): boolean =>
+  OWNERSHIP_MATRIX.some((r) => (r.id as string) === row)
 
 const contracts = (): AnyCommandContract[] =>
   Object.values(WORKFLOW_CONTRACTS).map((c) => c as AnyCommandContract)
@@ -113,6 +126,52 @@ describe('the eleven workflow contracts', () => {
       expect(contract.delivery.outboxReconciliation.length).toBeGreaterThan(80)
       expect(contract.delivery.applyTimeReauthorization).toContain('LIVE')
     }
+  })
+
+  /**
+   * THE CONTRACT AND THE MATRIX, LOCKED TOGETHER.
+   *
+   * POD-382 made `visibility` a required field on every contract; POD-731
+   * declared the five workflow classes on ADR 1's matrix. Two hand-written
+   * answers to the same question is a drift waiting to happen — so this asserts
+   * one against the other rather than asserting either against a literal.
+   *
+   * If POD-1071 ever reclassifies a workflow row, these contracts go RED instead
+   * of quietly disagreeing with the row they mirror.
+   */
+  it('agrees with ADR 1’s matrix about the class each command writes', () => {
+    // Which matrix row each command's writes land in. Written out per command
+    // rather than derived from `ownership.creates`, because `publish` and the
+    // five advances create nothing and still write state — a derivation would
+    // have silently skipped exactly those six.
+    const writesInto: Record<WorkflowContractName, string> = {
+      create: 'workflow-definitions',
+      revise: 'workflow-revisions',
+      fork: 'workflow-definitions',
+      publish: 'workflow-revisions',
+      assign: 'workflow-bindings',
+      profileSave: 'workflow-execution-profiles',
+      checkpoint: 'workflow-runs',
+      assignStep: 'workflow-runs',
+      skip: 'workflow-runs',
+      retry: 'workflow-runs',
+      adopt: 'workflow-runs',
+    }
+    for (const [name, row] of Object.entries(writesInto)) {
+      const contract = WORKFLOW_CONTRACTS[name as WorkflowContractName]
+      expect([name, contract.visibility]).toEqual([name, visibilityClassOf(row)])
+    }
+    // All five rows are REACHED. Without this, a typo in a row id above would
+    // resolve to the default-closed `personal` backstop and match anyway —
+    // which is the failure mode `visibilityClassOf` being total creates.
+    expect(new Set(Object.values(writesInto)).size).toBe(5)
+    for (const row of new Set(Object.values(writesInto))) {
+      expect([row, isDeclaredMatrixRow(row)]).toEqual([row, true])
+    }
+    // …and the backstop itself is shown firing, so the assertion above is
+    // reading real declarations and not the default eleven times.
+    expect(isDeclaredMatrixRow('workflow-nonexistent')).toBe(false)
+    expect(visibilityClassOf('workflow-nonexistent')).toBe('personal')
   })
 
   it('stamps both halves of the attribution pair from the transport on every contract', () => {
