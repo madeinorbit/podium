@@ -2,10 +2,7 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -914,11 +911,28 @@ describe('message ledger (gate)', () => {
     expect(rows.map((r) => r.body).sort()).toEqual(['from the session', 'to the session'])
   })
 
-  it('agents are refused — the ledger is an operator surface', async () => {
-    const { gate } = harness()
-    await expect(gate.dispatch(PARENT, undefined, 'ledger', { issueId: ISSUE.id })).rejects.toThrow(
-      /operator surface/,
+  // EDITED BY POD-728 — see the `mail.ledger` contract in
+  // packages/commands/src/mail/contracts.ts. The ledger stops being an
+  // "operator surface" because `operator` stops being one person (readiness
+  // §3.2): a member reads their own traffic, admin grade reads across users.
+  it('gives an agent only its OWN traffic — never another principal’s', async () => {
+    const { gate, svc } = harness()
+    // A row PARENT is a party to (it sent it) and a row it is not.
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sParent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'mine' },
     )
+    svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'not mine' })
+    const rows = (await gate.dispatch(PARENT, undefined, 'ledger', {
+      issueId: ISSUE.id,
+    })) as { body: string }[]
+    expect(rows.map((r) => r.body)).toEqual(['mine'])
+    // Admin grade sees both, on the SAME query — the counterfactual that proves
+    // the member's list was filtered rather than merely empty.
+    const all = (await gate.dispatch(OPERATOR, undefined, 'ledger', {
+      issueId: ISSUE.id,
+    })) as { body: string }[]
+    expect(all.map((r) => r.body).sort()).toEqual(['mine', 'not mine'])
   })
 })
 

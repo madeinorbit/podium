@@ -1,7 +1,6 @@
 import {
   asSessionId,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionMeta, SOLE_USER_ID } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -852,13 +851,13 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       })
 
     expect(() =>
-      registry.modules.sessions.setSnooze({ sessionId, until: '2026-07-20T12:00:00.000Z' }),
+      registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: '2026-07-20T12:00:00.000Z' }),
     ).toThrow('snooze append failed')
     append.mockRestore()
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
-    expect(registry.sessionStore.sessions.listSnoozes()).not.toHaveProperty(sessionId)
+    expect(registry.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).not.toHaveProperty(sessionId)
     expect(cursorOf(registry)).toBe(cursor)
     expect(events).toEqual([])
 
@@ -874,6 +873,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
 
     registry.modules.sessions.setSnooze({
+      userId: SOLE_USER_ID,
       sessionId,
       until: '2026-07-20T12:00:00.000Z',
     })

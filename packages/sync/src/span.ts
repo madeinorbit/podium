@@ -13,9 +13,9 @@
  * They were never two ports. They are two ROLES on one span, and one PHASE split
  * that both halves need:
  *
- *   ROLE — the REPLICA opens and owns the span (it decides when a certified
- *   frame's several retirements commit together, which is why `beginSpan` is on
- *   the cache port); the OUTBOX is handed one and participates. So settlement
+ *   ROLE — the STORAGE ADAPTER opens and owns the span, through
+ *   `SyncUnitOfWork.transact`; both kernels are handed one and participate. So
+ *   settlement
  *   (`commit`/`abort`) lives on `OwnedSyncSpan` and NOWHERE ELSE, and a
  *   participant handed a `SyncSpan` has no way to settle somebody else's
  *   transaction. `OwnedSyncSpan extends SyncSpan` in that direction and not the
@@ -131,9 +131,17 @@ export interface SyncSpanParticipant {
 /**
  * The OPENER-side handle. Every path must reach commit or abort.
  *
- * Held only by whoever opened the span — today `ReplicaCacheStore.beginSpan()` and
- * `SyncUnitOfWork.transact`. It is handed DOWN to participants as a `SyncSpan`,
- * which is the whole role split: widening is free, narrowing is not.
+ * Held only by whoever opened the span — `SyncUnitOfWork.transact`, and the
+ * `ReplicaCacheStore.beginSpan()` an adapter builds it out of. It is handed DOWN to
+ * participants as a `SyncSpan`, which is the whole role split: widening is free,
+ * narrowing is not.
+ *
+ * The REPLICA is not on that list, and used to be (POD-1158). It opened its own span
+ * and committed it synchronously, which composed with the synchronous-hook rule only
+ * as long as every participant was synchronous — and a durable outbox store never can
+ * be, because IndexedDB and SQLite are async. The two ratified decisions were
+ * therefore incompatible, and the Replica is now a participant like any other:
+ * `ReplicaParticipantStore` omits `beginSpan`, so it cannot reach this type at all.
  */
 export interface OwnedSyncSpan extends SyncSpan {
   /**

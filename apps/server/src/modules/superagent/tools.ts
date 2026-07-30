@@ -4,7 +4,7 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { isAgentKind, type TranscriptItem, WorkState } from '@podium/model'
+import { isAgentKind, SOLE_USER_ID, type TranscriptItem, WorkState } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
@@ -383,7 +383,10 @@ export function buildSuperagentTools(
         if (value !== null && Number.isNaN(Date.parse(value))) {
           return `invalid until: pass 'next-message' or an ISO timestamp, got ${JSON.stringify(until)}`
         }
-        sessions.setSnooze({ sessionId, until: value })
+        // The superagent is PER-USER (§3.1.6 S1) — "you, automated" — so its snooze
+        // is its human's row, not an instance-wide one. SOLE_USER_ID until POD-1075
+        // gives the superagent thread a real owner to read the identity from.
+        sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: value })
         return JSON.stringify({ snoozedUntil: value })
       },
     },
@@ -400,7 +403,7 @@ export function buildSuperagentTools(
       run: async (args) => {
         const sessionId = str(args.sessionId) ?? ''
         if (!getSession(sessionId)) return 'unknown session'
-        sessions.clearSnooze(sessionId)
+        sessions.clearSnooze(SOLE_USER_ID, sessionId)
         return 'snooze cleared'
       },
     },

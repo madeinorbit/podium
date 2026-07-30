@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { LiveServerMessage } from '@podium/protocol'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
-import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
+import { formatIssueRef, isExposedOn, sessionCommandPlane, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
@@ -47,6 +47,8 @@ import { type PerfRegistry, perf } from './modules/perf/registry'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { dispatchSessionCommand, isCommandPlaneProc } from './modules/sessions/command-plane'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
@@ -870,95 +872,31 @@ export class SessionRegistry {
               return r
             })()
           }
-          if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
-            return undefined
+          // MIGRATED (POD-381). sendText / resumeAndSend / continue used to be
+          // ~70 lines here: hand-rolled input validation, a hand-rolled subtree
+          // gate with its own error strings, and a second application of the
+          // idempotency wrapper under a locally-spelled proc name — all of it a
+          // near-copy of the tRPC procedure's, differing in ways nobody chose.
+          // The contract owns every one of those now, and this arm is transport.
+          //
+          // The AGENT-vs-OPERATOR differences that were real are preserved
+          // because they are properties of the PRINCIPAL, not of the router: an
+          // agent's send rides as that agent (senderFromCapability's shape,
+          // resolved in the handler from ctx.principal), and an agent addressing
+          // an absent session throws `session not found` where the operator's
+          // returns the substrate's dead_letter. Both are POD-379-pinned.
+          if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
+            return Promise.resolve(
+              dispatchSessionCommand(
+                // `this.modules` is assigned later in this constructor; the
+                // closure only runs per request, long after.
+                sessionCommandCtx(this.modules, capability, overrideScope),
+                proc,
+                input,
+              ),
+            )
           }
-          return (async () => {
-            const raw = input
-            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-              throw new Error('invalid session command input')
-            }
-            const args = raw as { sessionId?: unknown; text?: unknown; mutationId?: unknown }
-            if (typeof args.sessionId !== 'string' || !args.sessionId) {
-              throw new Error('sessionId is required')
-            }
-            if (proc !== 'continue') {
-              if (
-                typeof args.text !== 'string' ||
-                args.text.length === 0 ||
-                args.text.length > 32_768
-              ) {
-                throw new Error('text must contain 1..32768 characters')
-              }
-            }
-            if (
-              args.mutationId !== undefined &&
-              (typeof args.mutationId !== 'string' || args.mutationId.length > 128)
-            ) {
-              throw new Error('mutationId must be at most 128 characters')
-            }
-            const target = sessionsSvc
-              .listSessions()
-              .find((session) => session.sessionId === args.sessionId)
-            if (!target) throw new Error('session not found')
-            const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
-            if (targetIssueId) {
-              checkIssueAccess(
-                { capability, ...(overrideScope ? { overrideScope: true } : {}) },
-                issues,
-                `sessions.${proc}`,
-                'write',
-                targetIssueId,
-              )
-            } else {
-              // Issueless target (#237) [spec:SP-34d7 authz]: no issue to gate
-              // on used to mean NO gate at all. Only the operator (unscoped
-              // capability) or the target's own parent (spawnedBy provenance)
-              // may message an issueless session — --outside-scope confirms
-              // scope-crossing on ISSUE targets and never substitutes here.
-              const isOperator = capability.scope.kind === 'all'
-              const isParent =
-                capability.actorSessionId !== undefined &&
-                target.spawnedBy === `session:${capability.actorSessionId}`
-              if (!isOperator && !isParent) {
-                throw new Error(
-                  'target session has no issue; only its parent or the operator may message it',
-                )
-              }
-            }
-            if (proc === 'continue') {
-              return sessionsSvc.continueSession({ sessionId: args.sessionId })
-            }
-            const commandInput = {
-              sessionId: args.sessionId,
-              text: args.text as string,
-              ...(typeof args.mutationId === 'string' ? { mutationId: args.mutationId } : {}),
-            }
-            // Unified substrate (#237) [spec:SP-34d7]: relay session sends are
-            // messages — sender stamped from the capability, envelope rendered
-            // at delivery (operator stays unwrapped), row + ledger durable.
-            // sendText → next-turn/wait, resumeAndSend → next-turn/wake.
-            return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () => {
-              const { ok, queued, reason, disposition } = messagesSvc.send(
-                senderFromCapability(capability),
-                {
-                  to: { kind: 'session', id: commandInput.sessionId },
-                  body: commandInput.text,
-                  urgency: 'next-turn',
-                  lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
-                },
-              )
-              return {
-                ok,
-                ...(queued !== undefined ? { queued } : {}),
-                ...(reason !== undefined ? { reason } : {}),
-                // Honest outcome (#834): a session send to a gone target dead-letters
-                // (ok:false) rather than silently queueing; `podium session send`
-                // surfaces the disposition.
-                disposition,
-              }
-            })
-          })()
+          return undefined
         }
         if (router === 'approvals') {
           if (proc === 'request') return Promise.resolve(approvals.request(input))

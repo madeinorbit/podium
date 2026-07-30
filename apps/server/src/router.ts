@@ -10,6 +10,7 @@ import {
   agentSupportsCloud,
   clientSwitchTraceSchema,
   type FileReadResultMessage,
+  presenceCommand,
 } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
@@ -67,8 +68,85 @@ import { searchAll } from './search'
 export { type Context, mods } from './trpc'
 
 import { type Context, mods, t } from './trpc'
+import { sessionCommandPlaneInputs } from '@podium/protocol'
+import {
+  dispatchSessionCommand,
+  type SessionCommandKey,
+  type SessionCommandResult,
+} from './modules/sessions/command-plane'
+import { sessionCommandCtx, visibleMachinesFor } from './modules/sessions/command-ctx'
 
-const PinKind = z.enum(['panel', 'worktree', 'repo'])
+/**
+ * Dispatch a migrated session command (POD-381). The tRPC procedure is now pure
+ * transport: it hands the authenticated capability to the composition root and
+ * the contract decides everything else.
+ */
+function sessionCommand<K extends SessionCommandKey>(
+  ctx: Context,
+  key: K,
+  input: unknown,
+): SessionCommandResult<K> {
+  return dispatchSessionCommand(
+    sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+    key,
+    input,
+  )
+}
+
+import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
+import type { PinState, SnoozeMap } from './store/types'
+
+/**
+ * PRESENCE-CLASS DERIVATION (POD-380).
+ *
+ * `presenceProc('sessions.rename')` builds the tRPC procedure for a presence
+ * contract out of the contract itself: its input schema is the contract's (one
+ * validation source), and its body is the framework envelope — exposure check,
+ * parse, LIVE authorization, framework-owned idempotency, then the handler.
+ *
+ * This is what deletes eleven `withMutation(input.mutationId, '<name>', …)`
+ * wrappers. It is deliberately NOT the full transport derivation POD-382 owns
+ * (procedures are still listed by hand below, so the shape of the router is
+ * reviewable in this diff); it is the join POD-311 describes, applied to one
+ * class.
+ */
+function presenceProc<Out = void>(name: string) {
+  const contract = presenceCommand(name)
+  // A typo here would silently produce a procedure that refuses everything, which
+  // is the "green gate that stopped looking" failure mode. Fail at module load.
+  if (!contract) throw new Error(`presenceProc: no contract named ${name}`)
+  return t.procedure.input(contract.input).mutation(({ ctx, input }): Out => {
+    const registry = new PresenceRegistry({
+      sessions: mods(ctx).sessions,
+      store: ctx.registry.sessionStore,
+      now: () => Date.now(),
+    })
+    const result = registry.execute(name, input, presencePrincipal(ctx), 'trpc')
+    if (result.outcome === 'invalid-input') {
+      // Unreachable via tRPC (the procedure already parsed the same schema), but a
+      // silent `undefined` here would be indistinguishable from the deliberate
+      // not-found no-op, so it is made loud rather than swallowed.
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `invalid input for ${name}` })
+    }
+    // 'denied' and 'not-exposed' return undefined — the SAME shape as a write
+    // against a session that does not exist (§3.1.5, and POD-379's pinned
+    // not-found behaviour for the presence class: a silent no-op).
+    //
+    // `Out` stays honest across that refusal, per class. The owner-or-grant
+    // session writes all return void, so undefined IS their type. The per-user
+    // writes (the ones with a real return value) build their authorization target
+    // FROM the principal, so a denial is unreachable by construction — the wire
+    // has no field naming another user's row. See PresenceRegistry.
+    return result.value as Out
+  })
+}
+
+/** The transport principal for a tRPC call. One shared password ⇒ the sole human
+ *  (§3.2); POD-1075 replaces this with a real per-user principal. */
+function presencePrincipal(ctx: Context) {
+  return soleHumanPrincipal(ctx.capability)
+}
+
 const cloudRepoInput = z.object({
   provider: z.literal('github'),
   owner: z.string().min(1),
@@ -341,77 +419,18 @@ export const appRouter = t.router({
   }),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => mods(ctx).sessions.listSessions()),
+    // MIGRATED (POD-381): the contract owns authz + idempotency + envelope; this
+    // procedure owns only the transport. Its input schema is the CONTRACT's own
+    // instance, so there is one validation source and no second copy to drift.
     create: t.procedure
-      .input(
-        z.object({
-          // Omitted = the settings default decides which harness to start.
-          agentKind: AgentKind.optional(),
-          cwd: z.string(),
-          title: z.string().optional(),
-          // Which machine to spawn on. Omitted = resolved by repo affinity / the sole
-          // online machine (single-machine behavior is unchanged).
-          machineId: z.string().optional(),
-          // Explicit issue attachment (issue-as-workspace). Omitted = derived from
-          // cwd (sole non-archived owning issue) inside createSession.
-          issueId: z.string().optional(),
-          // Explicit workflow override; omitted = issue → repository → global default.
-          workflowRevisionId: z.string().optional(),
-          // Client-supplied id (optimistic UI): the web client can render an
-          // optimistic row before the round-trip completes, then reconcile it
-          // seamlessly when the server's broadcast lands using this same id.
-          // Omitted = the server mints one (unchanged default behavior). uuid-bounded
-          // because it feeds durableLabel → the systemd-run scope / abduco socket name.
-          sessionId: z.string().uuid().optional(),
-          // Low-friction start: create a draft issue vessel first and attach the
-          // new session to it (spec: issue-as-workspace).
-          draftIssue: z.object({ repoPath: z.string(), issueId: z.string().optional() }).optional(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Provenance (issue #60) is stamped HERE, the one human seam: every tRPC
-      // sessions.create is an operator action (web UI / CLI). Programmatic creators
-      // (issues, superagent) call registry.createSession directly with their own tag.
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', async () => {
-          const { draftIssue, mutationId: _m, ...rest } = input
-          const target = await mods(ctx).sessions.prepareSessionTarget(rest)
-          const issueId =
-            rest.issueId ??
-            (draftIssue
-              ? mods(ctx).issues.createDraftFor(
-                  draftIssue.repoPath,
-                  rest.agentKind,
-                  draftIssue.issueId,
-                ).id
-              : undefined)
-          return mods(ctx).sessions.createSession({
-            ...rest,
-            ...target,
-            ...(issueId ? { issueId } : {}),
-            spawnedBy: 'user',
-          })
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.create)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'create', input)),
     resume: t.procedure
-      .input(
-        z.object({
-          agentKind: AgentKind,
-          cwd: z.string(),
-          resume: ResumeRef,
-          conversationId: z.string(),
-          title: z.string().optional(),
-          machineId: z.string().optional(),
-        }),
-      )
-      // Same human seam as create (issue #60): a tRPC resume is an operator action.
-      // Only the fresh-spawn fallback uses this — a resume that lands on an existing
-      // row keeps that row's original provenance (see resumeSession).
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.resumeSession({ ...input, spawnedBy: 'user' }),
-      ),
+      .input(sessionCommandPlaneInputs.resume)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resume', input)),
     kill: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.killSession(input)),
+      .input(sessionCommandPlaneInputs.kill)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'kill', input)),
     handoff: t.procedure
       .input(z.object({ sessionId: z.string(), machineId: z.string() }))
       // The caller is passed as a SEPARATE argument, from the context's
@@ -422,85 +441,29 @@ export const appRouter = t.router({
         mods(ctx).sessions.handoffSession(input, { capability: ctx.capability }),
       ),
     continue: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.continueSession(input)),
+      .input(sessionCommandPlaneInputs.continue)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'continue', input)),
     // Chat-view send path: routes around controller gating on purpose — a chat
-    // message is an explicit user act, not a competing keyboard.
+    // message is an explicit user act, not a competing keyboard. The contract
+    // adds a machine `use` gate and leaves controller gating exactly as it was;
+    // identity on controllerId is POD-1081's, not this migration's.
     sendText: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          text: z.string().min(1).max(32_768),
-          // Idempotency key (docs/spec/outbox-write-path.md §2.1): a replayed send
-          // must NOT double-type into the PTY.
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Unified substrate (#237) [spec:SP-34d7 migration]: human chat sends
-      // ride the substrate as OPERATOR — unwrapped, unclamped, ledgered.
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () => {
-          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
-            { kind: 'operator' },
-            {
-              to: { kind: 'session', id: input.sessionId },
-              body: input.text,
-              urgency: 'next-turn',
-              lifecycle: 'wait',
-            },
-          )
-          return {
-            ok,
-            ...(queued !== undefined ? { queued } : {}),
-            ...(reason !== undefined ? { reason } : {}),
-            disposition,
-          }
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.sendText)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'sendText', input)),
     // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
     // number(s) into the agent's native menu (the native terminal is unmounted in
-    // chat mode). One entry per question, each with its 1-based option indices.
+    // chat mode). WHICH HUMAN answered comes from the transport principal — the
+    // contract's schema carries no identity field, so a payload-supplied answerer
+    // is unrepresentable rather than merely ignored.
     answerAskUserQuestion: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          choices: z
-            .array(z.object({ optionIndices: z.array(z.number().int().min(1).max(9)).min(1) }))
-            .min(1),
-        }),
-      )
-      .mutation(({ ctx, input }) => mods(ctx).sessions.answerAskUserQuestion(input)),
+      .input(sessionCommandPlaneInputs.answerAskUserQuestion)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'answerAskUserQuestion', input)),
     // Chat compose for a parked session: wake it if needed, then deliver the
-    // message once the resumed CLI is ready (auto-resume on submit).
+    // message once the resumed CLI is ready. The ONE offline-eligible member of
+    // the command class — see the contract's decision record.
     resumeAndSend: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          text: z.string().min(1).max(32_768),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Substrate-routed like sendText; lifecycle wake resurrects the parked
-      // target (operator wakes are never cooldown-braked).
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () => {
-          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
-            { kind: 'operator' },
-            {
-              to: { kind: 'session', id: input.sessionId },
-              body: input.text,
-              urgency: 'next-turn',
-              lifecycle: 'wake',
-            },
-          )
-          return {
-            ok,
-            ...(queued !== undefined ? { queued } : {}),
-            ...(reason !== undefined ? { reason } : {}),
-            disposition,
-          }
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.resumeAndSend)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resumeAndSend', input)),
     // On-demand transcript window for the chat view — a pure disk read via the
     // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
     // `limit` items before (older) or after (newer) it. No anchor = the latest
@@ -555,8 +518,8 @@ export const appRouter = t.router({
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ask', input)!,
       ),
     hibernate: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
+      .input(sessionCommandPlaneInputs.hibernate)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'hibernate', input)),
     // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
     // Operator path (web/tRPC) — no self-stop deferral; force discards dirty tree.
     stop: t.procedure
@@ -568,78 +531,25 @@ export const appRouter = t.router({
       )
       .mutation(({ ctx, input }) => mods(ctx).sessions.stopSession(input)),
     resurrect: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.resurrectSession(input)),
-    rename: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          name: z.string().max(120),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.rename', () =>
-          mods(ctx).sessions.renameSession(input),
-        ),
-      ),
-    setArchived: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          archived: z.boolean(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setArchived', () =>
-          mods(ctx).sessions.setArchived(input),
-        ),
-      ),
+      .input(sessionCommandPlaneInputs.resurrect)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resurrect', input)),
+    // ---- PRESENCE CLASS (POD-380) ----
+    //
+    // These six no longer carry a hand-written body. Their input schema IS their
+    // contract's (`@podium/protocol`'s session-commands table), their authz is the
+    // contract's policy, and `withMutation` is GONE from every one of them:
+    // idempotency is the framework envelope's, applied once in PresenceRegistry
+    // rather than eleven times here. See `presenceProc` at the top of this file.
+    rename: presenceProc('sessions.rename'),
+    setArchived: presenceProc('sessions.setArchived'),
     // Mark a session read (issue #124): stamp read_at = now, flipping derived `unread`.
-    markRead: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.markRead', () =>
-          mods(ctx).sessions.markSessionRead(input.sessionId),
-        ),
-      ),
+    markRead: presenceProc('sessions.markRead'),
     // Mark a session UNREAD again (issue #138): clear read_at, flipping derived
     // `unread` back to true. Mirrors markRead exactly (email-style inverse action).
-    markUnread: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.registry.modules.sessions.withMutation(input.mutationId, 'sessions.markUnread', () =>
-          ctx.registry.modules.sessions.markSessionUnread(input.sessionId),
-        ),
-      ),
+    markUnread: presenceProc('sessions.markUnread'),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
-    setIssueId: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          issueId: z.string().nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setIssueId', () =>
-          mods(ctx).sessions.setSessionIssueId(input.sessionId, input.issueId),
-        ),
-      ),
-    setWorkState: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          workState: WorkState.nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setWorkState', () =>
-          mods(ctx).sessions.setWorkState(input),
-        ),
-      ),
+    setIssueId: presenceProc('sessions.setIssueId'),
+    setWorkState: presenceProc('sessions.setWorkState'),
     // Image upload: the client sends a base64-encoded image; the daemon writes
     // it to ~/.podium/uploads/<sessionId>/<uuid>.<ext> and returns the absolute
     // path so it can be inserted into a prompt. Claude Code reads images by path.
@@ -680,46 +590,20 @@ export const appRouter = t.router({
       ),
   }),
   pins: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listPins()),
-    set: t.procedure
-      .input(z.object({ kind: PinKind, id: z.string(), pinned: z.boolean() }))
-      .mutation(({ ctx, input }) => {
-        try {
-          ctx.registry.sessionStore.sessions.setPin(input.kind, input.id, input.pinned)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.registry.sessionStore.sessions.listPins()
-      }),
+    // PER-USER STATE (POD-380): the list is the CALLER's pins, not the instance's.
+    list: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listPins(presencePrincipal(ctx).userId),
+    ),
+    set: presenceProc<PinState>('pins.set'),
   }),
   snoozes: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listSnoozes()),
+    // PER-USER STATE (POD-380): the caller's snoozes.
+    list: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listSnoozes(presencePrincipal(ctx).userId),
+    ),
     // until === null => "until next message"; ISO string => timed.
-    set: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          until: z.string().nullable(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.set', () => {
-          mods(ctx).sessions.setSnooze(input)
-          return ctx.registry.sessionStore.sessions.listSnoozes()
-        }),
-      ),
-    clear: t.procedure
-      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.clear', () => {
-          mods(ctx).sessions.clearSnooze(input.sessionId)
-          return ctx.registry.sessionStore.sessions.listSnoozes()
-        }),
-      ),
+    set: presenceProc<SnoozeMap>('snoozes.set'),
+    clear: presenceProc<SnoozeMap>('snoozes.clear'),
   }),
   superagent: t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
@@ -941,20 +825,11 @@ export const appRouter = t.router({
     }),
   }),
   tabs: t.router({
-    listOrders: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listTabOrders()),
-    setOrder: t.procedure
-      .input(z.object({ worktree: z.string(), sessionIds: z.array(z.string()) }))
-      .mutation(({ ctx, input }) => {
-        try {
-          ctx.registry.sessionStore.sessions.setTabOrder(input.worktree, input.sessionIds)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.registry.sessionStore.sessions.listTabOrders()
-      }),
+    // PER-USER STATE (POD-380): the caller's saved orders.
+    listOrders: t.procedure.query(({ ctx }) =>
+      ctx.registry.sessionStore.sessions.listTabOrders(presencePrincipal(ctx).userId),
+    ),
+    setOrder: presenceProc<Record<string, string[]>>('tabs.setOrder'),
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
@@ -1174,7 +1049,10 @@ export const appRouter = t.router({
     // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
     // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
     // administering machines is the hub's job (hubProc below).
-    list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
+    // The spawn picker's source. Scoped to what THIS principal may see, with
+    // its `use` decision attached, so a machine it cannot execute on is never
+    // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
+    list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
     rename: hubProc
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {

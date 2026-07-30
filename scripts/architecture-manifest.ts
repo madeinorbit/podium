@@ -208,6 +208,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // L1 — wire / commands / contracts.
   'packages/protocol': { layer: 1, platform: 'browser-safe', features: ['wire-schema', 'titles'] },
   'packages/issue-client': { layer: 1, platform: 'node-only', features: ['issue-command-table'] },
+  // The command CONTRACT framework (ADR 3 D1, POD-311's split; landed by POD-728
+  // with agent-mail as its first tenant). Pure data + pure policy functions —
+  // browser-safe by construction, because a contract that needed a service could
+  // not live at L1 at all.
+  'packages/commands': { layer: 1, platform: 'browser-safe', features: ['command-contracts'] },
 
   // L2 — kernels / ports.
   'packages/transcript': { layer: 2, platform: 'node-only', features: ['transcript-parsing'] },
@@ -319,6 +324,8 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L1: the issue command table is defined in terms of the wire schema.
   'packages/issue-client -> packages/protocol',
+  // L1: contracts are defined in terms of the wire schema (input caps, brands).
+  'packages/commands -> packages/protocol',
   // L2: sync, telemetry and agent-bridge are ports built on runtime's
   // config/sqlite plumbing.
   'packages/sync -> packages/runtime',

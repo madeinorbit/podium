@@ -842,3 +842,298 @@ GATES; it does not block the leaves underneath them.
 > being blocked says nothing about its children.
 
 Wave 6 runs POD-371, POD-372, POD-380, POD-381 alongside POD-362, taking the fleet to five.
+
+### Two rules from POD-1151, one of which its own gate taught it
+
+**A NEW NAMED SHAPE IS A NEW DECLARATION EVEN WHEN EVERY KEY IN IT IS BORROWED.** POD-1151's first
+design named the issue storage gap as an `IssueStorageLocal` z.object with `StoredIssue` extending it.
+It read well, typechecked, and every test passed — and the per-user-singleton ratchet went **8 → 11**.
+It had written a *second* declaration of the per-user trio while claiming to collapse a restatement, so
+the debt would have doubled rather than moved. Re-spelling it as a `Pick` **type alias did not help
+either**, because the detector reads the picked key literals and is right to. The only real fix was
+accepting that R1 must not carry them: the trio and the derived `repoPath` moved to *argument* position,
+and `IssueRow` stays their one declaration.
+
+That ratchet deliberately has **no registry escape**, so POD-302 cannot close by laundering someone
+else's re-key. Relayed to POD-380, which is touching the same members now.
+
+**Read the audit's last line; do not pattern-match it.** POD-1151 also reported that `rearch-audit`
+exits 0 when items grow. **It does not** — I forced a regression (lowered a baseline below the live
+count) and got `Deletion audit: 1 item(s) GREW` with **exit 1**. The likely cause of its reading is the
+pipe trap: `bun scripts/rearch-audit.ts | tail` returns *tail's* status, so `echo $?` reports 0 for a
+failing gate. I hit that same trap myself earlier today checking this very script.
+
+What POD-1151 got right and is worth keeping: the failure wording is printed **below** a block of
+per-site output that looks exactly like passing output, so scanning for `OK` finds nothing either way.
+Second instance of this class (POD-366 hit "baseline has 1 unknown item").
+
+### Two agents co-authoring one framework, resolved without a duplicate
+
+POD-380 extended the existing `packages/protocol/src/commands.ts` rather than creating
+`packages/commands`, because POD-311 owns creating that package and its brief *folds in* the protocol
+file — so a second framework beside it is what that instruction forbids. Every facet optional (absent
+`exposure` = served nowhere, default-closed).
+
+POD-381 was working the same seam simultaneously. I authorised the narrow exception — **POD-381 may
+merge POD-380's branch** — because they are co-authoring one framework and two rival `CommandDef`
+shapes would be the drift POD-302 exists to end, arriving inside the phase meant to end it. They settle
+facet names between themselves and escalate only on non-convergence.
+
+### The oracle beats my brief, and my brief was wrong
+
+POD-380's brief (mine) called the whole presence family offline-eligible. POD-379's outbox oracle —
+tagged **must-not-change** — says seven writes are enqueued (rename, setArchived, setWorkState,
+markRead, markUnread, snoozes.set/clear) while **pins and tab order are deliberate exclusions**, and
+`setIssueId` is not in the covered set either, so it is direct-only. POD-380 followed the oracle.
+
+> A characterization oracle pins what the product ACTUALLY does; a brief is a plan. When they disagree
+> the oracle wins, and the brief was wrong.
+
+Recorded as my error rather than POD-380's deviation, and the specific set relayed to POD-381 so it does
+not re-derive it.
+
+### A merge can be textually clean and semantically broken
+
+POD-371 and POD-372 landed in the same wave. POD-371 wired the real Replica to the real Outbox with an
+identity reducer `(base) => base` against POD-369's bare `unknown`; POD-372 **widened that same port** to
+the closed `OptimisticEffect`. Git reported no conflict. The fixture no longer typechecked.
+
+> Run the in-package typecheck and the package's lane AFTER every merge, even when git reports no
+> conflict. A no-conflict merge means no overlapping LINES, not no overlapping MEANING — and this is the
+> class no conflict marker will ever show you.
+
+Fixed at 9260c667 by translating faithfully (`{kind:'value', value: base}`) rather than to the
+smaller-looking `no-reducer`, which would have quietly changed what the fixture exercises. Mine to fix,
+not either author's: the widening was a decision I ratified.
+
+### A kill count is not a kill — POD-371 extends the mutation protocol
+
+POD-371 mutated only the `partitions.get(key)` lookup expecting to collapse partitioning into one global
+queue. The else branch still keyed by `partitionKey`, so the mutant merely made same-key buckets
+overwrite each other. **It killed eight tests and read as a pass.** What caught it was checking WHICH
+tests died against which SHOULD have.
+
+> A mutant can kill the WRONG tests and still look like a clean result. The fourth assertion (name the
+> test you expect to die) is not only about survivors — compare the actual victims to the named one.
+
+### The oracle corrected a second brief of mine within the hour
+
+POD-381's brief (mine) said its whole command class is "never offline-enqueued". The client oracle
+(`outbox-coverage.oracle.test.ts`, must-not-change) says `sessions.resumeAndSend` IS covered while
+`sendText` is a deliberate exclusion. **Ruled: follow the oracle**, and it is right on the merits, not
+merely older:
+
+- D18.3's blanket "use ⇒ online-only" is argued from a rights snapshot with a delayed fuse. That hazard
+  is real for a **spawn**, which mints a new process; `resumeAndSend` wakes an **existing** session.
+- Its `mutationId` is deduped (D11.7), so the double-apply hazard is bounded by the D10/D11 inequality —
+  which POD-371 landed this hour with the receipt constant **imported** rather than restated.
+- Flipping it to direct-only would **poison-drop entries a user authored offline** (D9 invariant 1).
+
+POD-381 also made the procedural call correctly: enforcing D18.3 literally is a **product** change (a
+composed wake-and-send stops surviving an offline gap) and belongs to POD-316, not to a migration's side
+effects. A migration must not quietly change what the product does for users to make a doctrine read
+cleanly.
+
+### Two agents co-authoring one framework, converged
+
+POD-381 merged POD-380's branch at f9bf5fa5, **deleted its own** `CommandTransport`/`CommandDelivery`
+unions, and added exactly one additive field — `machineVerb?: MachineVerb`, aliased not re-declared.
+Approved: a command can name `resource: 'session'` and still be an execution request, and ADR 3 Am1
+D15.2 says owner-authorization and machine `use` do not substitute for each other, so it is a second
+axis rather than `resource: 'machine'`. The heads-up POD-380 sent is the only reason the duplicate never
+happened.
+
+Also worth keeping, POD-381's sharpest line on the not-yet-wired rule: it declined to add an `owner`
+column to `sessions` because POD-379's attribution oracle pins that row's full key set against POD-1075
+as the issue that changes it — so a column here **would edit another issue's characterization to record
+a value nothing reads**.
+
+### "Done" is not "durable": I merged a mid-flight branch and got the exact duplicate
+
+POD-642 was blocked waiting on POD-380's contract framework plus four of POD-381's modules, and correctly
+refused to merge a sibling branch. To unblock it I merged POD-380's three commits and POD-381's one
+commit into integration. It failed:
+
+    packages/protocol/src/commands.ts(324,13): error TS2300: Duplicate identifier 'CommandTransport'
+
+**The exact duplicate the whole coordination existed to prevent.** POD-381 had told me twice that it
+merged POD-380 and deleted its own `CommandTransport`/`CommandDelivery` unions — and it had, *in its
+working tree*. Its committed history was one commit sitting directly on integration,
+`git merge-base --is-ancestor f9bf5fa5 <381 tip>` said **NO**, and 17 files were modified and
+uncommitted. Integration reset to `10632d1e`, clean again.
+
+> Before treating any branch as landable, check that the part you need is COMMITTED — `git log` and
+> `merge-base --is-ancestor` on the specific commit an agent cited, not the agent's word for it. An
+> agent reporting "I merged X" may mean its working tree, and 17 uncommitted files are one API 529 away
+> from gone. One stream has already died that way today.
+
+My error, not POD-381's: I treated mid-flight work as landable to relieve a blocked stream. The blocked
+stream was waiting *well* — POD-642 had written its access callbacks against POD-381's signatures
+verbatim so the eventual wiring is a pass-through — so the wait cost far less than the bad merge did.
+
+### Make the exception visible, do not make the rule silent
+
+POD-380, as framework owner, ratified POD-381's `machineVerb` and then added the note that decided the
+shape — **`offline` must not be DERIVED from `machineVerb`**, even though D18.3 makes the implication
+true in general. The `resumeAndSend` carve-out proves the implication has exceptions, so a derived value
+would need an override, and *an override on a derived field is strictly worse than an explicit field with
+a recorded reason: the reader cannot tell which contracts actually thought about it.*
+
+So `offline` stays explicit per contract, and D18.3 is expressed as a **test** asserting
+`machineVerb: 'use'` implies online-only for every contract except a named, commented allowlist. A new
+command that forgets to think about it reds instead of inheriting a default.
+
+Its sharper statement of the axis is worth keeping too: resource/scope/action is the **ownership** axis,
+and "may this principal execute on that host" is not a narrower version of it — `resource: 'machine'`
+would have made `sessions.kill` stop naming the session whose owner also has to authorize it, which is
+what D15.2 forbids.
+
+Adopted fleet-wide as the standing formulation.
+
+### The local sentinel is not a machine id, and a fail-closed gate must know that
+
+POD-381's machine-`use` gate typechecked in all three packages and then failed **24 oracle tests** with
+`TRPCError: unknown machine 'local'`. Cause:
+
+```
+machineVerbsFor: const row = ownership.rowFor(machineId); if (!row) return new Set()
+checkMachineUse: if (!verbs.has('see')) return 'absent'
+```
+
+An unknown id yields the empty set, which reads as `absent` — and `grep -c 'LOCAL_MACHINE_ID|__local__'`
+over that file is **zero**. But `local`/`__local__` are **sentinels, not machine ids**
+(`ids/brands.ts:262`: branding is shape not identity, so `MachineId.parse('local')` SUCCEEDS and
+branding a sentinel launders it — the reason POD-318 exists). POD-366 measured the consequence earlier:
+a fresh session sits on the `__local__` placeholder until a real machine adopts it.
+
+So on a single-machine install — today's common case — **every command against a fresh session is
+refused as `absent`**. Not a stricter posture; the product refusing its own default state.
+
+> A fail-closed gate over an id space that contains SENTINELS needs an explicit sentinel arm before the
+> lookup. And the fix must not be "make a missing row permissive", which inverts default-closed and hands
+> `use` on every unknown machine to everyone.
+
+**A `will-change` tag is not a blanket permit for any red in that file.** The failing test was tagged
+will-change POD-1079, but it failed because the product now *throws from a different layer*, not because
+the named shape changed — and it was 24 tests across several oracle files. POD-379 built the tag ratchet
+precisely so a green oracle could never be cited as evidence that a deliberate replacement had not
+regressed something else.
+
+Integration reset to `14aa4f04`, green. Also worth recording: my earlier doubt that POD-381 had merged
+POD-380 was **wrong**. It had merged at `f9bf5fa5`; my `merge-base --is-ancestor` check failed only
+because POD-380 had since added a third commit, so the ancestor test was against a moved tip. The
+uncommitted-work finding was real at the time; the accusation about the merge was not.
+
+> `merge-base --is-ancestor <branch> <branch>` answers a question about TIPS. To ask whether a specific
+> merge happened, test the SHA the agent cited, not the branch name.
+
+### The kernel's two halves could not actually transact together, and the contradiction was mine
+
+POD-373, the first stream able to test it, proved against the **real** Replica and the **real** Outbox —
+no fake on either side, normal path, no crash injected — that the Outbox **cannot enrol in the span the
+Replica opens**. Verified independently before ruling:
+
+```
+overlay.ts:135   retire(matches, span?): void                 <- synchronous
+outbox.ts:725    async retireAllApplied(ids, span?)           <- async
+span.ts          every hook synchronous, by decision
+replica.ts:412   commitRegions(retirements, write): void       <- sync AND self-opens
+```
+
+`span.join()` is therefore reached strictly after the Replica has already committed:
+`cannot enrol in a span that has already settled`, outbox record durable and stuck in `applied`, replica
+cursor advanced past the frame that confirmed it. **Torn state on the normal path.**
+
+Not adapter-fixable: `OutboxStorePort.read/apply` are Promise-returning because IndexedDB and SQLite are
+async, while the hooks are synchronous because an IndexedDB transaction auto-closes on an unrelated
+await. Sync enrolment cannot reach an async store; async enrolment cannot reach a settled span.
+
+**The contradiction is mine.** I ratified "every hook is synchronous" (correct — rule 3's auto-close
+hazard is real) *and* a Replica that opens its own span. Those compose only if every participant is
+synchronous, which a durable store can never be. Neither author could have seen it: POD-1146 proved the
+halves commit together against IN-MEMORY stores and said explicitly that the real crash-between-writes
+case belonged to POD-373's suite against a real transaction. This is exactly the gap it declined to claim.
+
+**Ruled option (a): the Replica accepts an externally-opened span / `SyncUnitOfWork` rather than
+self-opening** — the shape the seam contract already described. It resolves the tension without touching
+the synchronous-hook rule, because asynchrony belongs in `transact()`'s *body*, where ADR 2 always allowed
+it. The caller composing the hop owns the transaction boundary, which is what a unit of work means.
+
+Scope amended for POD-373 (its brief said wire, do not redesign) rather than reassigned: it has the
+measurement, and it is the only live stream in `packages/sync` — POD-369/370/371/372/1146 are all closed.
+Constraints on the fix: keep commit/abort on `OwnedSyncSpan` only so the Replica becomes a participant
+that *cannot* settle another's span; keep hooks synchronous; a missing span must not silently become an
+untransacted production write; POD-371's no-span fixture must not read as evidence the seam works; and the
+torn state gets a test named after it.
+
+> A participant that OPENS its own transaction cannot take part in anyone else's. If two modules must
+> commit together, neither may be the opener — and in-memory doubles will not show you this, because they
+> make every participant synchronous.
+
+### Restarting a wedged session is a puzzle, not a command (POD-1159)
+
+POD-362 sat `live/working` for three hours with zero file activity after an API interruption, ignoring two
+mails. Its seven commits were safe and its tree clean, so the correct repair was to stop it and put a
+fresh agent on the same issue. That sequence does not exist:
+
+    podium session stop <id>        -> worktree freed, branch kept
+    podium issue start --id 362     -> fatal: a branch named 'issue/362-...' already exists
+
+`issue start` unconditionally CREATES the branch, so it can never restart an issue that has ever been
+started — and `stop` frees the worktree, so afterwards there is no tree to run in either. What worked:
+`git worktree prune`, a manual `git worktree add <path> <branch>`, then **`podium session send <id>
+--wake`**, whose name reads like messaging and which is mentioned only inside `stop`'s help prose. It is
+also the *better* repair, because it keeps the transcript.
+
+> The puzzle has a wrong answer that looks right: rename the branch so `issue start` succeeds, then merge
+> the old branch into the new one. That loses the transcript and, on a 134-file branch, invites exactly
+> the semantic-merge errors this run has already paid for twice.
+
+Three distinct ways a session has gone quiet in this run — silent death, API 529 mid-turn, and
+live-but-idle wedge — all on the same issue. Restart is the most common repair a coordinator needs.
+
+### Six concurrent implementers is this box's ceiling
+
+Load average **28.7 on 8 cores** with six agents, memory fine at 11/23GB, and **zero file writes across
+every worktree for 15 minutes** — they were all CPU-bound in vitest simultaneously, not stalled. I ran
+only the cheap gates that pass, because by the run's own rule a lane under that load yields noise rather
+than evidence. Ten concurrent implementers is not achievable here; six is.
+
+### The forked-enum defect, found for the fifth time — and the first time in the agent's own test
+
+POD-380's wire regeneration exposed a defect in its own work: its presence contracts declared their **own
+`z.enum`** for `workState` and `pinKind` beside the model's, and its test compared **accepted values**
+rather than instance identity. Enum membership is compile-time, so a forked copy parses, encodes and
+passes all 1261 golden cases identically.
+
+Fifth surface for this class in this run — POD-643 on the manifest, POD-368 on `IssueRefHead`, POD-1141
+on `IssueWire.title`, POD-1151 on `StoredIssue`, now here — and the **first where the agent caught it in
+its own test rather than in the product**. The same fix removed the *third and fourth* copies of
+`PinKind`: three literals had four declarations. The epic's thesis reproduced in miniature, then closed.
+
+> Regenerating a golden corpus is not a chore to get past — read the diff. POD-380 verified 96 insertions
+> with ZERO removed or modified lines (`grep -c '^-[^-]'` == 0) and found a real defect on the way.
+
+### Two agents both bank a ratchet: measure the merge, do not pick a number
+
+POD-380 and POD-381 independently reduced `router-triple-access` and each banked it — base 134, POD-380
+to **114**, POD-381 to **121**. The merged tree contains *both* sets of deletions, so neither number is
+correct and the true count is at most 114.
+
+> When two branches both bank the same ratchet, the conflict resolution is to RE-MEASURE on the merged
+> tree, never to pick a side. Taking the larger banked win silently un-banks the other's work; taking the
+> smaller asserts a number nobody measured.
+
+### Coordinator correction: I never tried the direct channel on the wedged session
+
+I mailed POD-362 twice with `mail send --urgency interrupt` and concluded it was unreachable. I never
+tried **`podium session send <id> --text`**, which submits a real user turn — mail lands at a stop hook or
+on the next turn, which is exactly the wrong channel for a session that is not taking turns. When I
+finally used it (after stopping), it worked immediately.
+
+> Match the channel to the failure. `--urgency interrupt` on mail *sounds* like the strongest nudge and
+> cannot reach a session that is not turning.
+
+POD-1159 has been corrected on the issue rather than edited away: the recovery command exists and works,
+and most of my "CLI archaeology" was self-inflicted. What remains genuinely wrong is discoverability —
+and that `stop` + `issue start` still do not compose for a restart.

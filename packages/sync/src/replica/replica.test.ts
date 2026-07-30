@@ -76,6 +76,10 @@ function harness(
     store: store.cache,
     authority,
     overlay: options.overlay?.(store),
+    // POD-1158 — an overlay means a MULTI-REGION commit is reachable, so the Replica
+    // must be handed a transaction boundary it does not own. Supplied by the store,
+    // which is the object that owns the physical transaction.
+    unitOfWork: store.unitOfWork,
     validator: options.validator,
     maxBootstrapAttempts: options.maxBootstrapAttempts,
     onEvent: (event) => events.push(event),
@@ -968,6 +972,10 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
 
+    // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
+    // does NOT own, so it resolves on `settled()` rather than inside `receive`.
+    await h.replica.settled()
+
     expect(h.overlay.handed).toEqual([
       [{ entity: 'session', entityId: 's1', causationId: 'cmd-1', mutationId: 'm1' }],
     ])
@@ -1001,6 +1009,11 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
 
+
+    // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
+    // does NOT own, so it resolves on `settled()` rather than inside `receive`.
+    await h.replica.settled()
+
     // A delete I authored must retire its outbox entry exactly as an edit does;
     // previously only the upsert branch retired, so a tombstone caused by my own
     // command left its overlay entry pending forever.
@@ -1027,6 +1040,11 @@ describe('the optimistic-overlay reducer seam', () => {
     // Assert the KEY SET, not the values. Every value-only assertion in this file
     // passes just as well when an absent field is dropped instead of set to
     // undefined, and `toEqual` cannot see the difference either — it treats an
+
+    // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
+    // does NOT own, so it resolves on `settled()` rather than inside `receive`.
+    await h.replica.settled()
+
     // undefined-valued key as absent. Object.keys is the only assertion here that
     // fails when the shape changes.
     expect(h.overlay.handed[0]?.map((r) => Object.keys(r).sort())).toEqual([
@@ -1065,6 +1083,10 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
 
+    // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
+    // does NOT own, so it resolves on `settled()` rather than inside `receive`.
+    await h.replica.settled()
+
     // ONE call carrying BOTH, in feed order — not two calls. Per-retirement calls
     // inside a shared unit of work each stage from the same pre-commit outbox
     // snapshot, so the second resurrects the first (POD-370 reproduced this).
@@ -1092,6 +1114,10 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
 
+    // POD-1158 — a multi-region commit is now enrolled in a unit of work the Replica
+    // does NOT own, so it resolves on `settled()` rather than inside `receive`.
+    await h.replica.settled()
+
     expect(h.overlay.handed).toHaveLength(1)
     expect(h.overlay.handed[0]?.map((r) => r.mutationId)).toEqual(['m-a'])
   })
@@ -1106,14 +1132,16 @@ describe('the optimistic-overlay reducer seam', () => {
     // Refuse at the serialized commit point, with both drafts still private.
     h.store.cache.failNextPrepare = 'durable write denied'
 
-    expect(() =>
-      h.replica.receive(
-        deltaFrame(0, 2, [
-          session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
-          session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
-        ]),
-      ),
-    ).toThrow('durable write denied')
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
+        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+      ]),
+    )
+    // POD-1158 — the veto now surfaces through the unit of work the Replica joined,
+    // so it arrives on `settled()`. It is still SURFACED and still loud, which is the
+    // property: a refused multi-region commit must not be swallowed.
+    await expect(h.replica.settled()).rejects.toThrow('durable write denied')
 
     // The batch was HANDED OVER — and took no effect. Both commands are still the
     // user's unsent work: telling them a write landed when it did not is the worse
@@ -1133,14 +1161,13 @@ describe('the optimistic-overlay reducer seam', () => {
     queued(h, 'm-a', 'a')
     queued(h, 'm-b', 'b')
     h.store.cache.failNextPrepare = 'durable write denied'
-    expect(() =>
-      h.replica.receive(
-        deltaFrame(0, 2, [
-          session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
-          session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
-        ]),
-      ),
-    ).toThrow()
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
+        session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+      ]),
+    )
+    await expect(h.replica.settled()).rejects.toThrow()
 
     // A fresh Replica over the SAME physical store — the process restarted, so
     // nothing in RAM can be covering for a draft that was never published.
@@ -1148,6 +1175,7 @@ describe('the optimistic-overlay reducer seam', () => {
       store: h.store.cache,
       authority: h.authority,
       overlay: overlayOver(h.outbox),
+      unitOfWork: h.store.unitOfWork,
     })
     live.push(rehydrated)
 
