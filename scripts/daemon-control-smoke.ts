@@ -12,7 +12,7 @@ import type { DaemonHandshakeReply, DaemonMessage } from '../packages/protocol/s
 import { encode, parseDaemonMessage } from '../packages/protocol/src/index.ts'
 
 const FIXTURE = fileURLToPath(
-  new URL('../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 const work = mkdtempSync(join(tmpdir(), 'podium-control-smoke-'))

@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { nodePtyBackend, resolveNodeExecutable } from './pty/index.js'
-import { spawnAgent } from './session'
+import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
+import { spawnAgent } from './session.js'
 import {
   attachTmuxAgent,
   isTmuxAvailable,

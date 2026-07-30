@@ -6,9 +6,11 @@
  *
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
- *  2. `@podium/agent-bridge` may only be imported by `apps/daemon`, `scripts/`,
- *     and its own package (including its tests). Servers read transcripts via
- *     `@podium/transcript` instead.
+ *  2. `@podium/agent-bridge` and `@podium/pty` may only be imported by
+ *     `apps/daemon`, `scripts/`, and their own packages (including their tests);
+ *     agent-bridge may also reach pty. Importing either means driving real agent
+ *     processes / PTYs, which is a host capability. Servers read transcripts via
+ *     `@podium/transcript` instead. See {@link AGENT_HOST_CONSUMERS}.
  *  3. `@podium/protocol` and `@podium/domain` are leaf packages — they import
  *     no other workspace package. `@podium/transcript` is a near-leaf: it may
  *     import only `@podium/protocol`. `@podium/runtime` is a near-leaf
@@ -119,6 +121,23 @@ export { clauseIsTypeOnly, extractImports, stripComments, workspaceOf }
  * agent-bridge only in comments — a real import appearing there fails the check.
  */
 const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
+
+/**
+ * Rule 2's targets: the packages that drive real agent PROCESSES, and who may
+ * import each. The machine host (apps/daemon) and the build/compose tier
+ * (scripts/) may; nothing else may — servers read transcripts through
+ * `@podium/transcript` instead.
+ *
+ * `packages/pty` is the PTY kernel split out of agent-bridge (POD-396). It is
+ * listed here for the same reason agent-bridge is: importing it means spawning
+ * PTYs, which is a host capability, not a general-purpose one. agent-bridge may
+ * reach it (its real-`claude` harness smoke drives a session through it), and
+ * POD-397's `packages/harness` will be added the same way when it lands.
+ */
+const AGENT_HOST_CONSUMERS: Record<string, ReadonlySet<string>> = {
+  'packages/agent-bridge': new Set(['apps/daemon', 'scripts', 'packages/agent-bridge']),
+  'packages/pty': new Set(['apps/daemon', 'scripts', 'packages/pty', 'packages/agent-bridge']),
+}
 
 /**
  * The one allowed app→app edge: apps/web imports the `AppRouter` *type* from
@@ -449,17 +468,17 @@ export function checkFile(
       continue
     }
 
-    // Rule 2: agent-bridge importers are restricted.
-    if (to === 'packages/agent-bridge') {
-      const allowed =
-        from === 'apps/daemon' || from === 'scripts' || from === 'packages/agent-bridge'
-      if (allowed) continue
+    // Rule 2: agent-host importers are restricted — the machine host and the
+    // build tier may drive agent processes; nothing else may.
+    const hostAllowed = AGENT_HOST_CONSUMERS[to]
+    if (hostAllowed) {
+      if (hostAllowed.has(from)) continue
       if (GRANDFATHERED_AGENT_BRIDGE.has(file)) continue
       violations.push({
         file,
         specifier: ref.specifier,
         rule: 'agent-bridge-consumers',
-        message: `${file}: '@podium/agent-bridge' may only be imported by apps/daemon, scripts/, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
+        message: `${file}: '${to === 'packages/pty' ? '@podium/pty' : '@podium/agent-bridge'}' may only be imported by ${[...hostAllowed].sort().join(', ')}, or its own tests (Phase 3 extracts @podium/transcript for the grandfathered server cases)`,
       })
     }
   }

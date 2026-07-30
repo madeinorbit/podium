@@ -4,7 +4,7 @@
 // selection resolves to bun-terminal — the guard a stale/old Bun (proc.terminal undefined →
 // black remote terminals) would trip. The Node side is covered in src/pty/index.test.ts.
 import { describe, expect, it } from 'bun:test'
-import { defaultPtyBackend, hasBunTerminal, isUnderBun } from '../../src/pty/index'
+import { defaultPtyBackend, hasBunTerminal, isUnderBun } from '../../src/backends/index'
 
 describe('bun terminal feature-detection (under Bun)', () => {
   it('detects the working terminal PTY API and auto-selects bun-terminal', () => {

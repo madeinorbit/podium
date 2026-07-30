@@ -7,7 +7,7 @@ import { LOCAL_MACHINE_ID } from '../../../apps/server/src/local-machine'
 import { type ServerHandle, startServer } from '../../../apps/server/src/server'
 
 const FIXTURE = fileURLToPath(
-  new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 export interface Relay {

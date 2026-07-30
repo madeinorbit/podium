@@ -17,7 +17,7 @@ applyHarnessEnv(ISOLATION_PORT)
 afterAll(() => reapHarnessSessions(ISOLATION_PORT))
 
 const FIXTURE = fileURLToPath(
-  new URL('../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {

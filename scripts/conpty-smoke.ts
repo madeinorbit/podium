@@ -15,7 +15,7 @@
  * windows-latest as the ConPTY proof; POSIX runs keep the script itself honest.
  */
 import { agentLaunchCommand } from '../packages/agent-bridge/src/launch.js'
-import { spawnAgent } from '../packages/agent-bridge/src/session.js'
+import { spawnAgent } from '../packages/pty/src/session.js'
 
 const isWin = process.platform === 'win32'
 // Windows resolves through the PRODUCTION shell-launch path (agentLaunchCommand →

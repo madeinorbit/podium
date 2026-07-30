@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
-import { defaultPtyBackend } from './pty/index.js'
-import type { PtyBackend, PtyProcess } from './pty/types.js'
-import { type AgentSession, withHardRepaint, wrapPty } from './session'
+import { defaultPtyBackend } from './backends/index.js'
+import type { PtyBackend, PtyProcess } from './backends/types.js'
+import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './tmux.js'
 
 /**

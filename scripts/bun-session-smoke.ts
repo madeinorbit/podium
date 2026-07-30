@@ -18,7 +18,7 @@ import { applyHarnessEnv, reapHarnessSessions } from '../tests/e2e/harness-env'
 
 const PORT = 9931
 const FIXTURE = fileURLToPath(
-  new URL('../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 reapHarnessSessions(PORT)

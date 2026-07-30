@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { type AgentSession, resolveNodeExecutable, spawnAgent } from '@podium/agent-bridge'
+import { type AgentSession, resolveNodeExecutable, spawnAgent } from '@podium/pty'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 // keyecho is a fake agent CLI; spawn it the same way the daemon spawns claude/codex,

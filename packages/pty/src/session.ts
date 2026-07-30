@@ -1,8 +1,8 @@
 import { StringDecoder } from 'node:string_decoder'
 import type { Geometry } from '@podium/protocol'
+import { defaultPtyBackend } from './backends/index.js'
+import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { createTitleScanner } from './osc-title.js'
-import { defaultPtyBackend } from './pty/index.js'
-import type { PtyBackend, PtyProcess } from './pty/types.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
 

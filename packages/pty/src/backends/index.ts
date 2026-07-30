@@ -8,6 +8,7 @@ import {
 import { nodePtyBackend } from './node-pty-backend.js'
 import type { PtyBackend } from './types.js'
 
+export { ensureBunNodePtyTtyPolyfill } from './bun-node-pty-tty-polyfill.js'
 export {
   bunTerminalBackend,
   bunVersion,
@@ -16,7 +17,6 @@ export {
   minTerminalBunVersion,
   terminalProbeCommand,
 } from './bun-terminal-backend.js'
-export { ensureBunNodePtyTtyPolyfill } from './bun-node-pty-tty-polyfill.js'
 export { nodePtyBackend } from './node-pty-backend.js'
 export { resolveNodeExecutable } from './resolve-node-executable.js'
 export type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'

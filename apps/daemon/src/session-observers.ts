@@ -1,7 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
-  type AgentSession,
   type AgentStateEvent,
   type AgentStateProvider,
   ClaudeCausalObserver,
@@ -28,6 +27,7 @@ import type {
   TranscriptItem,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
   recordToItemsForKind,
