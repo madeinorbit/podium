@@ -387,6 +387,116 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
 })
 
 // ───────────────────────────────────────────────────────────────────────────────
+describe('D5 minAvailableSeq — the published retention floor short-circuits a doomed heal', () => {
+  it('a gap BELOW the floor goes straight to rung 2, spending NO round trip', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+
+    // The authority has pruned everything below 40. A heal from cursor 10 could
+    // only ever be answered `bootstrap-required`, and the frame says so up front.
+    const outcome = h.replica.receive(
+      deltaFrame(44, 45, [session(45, 's1', 'x')], { minAvailableSeq: 40 }),
+    )
+    await h.replica.settled()
+
+    expect(outcome.rowId).toBe('D7-2-COMPACTED')
+    expect(outcome.rung).toBe(2)
+    // THE LOAD-BEARING ASSERTION. Without it, a Replica that ignored the floor
+    // entirely would still converge — via a heal, a refusal and then rung 2 — and
+    // every other assertion in this case would pass. The absence of the call is
+    // the only observable difference between reading the floor and ignoring it.
+    expect(h.authority.changesSinceCalls).toEqual([])
+    expect(h.replica.stats().heals).toBe(0)
+  })
+
+  it('a gap ABOVE the floor still HEALS — the paired half', async () => {
+    // Without this, "below the floor re-bootstraps" is equally consistent with a
+    // Replica that re-bootstraps on every gap, which would throw away a healthy
+    // cache on every ordinary reorder. A rule tested only where it fires is
+    // indistinguishable from a rule that always fires.
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [
+      deltaFrame(10, 14, [session(12, 's1', 'healed')], { minAvailableSeq: 5 }),
+    ]
+
+    const outcome = h.replica.receive(
+      deltaFrame(13, 14, [session(14, 's2', 'late')], { minAvailableSeq: 5 }),
+    )
+    await h.replica.settled()
+
+    expect(outcome.rowId).toBe('D7-1-GAP')
+    expect(h.authority.changesSinceCalls).toEqual([cursorAt(10)])
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'healed' })
+  })
+
+  it('a cursor sitting EXACTLY at the last pruned seq is still healable, not discarded', async () => {
+    // The off-by-one, pinned. To be served from cursor 10 the authority needs seq
+    // 11, so a floor of 11 is fine and a floor of 12 is not. Written as
+    // `cursor.seq < minAvailableSeq` — the spelling that reads correctly — this
+    // case re-bootstraps a perfectly healthy replica every time the authority
+    // prunes up to its cursor, which under normal retention is constantly.
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [deltaFrame(10, 14, [], { minAvailableSeq: 11 })]
+
+    const outcome = h.replica.receive(deltaFrame(13, 14, [], { minAvailableSeq: 11 }))
+    await h.replica.settled()
+
+    expect(outcome.rowId).toBe('D7-1-GAP')
+    expect(h.authority.changesSinceCalls).toEqual([cursorAt(10)])
+  })
+
+  it('a CONTIGUOUS frame is applied regardless of the floor — the floor is not a veto', async () => {
+    // The floor answers "can a HEAL succeed", never "is this frame acceptable".
+    // The fixture is chosen so the two readings disagree: the cursor (10) IS below
+    // the floor (12), so a Replica treating the floor as a general precondition
+    // would discard its cache here — but the frame is CONTIGUOUS, so there is no
+    // gap to heal and nothing is missing. Applying it is correct and is what keeps
+    // the floor from throwing away healthy replicas on the normal path.
+    const h = harness()
+    await bootstrapped(h, 10, [])
+
+    h.replica.receive(deltaFrame(10, 12, [session(12, 's1', 'ok')], { minAvailableSeq: 12 }))
+    await h.replica.settled()
+
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor?.seq).toBe(12)
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'ok' })
+    expect(h.replica.stats().bootstraps).toBe(1) // the seeding one only
+  })
+
+  it('a reconnecting STALE replica below the floor re-bootstraps without asking', async () => {
+    // The long-offline case D5 advertises the floor for: a week offline, the log
+    // has moved on, and the round trip is knowably futile.
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.replica.disconnect()
+    expect(h.replica.posture).toBe('stale')
+
+    const outcome = h.replica.receive(
+      deltaFrame(80, 81, [session(81, 's9', 'new')], { minAvailableSeq: 60 }),
+    )
+    await h.replica.settled()
+
+    expect(outcome.rowId).toBe('D7-2-COMPACTED')
+    expect(h.authority.changesSinceCalls).toEqual([])
+  })
+
+  it('a malformed floor is a rung-3 refusal, never a coerced 0', async () => {
+    // The fails-OPEN shape this field exists to avoid: a floor that could not be
+    // read must not become "nothing has been pruned".
+    const h = harness()
+    await bootstrapped(h, 10, [])
+
+    const outcome = h.replica.receive(
+      deltaFrame(10, 11, [session(11, 's1', 'x')], { minAvailableSeq: -1 }),
+    )
+    await h.replica.settled()
+    expect(outcome.rowId).toBe('D7-3-MALFORMED')
+  })
+})
+
 describe('D7 rung 3 — semantic validation is protocol law', () => {
   const malformed: [string, ReturnType<typeof deltaFrame>][] = [
     ['change below the covered range', deltaFrame(10, 14, [session(9, 's', 'x')])],
