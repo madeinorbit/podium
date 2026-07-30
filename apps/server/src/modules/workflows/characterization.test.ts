@@ -2496,9 +2496,15 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(thrown(() => h.service.adopt({ revisionId: foreign.revision.id }, agent('s1')))).toBe(
         'Error: workflow is outside this session | code=undefined',
       )
-      // Every one of those left the live run untouched.
+      // Every one of those left the live run untouched...
       expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
       expect(kinds(h.store).filter((k) => k === 'workflow.run_adopted')).toHaveLength(0)
+      // ...and, the other half of "no partial state": no SUCCESSOR run was
+      // created either. Checking only the old run's status would still pass if
+      // adopt superseded first and then failed, or created a replacement before
+      // validating — which is precisely the partial state this name claims does
+      // not happen.
+      expect(h.store.workflows.listRuns(true)).toHaveLength(1)
     })
 
     it('PIN only an active or blocked run may adopt', () => {
