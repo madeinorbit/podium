@@ -63,6 +63,7 @@
     "audit:workflows": "bun scripts/audit-workflow-commands.ts --probe && bun scripts/audit-workflow-commands.ts",
     "audit:fleet": "bun scripts/audit-fleet-commands.ts --probe && bun scripts/audit-fleet-commands.ts",
     "audit:mail": "bun scripts/audit-mail-commands.ts --probe && bun scripts/audit-mail-commands.ts",
+    "audit:automations": "bun scripts/audit-automation-commands.ts --probe && bun scripts/audit-automation-commands.ts",
     "audit:router-mutations": "bun scripts/audit-router-mutations.ts --probe && bun scripts/audit-router-mutations.ts",
     "audit:scoped-feed": "bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts",
     "audit:spec": "bun scripts/audit-spec-commands.ts --probe && bun scripts/audit-spec-commands.ts",
