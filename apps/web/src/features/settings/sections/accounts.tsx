@@ -36,10 +36,7 @@ function StatusConnected({ identity }: { identity: string }): JSX.Element {
 function StatusDisconnected(): JSX.Element {
   return (
     <span className="inline-flex flex-none items-center gap-1.5 text-[11.5px] text-muted-foreground">
-      <span
-        aria-hidden="true"
-        className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset"
-      />
+      <span aria-hidden="true" className="size-1.5 flex-none rounded-full ring-1 ring-border-strong ring-inset" />
       Not connected
     </span>
   )
@@ -61,9 +58,7 @@ function AccountGroup({
   return (
     <div>
       <div className="mb-1.5 flex items-baseline gap-2 px-0.5">
-        <span className="font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">
-          {label}
-        </span>
+        <span className="font-mono text-[8.5px] text-label uppercase tracking-[0.12em]">{label}</span>
         <span className="text-[10.5px] text-text-dim">{qualifier}</span>
       </div>
       <div className="divide-y divide-hairline-soft overflow-hidden rounded-lg border border-border bg-card/50 px-3.5">
@@ -108,19 +103,19 @@ function ManagedAccountRow({
   const note: React.ReactNode =
     isOauth && !connected ? (
       <>
-        Run <code className="text-[11px]">claude setup-token</code> in a terminal and paste the
-        token here. It is a long-lived subscription token (about a year), not your API key.
+        Run <code className="text-[11px]">claude setup-token</code> in a terminal and paste the token
+        here. It is a long-lived subscription token (about a year), not your API key.
       </>
     ) : legacy && !editing ? (
       <span className="text-warning">
-        Set under Settings → API keys, not held as a managed account — Podium does not inject it
-        into agent spawns and it cannot be disconnected here. Replace it to store it as a managed
-        account, or clear it under API keys.
+        Set under Settings → API keys, not held as a managed account — Podium does not inject it into
+        agent spawns and it cannot be disconnected here. Replace it to store it as a managed account,
+        or clear it under API keys.
       </span>
     ) : !isOauth && connected && !legacy ? (
       <>
-        Injected into agent spawns. The superagent and background LLM roles still read their key
-        from Settings → API keys (issue #469), so this account does not power those.
+        Injected into agent spawns. The superagent and background LLM roles still read their key from
+        Settings → API keys (issue #469), so this account does not power those.
       </>
     ) : undefined
 
@@ -233,7 +228,9 @@ function ManagedAccountRow({
           </div>
         )}
       </Row>
-      {error && <p className="max-w-[60ch] pb-2.5 text-[11px] text-destructive">{error}</p>}
+      {error && (
+        <p className="max-w-[60ch] pb-2.5 text-[11px] text-destructive">{error}</p>
+      )}
     </div>
   )
 }
