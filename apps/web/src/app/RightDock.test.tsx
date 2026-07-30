@@ -36,6 +36,7 @@ const state = {
 
 vi.mock('./store', () => ({
   useStoreSelector: (selector: (store: typeof state) => unknown) => selector(state),
+  useReplicaIssues: () => state.issues,
 }))
 
 vi.mock('@/features/issues/IssuePanelView', () => ({

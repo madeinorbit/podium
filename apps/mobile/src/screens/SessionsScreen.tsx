@@ -95,6 +95,7 @@ export function SessionsScreen() {
       <TaskPeekSheet
         issue={peek?.issue ?? null}
         session={peek?.session}
+        sessions={client.sessions}
         onClose={() => setPeek(null)}
       />
     </Screen>

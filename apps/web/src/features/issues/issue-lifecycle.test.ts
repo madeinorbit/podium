@@ -25,25 +25,26 @@ const session = (over: Partial<SessionMeta>): SessionMeta =>
 
 describe('issue close concerns', () => {
   it('surfaces decisions, questions, working agents, children, and delivery work', () => {
+    const sessions = [
+      session({
+        sessionId: 'waiting',
+        offer: { message: 'Choose a direction', actions: [], createdAt: 'now' },
+      }),
+      session({
+        sessionId: 'working',
+        agentState: {
+          phase: 'working',
+          since: 'now',
+          nativeSubagentCount: 0,
+        },
+      }),
+    ]
     const issue = makeIssue({
       needsHuman: true,
       humanQuestion: 'Which direction should we ship?',
       childCount: 3,
       childDoneCount: 1,
-      sessions: [
-        session({
-          sessionId: 'waiting',
-          offer: { message: 'Choose a direction', actions: [], createdAt: 'now' },
-        }),
-        session({
-          sessionId: 'working',
-          agentState: {
-            phase: 'working',
-            since: 'now',
-            nativeSubagentCount: 0,
-          },
-        }),
-      ],
+      memberSessionIds: sessions.map((member) => member.sessionId),
       gitState: {
         updatedAt: '2026-07-23T10:00:00.000Z',
         branch: 'issue/4',
@@ -54,7 +55,7 @@ describe('issue close concerns', () => {
       },
     })
 
-    expect(issueCloseConcerns(issue).map((concern) => concern.key)).toEqual([
+    expect(issueCloseConcerns(issue, sessions).map((concern) => concern.key)).toEqual([
       'offers',
       'question',
       'working',

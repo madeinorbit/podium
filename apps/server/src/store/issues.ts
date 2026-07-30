@@ -78,7 +78,7 @@ export class IssuesRepository {
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at, revision, coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
@@ -484,6 +484,21 @@ export class IssuesRepository {
         .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
         .all(issueId) as { label: string }[]
     ).map((r) => r.label)
+  }
+
+  /** Labels for every issue in one ordered read — list serializers use this to
+   * avoid preparing and running one query per issue at live board sizes. */
+  listIssueLabelsByIssue(): Map<string, string[]> {
+    const rows = this.db
+      .prepare('SELECT issue_id, label FROM issue_labels ORDER BY issue_id ASC, label ASC')
+      .all() as { issue_id: string; label: string }[]
+    const byIssue = new Map<string, string[]>()
+    for (const row of rows) {
+      const labels = byIssue.get(row.issue_id)
+      if (labels) labels.push(row.label)
+      else byIssue.set(row.issue_id, [row.label])
+    }
+    return byIssue
   }
 
   listAllLabels(): string[] {

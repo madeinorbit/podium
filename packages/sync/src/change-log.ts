@@ -30,11 +30,7 @@ export interface ChangeLogStore {
     cursor: number,
   ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[]
   /** Snapshot the head-only retention threshold once per job. */
-  planChangePrune(opts: {
-    keepRows: number
-    maxAgeMs: number
-    now: number
-  }): ChangePrunePlan
+  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
   /** Latest retained row per (entity, id) — the boot seed for the baseline. */
@@ -139,7 +135,20 @@ export function issueProjection(value: unknown): string {
  *  JSON (`json` must be `JSON.stringify(value)`). */
 export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
   if (entity === 'conversation') return conversationProjection(value)
-  if (entity === 'issue') return issueProjection(value)
+  if (entity === 'issue') {
+    const issue = value as Record<string, unknown>
+    // The normalized pilot's transitional IssueWire is already session-free.
+    // Reuse its serialized bytes instead of allocating a second projection;
+    // legacy embedded-session shapes still receive main's heartbeat filter.
+    if (
+      !Object.hasOwn(issue, 'sessions') &&
+      !Object.hasOwn(issue, 'sessionSummary') &&
+      !Object.hasOwn(issue, 'unread')
+    ) {
+      return json
+    }
+    return issueProjection(value)
+  }
   return json
 }
 

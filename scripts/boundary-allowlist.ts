@@ -57,6 +57,13 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     note: 'Imports ISSUE_SYSTEM_POINTER/SPEC_SYSTEM_POINTER from @podium/agent-bridge. POD-740 moves those constants somewhere apps/server may legally reach.',
   },
 
+  {
+    rule: 'agent-bridge-consumers',
+    file: 'apps/server/src/modules/sessions/service.ts',
+    count: 1,
+    phase: 'POD-740',
+    note: 'Main session observation acceptance imports the shared agent-bridge boundary; inherited by POD-790 catch-up #2.',
+  },
   // -------------------------------------------------------------------------
   // Harness axiom — behavioral branching outside packages/agent-bridge.
   // Removed by Phase 5: POD-292 confines agent-CLI variance to the harness
@@ -80,7 +87,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'apps/server/src/modules/sessions/service.ts',
-    count: 5,
+    count: 9,
     phase: P5,
     note: 'Transcript/title/dedup behavior keyed on claude-code vs codex — POD-292 moves it behind the harness layer.',
   },
@@ -101,7 +108,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'apps/web/src/features/terminal/AgentPanel.tsx',
-    count: 3,
+    count: 4,
     phase: P5,
     note: 'Per-CLI composer scraping (claude box vs codex dim line) + a claude-only mode hint. Capability/affordance knowledge — POD-325 manifest fields.',
   },
@@ -129,7 +136,7 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'apps/daemon/src/session-observers.ts',
-    count: 2,
+    count: 6,
     phase: P5,
     note: 'Observer wiring per CLI — POD-292 names this file explicitly as scattered binding logic to consolidate.',
   },
@@ -157,14 +164,14 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'apps/web/src/lib/WorkerLabel.tsx',
-    count: 1,
+    count: 2,
     phase: P5,
     note: 'Brand tone (a ternary on the claude-code literal) sitting right next to the KIND_ICON record. Fix is local: make the tone a record lookup like its neighbour, which the axiom permits.',
   },
   {
     rule: 'harness-branching',
     file: 'apps/web/src/features/worklist/SidebarUnified.tsx',
-    count: 1,
+    count: 2,
     phase: P5,
     note: 'Brand tone keyed on defaultAgent — same local record-lookup fix as WorkerLabel.tsx.',
   },
@@ -183,6 +190,13 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     note: 'MCP config only wired for claude-code — a manifest capability flag under POD-325.',
   },
 
+  {
+    rule: 'harness-branching',
+    file: 'apps/daemon/src/control/credentials.ts',
+    count: 2,
+    phase: P5,
+    note: 'Main credential routing branches for codex/grok; inherited by POD-790 catch-up #2 and removed by the harness manifest phase.',
+  },
   // -------------------------------------------------------------------------
   // Layer + platform — apps/desktop -> scripts.
   // -------------------------------------------------------------------------

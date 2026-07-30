@@ -35,7 +35,6 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
   settings: {
     setup: 'settings reuses the SetupView form',
     terminal: 'appearance section edits the terminal appearance store (dc7e248)',
-    machines: 'machines panel reads the version-skew helpers (POD-838)',
   },
 }
 

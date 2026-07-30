@@ -267,7 +267,7 @@ export function WorkScreen() {
           />
         }
       />
-      <TaskPeekSheet issue={peek} onClose={() => setPeek(null)} />
+      <TaskPeekSheet issue={peek} sessions={client.sessions} onClose={() => setPeek(null)} />
       <ActionSheet
         visible={menuIssue !== null}
         title={menuIssue ? `${issueDisplayRef(menuIssue)} ${menuIssue.title}` : ''}

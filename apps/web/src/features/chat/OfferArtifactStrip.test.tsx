@@ -13,6 +13,7 @@ const openFileInWorktree = vi.fn()
 let issues: IssueWire[] = []
 
 vi.mock('@/app/store', () => ({
+  useReplicaIssues: () => issues,
   useStoreSelector: (sel: (s: unknown) => unknown) =>
     sel({ issues, httpOrigin: 'http://h', openArtifact, openFileInWorktree }),
 }))

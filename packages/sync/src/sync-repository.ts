@@ -7,7 +7,7 @@
  */
 
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
 import type { ChangePrunePlan } from './change-log'
 import type { FeedIdentity } from './feed-identity'
 
@@ -55,21 +55,31 @@ export class SyncRepository {
     eventTime: number,
   ): number[] {
     if (rows.length === 0) return []
-    const insert = this.db.prepare(
-      'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
-    )
     const seqs: number[] = []
+    // Stay below SQLite's conservative 999-parameter builds (100 × 5 = 500)
+    // while collapsing a live-scale reconcile from hundreds of statements to a
+    // handful. One outer transaction preserves the contiguous, non-interleaved
+    // sequence contract across every chunk.
+    const chunkSize = 100
     transaction(this.db, () => {
-      for (const r of rows) {
-        insert.run(r.entity, r.entityId, r.op, r.payload, eventTime)
-        seqs.push(this.lastInsertSeq())
+      for (let start = 0; start < rows.length; start += chunkSize) {
+        const chunk = rows.slice(start, start + chunkSize)
+        const params: SqlParam[] = []
+        for (const row of chunk) {
+          params.push(row.entity, row.entityId, row.op, row.payload, eventTime)
+        }
+        const placeholders = chunk.map(() => '(?, ?, ?, ?, ?)').join(', ')
+        const result = this.db
+          .prepare(
+            `INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ${placeholders}`,
+          )
+          .run(...params)
+        const last = Number(result.lastInsertRowid)
+        const first = last - chunk.length + 1
+        for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
       }
     })
     return seqs
-  }
-
-  private lastInsertSeq(): number {
-    return (this.db.prepare('SELECT last_insert_rowid() AS seq').get() as { seq: number }).seq
   }
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */

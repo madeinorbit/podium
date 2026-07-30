@@ -40,12 +40,14 @@ function agentName(session: SessionMeta | undefined): string | null {
 export function TrayCard({
   item,
   issues,
+  sessions,
   httpOrigin,
   actions,
   now,
 }: {
   item: TrayItem
   issues: IssueWire[]
+  sessions: readonly SessionMeta[]
   httpOrigin: string
   actions: TrayCardActions
   now: number
@@ -58,8 +60,12 @@ export function TrayCard({
   const session =
     item.kind === 'offer'
       ? item.session
-      : (issue.sessions ?? []).find(
-          (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+      : sessions.find(
+          (s) =>
+            (issue.memberSessionIds ?? []).includes(s.sessionId) &&
+            !s.archived &&
+            s.agentKind !== 'shell' &&
+            s.headless !== true,
         )
   const ago = relativeTime(item.since, now)
   const squareHex = issueColorHex(issue.color)

@@ -4,7 +4,7 @@
   "counts": {
     "adoption-backfill-heals": 9,
     "agent-kind-enums": 2,
-    "capability-tables": 4,
+    "capability-tables": 5,
     "change-row-typings": 7,
     "cli-launch-plan-debt": 1,
     "composition-root-forward-refs": 1,
@@ -15,7 +15,7 @@
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
     "publish-computed-fanout": 12,
-    "reexport-shims": 19,
+    "reexport-shims": 22,
     "router-triple-access": 123,
     "send-turn-duplicate": 1,
     "session-shapes": 9,

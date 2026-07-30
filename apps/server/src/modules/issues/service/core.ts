@@ -15,6 +15,14 @@ import {
 import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
 
+interface IssueWireBatch {
+  labelsByIssue: Map<string, string[]>
+  depsByFrom: Map<string, { toId: string; type: string }[]>
+  dependentsByTo: Map<string, { fromId: string; type: string }[]>
+  childrenByParent: Map<string, IssueRow[]>
+  prefixesByRepoPath: Map<string, string | null>
+}
+
 /**
  * IssueService layer 0 — shared state and primitives (issue #190 split).
  *
@@ -108,30 +116,51 @@ export abstract class IssueServiceCore {
   /** Serialize one issue into the session-free transitional legacy shape.
    *  commentCounts batches the comment count for list serializers; single-row
    *  paths run one scalar count. */
-  toWire(row: IssueRow, commentCounts?: Map<string, number>): IssueWire {
+  toWire(row: IssueRow, commentCounts?: Map<string, number>, batch?: IssueWireBatch): IssueWire {
     // Transitional builds remain observable; the D7.2 membership-scan counter
     // has no increment site after the old membership assembly is deleted.
     countIssueWireBuild()
-    const labels = this.deps.store.issues.getIssueLabels(row.id)
-    const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
+    const labels = batch
+      ? (batch.labelsByIssue.get(row.id) ?? [])
+      : this.deps.store.issues.getIssueLabels(row.id)
+    const children = batch
+      ? (batch.childrenByParent.get(row.id) ?? [])
+      : [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     // Wire deps/dependents keep carrying the parent-child edges for client
     // compatibility, but they are SYNTHESIZED from parent_id / children —
     // issue_deps stores only real dependency types (#164).
     const deps = [
-      ...this.deps.store.issues.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type })),
+      ...(batch
+        ? (batch.depsByFrom.get(row.id) ?? [])
+        : this.deps.store.issues.listIssueDeps(row.id)
+      ).map((d) => ({ id: d.toId, type: d.type })),
       ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
     ]
     const dependents = [
-      ...this.deps.store.issues.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
+      ...(batch
+        ? (batch.dependentsByTo.get(row.id) ?? [])
+        : this.deps.store.issues.listDependents(row.id)
+      ).map((d) => ({ id: d.fromId, type: d.type })),
       ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
     ]
     const commentCount = commentCounts
       ? (commentCounts.get(row.id) ?? 0)
       : this.deps.store.issues.countIssueComments(row.id)
-    const blocked = this.computeBlocked(row)
+    const blocked = batch
+      ? isIssueBlocked(
+          row,
+          (batch.depsByFrom.get(row.id) ?? [])
+            .filter((d) => d.type === 'blocks')
+            .map((d) => this.rows.get(d.toId)),
+        )
+      : this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = row.stage !== 'proposed' && !this.isClosed(row) && !deferred && !blocked
-    const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+    let prefix = batch?.prefixesByRepoPath.get(row.repoPath)
+    if (prefix === undefined) {
+      prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+      batch?.prefixesByRepoPath.set(row.repoPath, prefix)
+    }
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
     return {
       id: row.id,
@@ -223,6 +252,31 @@ export abstract class IssueServiceCore {
 
   list(repoPath?: string): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
+    const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
+    const depsByFrom = new Map<string, { toId: string; type: string }[]>()
+    const dependentsByTo = new Map<string, { fromId: string; type: string }[]>()
+    for (const dep of this.deps.store.issues.listAllIssueDeps()) {
+      const outgoing = depsByFrom.get(dep.fromId)
+      if (outgoing) outgoing.push({ toId: dep.toId, type: dep.type })
+      else depsByFrom.set(dep.fromId, [{ toId: dep.toId, type: dep.type }])
+      const incoming = dependentsByTo.get(dep.toId)
+      if (incoming) incoming.push({ fromId: dep.fromId, type: dep.type })
+      else dependentsByTo.set(dep.toId, [{ fromId: dep.fromId, type: dep.type }])
+    }
+    const childrenByParent = new Map<string, IssueRow[]>()
+    for (const row of this.rows.values()) {
+      if (!row.parentId || row.deletedAt) continue
+      const children = childrenByParent.get(row.parentId)
+      if (children) children.push(row)
+      else childrenByParent.set(row.parentId, [row])
+    }
+    const batch: IssueWireBatch = {
+      labelsByIssue,
+      depsByFrom,
+      dependentsByTo,
+      childrenByParent,
+      prefixesByRepoPath: new Map(),
+    }
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .sort((a, b) => {
@@ -230,7 +284,7 @@ export abstract class IssueServiceCore {
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWire(r, commentCounts))
+      .map((r) => this.toWire(r, commentCounts, batch))
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel). */

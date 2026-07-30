@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useRouter } from 'expo-router'
 import { useEffect } from 'react'
@@ -20,11 +21,13 @@ import { IdSquare } from './IdSquare'
 export function TaskPeekSheet({
   issue,
   session,
+  sessions = [],
   onClose,
 }: {
-  issue: IssueWire | null
+  issue: IssueNavigationModel | null
   /** When opened from a session context, "Open session" targets it. */
   session?: SessionMeta
+  sessions?: readonly SessionMeta[]
   onClose: () => void
 }) {
   const router = useRouter()
@@ -41,7 +44,9 @@ export function TaskPeekSheet({
   const now = Date.now()
   // The freshest offer across the task's live agent sessions — the "what's
   // waiting" one-liner the peek leads with.
-  const offer = (issue.sessions ?? [])
+  const memberIds = new Set(issue.memberSessionIds ?? [])
+  const offer = sessions
+    .filter((candidate) => memberIds.has(candidate.sessionId))
     .filter((s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true && s.offer)
     .map((s) => s.offer)
     .sort((a, b) => (b?.createdAt ?? '').localeCompare(a?.createdAt ?? ''))[0]
