@@ -47,7 +47,6 @@ export const sessions = sqliteTable("sessions", {
 	spawnedBy: text("spawned_by"),
 	headless: integer().default(0).notNull(),
 	issueId: text("issue_id"),
-	readAt: text("read_at"),
 	stoppedAt: text("stopped_at"),
 	stopReason: text("stop_reason"),
 	deletedAt: text("deleted_at"),
@@ -144,6 +143,48 @@ export const tabOrder = sqliteTable("tab_order", {
 	updatedAt: text("updated_at").notNull(),
 },
 (table) => [primaryKey({ columns: [table.userId, table.worktree], name: "tab_order_pk"}),
+]);
+
+// PER-USER STATE (POD-1076): the three markers that were singleton columns on the
+// shared entity rows until this migration — ADR 9 D3 rule 4's class, keyed
+// (userId, entityId) over packages/model's one PerUserKey fragment.
+//
+// NO foreign key to `sessions` / `issues` / `issue_messages`, deliberately. A per-user
+// row is not the entity's row (ADR 1 matrix, per-user-state `tombstoneNote`): it follows
+// the USER and cascades on user deletion, and the entity's own deletion path already
+// scrubs these keys explicitly. An ON DELETE CASCADE here would make the entity's
+// lifecycle silently own rows it does not own, which is the confusion the class exists
+// to prevent.
+export const sessionUserState = sqliteTable("session_user_state", {
+	userId: text("user_id").notNull(),
+	sessionId: text("session_id").notNull(),
+	/** When this person last opened it. Row absent = never opened; there is no
+	 *  second spelling, because `markUnread` DELETES the row. */
+	readAt: text("read_at"),
+},
+(table) => [primaryKey({ columns: [table.userId, table.sessionId], name: "session_user_state_pk"}),
+]);
+
+// One row, three markers: they share a key, a writer and a reader (the issue
+// projection), so three tables would be three joins per issue list for no invariant
+// gained. `pinned_at` is a TIMESTAMP where `issues.pinned` was a 0/1 flag — see
+// packages/model/src/user-state/issue-state.ts for why; the wire keeps its boolean.
+export const issueUserState = sqliteTable("issue_user_state", {
+	userId: text("user_id").notNull(),
+	issueId: text("issue_id").notNull(),
+	readAt: text("read_at"),
+	tuckedAt: text("tucked_at"),
+	pinnedAt: text("pinned_at"),
+},
+(table) => [primaryKey({ columns: [table.userId, table.issueId], name: "issue_user_state_pk"}),
+]);
+
+export const issueMessageUserState = sqliteTable("issue_message_user_state", {
+	userId: text("user_id").notNull(),
+	issueMessageId: text("issue_message_id").notNull(),
+	readAt: text("read_at"),
+},
+(table) => [primaryKey({ columns: [table.userId, table.issueMessageId], name: "issue_message_user_state_pk"}),
 ]);
 
 export const conversations = sqliteTable("conversations", {
@@ -467,7 +508,6 @@ export const issueMessages = sqliteTable("issue_messages", {
 	createdAt: text("created_at").notNull(),
 	status: text().default("unread").notNull(),
 	claimedBy: text("claimed_by"),
-	readAt: text("read_at"),
 	claimedAt: text("claimed_at"),
 },
 (table) => [index("idx_issue_messages_issue").on(table.issueId),
@@ -512,13 +552,8 @@ export const issues = sqliteTable("issues", {
 	// When the closed-predicate last flipped true; null while open. The stable
 	// completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
 	closedAt: text("closed_at"),
-	// Tuck-away dismissal (POD-333): ISO time the operator folded this finished
-	// issue into the sidebar's Closed section; null = not tucked. Global
-	// (single-operator, like read_at) so every client agrees; cleared on reopen.
-	tuckedAt: text("tucked_at"),
 	supersededBy: text("superseded_by").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	duplicateOf: text("duplicate_of").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
-	pinned: integer().default(0).notNull(),
 	/** Manual order (POD-168): fractional/lexo-rank string, ascending = top.
 	 *  One key space per sibling scope (project-group top level, a parent's
 	 *  children, PINNED); null = legacy row, sorts after keyed rows. */
@@ -536,7 +571,6 @@ export const issues = sqliteTable("issues", {
 	archived: integer().default(0).notNull(),
 	origin: text().default("human").notNull(),
 	draft: integer().default(0).notNull(),
-	readAt: text("read_at"),
 	audience: text().default("human").notNull(),
 	deletedAt: text("deleted_at"),
 	/** Designated coordinator session for this issue (bare session id). Claimable/

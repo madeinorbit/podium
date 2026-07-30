@@ -60,9 +60,11 @@ export * from './fields/ownership'
 export * from './fields/per-user-key'
 export * from './fields/session'
 
-// The per-user state family itself (POD-1076's home). POD-380 seeded the three
-// members whose state lives in its own table; `user-state/session-state.ts`
-// records which member it deliberately did NOT move, and why.
+// The per-user state family itself (POD-1076). Keyed `(userId, entityId)` over
+// POD-365's one fragment; `user-state/family.ts` is the totality list and records
+// which of inventory §7.1's facts have no server row, and why.
+export * from './user-state/family'
+export * from './user-state/issue-state'
 export * from './user-state/session-state'
 
 // The CANONICAL R1 AGGREGATES (POD-365) — the one definition of what a session
