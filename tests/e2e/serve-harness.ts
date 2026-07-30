@@ -21,7 +21,7 @@ import {
   ConversationDiscoveryCache,
   type LaunchOptions,
   type LaunchSpec,
-} from '@podium/agent-bridge'
+} from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
