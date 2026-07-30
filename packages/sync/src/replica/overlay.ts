@@ -126,11 +126,27 @@ export interface OptimisticOverlayPort {
    * retirement did not land, and no command may be retired against a frame that
    * did not commit.
    *
+   * **The return type admits a PROMISE, and that is load-bearing** (POD-1158). A
+   * durable outbox store is asynchronous — `OutboxStorePort.read`/`apply` return
+   * promises because IndexedDB and SQLite do — while every `SyncSpan` hook is
+   * synchronous by decision, because an IndexedDB transaction auto-closes on an
+   * unrelated await. Those two compose only if the enrolment itself may be awaited
+   * somewhere that is allowed to await: `SyncUnitOfWork.transact`'s BODY. So the
+   * Replica awaits this call inside that body, and the hooks it registers stay
+   * synchronous.
+   *
+   * Before this, `retire` returned `void` and the Replica committed its own span
+   * synchronously, so an async participant could never enrol: the span had already
+   * settled by the time `retireAllApplied` reached `span.join`. Measured against both
+   * real kernels, the result was a cursor advanced past a frame whose confirmed
+   * command was still durable and stuck in `applied` — the torn state D10 forbids, on
+   * the normal path, with no crash involved.
+   *
    * Only changes that were ACTUALLY APPLIED contribute. A frame that was dropped,
    * rejected at rung 3, or left buffered contributes nothing — retiring a command
    * whose effect never landed would tell the user their write was accepted when it
    * was not. A cache discard (rung 2-6, `rescope` included) contributes nothing
    * either, and must never reach this method at all.
    */
-  retire(matches: readonly RetirementIntent[], span?: SyncSpan): void
+  retire(matches: readonly RetirementIntent[], span?: SyncSpan): void | PromiseLike<void>
 }

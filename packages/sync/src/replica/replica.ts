@@ -42,9 +42,10 @@ import {
   type CacheMutation,
   type CacheOperation,
   type KnownKindValidatorPort,
-  type ReplicaCacheStore,
+  type ReplicaParticipantStore,
   ReplicaStoreCorruptError,
   type SyncSpan,
+  type SyncUnitOfWork,
 } from './ports'
 import { transitionRow } from './transition-table'
 import type {
@@ -63,10 +64,30 @@ import type {
 } from './types'
 
 export interface ReplicaOptions {
-  readonly store: ReplicaCacheStore
+  /**
+   * The cache port, NARROWED: no `beginSpan` (POD-1158). The Replica participates in
+   * a transaction; it never opens or settles one.
+   */
+  readonly store: ReplicaParticipantStore
   readonly authority: AuthorityReadPort
   /** Optional until POD-372/POD-351 land real reducers. Absent ⇒ the view is the base. */
   readonly overlay?: OptimisticOverlayPort
+  /**
+   * ADR 2 D10's transaction boundary, owned by whoever COMPOSES the hop (POD-1158).
+   *
+   * REQUIRED whenever `overlay` is supplied, and refused at construction otherwise.
+   * That pairing is the whole guard: an overlay means retirements can arrive, a
+   * retirement plus a cache write is a MULTI-REGION commit, and a multi-region commit
+   * with no unit of work is precisely the D10 non-compliance. Making it a constructor
+   * error rather than a per-commit fallback means the non-compliant configuration
+   * cannot be reached silently — it cannot be reached at all.
+   *
+   * The Replica only ever sees the `SyncSpan` this hands to `transact`'s body, so it
+   * gains no way to commit or abort. The asynchrony a durable store needs lives in
+   * that body, which is where ADR 2 always allowed it, while every hook registered
+   * inside stays synchronous — the IndexedDB auto-close rule is untouched.
+   */
+  readonly unitOfWork?: SyncUnitOfWork
   /**
    * ADR 2 D7 rung 3's known-kind check. Absent ⇒ no kind is known ⇒ everything is
    * parsed leniently (D4), which is the correct posture for a kernel that has not
@@ -88,10 +109,27 @@ export interface TransitionOutcome {
 
 const entityKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 
+/**
+ * A multi-region commit was required and no `SyncUnitOfWork` was supplied.
+ *
+ * Its own type rather than a bare `Error` because it is a WIRING fault, not a
+ * runtime condition: nothing at run time can satisfy it and no retry can help. It is
+ * thrown from the constructor, so it fires before any frame has been accepted.
+ */
+export class SyncUnitOfWorkRequiredError extends Error {
+  constructor() {
+    super(
+      'a Replica with an optimistic overlay must be given a SyncUnitOfWork: a retirement plus a cache write is one multi-region commit (ADR 2 D10), and committing them separately is the non-compliance POD-1158 measured',
+    )
+    this.name = 'SyncUnitOfWorkRequiredError'
+  }
+}
+
 export class Replica {
-  private readonly store: ReplicaCacheStore
+  private readonly store: ReplicaParticipantStore
   private readonly authority: AuthorityReadPort
   private readonly overlayPort: OptimisticOverlayPort | undefined
+  private readonly unitOfWork: SyncUnitOfWork | undefined
   private readonly validator: KnownKindValidatorPort | undefined
   private readonly emit: (event: ReplicaEvent) => void
   private readonly maxBootstrapAttempts: number
@@ -137,6 +175,10 @@ export class Replica {
     this.store = options.store
     this.authority = options.authority
     this.overlayPort = options.overlay
+    this.unitOfWork = options.unitOfWork
+    if (this.overlayPort !== undefined && this.unitOfWork === undefined) {
+      throw new SyncUnitOfWorkRequiredError()
+    }
     this.validator = options.validator
     this.emit = options.onEvent ?? (() => {})
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
@@ -372,7 +414,13 @@ export class Replica {
       return this.outcome('D7-1-GAP', from)
     }
 
-    return this.outcome(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }), from)
+    // The row is decided synchronously; the COMMIT may not be, because a
+    // multi-region commit belongs to a unit of work this class does not own
+    // (POD-1158). Tracking it on `inflight` is what makes `settled()` cover it, and
+    // what makes a refused commit surface there rather than vanish.
+    const { row, done } = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+    this.run(() => done)
+    return this.outcome(row, from)
   }
 
   /**
@@ -380,14 +428,28 @@ export class Replica {
    * the cursor is never ahead of the data it claims. Returns the transition row
    * that best describes what the frame carried.
    */
-  private commitChanges(changes: readonly ChangeEnvelope[], nextCursor: Cursor): string {
-    this.commitRegions(retirementsOf([changes]), (span) => {
-      this.store.applyAtomic(toMutation(changes, nextCursor), span)
-    })
-    this.cursorValue = nextCursor
-    this.counters.pendingGap = false
-
-    return this.emitApplied(changes, nextCursor)
+  private commitChanges(
+    changes: readonly ChangeEnvelope[],
+    nextCursor: Cursor,
+  ): { readonly row: string; readonly done: Promise<void> } {
+    // Classified BEFORE the commit, from the pre-frame exit state — the same inputs
+    // `emitApplied` classifies from, through the same function, so the row this
+    // returns and the row the emission reports cannot drift. That matters because a
+    // multi-region commit now resolves asynchronously, and the transition row must
+    // still be available to the synchronous caller.
+    const row = this.classify(changes)
+    const done = this.commitRegions(
+      retirementsOf([changes]),
+      (span) => {
+        this.store.applyAtomic(toMutation(changes, nextCursor), span)
+      },
+      () => {
+        this.cursorValue = nextCursor
+        this.counters.pendingGap = false
+        this.emitApplied(changes, nextCursor)
+      },
+    )
+    return { row, done }
   }
 
   /**
@@ -412,25 +474,36 @@ export class Replica {
   private commitRegions(
     retirements: readonly RetirementIntent[],
     write: (span?: SyncSpan) => void,
-  ): void {
+    adopt: () => void,
+  ): Promise<void> {
     const overlay = this.overlayPort
     if (overlay === undefined || retirements.length === 0) {
+      // ONE REGION. D10 clause 2 permits an autocommit explicitly, and a span here
+      // would add a unit of work whose commit and abort are already the store write's
+      // own. Named `single-region autocommit` so it is not mistaken for a fallback:
+      // the multi-participant path CANNOT reach it, because reaching it requires
+      // `retirements` to be empty, and an empty batch enrols no second participant.
       write()
-      return
+      adopt()
+      // Already durable and already adopted. A resolved promise keeps ONE return type
+      // for both arms, so a caller cannot forget to await the arm that needs it.
+      return Promise.resolve()
     }
-    const span = this.store.beginSpan()
-    try {
-      write(span)
-      // ONE ordered batch for the whole transaction, never a call per change.
-      overlay.retire(retirements, span)
-      span.commit()
-    } catch (error) {
-      // Abort discards every participant's draft: the cache keeps its pre-frame
-      // contents and not one command is retired. A partial commit here is the
-      // resurrection bug in its worst form — retired but never applied.
-      span.abort()
-      throw error
-    }
+    // MULTI-REGION. The boundary belongs to the unit of work, never to this class.
+    // Guaranteed present: the constructor refuses an overlay without one.
+    const unitOfWork = this.unitOfWork as SyncUnitOfWork
+    return unitOfWork.transact(async (span) => {
+        // The ASYNC enrolment first, and AWAITED. This is the line POD-1158 exists
+        // for: a durable outbox store cannot enrol synchronously, and `transact`'s
+        // body is the one place allowed to await. Doing it before the cache write also
+        // means a refusal costs nothing — no region has staged yet.
+        await overlay.retire(retirements, span)
+        write(span)
+        // Strictly AFTER durability, through the span's own protocol. Nothing the
+        // Replica observes — cursor, exits, public events — escapes before the commit,
+        // and an abort simply never runs this, so there is nothing to undo.
+        span.onCommit(adopt)
+    })
   }
 
   /**
@@ -450,7 +523,47 @@ export class Replica {
    * commit, which has already happened by the time anything is emitted.
    * `retirementsOf` derives it from the same envelopes, before the commit.
    */
+  /**
+   * Which transition row a frame's contents take, as a PURE function of the changes
+   * and the pre-frame exit state.
+   *
+   * Extracted so the row is decided in exactly one place. `commitChanges` needs it
+   * before the commit (a multi-region commit resolves asynchronously, and its caller
+   * still returns a `TransitionOutcome` synchronously) and `emitApplied` returns it
+   * after. Two copies of this classification would be two answers to one question,
+   * which is the drift this programme is deleting — so there is one, and
+   * `emitApplied` calls it rather than recomputing.
+   */
+  private classify(changes: readonly ChangeEnvelope[]): string {
+    if (changes.length === 0) return 'D13-WATERMARK'
+    // Walked against an exit state that EVOLVES across the frame, exactly as the
+    // emission does: evict(seq 1) then a same-revision upsert(seq 2) of one entity is
+    // a re-admission, and a pre-frame snapshot would call it a creation.
+    const exits = new Map(this.exits)
+    let sawEvict = false
+    let sawRemove = false
+    let sawReadmit = false
+    for (const change of changes) {
+      const key = entityKey(change.entity, change.entityId)
+      if (change.op === 'upsert') {
+        sawReadmit ||= exits.get(key) === 'evicted'
+        exits.delete(key)
+      } else if (change.op === 'remove') {
+        sawRemove = true
+        exits.set(key, 'removed')
+      } else {
+        sawEvict = true
+        exits.set(key, 'evicted')
+      }
+    }
+    if (sawEvict) return 'D14-EVICT'
+    if (sawRemove) return 'D5-REMOVE'
+    if (sawReadmit) return 'D14-READMIT'
+    return 'D7-0-APPLY'
+  }
+
   private emitApplied(changes: readonly ChangeEnvelope[], cursor: Cursor): string {
+    const row = this.classify(changes)
     let sawEvict = false
     let sawRemove = false
     let sawReadmit = false
@@ -493,11 +606,13 @@ export class Replica {
     this.counters.framesApplied += 1
     this.emit({ type: 'cursor', cursor, watermarkOnly })
 
-    if (watermarkOnly) return 'D13-WATERMARK'
-    if (sawEvict) return 'D14-EVICT'
-    if (sawRemove) return 'D5-REMOVE'
-    if (sawReadmit) return 'D14-READMIT'
-    return 'D7-0-APPLY'
+    // `classify` is the ONE answer, and the locals above are what the emission loop
+    // needed anyway. Asserting they agree here would be a comment; `replica.test.ts`
+    // pins it instead, over a table of frames, the way `applyMutation` is pinned.
+    void sawEvict
+    void sawRemove
+    void sawReadmit
+    return row
   }
 
   // ─── Rung 1: heal ─────────────────────────────────────────────────────────
@@ -544,10 +659,12 @@ export class Replica {
         return
       }
 
-      this.note(this.commitChanges(reply.changes, { ...cursor, seq: reply.seq }))
+      const healed = this.commitChanges(reply.changes, { ...cursor, seq: reply.seq })
+      await healed.done
+      this.note(healed.row)
       this.note('D7-1-HEALED')
       this.setPosture('live')
-      this.drainBuffer()
+      await this.drainBuffer()
     })
   }
 
@@ -560,7 +677,7 @@ export class Replica {
    * from it and nothing to lose by discarding it. That is not the acceptance of
    * an overlapping frame — nothing from it reaches the store.
    */
-  private drainBuffer(): void {
+  private async drainBuffer(): Promise<void> {
     const buffered = this.buffer
     this.buffer = []
     for (let i = 0; i < buffered.length; i += 1) {
@@ -580,7 +697,9 @@ export class Replica {
         this.startHeal()
         return
       }
-      this.note(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }))
+      const applied = this.commitChanges(frame.changes, { ...cursor, seq: frame.seq })
+      await applied.done
+      this.note(applied.row)
     }
   }
 
@@ -715,15 +834,15 @@ export class Replica {
     if (head === null || !sawLast) return false
     if (generation !== this.walkGeneration) return false
 
-    this.install(cause, head, staging)
+    await this.install(cause, head, staging)
     return true
   }
 
-  private install(
+  private async install(
     cause: RebootstrapCause,
     head: { feedId: string; epoch: string; snapshotSeq: number },
     staging: Map<string, EntityRecord>,
-  ): void {
+  ): Promise<void> {
     const snapshotCursor: Cursor = {
       feedId: head.feedId,
       epoch: head.epoch,
@@ -770,30 +889,39 @@ export class Replica {
     // retiring a command whose effect never landed would tell the user their write
     // was accepted when it was not. `emissions` is exactly the included set, which
     // is why the batch is derived from it rather than from `buffered`.
-    this.commitRegions(retirementsOf(emissions.map((emission) => emission.changes)), (span) => {
-      this.store.installSnapshot(rows, snapshotCursor, mutations, span)
-    })
-    this.note('D6-INSTALL')
-    this.cursorValue = running
-    this.exits.clear()
+    // The ENTIRE post-commit tail lives in `adopt`, not merely part of it. Splitting
+    // it was a real bug while this was being written: `setPosture('live')` ran before
+    // the transaction committed, so `D6-INSTALL` was later recorded from a posture the
+    // table does not declare and the transition-table totality test caught it.
+    // Everything an observer can see about an install belongs on one side of
+    // durability.
+    await this.commitRegions(
+      retirementsOf(emissions.map((emission) => emission.changes)),
+      (span) => {
+        this.store.installSnapshot(rows, snapshotCursor, mutations, span)
+      },
+      () => {
+        this.note('D6-INSTALL')
+        this.cursorValue = running
+        this.exits.clear()
 
-    for (const row of rows) this.emit({ type: 'upserted', record: row, readmitted: false })
-    this.emit({
-      type: 'bootstrap-installed',
-      cause,
-      snapshotSeq: head.snapshotSeq,
-      entityCount: rows.length,
-      bufferedFramesApplied: mutations.length,
-    })
-    // Same emission semantics as the live and heal paths — one function, so a
-    // change applied through a bootstrap is projected exactly as a change applied
-    // live is. Retirement was enrolled in the install transaction above.
-    for (const emission of emissions) {
-      this.emitApplied(emission.changes, emission.cursor)
-    }
+        for (const row of rows) this.emit({ type: 'upserted', record: row, readmitted: false })
+        this.emit({
+          type: 'bootstrap-installed',
+          cause,
+          snapshotSeq: head.snapshotSeq,
+          entityCount: rows.length,
+          bufferedFramesApplied: mutations.length,
+        })
+        // Same emission semantics as the live and heal paths — one function, so a
+        // change applied through a bootstrap is projected exactly as a change applied
+        // live is. Retirement was enrolled in the install transaction above.
+        for (const emission of emissions) {
+          this.emitApplied(emission.changes, emission.cursor)
+        }
 
-    this.setPosture('live')
-    if (gapAt >= 0) {
+        this.setPosture('live')
+        if (gapAt >= 0) {
       // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
       // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
       // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->
@@ -805,11 +933,13 @@ export class Replica {
       // Recorded against 'bootstrapping': the install transaction has already
       // committed (which is why the posture reads live), but this row describes
       // what the WALK found in its leftover buffer.
-      this.note('D6-INSTALL-GAP', 'bootstrapping')
-      this.buffer = []
-      this.counters.pendingGap = true
-      this.startHeal()
-    }
+          this.note('D6-INSTALL-GAP', 'bootstrapping')
+          this.buffer = []
+          this.counters.pendingGap = true
+          this.startHeal()
+        }
+      },
+    )
   }
 
   // ─── Rung 5 ───────────────────────────────────────────────────────────────

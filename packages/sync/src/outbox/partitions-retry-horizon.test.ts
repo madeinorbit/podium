@@ -658,6 +658,13 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
     readonly replica: Replica
     readonly clock: ManualClock
     readonly authority: ScriptedAuthority
+    /**
+     * EMPTY by construction now, and kept deliberately: the `await Promise.all(...)`
+     * calls below read as the harness waiting for retirement, and the honest answer is
+     * that `replica.settled()` is what waits for it since the retirement is enrolled in
+     * the replica's transaction. Deleting the field would have meant touching every
+     * case; leaving it named for what it now is says the same thing in one place.
+     */
     readonly retirements: Promise<void>[]
   }
 
@@ -683,26 +690,38 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
       // exercises. Nothing here tests the overlay; the reducer is incidental to the
       // dedupe-horizon assertions below.
       reduce: (base) => ({ kind: 'value', value: base }) as const,
-      retire: (matches) => {
+      retire: (matches, span) => {
         // The Replica reports the facts; what the outbox does with them is the
         // outbox's own lifecycle — note the apply, then retire after covering truth.
+        //
+        // POD-1158: this used to push the work onto a side array and call
+        // `retireAllApplied(ids)` with NO SPAN, because the Replica committed its own
+        // span synchronously and an async participant could not enrol in it. That
+        // sidestep was correct for a fixture and is the D10 non-compliance as
+        // production wiring, so with the seam fixed it is now the REAL wiring: the
+        // promise is RETURNED, the Replica awaits it inside `transact`'s body, and the
+        // retirement lands in the same transaction as the cache write and the cursor.
         const ids = matches
           .map((m) => m.mutationId)
           .filter((id): id is string => id !== undefined) as MutationId[]
-        retirements.push(
-          (async () => {
-            for (const id of ids) {
-              if (h.outbox.find(id)?.state === 'accepted') await h.outbox.noteApplied(id)
-            }
-            await h.outbox.retireAllApplied(ids)
-          })(),
-        )
+        return (async () => {
+          for (const id of ids) {
+            if (h.outbox.find(id)?.state === 'accepted') await h.outbox.noteApplied(id)
+          }
+          await h.outbox.retireAllApplied(ids, span)
+        })()
       },
     }
     const store = new InMemoryReplicaStore()
     const feed = new FakeAuthority()
     feed.slice = { snapshotSeq: 0, rows: [] }
-    const replica = new Replica({ store: store.cache, authority: feed, overlay })
+    const replica = new Replica({
+      store: store.cache,
+      authority: feed,
+      overlay,
+      // The transaction boundary, owned by the store rather than by the Replica.
+      unitOfWork: store.unitOfWork,
+    })
     replica.connect()
     await replica.settled()
     return { outbox: h.outbox, replica, clock: h.clock, authority: h.authority, retirements }
