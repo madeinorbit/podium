@@ -4,6 +4,12 @@ import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
+import {
+  FeedBootstrapMessage,
+  FeedDeltaMessage,
+  FeedRescopeMessage,
+  FeedResyncRequiredMessage,
+} from './feed'
 import { HeadlessActivityMessage } from './headless'
 import {
   AttentionEventMessage,
@@ -77,6 +83,10 @@ export const ServerMessage = z.discriminatedUnion('type', [
   IssuesChangedMessage,
   IssueUpdatedMessage,
   MetadataDeltaMessage,
+  FeedDeltaMessage,
+  FeedBootstrapMessage,
+  FeedRescopeMessage,
+  FeedResyncRequiredMessage,
   AutomationsChangedMessage,
   AutomationRunsChangedMessage,
   SessionOpenUrlMessage,

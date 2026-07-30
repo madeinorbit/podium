@@ -10,6 +10,7 @@ import daemon from './daemon.json' with { type: 'json' }
 import daemonHandshake from './daemon-handshake.json' with { type: 'json' }
 import discovery from './discovery.json' with { type: 'json' }
 import featureState from './feature-state.json' with { type: 'json' }
+import feed from './feed.json' with { type: 'json' }
 import files from './files.json' with { type: 'json' }
 import handoff from './handoff.json' with { type: 'json' }
 import harness from './harness.json' with { type: 'json' }
@@ -39,6 +40,7 @@ export const GOLDEN: Record<string, unknown> = {
   'daemon-handshake': daemonHandshake,
   discovery: discovery,
   'feature-state': featureState,
+  feed: feed,
   files: files,
   handoff: handoff,
   harness: harness,

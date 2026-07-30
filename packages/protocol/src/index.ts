@@ -35,6 +35,7 @@ export {
   SessionId,
   ThreadId,
 } from '@podium/model'
+export * from './edge'
 export * from './maintenance'
 export * from './messages'
 export * from './perf'

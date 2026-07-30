@@ -63,7 +63,17 @@ const setup = (visibility: VisibilityResolver = allowAll, live = true) => {
 }
 
 const frame = (fromSeq: number, seq: number, changes: ScopedDeltaFrame['changes'] = []) =>
-  ({ feedId: 'f', epoch: 1, fromSeq, seq, changes }) satisfies ScopedDeltaFrame
+  ({
+    feedId: 'f',
+    // An OPAQUE epoch (ADR 2 D1). It was `1` here, which the kernel's
+    // `assertOpaqueEpoch` refuses outright as a counter — the port and the
+    // minting boundary could never have met. POD-308 lands the wire, so they do.
+    epoch: 'e-01J0',
+    fromSeq,
+    seq,
+    minAvailableSeq: 0,
+    changes,
+  }) satisfies ScopedDeltaFrame
 
 describe('the control port carries three classes and no more', () => {
   it('declares control · entity, command and handshake', () => {
@@ -188,11 +198,11 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
   })
 
   it('advances the cursor over a suppressed range, and rejects a gap', () => {
-    const cursor = { feedId: 'f', epoch: 1, seq: 10 }
+    const cursor = { feedId: 'f', epoch: 'e-01J0', seq: 10 }
     expect(acceptsAtCursor(cursor, frame(10, 42))).toBe(true)
     // A lost frame is caught by the explicit lower bound — the whole point.
     expect(acceptsAtCursor(cursor, frame(11, 42))).toBe(false)
-    expect(acceptsAtCursor({ ...cursor, epoch: 2 }, frame(10, 42))).toBe(false)
+    expect(acceptsAtCursor({ ...cursor, epoch: 'e-01J1' }, frame(10, 42))).toBe(false)
   })
 
   it('refuses to send a frame that does not certify a well-formed range', () => {
@@ -241,7 +251,7 @@ describe('rescope and evict — and the prohibition on reusing remove', () => {
     const rescope: RescopeFrame = {
       type: 'rescope',
       feedId: 'f',
-      epoch: 1,
+      epoch: 'e-01J0',
       seq: 77,
       cause: 'rights-changed',
     }

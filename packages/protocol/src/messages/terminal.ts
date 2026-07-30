@@ -1,5 +1,6 @@
 import { AgentKind, Geometry, ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
+import { FeedCursorField } from './feed'
 
 const positiveInt = z.number().int().positive()
 
@@ -215,6 +216,23 @@ export const HelloMessage = z.object({
   // Optional feature negotiation. Absent (older clients) = no capabilities: the
   // server keeps its legacy behavior for this client, so this field is additive.
   caps: z.array(z.string()).optional(),
+  /**
+   * The wire version this build speaks (POD-308). ABSENT MEANS 1, and that is
+   * the only reading available: a pre-cutover client cannot be made to send a
+   * field it was never built with, so the absence IS the advertisement. Every
+   * newer build sends it, so absence stays unambiguous as the window moves.
+   */
+  wireVersion: z.number().int().positive().optional(),
+  /**
+   * Where this replica's cache stands, so the server can pick a rung of ADR 2
+   * D7's ladder instead of re-sending everything (`feedCursor.seq` resumes;
+   * absent, or a foreign `feedId`/`epoch`, re-bootstraps).
+   *
+   * The whole triple or nothing — ADR 2 D1: a bare seq is meaningless, and a seq
+   * presented against a rolled epoch is worse than meaningless, because it is
+   * resumable-looking.
+   */
+  feedCursor: FeedCursorField.optional(),
 })
 export const AttachMessage = z.object({
   type: z.literal('attach'),

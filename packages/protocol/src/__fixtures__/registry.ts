@@ -37,6 +37,7 @@ import * as daemon from '../messages/daemon'
 import * as daemonHandshake from '../messages/daemon-handshake'
 import * as discovery from '../messages/discovery'
 import * as dispatch from '../messages/dispatch'
+import * as feed from '../messages/feed'
 import * as files from '../messages/files'
 import * as handoff from '../messages/handoff'
 import * as harness from '../messages/harness'
@@ -69,6 +70,7 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['daemon-handshake', daemonHandshake],
   ['discovery', discovery],
   ['dispatch', dispatch],
+  ['feed', feed],
   ['files', files],
   ['handoff', handoff],
   ['harness', harness],
