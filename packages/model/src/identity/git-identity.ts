@@ -5,9 +5,10 @@
  * userinfo, and port are all stripped. Non-URL input is returned trimmed (so a
  * remote-less repo still only matches itself).
  *
- * Canonical home (#194): moved from @podium/runtime/git.ts (which now re-exports it)
- * so browser-safe consumers (client-core's viewmodels, shared with the mobile
- * app) can import it directly instead of hand-copying it.
+ * THE canonical home (#194, POD-299): moved here from @podium/runtime/git.ts so
+ * browser-safe consumers (client-core's viewmodels, shared with the mobile app)
+ * can import it directly instead of hand-copying it. That file kept a re-export
+ * shim for a while; POD-299 DELETED it, so this is the only definition.
  */
 export function normalizeOriginUrl(raw: string | undefined): string {
   if (!raw) return ''
