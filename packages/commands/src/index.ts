@@ -16,6 +16,8 @@
 export {
   type AnyCommandContract,
   type AttributionPolicy,
+  type AuthoredAttribution,
+  type OptimisticEffect,
   type CommandAction,
   type CommandContract,
   type CommandContractBase,
@@ -74,6 +76,14 @@ export {
   spawnAgentContract,
   spawnAgentInput,
 } from './mail/contracts'
+export {
+  RENAME_REJECTIONS,
+  type SessionRenameInput,
+  type SessionRenameOutcome,
+  sessionRenameContract,
+  sessionRenameInput,
+  sessionRenameReducer,
+} from './sessions/rename'
 export {
   deliversUnwrapped,
   exemptFromBrakes,

@@ -83,6 +83,7 @@ import {
   type SessionCommandResult,
 } from './command-plane'
 import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
+import { dispatchRename } from './rename-adapter'
 
 // ---------------------------------------------------------------------------
 // Presence class
@@ -90,6 +91,10 @@ import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
 
 /** Every dotted presence-contract name, as a type. */
 type PresenceName = keyof typeof sessionPresenceInputs
+
+/** The one command POD-351 moved to the target path. Named once so the manifest,
+ *  the builder and any future migration cannot disagree about which it is. */
+const RENAME_NAME = 'sessions.rename' as const
 
 /**
  * The presence contracts served over tRPC — the type-level half of the exposure
@@ -193,6 +198,67 @@ export function presencePrincipal(ctx: Context) {
 }
 
 // ---------------------------------------------------------------------------
+// The walking skeleton (POD-351)
+// ---------------------------------------------------------------------------
+
+/**
+ * `sessions.rename` ON THE TARGET PATH — POD-351's join, re-pointed into POD-382's
+ * derived surface.
+ *
+ * ## Why this is a fourth source and not a presence procedure
+ *
+ * Every OTHER presence contract is served by `presenceProcedure`, which runs the
+ * `PresenceRegistry` envelope. Rename is the one command the walking skeleton moved
+ * to the TARGET path: the `@podium/commands` contract, the real `CommandPrincipal`
+ * with its delegation chain resolved live, and the contract's accept/reject outcome
+ * union. `dispatchRename` chooses between that and the legacy presence envelope on
+ * the flag, so BOTH paths stay reachable from one call site — which is what the
+ * shadow comparison requires and what makes `PODIUM_SESSION_RENAME_PATH=legacy` a
+ * real rollback rather than a dead branch.
+ *
+ * Declaring it as its own source rather than special-casing inside
+ * `presenceProcedure` keeps that visible in the MANIFEST: the audit and any reader
+ * can see exactly which commands are on which envelope, and a second command
+ * migrating later is a row that changes rather than a condition someone has to find.
+ *
+ * ## What it still shares with the presence class, and why that is not a compromise
+ *
+ * It stays in `TRPC_PRESENCE_NAMES` and keeps its presence contract, because that
+ * contract is still what declares its exposure and its policy — and the both-
+ * directions exposure cross-check in `presenceEntries()` must keep covering it.
+ * `@podium/commands`' `sessionRenameContract` COMPOSES that same input schema
+ * instance (asserted with `toBe` in `packages/commands/src/sessions/rename.test.ts`),
+ * so there is one schema object and the two envelopes cannot diverge on the wire.
+ *
+ * ## The return type stays `void`, deliberately
+ *
+ * The presence class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
+ * Surfacing the target path's richer outcome to THIS transport would make a denial
+ * distinguishable from a not-found and turn the procedure into an existence oracle.
+ * The outcome is not discarded — it is what the outbox drain reads to dead-letter a
+ * rejected offline write (POD-316), where the caller is already authorized and the
+ * reason leaks nothing.
+ */
+function renameProcedure(): PresenceProcedure<'sessions.rename'> {
+  return t.procedure
+    .input(sessionPresenceInputs['sessions.rename'])
+    .mutation(({ ctx, input }): void => {
+      const modules = mods(ctx)
+      dispatchRename(
+        {
+          sessions: modules.sessions,
+          mutations: modules.mutations,
+          principal: sessionCommandCtx(modules, ctx.capability).principal,
+          legacyPrincipal: presencePrincipal(ctx),
+          // The rollback envelope, built lazily — the target path is the default.
+          legacyRegistry: () => presenceRegistryFor(ctx),
+        },
+        input,
+      )
+    }) as PresenceProcedure<'sessions.rename'>
+}
+
+// ---------------------------------------------------------------------------
 // Command plane
 // ---------------------------------------------------------------------------
 
@@ -271,7 +337,12 @@ function handoffProcedure(): HandoffProcedure {
 // ---------------------------------------------------------------------------
 
 /** Which envelope serves a derived procedure. */
-export type SessionSurfaceSource = 'presence' | 'command-plane' | 'handoff' | 'mail'
+export type SessionSurfaceSource =
+  | 'presence'
+  | 'command-plane'
+  | 'handoff'
+  | 'mail'
+  | 'walking-skeleton'
 
 /**
  * ONE ROW PER DERIVED MUTATION — the manifest the cutover audit reads.
@@ -335,7 +406,11 @@ function presenceEntries(): SessionSurfaceEntry[] {
       name,
       router: name.slice(0, dot),
       key: name.slice(dot + 1),
-      source: 'presence' as const,
+      // POD-351: rename is served by the TARGET path, not the presence envelope.
+      // Its exposure and policy are still the presence contract's — which is why it
+      // stays in this walk and keeps its both-directions exposure check above — but
+      // which envelope RUNS it is a different fact, and the manifest records it.
+      source: name === RENAME_NAME ? ('walking-skeleton' as const) : ('presence' as const),
     }
   })
 }
@@ -405,11 +480,13 @@ export function sessionFamilyProcedures(): {
     const bucket = grouped[entry.router]
     if (!bucket) throw new Error(`no router bucket for ${entry.name}`)
     bucket[entry.key] =
-      entry.source === 'presence'
-        ? presenceProcedure(entry.name as TrpcPresenceName)
-        : entry.source === 'handoff'
-          ? handoffProcedure()
-          : planeProcedure(entry.key as SessionCommandKey)
+      entry.source === 'walking-skeleton'
+        ? renameProcedure()
+        : entry.source === 'presence'
+          ? presenceProcedure(entry.name as TrpcPresenceName)
+          : entry.source === 'handoff'
+            ? handoffProcedure()
+            : planeProcedure(entry.key as SessionCommandKey)
   }
   return grouped as unknown as ReturnType<typeof sessionFamilyProcedures>
 }

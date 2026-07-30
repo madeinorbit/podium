@@ -40,7 +40,7 @@
  * command's recorded attribution, never chosen (see `provisionalOwner`).
  */
 
-import type { OptimisticEffect, PendingMutation } from './overlay'
+import type { OptimisticEffect, PendingAttribution, PendingMutation } from './overlay'
 import type { EntityRecord, ExitKind } from './types'
 
 /** Everything the projection is allowed to see. Note what is not here: no principal. */
@@ -55,7 +55,27 @@ export interface OverlayInputs {
   /** Pending commands for this entity, in AUTHOR ORDER. Supplied by the outbox (POD-370). */
   readonly pending: readonly PendingMutation[]
   /** The reducer port (`OptimisticOverlayPort.reduce`), passed as a function. */
-  readonly reduce: (base: unknown | undefined, command: unknown) => OptimisticEffect
+  readonly reduce: (
+    base: unknown | undefined,
+    command: unknown,
+    authored?: PendingAttribution,
+  ) => OptimisticEffect
+}
+
+/**
+ * A pending command the reducer predicts the authority will REFUSE, with the
+ * reason to show (POD-351).
+ *
+ * It is reported as a separate list rather than folded into `unapplied` because
+ * the UI has two different things to say. `unapplied` means "queued, effect
+ * unknown" and renders as in-flight; this means "queued, and we expect this
+ * answer" and renders as the reject-and-rebase affordance POD-316 owns. Merging
+ * them would make the routine multi-user path (readiness §3.3) indistinguishable
+ * from the ordinary one, which is how a rejection gets silently swallowed.
+ */
+export interface RejectedPrediction {
+  readonly mutationId: string
+  readonly reason: string
 }
 
 /** Where the rendered value came from. `none` ⇒ there is nothing to render. */
@@ -80,6 +100,19 @@ export interface OverlayRow {
    */
   readonly unapplied: readonly string[]
   /**
+   * The subset of `unapplied` whose non-effect was PREDICTED, with its reason
+   * (POD-351). Always a subset: a predicted refusal is by definition not
+   * reflected in `value`, so it is reported in both places — `unapplied` keeps
+   * being the complete "not shown here" set for a caller that only needs the
+   * count, and this list carries the reason for one that renders it.
+   *
+   * Empty for every entity whose pending commands are all applied or all
+   * effect-unknown, which is the overwhelming majority. It is NOT optional: a
+   * caller that wants to surface rejections must not have to distinguish "none"
+   * from "this projection does not report them".
+   */
+  readonly rejected: readonly RejectedPrediction[]
+  /**
    * Provisional owner for a row that only the overlay materialises — readiness
    * §3.1.3 A4: entities an agent creates are owned by its ON-BEHALF-OF HUMAN,
    * with the agent as actor. Copied verbatim from the command's recorded
@@ -97,13 +130,23 @@ export interface OverlayRow {
   readonly provisionalActor?: unknown
 }
 
-/** Nothing to render, with every pending command reported as unapplied. */
+/**
+ * Nothing to render, with every pending command reported as unapplied.
+ *
+ * `rejected` is EMPTY here even though nothing will apply, and that is the
+ * correct answer rather than an oversight: an entity that left the view took its
+ * overlay with it before any reducer ran (rule 2), so there is no prediction to
+ * report. Filling this in would mean claiming a per-command reason nobody
+ * derived — and for an `evict` the honest reason is a revoked share, which is
+ * precisely the visibility fact this file is forbidden to know.
+ */
 const dropped = (pending: readonly string[]): OverlayRow => ({
   present: false,
   value: undefined,
   origin: 'none',
   pending,
   unapplied: pending,
+  rejected: [],
 })
 
 /**
@@ -129,15 +172,33 @@ export const computeOverlay = (inputs: OverlayInputs): OverlayRow => {
   let origin: OverlayOrigin = present ? 'authority' : 'none'
   let materialisedBy: PendingMutation | undefined
   const unapplied: string[] = []
+  const rejected: RejectedPrediction[] = []
 
   for (const mutation of inputs.pending) {
     // `undefined` when there is no row, so a reducer can tell "create" from
-    // "update" without being told anything about the slice.
-    const effect = inputs.reduce(present ? value : undefined, mutation.command)
+    // "update" without being told anything about the slice. The authored
+    // attribution goes through VERBATIM — see the port's note on why the reducer
+    // needs it and why forwarding it is not an inspection.
+    const effect = inputs.reduce(present ? value : undefined, mutation.command, mutation.attribution)
 
     if (effect.kind === 'no-reducer') {
       // Rule 3. The command stays visible as pending; the value does not move.
       unapplied.push(mutation.mutationId)
+      continue
+    }
+
+    if (effect.kind === 'rejected') {
+      // A PREDICTED refusal (POD-351). The value does not move — same as
+      // `no-reducer` — but the reason is carried out so the UI can offer the
+      // reject-and-rebase path instead of an indefinite spinner.
+      //
+      // The fold CONTINUES rather than breaking. A later command over the same
+      // entity is judged on its own merits, exactly as the authority will judge
+      // it: `rename('')` clears `nameSource` and unblocks the very rename that
+      // was predicted to fail, so stopping here would render a state the
+      // authority is never going to reach.
+      unapplied.push(mutation.mutationId)
+      rejected.push({ mutationId: mutation.mutationId, reason: effect.reason })
       continue
     }
 
@@ -161,7 +222,7 @@ export const computeOverlay = (inputs: OverlayInputs): OverlayRow => {
     // Optimistically removed, or never there. Either way there is nothing to
     // render, and the pending commands whose effect WAS applied stay applied —
     // `unapplied` keeps naming only the ones nothing was derived from.
-    return { present: false, value: undefined, origin, pending: ids, unapplied }
+    return { present: false, value: undefined, origin, pending: ids, unapplied, rejected }
   }
 
   const attribution = materialisedBy?.attribution
@@ -171,6 +232,7 @@ export const computeOverlay = (inputs: OverlayInputs): OverlayRow => {
     origin,
     pending: ids,
     unapplied,
+    rejected,
     ...(attribution === undefined
       ? {}
       : { provisionalOwner: attribution.onBehalfOf, provisionalActor: attribution.actor }),

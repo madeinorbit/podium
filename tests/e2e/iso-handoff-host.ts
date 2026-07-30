@@ -23,7 +23,7 @@ import {
   ConversationDiscoveryCache,
   type LaunchOptions,
   type LaunchSpec,
-} from '@podium/agent-bridge'
+} from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'

@@ -228,11 +228,22 @@ describe('AC1 · the session surface is derived, in both directions', () => {
     expect(mutations).not.toContain('sessions.list')
   })
 
-  it('the manifest covers all four envelopes — a missing source would silently narrow the audit', () => {
+  it('the manifest covers all five envelopes — a missing source would silently narrow the audit', () => {
     const sources = new Set(sessionSurfaceManifest().map((entry) => entry.source))
     // FOUR since the POD-729 merge: `mail` is `sessions.ask`, whose contract belongs
     // to the mail table and whose procedure is built by that family's derivation.
-    expect([...sources].sort()).toEqual(['command-plane', 'handoff', 'mail', 'presence'])
+    // FIVE since POD-351: `walking-skeleton` is `sessions.rename`, which keeps its
+    // presence contract (that is still what declares its exposure and policy) but is
+    // built by a different envelope. Recorded as a manifest ROW on purpose — which
+    // command sits on which envelope stays readable here rather than buried in a
+    // condition, so a Phase 3 migration changes a row instead of adding a branch.
+    expect([...sources].sort()).toEqual([
+      'command-plane',
+      'handoff',
+      'mail',
+      'presence',
+      'walking-skeleton',
+    ])
   })
 })
 

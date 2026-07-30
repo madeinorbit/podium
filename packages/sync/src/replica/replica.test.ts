@@ -1466,6 +1466,7 @@ describe('the optimistic-overlay reducer seam', () => {
       origin: 'authority',
       pending: [],
       unapplied: [],
+      rejected: [],
     })
   })
 
