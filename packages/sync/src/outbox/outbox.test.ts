@@ -1369,22 +1369,30 @@ describe('review round 2 — one physical store, several writers', () => {
     expect(durable[0]?.state).toBe('queued')
   })
 
-  it('refuses to resurrect an id the open span has already retired', async () => {
+  it('refuses to retire an id the same span has already retired', async () => {
+    // Within one span the staged view is authoritative for that span, so a second
+    // batch cannot retire what the first already removed. This used to be written
+    // with `discard()` inside the span body, which only worked because an ambient
+    // "current span" silently absorbed unrelated calls — a defect, now removed, so
+    // the property is asserted through the seam that actually threads a span.
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox } = await harness(() => applied, { store, clock, unitOfWork: uow })
     const target = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
 
-    await uow.transact(async (span) => {
-      await outbox.retireApplied(target.mutationId, span)
-      // Within this transaction the entry is already gone, so a user action
-      // against it is refused — it is NOT silently re-added by a stale base,
-      // which is the resurrection this whole refactor removes.
-      await expect(outbox.discard(target.mutationId)).rejects.toThrow(/vanished/)
-    })
+    await expect(
+      uow.transact(async (span) => {
+        await outbox.retireAllApplied([target.mutationId], span)
+        await outbox.retireAllApplied([target.mutationId], span)
+      }),
+    ).rejects.toThrow(/unknown outbox entry/)
 
-    expect(store.durable()).toEqual([])
-    expect(outbox.all()).toEqual([])
+    // The failed transaction left the entry exactly as it was.
+    expect(store.durable().map((r) => [r.mutationId, r.state])).toEqual([
+      [target.mutationId, 'applied'],
+    ])
   })
 
   it('picks up another writer changes on its next mutation', async () => {
@@ -1827,36 +1835,50 @@ describe('review round 4 — the same races on the CONFIGURED unit-of-work path'
   })
 
   it('a late precondition failure leaves NOTHING of the transaction behind', async () => {
-    // The partial-commit probe: two instances in ONE shared span enqueue the same
-    // id. The outer transaction rejects on the second precondition — and the first
-    // enrolled write must not survive it. Previously durable storage kept Ada's row
-    // while both memories were empty: a partially committed transaction, which is
-    // exactly what ADR 2 D10 forbids.
+    // Two participants stage the SAME key into ONE span — the shape an authority and
+    // a replica adapter would produce. The second staging conflicts, the transaction
+    // rejects, and nothing of it survives: no row, no memory, no ack, and a cold
+    // rehydrate agrees. (Previously written with two `enqueue` calls inside the span,
+    // which relied on the ambient join that has since been removed as unsafe.)
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const ada = await harness(() => unreachable, { store, clock, unitOfWork: uow })
-    const grace = await harness(() => unreachable, {
-      store,
-      clock,
-      principal: 'u-grace',
-      unitOfWork: uow,
-    })
-    const collide = 'm-shared' as MutationId
+    const { outbox, events } = await harness(() => unreachable, { store, clock, unitOfWork: uow })
+    const collide: OutboxRecord = {
+      mutationId: 'm-shared' as MutationId,
+      command: CLOSE,
+      input: { by: 'first' },
+      partitionKey: 'p',
+      attribution: ADA,
+      state: 'queued',
+      queuedAt: 0,
+      attempts: 0,
+    }
 
     await expect(
-      uow.transact(async () => {
-        await ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide }))
-        await grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide }))
+      uow.transact(async (span) => {
+        const first = await store.apply(
+          { put: [collide], expect: [{ mutationId: collide.mutationId, expect: 'absent' }] },
+          span,
+        )
+        expect(first.ok).toBe(true)
+        // The span now HAS the key staged, so a second `absent` expectation on it
+        // fails immediately — the span reads its own writes.
+        const second = await store.apply(
+          {
+            put: [{ ...collide, input: { by: 'second' } }],
+            expect: [{ mutationId: collide.mutationId, expect: 'absent' }],
+          },
+          span,
+        )
+        expect(second.ok).toBe(false)
+        throw new SyncCommitConflict([collide.mutationId])
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(SyncCommitConflict)
 
-    // Full rehydrate is unchanged: no row, no memory, no ack.
     expect(store.durable()).toEqual([])
-    expect(ada.outbox.all()).toEqual([])
-    expect(grace.outbox.all()).toEqual([])
-    expect(types(ada.events)).not.toContain('local-ack')
-    expect(types(grace.events)).not.toContain('local-ack')
+    expect(outbox.all()).toEqual([])
+    expect(types(events)).not.toContain('local-ack')
     const reopened = await harness(() => unreachable, { store, clock, idPrefix: 'r-' })
     expect(reopened.outbox.all()).toEqual([])
   })
@@ -2081,5 +2103,73 @@ describe('review round 5 — store-level transaction isolation', () => {
     ).toEqual(['one-key', 'two-key'])
     void one
     void two
+  })
+})
+
+describe('review round 6 — an unrelated open transaction must not absorb a mutation', () => {
+  it('a concurrent enqueue gets its OWN transaction and survives the outer abort', async () => {
+    // The probe: an ambient "current span" made every `transact` arriving mid-body
+    // JOIN that transaction, even from an unrelated concurrent caller. So `enqueue`
+    // fulfilled while durable length was 0, and aborting the unrelated outer
+    // transaction discarded the acknowledged command. Two separate failures at once:
+    // success reported before durability, and acknowledged work silently lost.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox, events } = await harness(() => unreachable, { store, clock, unitOfWork: uow })
+
+    let releaseOuter = (): void => {}
+    const outerHeld = new Promise<void>((resolve) => {
+      releaseOuter = resolve
+    })
+    const outer = uow.transact(async () => {
+      await outerHeld
+      throw new Error('unrelated outer transaction aborts')
+    })
+
+    // Concurrent, unrelated user action while the outer transaction is open.
+    const enqueued = outbox.enqueue(close('POD-1'))
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    // It must NOT have resolved by joining someone else's open transaction...
+    const record = await enqueued
+    // ...and when it does resolve, it is durable: that is what `local-ack` means.
+    expect(store.durable().map((r) => r.mutationId)).toEqual([record.mutationId])
+    expect(types(events)).toContain('local-ack')
+
+    releaseOuter()
+    await expect(outer).rejects.toThrow(/unrelated outer transaction aborts/)
+
+    // The unrelated abort did not discard the acknowledged command.
+    expect(store.durable().map((r) => r.mutationId)).toEqual([record.mutationId])
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([record.mutationId])
+    const reopened = await harness(() => unreachable, { store, clock, idPrefix: 'r-' })
+    expect(reopened.outbox.all().map((r) => r.mutationId)).toEqual([record.mutationId])
+  })
+
+  it('serializes independent transactions instead of nesting them', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const order: string[] = []
+    let releaseFirst = (): void => {}
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+
+    const first = uow.transact(async () => {
+      order.push('first:start')
+      await firstHeld
+      order.push('first:end')
+    })
+    const second = uow.transact(async () => {
+      order.push('second:start')
+    })
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    // The second call waits for the first to settle rather than joining it.
+    expect(order).toEqual(['first:start'])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(order).toEqual(['first:start', 'first:end', 'second:start'])
+    expect(uow.spans).toBe(2)
   })
 })

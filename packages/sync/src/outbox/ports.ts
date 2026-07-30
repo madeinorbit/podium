@@ -361,11 +361,23 @@ export interface OutboxConfig {
 export interface SyncUnitOfWork {
   /**
    * Run `body` as ONE atomic span over the local store. Every write enrolled with
-   * the span it receives is durable together or not at all. Nested calls join the
-   * ambient span rather than opening a second one.
+   * the span it receives is durable together or not at all.
    *
-   * The body does LOCAL STORAGE WORK ONLY: an authority round trip inside it
-   * would let an IndexedDB transaction auto-close (POD-369's amendment 3).
+   * INDEPENDENT CALLS ARE SERIALIZED, and joining is expressed ONLY by threading the
+   * span explicitly. There must be no ambient "current transaction" to join: a
+   * process-wide flag cannot tell lexical NESTING from an unrelated CONCURRENT
+   * caller, so a mutation arriving mid-body was silently absorbed into someone
+   * else's transaction — reported as durable before it was, then lost when that
+   * unrelated transaction aborted. A browser-portable unit of work has no way to
+   * infer nesting, which is why the seam passes the span by hand.
+   *
+   * Corollary for participants: do not open a transaction for a mutation that
+   * touches ONE store and has nothing to be atomic with. A single record-level
+   * `apply` is already atomic and precondition-checked; the transaction exists to
+   * join a MULTI-PARTICIPANT commit, and that always arrives as an explicit span.
+   *
+   * The body does LOCAL STORAGE WORK ONLY: an authority round trip inside it would
+   * let an IndexedDB transaction auto-close (POD-369's amendment 3).
    */
   transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T>
 }

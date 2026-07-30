@@ -954,10 +954,15 @@ export class Outbox {
           // transaction, and retrying our part alone would be meaningless, so it
           // propagates for them to decide.
           if (ambient) return await this.stage(body, ambient)
-          const uow = this.config.unitOfWork
-          if (uow) return await uow.transact(async (span) => await this.stage(body, span))
-          // No unit of work wired: one transaction per mutation. Legal only as
-          // ADR 2's surfaced degraded mode (SyncUnitOfWork rule 3).
+          // No span means nothing to be atomic WITH: this mutation touches one store,
+          // and `store.apply` is already one atomic, precondition-checked operation.
+          // Opening a unit-of-work transaction here would be worse than pointless —
+          // it is what let an unrelated caller's open transaction absorb this
+          // mutation, so that it reported success before durability and vanished when
+          // that transaction aborted. The seam is for JOINING a multi-participant
+          // commit, and that always arrives as an explicit span (SyncUnitOfWork's
+          // no-per-write-fallback rule is about splitting one logical commit across
+          // transactions, not about wrapping a single atomic write).
           return await this.stage(body, undefined)
         } catch (error) {
           // Two shapes of the same outcome: the adapter answered at apply time

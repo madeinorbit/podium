@@ -156,6 +156,16 @@ recognise it too. Both shapes mean "another writer won" and both re-stage. A com
 arriving through the CALLER's own ambient span is not ours to retry, so it propagates: their
 transaction is already dead and retrying our part alone would be meaningless.
 
+**Joining is explicit; independent transactions are serialized.** There is no ambient "current
+transaction" a mutation can join, because a process-wide flag cannot tell lexical nesting from an
+unrelated concurrent caller — with one, a plain `enqueue` issued while somebody else's transaction
+was open got absorbed into it, resolved as durable before it was, and vanished when that unrelated
+transaction aborted. Two failures in one: success reported before durability, and acknowledged work
+lost. So `transact` serializes independent calls, and a participant joins only by being handed the
+span. The corollary matters as much: the Outbox does NOT open a transaction for a mutation that
+touches one store and has nothing to be atomic with — a single record-level `apply` is already
+atomic and precondition-checked.
+
 **The adapter must be ISOLATED, not merely undoable.** An aborted transaction must never have
 touched the store at all: enrolled mutations are STAGED, validated against a transaction-local view
 (a span reads its own writes and nobody else's), re-validated against current truth at commit, and

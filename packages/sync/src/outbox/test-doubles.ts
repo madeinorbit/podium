@@ -251,28 +251,41 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
   spans = 0
   /** Set to make the durable commit fail, e.g. a quota denial mid-span. */
   failCommit: unknown | undefined
-  private depth = 0
-  private current: InMemorySpan | undefined
+  /** Independent transactions run one at a time. */
+  private queue: Promise<unknown> = Promise.resolve()
 
+  /**
+   * Run one transaction. Independent calls are SERIALIZED — a call that arrives while
+   * another body is suspended waits for it rather than joining it.
+   *
+   * There is deliberately no ambient "current span" to join. That was a real bug: a
+   * process-wide current flag cannot tell lexical NESTING from an unrelated
+   * CONCURRENT caller, so any `transact` reaching it mid-body was silently absorbed
+   * into someone else's transaction — reporting success before durability and then
+   * losing the acknowledged work when that unrelated transaction aborted. A
+   * browser-portable unit of work cannot infer nesting from ambient state, which is
+   * exactly why joining is expressed by THREADING THE SPAN explicitly
+   * (`retireApplied(id, span)` → `store.apply(delta, span)`) instead.
+   */
   async transact<T>(body: (span: SyncSpan) => Promise<T>): Promise<T> {
-    // Nested calls JOIN the ambient span rather than opening a second one.
-    if (this.current) return await body(this.current)
-    const span = new InMemorySpan()
-    this.current = span
-    this.spans += 1
-    this.depth += 1
-    try {
-      const result = await body(span)
-      if (this.failCommit !== undefined) throw this.failCommit
-      await span.commit()
-      return result
-    } catch (error) {
-      await span.abort()
-      throw error
-    } finally {
-      this.depth -= 1
-      if (this.depth === 0) this.current = undefined
-    }
+    const run = this.queue.then(async () => {
+      const span = new InMemorySpan()
+      this.spans += 1
+      try {
+        const result = await body(span)
+        if (this.failCommit !== undefined) throw this.failCommit
+        await span.commit()
+        return result
+      } catch (error) {
+        await span.abort()
+        throw error
+      }
+    })
+    this.queue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return await run
   }
 }
 
