@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -93,7 +94,9 @@ export function mintUpstreamTokenInto(
   // 10 years ≈ non-expiring, while keeping the ordinary expiry machinery (and
   // revocation via deleteClientSession) intact.
   const expiresAt = new Date(nowMs + 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
-  auth.createClientSession(sha256(token), expiresAt)
+  // An upstream mirror token is a DEVICE session like any other, owned by the
+  // instance's one account until per-user login lands (POD-315).
+  auth.createClientSession(sha256(token), FIRST_ADMIN_USER_ID, expiresAt)
   return token
 }
 

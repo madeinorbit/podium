@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { clientAuthGuard, hashToken, registerAuthRoute } from './auth-route'
@@ -178,7 +179,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
 
   function validCookie(): string {
     const token = 'raw-session-token'
-    store.auth.createClientSession(hashToken(token), new Date(Date.now() + 60_000).toISOString())
+    store.auth.createClientSession(hashToken(token), FIRST_ADMIN_USER_ID, new Date(Date.now() + 60_000).toISOString())
     return `podium_session=${token}`
   }
 
@@ -222,7 +223,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'rolling-token'
     // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
-    store.auth.createClientSession(hashToken(token), new Date(nowMs + 28 * DAY).toISOString())
+    store.auth.createClientSession(hashToken(token), FIRST_ADMIN_USER_ID, new Date(nowMs + 28 * DAY).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
@@ -239,7 +240,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    store.auth.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
+    store.auth.createClientSession(hashToken(token), FIRST_ADMIN_USER_ID, new Date(nowMs + 30 * DAY - HOUR).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
@@ -252,8 +253,8 @@ describe('client session store', () => {
   test('a session validates until it expires, then no longer', () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const past = new Date(Date.now() - 1_000).toISOString()
-    store.auth.createClientSession('hash-a', future)
-    store.auth.createClientSession('hash-b', past)
+    store.auth.createClientSession('hash-a', FIRST_ADMIN_USER_ID, future)
+    store.auth.createClientSession('hash-b', FIRST_ADMIN_USER_ID, past)
     const now = new Date().toISOString()
     expect(store.auth.getClientSession('hash-a')?.expiresAt).toBe(future)
     expect(store.auth.isClientSessionValid('hash-a', now)).toBe(true)
@@ -264,7 +265,7 @@ describe('client session store', () => {
   test('extendClientSession pushes out the expiry of an existing session', () => {
     const t1 = new Date(Date.now() + 1_000).toISOString()
     const t2 = new Date(Date.now() + 999_000).toISOString()
-    store.auth.createClientSession('ext', t1)
+    store.auth.createClientSession('ext', FIRST_ADMIN_USER_ID, t1)
     store.auth.extendClientSession('ext', t2)
     expect(store.auth.getClientSession('ext')?.expiresAt).toBe(t2)
   })
@@ -272,12 +273,45 @@ describe('client session store', () => {
   test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const now = new Date().toISOString()
-    store.auth.createClientSession('one', future)
-    store.auth.createClientSession('two', future)
+    store.auth.createClientSession('one', FIRST_ADMIN_USER_ID, future)
+    store.auth.createClientSession('two', FIRST_ADMIN_USER_ID, future)
     store.auth.deleteClientSession('one')
     expect(store.auth.isClientSessionValid('one', now)).toBe(false)
     expect(store.auth.isClientSessionValid('two', now)).toBe(true)
     store.auth.deleteAllClientSessions()
     expect(store.auth.isClientSessionValid('two', now)).toBe(false)
+  })
+
+  /**
+   * A DEVICE THAT RESOLVES TO A USER (POD-1075, ADR 9 D1.3).
+   *
+   * The column landing in the schema is not the deliverable — a column nothing
+   * writes is a column that is NULL in production and correct in the migration
+   * test. These two assert the round trip: the login path supplies a person,
+   * and reading the session back names them.
+   */
+  test('a session records WHICH PERSON the device belongs to', () => {
+    const future = new Date(Date.now() + 60_000).toISOString()
+    store.auth.createClientSession('with-user', FIRST_ADMIN_USER_ID, future)
+    expect(store.auth.getClientSession('with-user')?.userId).toBe(FIRST_ADMIN_USER_ID)
+  })
+
+  test('device and person are separable — two devices, one person', () => {
+    // The property the column exists for. Before it, "which device" and "who"
+    // had one answer; a test that only checked `userId` was non-empty could not
+    // tell the two questions apart.
+    const future = new Date(Date.now() + 60_000).toISOString()
+    store.auth.createClientSession('laptop', FIRST_ADMIN_USER_ID, future)
+    store.auth.createClientSession('phone', FIRST_ADMIN_USER_ID, future)
+
+    expect(store.auth.getClientSession('laptop')?.userId).toBe(
+      store.auth.getClientSession('phone')?.userId,
+    )
+    // …and revoking one device does not revoke the person's other device, which
+    // is what makes them separable rather than two names for one row.
+    const now = new Date().toISOString()
+    store.auth.deleteClientSession('laptop')
+    expect(store.auth.isClientSessionValid('laptop', now)).toBe(false)
+    expect(store.auth.isClientSessionValid('phone', now)).toBe(true)
   })
 })

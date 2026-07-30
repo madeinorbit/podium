@@ -251,8 +251,76 @@ export const offers = sqliteTable("offers", {
 	createdAt: text("created_at").notNull(),
 });
 
+// USER ACCOUNTS (POD-1075, ADR 9 D1.2). The identity `client_sessions`,
+// ownership and attribution all resolve to. `role` is the instance-level
+// account role (`admin` | `member`, ADR 9 D1.4) — distinct from the per-command
+// capability role, and the thing that makes secrets management, substrate
+// `manage` and fleet administration admin-grade once there is more than one
+// human. `disabled_at` is disable-before-remove: per-user rows cascade on
+// deletion, but OWNED entities need a transfer story, which is ADR 9 lifecycle
+// territory and not this migration's.
+export const users = sqliteTable("users", {
+	id: text().primaryKey(),
+	displayName: text("display_name").notNull(),
+	role: text().notNull(),
+	createdAt: text("created_at").notNull(),
+	disabledAt: text("disabled_at"),
+});
+
+// ACCOUNT CREDENTIAL MATERIAL (ADR 1 matrix row `account-credential`):
+// `secret-value`, never replicated, never enqueued (ADR 1 D6 unchanged).
+// A SEPARATE table from `users` on purpose — the account is `personal` and
+// reaches the wire; its credential is `secret` and has no wire projection to
+// be omitted from, because it is not on the aggregate at all.
+//
+// `source = 'instance-password'` with a NULL hash means "this account
+// authenticates with the shared instance password already in auth.json". That
+// is what the upgrade writes, because a SQL migration cannot read a file — see
+// the migration's own header. `per-user-scrypt` with a hash is Phase 3's
+// (POD-315) per-account credential.
+export const userCredentials = sqliteTable("user_credentials", {
+	userId: text("user_id").primaryKey(),
+	source: text().notNull(),
+	passwordHash: text("password_hash"),
+	updatedAt: text("updated_at").notNull(),
+});
+
+// GRANT EDGE (ADR 9 D2): `(entityRef, granteeUserId, verb)`. `owner` is the
+// GRANTER — the accountable party, since a grant may never exceed its granter's
+// own rights (D2 rule 4) — stored in the one place every owned class stores it
+// rather than in a second column. There is deliberately no `expires_at` and no
+// resolved permission set: a grant is evaluated LIVE against the granter's
+// current rights at every apply (ADR 3 D8), and revocation is removing the row.
+//
+// The table exists and nothing writes it yet: share / unshare are Phase 3
+// commands (POD-290). Landing the shape here is the point of Phase 1 — the
+// alternative is a table migration after the POD-308 wire cutover.
+export const grants = sqliteTable("grants", {
+	resourceKind: text("resource_kind").notNull(),
+	resourceId: text("resource_id").notNull(),
+	grantee: text().notNull(),
+	verb: text().notNull(),
+	owner: text().notNull(),
+	visibility: text().notNull(),
+	createdAt: text("created_at").notNull(),
+	actorKind: text("actor_kind").notNull(),
+	actorId: text("actor_id"),
+	onBehalfOf: text("on_behalf_of"),
+},
+(table) => [primaryKey({ columns: [table.resourceKind, table.resourceId, table.grantee, table.verb], name: "grants_pk"}),
+]);
+
+// A client session is a DEVICE — and, from POD-1075, one that RESOLVES TO A
+// USER (ADR 9 D1.3). `user_id` is what makes "which device" and "who" two
+// answers instead of one.
+//
+// It does NOT yet make the transport able to tell two people apart: there is
+// still one shared password, so every row an upgraded instance has names the
+// first admin, and `CLIENT_PRINCIPAL_GRADE` stays `'device'`. Per-user login is
+// Phase 3 (POD-315).
 export const clientSessions = sqliteTable("client_sessions", {
 	tokenHash: text("token_hash").primaryKey(),
+	userId: text("user_id").notNull(),
 	createdAt: text("created_at").notNull(),
 	expiresAt: text("expires_at").notNull(),
 });
