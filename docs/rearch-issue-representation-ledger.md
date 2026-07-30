@@ -100,6 +100,17 @@ asserts about the state it saw. Composing them from `IssueWire` would turn a gat
 wrong-state payload into one that accepts it. An audit number is not worth loosening a validation
 gate.
 
+**And the exemption is now enforced, not merely declared.** The schema had **zero test coverage**, so
+"these divergences are load-bearing" was prose that nothing defended — a tidying composition would
+have passed every lane. Two things changed: the reason is recorded *on the schema*, naming the
+divergence class (**a validation gate over untrusted input**), because an unexplained exemption is
+indistinguishable from someone silencing a detector; and five tests make the gate refuse what it
+exists to refuse, each mutating exactly one field of an otherwise-valid payload with the valid
+payload asserted first as the counterfactual. A representation audit that counts this shape must
+count it as **declared-legitimate with its reason**, not as debt — "not yet composed" and "composing
+would be wrong" have opposite correct actions. `SessionAutoArchiveObservation` in the same file is
+POD-366's twin of this, untouched here.
+
 ---
 
 ## 3. The multi-user obligations, answered
@@ -346,7 +357,25 @@ confirmed **no** golden fixture covers them — so before this branch, nothing w
 order at all, and a green suite would have meant only that. Key orders were captured from the
 schemas *before* the composition and pinned afterwards; they are identical.
 
-**Mutation evidence.** Seven mutants, all killed, product file reverted clean after each (one at a
+**Which source tree the instruments actually read** — established, not assumed, after POD-366
+reported a full lane whose stack traces resolved into a *sibling* worktree. `vitest.config.ts`
+aliases `@podium/*` via `new URL('./packages/…', import.meta.url)`, i.e. relative to the config file,
+so a lane launched from this worktree root reads this worktree. The conclusive evidence is not the
+config but the mutants: each one edited a file **in this worktree** and changed the result of a test
+run **here**; had the lane been reading another tree, every mutant would have been a false survivor.
+Same for typecheck — `--filter @podium/web` reported eleven branded-id errors that exist only because
+of this branch's `ref-miniview.ts` edit. Note `node_modules/@podium` does not exist here at all, which
+is why a raw `bunx tsgo -p packages/sync/tsconfig.json` fails to resolve `@podium/model` while the
+aliased vitest and `turbo --filter` lanes work; an instrument resolving through `node_modules` is the
+one to distrust. The web lane log was checked for NUL bytes **by reading bytes in python, not with
+grep** (0 NULs, 1527 bytes, zero references to a sibling worktree) — grep being the tool that would
+lie about it.
+
+**A lossy capture is the same failure as a NUL byte.** The first full web lane ran backgrounded into a
+capture that retained only its last 12 lines, so grepping for the failing test names returned nothing
+— not "no match" but "the match was discarded". Re-run into a log this session controlled.
+
+**Mutation evidence.** Nine mutants, all killed, product file reverted clean after each (one at a
 time, and after committing — an early revert-to-HEAD during this work discarded uncommitted edits,
 which is the reason the order is commit-then-mutate):
 
@@ -359,5 +388,18 @@ which is the reason the order is commit-then-mutate):
 | reorder `IssueGraphNode`'s pick mask | `IssueGraphNode` key-order pin |
 | restate `IssueRefHead` as `z.object({id: z.string(), seq: z.number(), …})` | `rejects a non-integer seq …` |
 | fold `title` into the opaque-reference pick | `opaque-reference is a NARROWING …` |
+| `archived: z.literal(false)` → `z.boolean()` | `refuses an ALREADY-ARCHIVED issue …` (only) |
+| `deletedAt: z.null()` → `z.string().nullable()` | `refuses a DELETED issue …` (only) |
 
-No survivors.
+No survivors — but one **apparent** survivor is worth recording, because the lesson generalises.
+
+A first, COMPOUND mutant composed *both* auto-archive preconditions away at once. It killed three
+tests and the `archived` one appeared to survive. It had not: the same mutant also broke `deletedAt`,
+so the archived fixture still failed to parse and the assertion `success === false` stayed true **for
+the wrong reason**. Per-constraint mutants tell the truth — `archived`-only kills exactly the
+`archived` test and nothing else; `deletedAt`-only kills exactly the `deletedAt` test.
+
+**A compound mutant can mask a per-constraint kill and read as a survivor — and symmetrically, it can
+read as a kill when a different constraint did the work.** Mutate one constraint at a time, and when a
+mutant seems to survive, check whether a neighbouring constraint absorbed it before drawing any
+conclusion about the test.
