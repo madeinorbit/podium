@@ -62,17 +62,18 @@
  * `worktreeRelativePath` and `cwdSubpath` join them: they are NOT members of
  * `IssueWorkspace`, and they are bundle-local path facts in the same sense.
  *
- * > **COMPOSITION STATUS (POD-643).** The `Pick` set above is DECIDED, is this
- * > file's contract, and its target schemas now EXIST — POD-365 landed them —
- * > but it is not yet expressed as code, because writing it requires POD-365's
- * > commits on this branch and the coordinator owns that merge (it instructed
- * > all three 1.4 siblings not to merge or rebase onto each other; POD-365 asked
- * > it to rule, and POD-367 is holding on the same tie). Forking a second
- * > definition here to look composed would defeat the entire point of POD-302,
- * > and reaching into a sibling's worktree is what the one-owner rule forbids.
- * > So these fields stay hand-written, the key set is LOCKED by
- * > `handoff.test.ts` so the list cannot drift while it waits. Zero new
- * > hand-restated fields were added here.
+ * > **COMPOSITION STATUS (POD-643) — DONE for the session/issue half.** Every
+ * > field above is now the SHARED SCHEMA INSTANCE, reached through POD-365's
+ * > groups (landed on integration at e62e5f23, merged here on the coordinator's
+ * > ruling). Three of them are `.unwrap()`ed and one is re-`.optional()`ed — see
+ * > the block above the schema for why an export is stricter than a live session.
+ * > `handoff.test.ts` asserts the composition by REFERENCE IDENTITY, which is the
+ * > only instrument that catches a fresh restatement: swapping one composed field
+ * > for an equivalent `z.string()` reds that test and NOTHING else out of 185,
+ * > golden corpora included.
+ * >
+ * > STILL OUTSTANDING: the attribution pair and `owner`, which cannot land
+ * > additively — see the format-2 decision immediately below.
  *
  * ---------------------------------------------------------------------------
  * ATTRIBUTION NEEDS A FORMAT BUMP, NOT AN ADDITIVE FIELD — read this before
@@ -174,19 +175,50 @@
  */
 
 import { z } from 'zod'
-import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
-import { ResumeRef } from './session'
+import { IssueIdentity, IssueWorkspace } from '../fields/issue'
+import { SessionIdentity, SessionNaming, SessionPlacement, SessionResume } from '../fields/session'
+import { machineIdBlockedOnPOD318 } from '../ids'
+
+// ---------------------------------------------------------------------------
+// THE THREE TIGHTENINGS, and why a `Pick` alone would have been wrong
+// ---------------------------------------------------------------------------
+//
+// The manifest is NOT simply a subset of the session aggregate: it is a subset
+// with STRICTER obligations, because an export is a CHECKPOINT. Three shared
+// fields are optional or nullable precisely because a LIVE session may lack
+// them, and a bundle that lacked them would be unusable on arrival:
+//
+//   `resume`  — a session with no resume ref yet is normal; a bundle with none
+//               cannot resume the agent, which is the only reason it exists.
+//   `repoId`  — a session may run outside a known repo; a bundle names the repo
+//               its branch and worktree belong to, or the import has no target.
+//   `branch`  — nullable on a live issue workspace; an export always packages a
+//               branch, and `headSha`/`bundleBase` below are relative to it.
+//
+// So each composes the SHARED field schema and then `.unwrap()`s it. That keeps
+// the brand, the meaning and the drift-following property — change the group and
+// this changes with it — while stating the stricter obligation at the one place
+// it is true. Restating `z.string()` here instead would have silently forked the
+// vocabulary, which is the whole failure POD-302 exists to end.
+//
+// `title` goes the other way: required on a live session, optional in a bundle,
+// so the manifest wraps the shared inner schema in its own `.optional()`.
+//
+// Wire-identical by construction: every composed field parses exactly what its
+// hand-written predecessor parsed, and the KEY ORDER below is unchanged. Both
+// halves are pinned — `handoff.test.ts` asserts reference identity against the
+// shared groups, and the golden corpora assert the bytes.
 
 /** Canonical portable session package ([spec:SP-3f7a]). */
 export const HandoffManifest = z.object({
   format: z.literal(1),
-  sessionId: SessionIdField,
+  sessionId: SessionIdentity.shape.sessionId,
   agentKind: z.enum(['claude-code', 'codex']),
-  resume: ResumeRef,
+  resume: SessionResume.shape.resume.unwrap(),
   transcriptFilename: z.string(),
   transcriptRelativeDir: z.string().optional(),
-  repoId: RepoIdField,
-  branch: z.string(),
+  repoId: IssueIdentity.shape.repoId.unwrap(),
+  branch: IssueWorkspace.shape.branch.unwrap(),
   headSha: z.string(),
   snapshotSha: z.string().nullable(),
   snapshotFlattened: z.literal(true),
@@ -211,8 +243,8 @@ export const HandoffManifest = z.object({
    *  subdir, or the root when the target tree has no such directory. */
   cwdSubpath: z.string().optional(),
   bundleBase: z.array(z.string()),
-  title: z.string().optional(),
-  issueId: IssueIdField.optional(),
+  title: SessionNaming.shape.title.optional(),
+  issueId: SessionPlacement.shape.issueId,
   /** CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): an exporter running
    *  on the bundled local daemon stamps LOCAL_MACHINE_ID = 'local' here, and a
    *  length-only brand would launder that sentinel into a well-typed identity.

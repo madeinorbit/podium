@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
+import { IssueIdentity, IssueWorkspace } from '../fields/issue'
+import {
+  SessionIdentity,
+  SessionNaming,
+  SessionPlacement,
+  SessionResume,
+} from '../fields/session'
 import { HandoffManifest, HandoffRefusalReason } from './handoff'
 
 describe('HandoffManifest', () => {
@@ -57,6 +64,44 @@ describe('HandoffManifest', () => {
   // `annotations/capability-snapshot.test.ts` for proof it fires at all.
   it('carries no serialized capability, effective-rights or scope snapshot', () => {
     expect(findCapabilitySnapshotKeys(HandoffManifest)).toEqual([])
+  })
+
+  // POD-643's first acceptance criterion, asserted by IDENTITY rather than by
+  // shape. A fresh `z.string()` restatement is structurally equal on the wire and
+  // passes every golden fixture — mutation testing confirmed that replacing a
+  // composed field with one reds THIS test and nothing else, out of 185. So
+  // reference equality is the only instrument that sees the POD-302 drift class.
+  //
+  // WHAT THIS TEST DOES NOT CLAIM, because a mutant proved it does not: writing
+  // `sessionId: SessionIdField` — importing the underlying brand directly instead
+  // of reaching through the group — is observationally IDENTICAL and passes,
+  // since the group holds that same instance. That mutant is an equivalent
+  // composition rather than a defect: it still follows the shared brand. It is
+  // nonetheless weaker, because it would NOT follow if POD-365 re-typed the
+  // group's field, which is why the schema reaches through the group. The test
+  // name says "IS the shared instance" and not "was written as a group
+  // reference", because the former is what it can actually distinguish.
+  it('takes every session and issue field as the shared schema instance, never a restatement', () => {
+    expect(HandoffManifest.shape.sessionId).toBe(SessionIdentity.shape.sessionId)
+    // Tightened by `.unwrap()`: the shared field is optional/nullable because a
+    // LIVE session may lack it. A bundle may not — see the schema's docs.
+    expect(HandoffManifest.shape.resume).toBe(SessionResume.shape.resume.unwrap())
+    expect(HandoffManifest.shape.repoId).toBe(IssueIdentity.shape.repoId.unwrap())
+    expect(HandoffManifest.shape.branch).toBe(IssueWorkspace.shape.branch.unwrap())
+    // Loosened: the manifest's own optionality wraps the shared inner schema.
+    expect(HandoffManifest.shape.title.unwrap()).toBe(SessionNaming.shape.title)
+    expect(HandoffManifest.shape.issueId.unwrap()).toBe(
+      SessionPlacement.shape.issueId.unwrap(),
+    )
+  })
+
+  // `agentKind` is the ONE deliberate exception, so it needs the counterfactual
+  // in the fixture: asserting "the manifest has two arms" proves nothing unless
+  // the shared union it departs from is shown to have more.
+  it('narrows agentKind below the shared AgentKind, deliberately', () => {
+    expect(HandoffManifest.shape.agentKind.options).toEqual(['claude-code', 'codex'])
+    expect(SessionIdentity.shape.agentKind.options.length).toBeGreaterThan(2)
+    expect(SessionIdentity.shape.agentKind.options).toContain('shell')
   })
 
   // The key set is LOCKED, in wire order. The golden fixtures pin the encoding
