@@ -891,3 +891,59 @@ markRead, markUnread, snoozes.set/clear) while **pins and tab order are delibera
 
 Recorded as my error rather than POD-380's deviation, and the specific set relayed to POD-381 so it does
 not re-derive it.
+
+### A merge can be textually clean and semantically broken
+
+POD-371 and POD-372 landed in the same wave. POD-371 wired the real Replica to the real Outbox with an
+identity reducer `(base) => base` against POD-369's bare `unknown`; POD-372 **widened that same port** to
+the closed `OptimisticEffect`. Git reported no conflict. The fixture no longer typechecked.
+
+> Run the in-package typecheck and the package's lane AFTER every merge, even when git reports no
+> conflict. A no-conflict merge means no overlapping LINES, not no overlapping MEANING — and this is the
+> class no conflict marker will ever show you.
+
+Fixed at 9260c667 by translating faithfully (`{kind:'value', value: base}`) rather than to the
+smaller-looking `no-reducer`, which would have quietly changed what the fixture exercises. Mine to fix,
+not either author's: the widening was a decision I ratified.
+
+### A kill count is not a kill — POD-371 extends the mutation protocol
+
+POD-371 mutated only the `partitions.get(key)` lookup expecting to collapse partitioning into one global
+queue. The else branch still keyed by `partitionKey`, so the mutant merely made same-key buckets
+overwrite each other. **It killed eight tests and read as a pass.** What caught it was checking WHICH
+tests died against which SHOULD have.
+
+> A mutant can kill the WRONG tests and still look like a clean result. The fourth assertion (name the
+> test you expect to die) is not only about survivors — compare the actual victims to the named one.
+
+### The oracle corrected a second brief of mine within the hour
+
+POD-381's brief (mine) said its whole command class is "never offline-enqueued". The client oracle
+(`outbox-coverage.oracle.test.ts`, must-not-change) says `sessions.resumeAndSend` IS covered while
+`sendText` is a deliberate exclusion. **Ruled: follow the oracle**, and it is right on the merits, not
+merely older:
+
+- D18.3's blanket "use ⇒ online-only" is argued from a rights snapshot with a delayed fuse. That hazard
+  is real for a **spawn**, which mints a new process; `resumeAndSend` wakes an **existing** session.
+- Its `mutationId` is deduped (D11.7), so the double-apply hazard is bounded by the D10/D11 inequality —
+  which POD-371 landed this hour with the receipt constant **imported** rather than restated.
+- Flipping it to direct-only would **poison-drop entries a user authored offline** (D9 invariant 1).
+
+POD-381 also made the procedural call correctly: enforcing D18.3 literally is a **product** change (a
+composed wake-and-send stops surviving an offline gap) and belongs to POD-316, not to a migration's side
+effects. A migration must not quietly change what the product does for users to make a doctrine read
+cleanly.
+
+### Two agents co-authoring one framework, converged
+
+POD-381 merged POD-380's branch at f9bf5fa5, **deleted its own** `CommandTransport`/`CommandDelivery`
+unions, and added exactly one additive field — `machineVerb?: MachineVerb`, aliased not re-declared.
+Approved: a command can name `resource: 'session'` and still be an execution request, and ADR 3 Am1
+D15.2 says owner-authorization and machine `use` do not substitute for each other, so it is a second
+axis rather than `resource: 'machine'`. The heads-up POD-380 sent is the only reason the duplicate never
+happened.
+
+Also worth keeping, POD-381's sharpest line on the not-yet-wired rule: it declined to add an `owner`
+column to `sessions` because POD-379's attribution oracle pins that row's full key set against POD-1075
+as the issue that changes it — so a column here **would edit another issue's characterization to record
+a value nothing reads**.
