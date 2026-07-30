@@ -303,6 +303,44 @@ make it verifiable.
 - `bun scripts/rearch-audit.ts` — OK, 21 items / 261 sites, **baseline exact**.
 - `bun scripts/check-no-nul-bytes.ts` — ok.
 
+## 6a. The manifest's producer has no compile-time obligation to the schema at all
+
+Prompted by POD-1138 (a type annotation defeated by conditional spreads) and POD-366's narrowing of
+it to *optional* keys. Checked against the manifest's own producer, and the exposure here is **wider**
+than the case those describe.
+
+`apps/daemon/src/handoff-package.ts:361` builds the manifest as `HandoffManifest.parse({ … })` — an
+object literal passed to a runtime parse. `parse` takes `unknown`, so there is no annotation and no
+`satisfies`: **nothing** constrains that literal at compile time. Five of the keys arrive through
+conditional spreads (`transcriptRelativeDir`, `worktreeRelativePath`, `cwdSubpath`, `title`,
+`issueId`).
+
+Probed rather than assumed, with the probe deleted afterwards:
+
+| Form | `'title' in parsed` | On the JSON wire |
+|---|---|---|
+| `...(cond ? { title } : {})` | omitted | absent |
+| `title: x \|\| undefined` | **present**, value `undefined` | absent |
+| `title: ''` | present | `"title":""` |
+
+Two consequences:
+
+1. **A mistyped optional key is silently dropped.** `cwdSubPath` instead of `cwdSubpath` produces no
+   type error (the literal is unconstrained), no runtime error (zod strips unknown keys rather than
+   rejecting), and a bundle that simply lacks the subpath — so the imported agent lands at the
+   worktree root instead of the directory it was working in. A silent behavioural regression with no
+   failing gate anywhere.
+2. **The safe rewrite is wire-safe here, which is worth stating** because the generic warning about
+   it is not. Rewriting to a fully-spelled literal plus `satisfies` changes key *presence* in memory
+   (`|| undefined` keeps the key), but `JSON.stringify` drops an undefined value, so the bundle bytes
+   are unchanged. The coordinator's key-presence trap applies to in-memory consumers of this object,
+   not to the exported file.
+
+Not fixed here: `apps/daemon` is POD-644's transfer path, which was explicitly scoped out of this
+diff. Reported to POD-1138 with the site and this evidence. Making the schema `.strict()` would be
+the wrong fix — a file format needs forward compatibility, and a newer bundle read by an older
+reader must not be rejected for carrying a key that reader has not heard of.
+
 ## 7. Handed forward in writing
 
 | To | What |
