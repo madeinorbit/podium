@@ -1593,3 +1593,47 @@ because both paths provably parsed ONE schema.
   two attempts grew ~8 definitions of "a session".
 - Deriving a value (e.g. `evict` from the op vocabulary) rather than restating it is the same rule one
   level down — and a derivation is checkable the same way.
+
+### A guard can be UNREACHABLE FROM THE SUITE BY CONSTRUCTION
+
+POD-391 deleted the `isAllowedWsOrigin` call from the WS upgrade handler and **all 20 tests across
+three origin/auth suites stayed green.** The CSWSH guard was mechanism-present and coverage-absent.
+
+The cause generalises well beyond this guard: the enforcing branch only runs when the backend's `Host`
+is a real network host, and **a test server necessarily binds loopback**. So the enforcing arm could
+not be reached from the suite at all. The one wiring test asserted the PERMISSIVE branch ("a
+loopback-bound backend accepts any Origin") — which passes just as well with the guard deleted. Fixed
+by forging the `Host` header (node routes by socket, not Host), giving four cases: `/client` refused,
+`/daemon` refused, same-origin admitted, no-Origin native peer admitted.
+
+**Ask of any security guard: what environmental fact does its enforcing branch depend on, and can the
+test environment ever produce that fact?** If not, every test you have is exercising the permissive
+arm, and the mutant that deletes the guard will survive.
+
+### Non-evidence: a mutant that does not APPLY, and a mutant that does not COMPILE
+
+Already recorded for the first. POD-391 added the second and reported one of its own that way rather
+than counting it: the mutant referenced an identifier that was unimported at that site, so it failed
+to COMPILE rather than failing an assertion. Both shapes read as success if you are counting rather
+than checking. Report them as INVALID, never as kills.
+
+It also reported a genuine SURVIVOR rather than quietly dropping it — client cap `0` leaves the storm
+test green, because a loopback socket drains synchronously so `bufferedAmount` never leaves 0 and
+`> limit` cannot bind however low the limit goes. The right response was not to delete the test but to
+write the limitation into the file header: the storm test's content is "a healthy recipient is neither
+reaped nor starved", NOT "the cap is 16MB". A 13/13 would have been worth less than this 12-killed,
+1-survived, 1-invalid.
+
+### Derived artifacts go stale SILENTLY, and the scripts lane is where that shows
+
+`scripts/visibility-mutability-inventory.test.ts` was RED on integration for several merges. POD-731
+split the single `workflows` ownership-matrix row into five and the GENERATED
+`docs/rearch-visibility-mutability-inventory.md` was not regenerated (32-of-53 in the doc against
+36-of-57 in the matrix). Nobody's package lane covers it.
+
+**My error, stated plainly: I ran the scripts lane after the POD-389 merge and then dropped it from
+the following sweeps.** The standing post-merge sweep is `apps/server`, `apps/daemon`, **`scripts`**,
+and the touched packages — the scripts lane is not optional, because it is the only lane that checks
+generated docs, ratchets and manifests against their sources. Same family: `bun run migration:manifest`
+after touching migrations, and `bun scripts/visibility-mutability-inventory.ts` after touching the
+ownership matrix.
