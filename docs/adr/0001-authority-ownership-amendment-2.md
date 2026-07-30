@@ -379,7 +379,7 @@ permanent well-typed `MachineId` in a scheme whose whole point was to delete it.
 as-built from target, and attaching the ordering constraint to POD-360's inventory where the
 sites are actually listed, is what makes the retirement enforceable rather than aspirational.
 
-#### D16.3 — Role multiplicity is per HOST, not per deployment. N daemons is the normal case
+#### D16.3 — Role has no identity uniqueness; N daemons is the normal case
 
 **Decision.** The process-role axis carries no uniqueness constraint at the deployment level:
 
