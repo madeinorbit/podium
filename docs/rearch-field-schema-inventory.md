@@ -95,7 +95,20 @@ appear, including inside `emitEvent(…)` literals — and re-derive: 60 distinc
 keys across 511 sites, with by-name false positives excluded individually and with reasons. §9
 records the method and the exclusion list. Patching the four named lines would have left the fifth.
 
-**6. Sizes drifted since the last refresh**, which is why re-counting was required:
+**6. Every path in this document is a coordinate at `0e583f44`; the SYMBOL is the durable
+identity.** A map is as path-scoped as an audit detector, and it fails the same silent way: a
+concurrent package move leaves the paths pointing at nothing while the document still reads as
+authoritative. Two entries are already scheduled to move — `packages/domain/src/session-identity.ts`
+(`ResumableSession`, `HeadlessFields`) and `packages/domain/src/machine-selection.ts`
+(`HandoffSession`, `HandoffIssue`) — because POD-299 is relocating `packages/domain` into
+`packages/model` in a concurrent worktree. **Resolve every row by symbol name first and treat the
+path as a hint**, and if you re-derive the counts, re-run against the tree you are on rather than
+trusting the numbers here. Where a shape ends up living in two homes during a move, a re-derivation
+must **span both** rather than re-point at the new one — otherwise a representation that still
+exists reads as deleted, which is the same class of error as a path-prefixed audit detector silently
+going to zero.
+
+**7. Sizes drifted since the last refresh**, which is why re-counting was required:
 `apps/server/src/modules/sessions/service.ts` is **5643** lines (the brief's 2026-07-16 figure
 was 3046 — **+85%**); `apps/server/src/modules/sessions/session.ts` 1217; `IssueWire` 78 keys
 (ADR 4 counted 71); `SessionMeta` **55** keys (ADR 4 counted 44); `sessions` DDL 48 columns;
