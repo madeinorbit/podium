@@ -22,7 +22,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { LEGACY_WIRE_V1_EXPIRY, LegacyWireV1Adapter } from '../apps/server/src/gateway/legacy-wire-v1-adapter'
 import { WireFeedEdge } from '../apps/server/src/gateway/wire-feed-edge'
-import { runChecks } from './audit-wire-adapters'
+import { outcomesOf, PROBES, runChecks } from './audit-wire-adapters'
 
 const edge = () => new WireFeedEdge({ diagnostics: () => [] })
 
@@ -74,3 +74,46 @@ describe('the source-text half agrees with the tree it ships', () => {
     expect(findings).toEqual([])
   })
 })
+
+/**
+ * THE PROBES RUN HERE, NOT ONLY IN WHOEVER'S TERMINAL LAST TYPED `--probe`.
+ *
+ * POD-309 paid for this distinction and told me about it: they wrote an anchor
+ * guard, proved it fired with a hand mutant, then cleaned up with `git checkout
+ * -- <file>` — which restores from the INDEX and took the still-uncommitted
+ * guard along with the mutant. The commit that followed cited a throw that was
+ * no longer in the file, and nothing caught it, because the detector legitimately
+ * counted zero.
+ *
+ * The lesson generalises past that accident: a control has to be load-bearing
+ * AND its demonstration has to outlive the session that ran it. `--probe` is a
+ * command someone has to remember; this file is in the unit lane CI runs. Same
+ * fixtures, same runner (`outcomesOf`), no second definition to drift.
+ */
+describe('every planted violation still fires its own check', () => {
+  it('has probes at all, so the table below is not vacuous', () => {
+    expect(PROBES.length).toBeGreaterThanOrEqual(6)
+  })
+
+  it.each(PROBES.map((probe) => [probe.name, probe] as const))('%s', (_name, probe) => {
+    expect(outcomesOf(probe.input)).toContain(probe.expect)
+  })
+
+  it('spares the clean tree — otherwise "every probe fires" is met by a gate that reports everything', () => {
+    expect(outcomesOf(realTreeInput())).toEqual([])
+  })
+})
+
+/** The real repository, read from disk — the positive control for the whole file. */
+function realTreeInput() {
+  return {
+    read: (path: string) => {
+      try {
+        return require('node:fs').readFileSync(`${import.meta.dirname}/../${path}`, 'utf8') as string
+      } catch {
+        return null
+      }
+    },
+    sources: () => [] as string[],
+  }
+}

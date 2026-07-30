@@ -199,6 +199,25 @@ export function runChecks(input: AuditInput): Finding[] {
   return findings
 }
 
+/**
+ * Run one probe fixture and report WHAT HAPPENED, with a throw as an outcome
+ * rather than a crash.
+ *
+ * Exported and used by BOTH the `--probe` CLI and `audit-wire-adapters.test.ts`,
+ * so the demonstration that each check fires on its own planted violation lives
+ * in the committed test lane and not in whichever terminal last ran it. POD-309
+ * paid for that distinction: a guard demonstrated only by a hand-run mutant is
+ * zero guards the moment the session ends, and its `git checkout --` cleanup ate
+ * the guard along with the mutant.
+ */
+export function outcomesOf(input: AuditInput): string[] {
+  try {
+    return runChecks(input).map((finding) => finding.check)
+  } catch {
+    return ['detector-throws']
+  }
+}
+
 // ---------------------------------------------------------------------------
 // I/O + probe
 // ---------------------------------------------------------------------------
@@ -233,7 +252,7 @@ const realInput = (): AuditInput => ({
  * Planted violations, one per check. Each must produce its OWN check's finding —
  * a fixture that fails some other check would let the intended one rot.
  */
-const PROBES: { name: string; input: AuditInput; expect: string }[] = (() => {
+export const PROBES: { name: string; input: AuditInput; expect: string }[] = (() => {
   const base = realInput()
   const overlay = (files: Record<string, string | null>, extraSources: string[] = []): AuditInput => ({
     read: (path) => (path in files ? files[path] : base.read(path)),
@@ -301,14 +320,7 @@ if (import.meta.main) {
   if (args.has('--probe')) {
     let bad = 0
     for (const probe of PROBES) {
-      let found: string[]
-      try {
-        found = runChecks(probe.input).map((f) => f.check)
-      } catch {
-        // A THROW is an outcome, not a crash: the broken-detector fixture below
-        // is only satisfied by one.
-        found = ['detector-throws']
-      }
+      const found = outcomesOf(probe.input)
       const ok = found.includes(probe.expect)
       console.log(`${ok ? 'PASS' : 'FAIL'}  ${probe.name} → expected ${probe.expect}, got [${found}]`)
       if (!ok) bad++
