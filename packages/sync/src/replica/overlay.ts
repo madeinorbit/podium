@@ -20,6 +20,8 @@
  *    replica arbitrating.
  */
 
+import type { SyncSpan } from './ports'
+
 /**
  * A queued client command, from the Replica's point of view. `command` is
  * deliberately `unknown`: the command contract is ADR 3's and POD-351's, and the
@@ -50,8 +52,8 @@ export interface OptimisticOverlayPort {
   reduce(base: unknown | undefined, command: unknown): unknown
   /**
    * Called ONCE PER TRANSACTION with every provenance-bearing change that
-   * transaction applied, deduplicated. The Replica reports the facts; it does not
-   * decide what the outbox should do with them.
+   * transaction applied, in FEED ORDER, deduplicated. The Replica reports the
+   * facts; it does not decide what the outbox should do with them.
    *
    * A batch rather than a call per change, because per-change calls are unsafe
    * inside a shared unit of work: two retirements in one span each stage from the
@@ -59,10 +61,18 @@ export interface OptimisticOverlayPort {
    * (POD-370's re-review). One frame routinely carries several provenance-bearing
    * changes, so the replica was handing the outbox exactly that sequence.
    *
+   * With a `span` (ADR 2 D10 clause 1) the batch is STAGED and takes effect only
+   * when that span commits, in the same publish as the entity operations and the
+   * cursor that confirmed these commands. The Replica always passes one, because
+   * its commit is by definition multi-region: no cursor may certify a change whose
+   * retirement did not land, and no command may be retired against a frame that
+   * did not commit.
+   *
    * Only changes that were ACTUALLY APPLIED contribute. A frame that was dropped,
    * rejected at rung 3, or left buffered contributes nothing — retiring a command
    * whose effect never landed would tell the user their write was accepted when it
-   * was not.
+   * was not. A cache discard (rung 2-6, `rescope` included) contributes nothing
+   * either, and must never reach this method at all.
    */
-  retire(matches: readonly RetirementIntent[]): void
+  retire(matches: readonly RetirementIntent[], span?: SyncSpan): void
 }

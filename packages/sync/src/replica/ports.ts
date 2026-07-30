@@ -55,6 +55,63 @@ export type CacheOperation =
   /** Visibility exit (`op: 'evict'`) — gone from THIS principal's view only. */
   | { readonly kind: 'evict'; readonly entity: string; readonly entityId: string }
 
+/**
+ * ADR 2 D10's unit of work, made EXPLICIT — the seam settled with POD-370.
+ *
+ * The five clauses of that agreement, because a seam documented on one side only
+ * is half a seam:
+ *
+ * 1. An explicit shared span is REQUIRED when one logical commit spans more than
+ *    one region: entities/cache + cursor + the outbox/overlay. That is exactly the
+ *    Replica's frame commit, which retires the commands the frame confirms.
+ * 2. A lone single-region operation MAY use one atomic store write / autocommit
+ *    directly; it need not open an extra unit of work.
+ * 3. A span resolves only after DURABILITY, never before.
+ * 4. Joining is EXPLICIT-SPAN-ONLY. There is no ambient or current transaction to
+ *    pick up — a participant is in a span iff the span was handed to it.
+ * 5. The shared physical store publishes ONCE for the whole span, not once per
+ *    participant. Participants stage into one draft; nobody commits a second time.
+ *
+ * Why this exists at all: retirement used to be one call per applied change, and
+ * inside a shared unit of work that is unsafe. Two retirements for one frame each
+ * stage from the same pre-commit outbox snapshot, so the second RESURRECTS the
+ * first — POD-370 reproduced exactly that. One certified frame routinely confirms
+ * several of my own commands, so the Replica was handing the outbox precisely that
+ * sequence.
+ */
+export interface SyncSpan {
+  /**
+   * Enrol in this span. Idempotent per participant: joining twice extends the one
+   * draft rather than creating a second.
+   */
+  join(participant: SyncSpanParticipant): void
+}
+
+/** One region's participation in a span. Staged privately, published once. */
+export interface SyncSpanParticipant {
+  /**
+   * Last chance to VETO, run for every participant before any of them publishes.
+   * Throwing here aborts the whole span and nothing is published.
+   */
+  prepare?(): void
+  /**
+   * Make the staged draft visible. MUST NOT throw: by the time this runs the span
+   * has passed the point where a failure could be reported cleanly, so anything
+   * that can fail belongs in `prepare`.
+   */
+  publish(): void
+  /** Drop the private draft. Called on abort, and on any participant's veto. */
+  discard?(): void
+}
+
+/** A span whose lifecycle the opener owns. Every path must reach commit or abort. */
+export interface OwnedSyncSpan extends SyncSpan {
+  /** Prepare every participant, then publish once. Throws if a participant vetoes. */
+  commit(): void
+  /** Discard every participant's draft. Nothing published, nothing retired. */
+  abort(): void
+}
+
 /** One atomic batch. Everything in it commits together or not at all (ADR 2 D10, ADR 6 D4.1). */
 export interface CacheMutation {
   /** Applied strictly in order. Adapters MUST NOT regroup or reorder. */
@@ -71,18 +128,40 @@ export interface ReplicaCacheStore {
   readCursor(): Cursor | null
   readEntities(): readonly EntityRecord[]
   read(entity: string, entityId: string): EntityRecord | undefined
-  /** Apply a batch in ONE transaction. Throws `ReplicaStoreCorruptError` if unreadable. */
-  applyAtomic(mutation: CacheMutation): void
+  /**
+   * Open a span over the physical store this port is a view of (D10 clause 1).
+   *
+   * It is the CACHE port that opens it, and that is not a licence to reach the
+   * outbox: the span is an opaque handle, so this port can enrol its own region in
+   * a shared commit without gaining any way to name, read or clear another one.
+   * `discardCache()` still cannot touch the outbox, which is the property this
+   * file exists to hold.
+   */
+  beginSpan(): OwnedSyncSpan
+  /**
+   * Apply a batch in ONE transaction. Throws `ReplicaStoreCorruptError` if unreadable.
+   *
+   * With a `span`, the batch is STAGED into that span's private draft and becomes
+   * visible only when the span commits; repeated calls extend the one draft rather
+   * than publishing twice (D10 clause 5). Without one, it autocommits — legal for a
+   * lone single-region write (D10 clause 2).
+   */
+  applyAtomic(mutation: CacheMutation, span?: SyncSpan): void
   /**
    * Atomic install of a bootstrap (ADR 2 D6.4 / Amendment 1 D15.3): swap staging
    * into place, apply buffered deltas in order, commit the cursor — one
    * transaction, no half-installed replica, no window holding a mixture of two
    * principals' slices.
+   *
+   * Takes a `span` for the same reason `applyAtomic` does: a bootstrap install that
+   * includes buffered frames of my own commands must retire those commands in the
+   * SAME commit as the slice it installs them onto.
    */
   installSnapshot(
     rows: readonly EntityRecord[],
     cursor: Cursor,
     buffered: readonly CacheMutation[],
+    span?: SyncSpan,
   ): void
   /** Discard the cache. Reaches entities and cursor. Cannot reach the outbox. */
   discardCache(): void

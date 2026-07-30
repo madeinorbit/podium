@@ -13,9 +13,9 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryReplicaStore } from './memory-store'
-import type { OptimisticOverlayPort, PendingMutation, RetirementIntent } from './overlay'
-import type { KnownKindValidatorPort } from './ports'
+import { InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
+import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
+import type { CacheOperation, KnownKindValidatorPort } from './ports'
 import { Replica } from './replica'
 import {
   bootstrapChunk,
@@ -59,7 +59,12 @@ interface Harness {
 
 function harness(
   options: {
-    overlay?: OptimisticOverlayPort
+    /**
+     * A FACTORY, not an object: the overlay under test is backed by the outbox
+     * region of the very store the Replica writes through, which is the only way a
+     * test can tell "the batch was handed over" from "the batch took effect".
+     */
+    overlay?: (store: InMemoryReplicaStore) => OptimisticOverlayPort
     validator?: KnownKindValidatorPort
     maxBootstrapAttempts?: number
   } = {},
@@ -70,7 +75,7 @@ function harness(
   const replica = new Replica({
     store: store.cache,
     authority,
-    overlay: options.overlay,
+    overlay: options.overlay?.(store),
     validator: options.validator,
     maxBootstrapAttempts: options.maxBootstrapAttempts,
     onEvent: (event) => events.push(event),
@@ -92,6 +97,15 @@ async function bootstrapped(
 
 const session = (seq: number, id: string, name: string, extra: Partial<ChangeEnvelope> = {}) =>
   upsertChange(seq, 'session', id, { name }, extra)
+
+/** One cache operation, for the tests that drive the store port directly. */
+const upsertOp = (entityId: string): CacheOperation => ({
+  kind: 'upsert',
+  entity: 'session',
+  entityId,
+  value: { name: entityId },
+  provenance: { seq: 1, originId: 'o1' },
+})
 
 // ───────────────────────────────────────────────────────────────────────────────
 describe('delta-first: bootstrap is the recovery path, not the normal one', () => {
@@ -865,39 +879,61 @@ describe('the replica never arbitrates', () => {
 
 // ───────────────────────────────────────────────────────────────────────────────
 describe('the optimistic-overlay reducer seam', () => {
-  /** A FAKE reducer. The real vocabulary is POD-351's contract; this only proves the port. */
-  function fakeOverlay(): OptimisticOverlayPort & {
-    retired: RetirementIntent[]
-    /** One entry per CALL, so the suite can prove batching and not just content. */
-    batches: RetirementIntent[][]
-    queue: PendingMutation[]
+  /**
+   * A FAKE reducer over a REAL outbox region. The reducer vocabulary is POD-351's
+   * contract and the outbox state machine is POD-370's; what this proves is the
+   * D10 seam between them and the Replica.
+   *
+   * It is backed by the store's own outbox rather than by a private array on
+   * purpose: a private array can only record that `retire` was CALLED, and the
+   * property under test is that a batch handed over inside a span takes effect iff
+   * that span commits. `handed` is the calls; `outbox.list()` is the effect. A test
+   * that conflates the two cannot fail when an abort retires everything anyway.
+   */
+  function overlayOver(outbox: InMemoryOutbox): OptimisticOverlayPort & {
+    /** One entry per CALL, so the suite can prove batching and not merely content. */
+    readonly handed: readonly RetirementIntent[][]
   } {
-    const queue: PendingMutation[] = []
-    const retired: RetirementIntent[] = []
-    const batches: RetirementIntent[][] = []
     return {
-      queue,
-      retired,
-      batches,
+      handed: outbox.batches,
       pending: (entity, entityId) =>
-        queue.filter((p) => p.entity === entity && p.entityId === entityId),
+        outbox
+          .list()
+          .filter((e) => e.entity === entity && e.entityId === entityId)
+          .map((e) => ({
+            mutationId: e.mutationId,
+            entity: e.entity,
+            entityId: e.entityId,
+            command: e.command,
+          })),
       reduce: (base, command) => ({ ...(base as object | undefined), ...(command as object) }),
-      retire: (matches) => {
-        batches.push([...matches])
-        for (const match of matches) {
-          retired.push(match)
-          const index = queue.findIndex((p) => p.mutationId === match.mutationId)
-          if (index >= 0) queue.splice(index, 1)
-        }
-      },
+      // The Replica passes the span; the outbox stages into it and publishes with it.
+      retire: (matches, span) => outbox.retireBatch(matches, span),
     }
   }
 
+  /** The wiring every test in this block uses: one physical store, both regions. */
+  function overlayHarness(): Harness & {
+    overlay: ReturnType<typeof overlayOver>
+    outbox: InMemoryOutbox
+  } {
+    let captured: ReturnType<typeof overlayOver> | undefined
+    const h = harness({
+      overlay: (store) => {
+        captured = overlayOver(store.outbox)
+        return captured
+      },
+    })
+    return { ...h, overlay: captured as ReturnType<typeof overlayOver>, outbox: h.store.outbox }
+  }
+
+  const queued = (h: { outbox: InMemoryOutbox }, mutationId: string, entityId: string) =>
+    h.outbox.enqueue({ mutationId, entity: 'session', entityId, command: { name: mutationId } })
+
   it('projects pending commands over authoritative truth without storing the result', async () => {
-    const overlay = fakeOverlay()
-    const h = harness({ overlay })
+    const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'server name')])
-    overlay.queue.push({
+    h.outbox.enqueue({
       mutationId: 'm1',
       entity: 'session',
       entityId: 's1',
@@ -910,10 +946,9 @@ describe('the optimistic-overlay reducer seam', () => {
   })
 
   it('retires exactly, by envelope provenance rather than by value comparison', async () => {
-    const overlay = fakeOverlay()
-    const h = harness({ overlay })
+    const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 's1', 'server name')])
-    overlay.queue.push({
+    h.outbox.enqueue({
       mutationId: 'm1',
       entity: 'session',
       entityId: 's1',
@@ -926,15 +961,15 @@ describe('the optimistic-overlay reducer seam', () => {
       ]),
     )
 
-    expect(overlay.retired).toEqual([
-      { entity: 'session', entityId: 's1', causationId: 'cmd-1', mutationId: 'm1' },
+    expect(h.overlay.handed).toEqual([
+      [{ entity: 'session', entityId: 's1', causationId: 'cmd-1', mutationId: 'm1' }],
     ])
+    expect(h.outbox.list()).toHaveLength(0)
     expect(h.replica.view('session', 's1')).toEqual({ name: 'typed name' })
   })
 
   it('retires on EVERY provenance-carrying op, not only upserts', async () => {
-    const overlay = fakeOverlay()
-    const h = harness({ overlay })
+    const h = overlayHarness()
     await bootstrapped(h, 0, [session(0, 'gone', 'a'), session(0, 'unshared', 'b')])
 
     h.replica.receive(
@@ -962,17 +997,122 @@ describe('the optimistic-overlay reducer seam', () => {
     // A delete I authored must retire its outbox entry exactly as an edit does;
     // previously only the upsert branch retired, so a tombstone caused by my own
     // command left its overlay entry pending forever.
-    expect(overlay.retired.map((r) => r.mutationId)).toEqual(['m-del', 'm-ev', 'm-up'])
-    // ONE call for the whole frame. Per-change calls let a second retirement
-    // resurrect the first when both stage from the same pre-commit outbox
-    // snapshot inside a shared unit of work (POD-370's re-review).
-    expect(overlay.batches).toHaveLength(1)
+    expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-del', 'm-ev', 'm-up'])
+  })
+
+  // ── Multi-retirement batching: ONE ordered batch, ONE unit of work (D10) ────
+
+  it('submits TWO retirements as ONE ordered batch in ONE transaction', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [])
+    queued(h, 'm-a', 'a')
+    queued(h, 'm-b', 'b')
+    const before = h.store.transactions
+
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 'a', 'a', { causationId: 'cmd-a', mutationId: 'm-a' }),
+        session(2, 'b', 'b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+      ]),
+    )
+
+    // ONE call carrying BOTH, in feed order — not two calls. Per-retirement calls
+    // inside a shared unit of work each stage from the same pre-commit outbox
+    // snapshot, so the second resurrects the first (POD-370 reproduced this).
+    expect(h.overlay.handed).toHaveLength(1)
+    expect(h.overlay.handed[0]?.map((r) => r.mutationId)).toEqual(['m-a', 'm-b'])
+    // BOTH are gone. Under the per-call bug the earlier one comes back here.
+    expect(h.outbox.list()).toHaveLength(0)
+    // The entity operations, the cursor and the retirements published ONCE
+    // together, not once per participant (D10 clause 5).
+    expect(h.store.transactions - before).toBe(1)
+  })
+
+  it('deduplicates two changes that carry the SAME provenance', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [])
+    queued(h, 'm-a', 'a')
+
+    // One command, two rows: legal, and anchored per-principal rows may even share
+    // a seq (D14.3). Retiring twice is at best noise and at worst a second
+    // retirement of an entry the first already removed.
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 'a', 'first', { causationId: 'cmd-a', mutationId: 'm-a' }),
+        session(2, 'a', 'second', { causationId: 'cmd-a', mutationId: 'm-a' }),
+      ]),
+    )
+
+    expect(h.overlay.handed).toHaveLength(1)
+    expect(h.overlay.handed[0]?.map((r) => r.mutationId)).toEqual(['m-a'])
+  })
+
+  it('ABORT retires nothing, applies nothing, and emits nothing', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [session(0, 'a', 'server a')])
+    queued(h, 'm-a', 'a')
+    queued(h, 'm-b', 'b')
+    const before = h.store.transactions
+    h.events.length = 0
+    // Refuse at the serialized commit point, with both drafts still private.
+    h.store.cache.failNextPrepare = 'durable write denied'
+
+    expect(() =>
+      h.replica.receive(
+        deltaFrame(0, 2, [
+          session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
+          session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+        ]),
+      ),
+    ).toThrow('durable write denied')
+
+    // The batch was HANDED OVER — and took no effect. Both commands are still the
+    // user's unsent work: telling them a write landed when it did not is the worse
+    // half of this bug, because the optimistic value disappears too.
+    expect(h.overlay.handed).toHaveLength(1)
+    expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-a', 'm-b'])
+    // Nothing published, and no cursor advance the store cannot back.
+    expect(h.store.transactions - before).toBe(0)
+    expect(h.replica.cursor?.seq).toBe(0)
+    expect(h.replica.entities().map((r) => r.value)).toEqual([{ name: 'server a' }])
+    expect(h.events).toEqual([])
+  })
+
+  it('REHYDRATES after an abort to the pre-frame state, with both commands queued', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [session(0, 'a', 'server a')])
+    queued(h, 'm-a', 'a')
+    queued(h, 'm-b', 'b')
+    h.store.cache.failNextPrepare = 'durable write denied'
+    expect(() =>
+      h.replica.receive(
+        deltaFrame(0, 2, [
+          session(1, 'a', 'aborted a', { causationId: 'cmd-a', mutationId: 'm-a' }),
+          session(2, 'b', 'aborted b', { causationId: 'cmd-b', mutationId: 'm-b' }),
+        ]),
+      ),
+    ).toThrow()
+
+    // A fresh Replica over the SAME physical store — the process restarted, so
+    // nothing in RAM can be covering for a draft that was never published.
+    const rehydrated = new Replica({
+      store: h.store.cache,
+      authority: h.authority,
+      overlay: overlayOver(h.outbox),
+    })
+    live.push(rehydrated)
+
+    expect(rehydrated.cursor?.seq).toBe(0)
+    expect(rehydrated.entities().map((r) => r.value)).toEqual([{ name: 'server a' }])
+    // Both optimistic values are still on screen, from the outbox, as D7 requires.
+    expect(rehydrated.view('session', 'a')).toEqual({ name: 'm-a' })
+    expect(rehydrated.view('session', 'b')).toEqual({ name: 'm-b' })
   })
 
   it('retires through the BOOTSTRAP path too, not only live and heal', async () => {
-    const overlay = fakeOverlay()
-    const h = harness({ overlay })
+    const h = overlayHarness()
     await bootstrapped(h, 5, [])
+    queued(h, 'm-buffered', 's1')
     const channel = h.authority.driveManually()
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
@@ -987,15 +1127,93 @@ describe('the optimistic-overlay reducer seam', () => {
     await h.replica.settled()
 
     // The bootstrap replay used to be a second emission path that retired nothing.
-    expect(overlay.retired.map((r) => r.mutationId)).toEqual(['m-buffered'])
-    expect(overlay.batches).toHaveLength(1)
+    expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-buffered'])
+    expect(h.outbox.list()).toHaveLength(0)
   })
 
-  it('survives a rescope, because it is derived from the outbox rather than cached', async () => {
-    const overlay = fakeOverlay()
-    const h = harness({ overlay })
+  it('AGGREGATES retirements across every buffered frame ONE install includes', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 5, [])
+    queued(h, 'm-one', 's1')
+    queued(h, 'm-two', 's2')
+    const channel = h.authority.driveManually()
+    const before = h.store.transactions
+
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(10, [], false))
+    await Promise.resolve()
+    // TWO buffered frames, each confirming one of my commands. The install commits
+    // both onto the snapshot in one transaction, so it owes ONE batch of two.
+    h.replica.receive(
+      deltaFrame(10, 11, [
+        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' }),
+      ]),
+    )
+    h.replica.receive(
+      deltaFrame(11, 12, [
+        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' }),
+      ]),
+    )
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    expect(h.overlay.handed).toHaveLength(1)
+    expect(h.overlay.handed[0]?.map((r) => r.mutationId)).toEqual(['m-one', 'm-two'])
+    expect(h.outbox.list()).toHaveLength(0)
+    // Snapshot swap + both buffered frames + cursor + both retirements: ONE publish.
+    expect(h.store.transactions - before).toBe(1)
+  })
+
+  it('a bootstrap install that ABORTS retires neither buffered frame', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 5, [])
+    queued(h, 'm-one', 's1')
+    queued(h, 'm-two', 's2')
+    const channel = h.authority.driveManually()
+
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(10, [session(3, 'fresh', 'new')], false))
+    await Promise.resolve()
+    h.replica.receive(
+      deltaFrame(10, 11, [
+        session(11, 's1', 'one', { causationId: 'cmd-1', mutationId: 'm-one' }),
+      ]),
+    )
+    h.replica.receive(
+      deltaFrame(11, 12, [
+        session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: 'm-two' }),
+      ]),
+    )
+    h.store.cache.failNextPrepare = 'durable write denied'
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    // The walk restarts (D6-RESTART) rather than half-installing, and NOTHING was
+    // retired: a command confirmed by a frame whose install never committed is
+    // still unsent work.
+    expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-one', 'm-two'])
+    expect(h.replica.entities()).toHaveLength(0)
+    expect(h.replica.cursor?.seq).toBe(5)
+  })
+
+  it('a frame carrying NO provenance opens no unit of work (D10 clause 2)', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [])
+    const before = h.store.transactions
+
+    // Somebody else's change. Single-region write, so it autocommits: enrolling one
+    // participant in a span would add a unit of work whose commit is the write's.
+    h.replica.receive(deltaFrame(0, 1, [session(1, 'theirs', 'x')]))
+
+    expect(h.overlay.handed).toHaveLength(0)
+    expect(h.store.transactions - before).toBe(1)
+    expect(h.replica.view('session', 'theirs')).toEqual({ name: 'x' })
+  })
+
+  it('survives a rescope, and the DISCARD never touches the outbox at all', async () => {
+    const h = overlayHarness()
     await bootstrapped(h, 10, [session(1, 's1', 'server name')])
-    overlay.queue.push({
+    h.outbox.enqueue({
       mutationId: 'm1',
       entity: 'session',
       entityId: 's1',
@@ -1009,6 +1227,109 @@ describe('the optimistic-overlay reducer seam', () => {
     // The cache was replaced; the user's unsent edit is still on screen.
     expect(h.replica.entities()[0]?.value).toEqual({ name: 'server name v2' })
     expect(h.replica.view('session', 's1')).toEqual({ name: 'typed name' })
+    // And the outbox was never even ASKED. A rescope carries no certified frame, so
+    // it owes no retirement; an install that swept the queue "because it was
+    // rebuilding anyway" is the data loss ports.ts exists to make unreachable.
+    expect(h.overlay.handed).toHaveLength(0)
+    expect(h.outbox.list()).toHaveLength(1)
+  })
+
+  // ── The physical store publishes once for the whole span (D10 clause 5) ────
+
+  it('TWO PRINCIPAL-BOUND VIEWS sharing one span publish ONCE between them', () => {
+    const store = new InMemoryReplicaStore()
+    const mine = store.viewFor('me')
+    const theirs = store.viewFor('them')
+    mine.outbox.enqueue({ mutationId: 'm-mine', entity: 'session', entityId: 'a', command: {} })
+    theirs.outbox.enqueue({ mutationId: 'm-theirs', entity: 'session', entityId: 'b', command: {} })
+    const before = store.transactions
+
+    // ONE logical commit across four regions: two principals' caches and two
+    // principals' outboxes. Joining is explicit-span-only — each participant is in
+    // because the span was handed to it, never because a transaction was ambient.
+    const span = store.beginSpan()
+    mine.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
+    theirs.cache.applyAtomic({ operations: [upsertOp('b')], cursor: cursorAt(1) }, span)
+    mine.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm-mine' }], span)
+    theirs.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm-theirs' }], span)
+
+    // Nothing is visible before the commit: a reader looking mid-span sees the
+    // pre-span state, never another principal's half-applied slice.
+    expect(mine.cache.readEntities()).toHaveLength(0)
+    expect(mine.outbox.list()).toHaveLength(1)
+
+    span.commit()
+
+    expect(mine.cache.readEntities().map((r) => r.entityId)).toEqual(['a'])
+    expect(theirs.cache.readEntities().map((r) => r.entityId)).toEqual(['b'])
+    expect(mine.outbox.list()).toHaveLength(0)
+    expect(theirs.outbox.list()).toHaveLength(0)
+    // ONE publish for the whole span, not one per participant.
+    expect(store.transactions - before).toBe(1)
+  })
+
+  it('an ABORTED shared span retires NEITHER principal and applies NEITHER slice', () => {
+    const store = new InMemoryReplicaStore()
+    const mine = store.viewFor('me')
+    const theirs = store.viewFor('them')
+    mine.outbox.enqueue({ mutationId: 'm-mine', entity: 'session', entityId: 'a', command: {} })
+    theirs.outbox.enqueue({ mutationId: 'm-theirs', entity: 'session', entityId: 'b', command: {} })
+    const before = store.transactions
+
+    const span = store.beginSpan()
+    mine.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
+    theirs.cache.applyAtomic({ operations: [upsertOp('b')], cursor: cursorAt(1) }, span)
+    mine.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm-mine' }], span)
+    theirs.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm-theirs' }], span)
+    span.abort()
+
+    expect(mine.cache.readEntities()).toHaveLength(0)
+    expect(theirs.cache.readEntities()).toHaveLength(0)
+    expect(mine.outbox.list()).toHaveLength(1)
+    expect(theirs.outbox.list()).toHaveLength(1)
+    expect(store.transactions - before).toBe(0)
+  })
+
+  it('REPEATED batches in one span EXTEND the draft rather than replacing it', () => {
+    const store = new InMemoryReplicaStore()
+    const view = store.viewFor('me')
+    view.outbox.enqueue({ mutationId: 'm1', entity: 'session', entityId: 'a', command: {} })
+    view.outbox.enqueue({ mutationId: 'm2', entity: 'session', entityId: 'b', command: {} })
+    view.outbox.enqueue({ mutationId: 'm3', entity: 'session', entityId: 'c', command: {} })
+
+    const span = store.beginSpan()
+    view.outbox.retireBatch([{ entity: 'session', entityId: 'a', mutationId: 'm1' }], span)
+    view.outbox.retireBatch([{ entity: 'session', entityId: 'b', mutationId: 'm2' }], span)
+    span.commit()
+
+    // A second batch that restaged from the pre-commit entries would resurrect m1.
+    // Same for the cache side: two applyAtomic calls in one span must compose.
+    expect(view.outbox.list().map((e) => e.mutationId)).toEqual(['m3'])
+  })
+
+  it('two cache writes in one span COMPOSE in order rather than the last winning', () => {
+    const store = new InMemoryReplicaStore()
+    const view = store.viewFor('me')
+
+    const span = store.beginSpan()
+    view.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
+    view.cache.applyAtomic({ operations: [upsertOp('b')], cursor: cursorAt(2) }, span)
+    span.commit()
+
+    expect(view.cache.readEntities().map((r) => r.entityId)).toEqual(['a', 'b'])
+    expect(view.cache.readCursor()?.seq).toBe(2)
+  })
+
+  it('a settled span cannot be joined, committed or aborted again', () => {
+    const store = new InMemoryReplicaStore()
+    const view = store.viewFor('me')
+    const span = store.beginSpan()
+    view.cache.applyAtomic({ operations: [upsertOp('a')], cursor: cursorAt(1) }, span)
+    span.commit()
+
+    expect(() => span.commit()).toThrow('span already settled')
+    expect(() => span.abort()).toThrow('span already settled')
+    expect(() => span.join({ publish: () => {} })).toThrow('already settled')
   })
 })
 

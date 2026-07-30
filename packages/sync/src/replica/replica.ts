@@ -43,6 +43,7 @@ import {
   type KnownKindValidatorPort,
   type ReplicaCacheStore,
   ReplicaStoreCorruptError,
+  type SyncSpan,
 } from './ports'
 import { transitionRow } from './transition-table'
 import type {
@@ -355,33 +356,56 @@ export class Replica {
    * that best describes what the frame carried.
    */
   private commitChanges(changes: readonly ChangeEnvelope[], nextCursor: Cursor): string {
-    this.store.applyAtomic(toMutation(changes, nextCursor))
+    this.commitRegions(retirementsOf([changes]), (span) => {
+      this.store.applyAtomic(toMutation(changes, nextCursor), span)
+    })
     this.cursorValue = nextCursor
     this.counters.pendingGap = false
 
-    const retirements: RetirementIntent[] = []
-    const rowId = this.emitApplied(changes, nextCursor, retirements)
-    this.submitRetirements(retirements)
-    return rowId
+    return this.emitApplied(changes, nextCursor)
   }
 
   /**
-   * ONE call per transaction, deduplicated by provenance identity. Two changes in
-   * one frame can carry the same mutationId (an edit and its own follow-up), and
-   * a duplicate intent is at best noise and at worst a second retirement of an
-   * entry the first already removed.
+   * ONE logical commit, ADR 2 D10 as settled with POD-370.
+   *
+   * The retirement batch and the cache write are ONE unit of work whenever both
+   * are present: the cursor must never certify a frame whose confirmed commands
+   * are still queued (the user would see their own write twice, then watch it
+   * vanish), and a command must never be retired against a frame that did not
+   * commit (the user is told a write landed when it did not). Two sequential
+   * writes cannot give either guarantee, in EITHER order.
+   *
+   * When there is nothing to retire, the cache write is a lone single-region
+   * operation and autocommits — D10 clause 2 permits that explicitly, and opening
+   * a span to enrol one participant would add a unit of work whose commit and
+   * abort are already the store write's own.
+   *
+   * Everything the Replica itself observes — the cursor, `exits`, public events —
+   * is updated by the CALLER, strictly after this returns, so no observer can see
+   * uncommitted state and an abort leaves nothing to undo.
    */
-  private submitRetirements(retirements: readonly RetirementIntent[]): void {
-    if (retirements.length === 0) return
-    const seen = new Set<string>()
-    const batch: RetirementIntent[] = []
-    for (const intent of retirements) {
-      const key = `${intent.entity}\u0000${intent.entityId}\u0000${intent.mutationId ?? ''}\u0000${intent.causationId ?? ''}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      batch.push(intent)
+  private commitRegions(
+    retirements: readonly RetirementIntent[],
+    write: (span?: SyncSpan) => void,
+  ): void {
+    const overlay = this.overlayPort
+    if (overlay === undefined || retirements.length === 0) {
+      write()
+      return
     }
-    this.overlayPort?.retire(batch)
+    const span = this.store.beginSpan()
+    try {
+      write(span)
+      // ONE ordered batch for the whole transaction, never a call per change.
+      overlay.retire(retirements, span)
+      span.commit()
+    } catch (error) {
+      // Abort discards every participant's draft: the cache keeps its pre-frame
+      // contents and not one command is retired. A partial commit here is the
+      // resurrection bug in its worst form — retired but never applied.
+      span.abort()
+      throw error
+    }
   }
 
   /**
@@ -396,13 +420,12 @@ export class Replica {
    * paths for one concept is how a contract in a docstring stops being true.
    *
    * Emission happens strictly AFTER the commit, so no observer can see
-   * uncommitted state.
+   * uncommitted state. Retirement is therefore NOT collected here even though
+   * this walks exactly the right changes: a retirement must be enrolled in the
+   * commit, which has already happened by the time anything is emitted.
+   * `retirementsOf` derives it from the same envelopes, before the commit.
    */
-  private emitApplied(
-    changes: readonly ChangeEnvelope[],
-    cursor: Cursor,
-    retirements: RetirementIntent[],
-  ): string {
+  private emitApplied(changes: readonly ChangeEnvelope[], cursor: Cursor): string {
     let sawEvict = false
     let sawRemove = false
     let sawReadmit = false
@@ -437,20 +460,6 @@ export class Replica {
         sawEvict = true
         this.exits.set(key, 'evicted')
         this.emit({ type: 'evicted', entity: change.entity, entityId: change.entityId })
-      }
-
-      // ADR 2 D8 — retirement is EXACT, by envelope provenance, for EVERY op that
-      // carries it. A delete I authored must retire its outbox entry exactly as an
-      // edit I authored does; matching on values instead would be arbitration.
-      // COLLECTED here and submitted once per transaction by the caller — see
-      // OptimisticOverlayPort.retire for why per-change calls are unsafe.
-      if (change.causationId !== undefined || change.mutationId !== undefined) {
-        retirements.push({
-          entity: change.entity,
-          entityId: change.entityId,
-          causationId: change.causationId,
-          mutationId: change.mutationId,
-        })
       }
     }
 
@@ -713,8 +722,21 @@ export class Replica {
 
     const rows = [...staging.values()]
     // THE ATOMIC SWAP. This replaces the cache (that is the D7 "discard") and
-    // applies the buffered frames and the cursor in the SAME transaction.
-    this.store.installSnapshot(rows, snapshotCursor, mutations)
+    // applies the buffered frames, the cursor AND the retirements the included
+    // frames owe, in the SAME transaction.
+    //
+    // The batch is aggregated across EVERY buffered frame this install actually
+    // included, and submitted once. Frames dropped as covered, frames left behind
+    // at the install gap and frames belonging to another epoch contribute NOTHING:
+    // retiring a command whose effect never landed would tell the user their write
+    // was accepted when it was not. `emissions` is exactly the included set, which
+    // is why the batch is derived from it rather than from `buffered`.
+    this.commitRegions(
+      retirementsOf(emissions.map((emission) => emission.changes)),
+      (span) => {
+        this.store.installSnapshot(rows, snapshotCursor, mutations, span)
+      },
+    )
     this.note('D6-INSTALL')
     this.cursorValue = running
     this.exits.clear()
@@ -727,20 +749,12 @@ export class Replica {
       entityCount: rows.length,
       bufferedFramesApplied: mutations.length,
     })
-    // Same emission/retirement semantics as the live and heal paths — one
-    // function, so a change applied through a bootstrap retires its outbox entry
-    // exactly as a change applied live does.
-    //
-    // The retirement batch is aggregated across EVERY buffered frame that this
-    // install actually included, and submitted once for the whole transaction.
-    // Frames that were dropped as covered, or left behind at the install gap,
-    // contribute nothing: retiring a command whose effect never landed would tell
-    // the user their write was accepted when it was not.
-    const retirements: RetirementIntent[] = []
+    // Same emission semantics as the live and heal paths — one function, so a
+    // change applied through a bootstrap is projected exactly as a change applied
+    // live is. Retirement was enrolled in the install transaction above.
     for (const emission of emissions) {
-      this.emitApplied(emission.changes, emission.cursor, retirements)
+      this.emitApplied(emission.changes, emission.cursor)
     }
-    this.submitRetirements(retirements)
 
     this.setPosture('live')
     if (gapAt >= 0) {
@@ -875,6 +889,45 @@ export class Replica {
       rung: transitionRow(rowId).rung,
     }
   }
+}
+
+/**
+ * Every retirement one transaction owes, in FEED ORDER across every frame the
+ * transaction includes, deduplicated by provenance identity.
+ *
+ * Aggregating across frames is the bootstrap case and it is the reason this is a
+ * function over a LIST of change lists: one install commits the snapshot plus every
+ * buffered frame it chained, and per-frame batches inside that one transaction
+ * would each stage from the same pre-commit outbox snapshot — the resurrection bug
+ * again, one level up.
+ *
+ * Deduplication matters because two changes in one transaction can carry the same
+ * provenance (an edit and its own follow-up row, or the same command anchored
+ * per-principal at a shared seq, D14.3). A duplicate intent is noise at best, and at
+ * worst a second retirement of an entry the first already removed.
+ */
+function retirementsOf(frames: readonly (readonly ChangeEnvelope[])[]): readonly RetirementIntent[] {
+  const seen = new Set<string>()
+  const batch: RetirementIntent[] = []
+  for (const changes of frames) {
+    for (const change of changes) {
+      // ADR 2 D8 — retirement is EXACT, by envelope provenance, for EVERY op that
+      // carries it. A delete I authored must retire its outbox entry exactly as an
+      // edit I authored does; matching on values instead would be arbitration.
+      if (change.causationId === undefined && change.mutationId === undefined) continue
+      const intent: RetirementIntent = {
+        entity: change.entity,
+        entityId: change.entityId,
+        causationId: change.causationId,
+        mutationId: change.mutationId,
+      }
+      const key = `${intent.entity}\u0000${intent.entityId}\u0000${intent.mutationId ?? ''}\u0000${intent.causationId ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      batch.push(intent)
+    }
+  }
+  return batch
 }
 
 /** The record a change describes, built from the ENVELOPE rather than read back. */
