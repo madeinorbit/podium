@@ -11,6 +11,7 @@ import {
   exportHandoffPackage,
   importHandoffPackage,
   readExportChunk,
+  readHandoffManifest,
   resolveExportSource,
   STAGE_TTL_MS,
   sweepHandoffStage,
@@ -480,6 +481,162 @@ describe('handoff package', () => {
         'utf8',
       ),
     ).toContain('bluebird')
+  })
+})
+
+// POD-1153. The v1 -> v2 lift lives in the READ path, and this is where the
+// compatibility promise is actually kept. The V1 fixture below is PERMANENT: it
+// is a bundle header of the shape already sitting on people's disks, and the day
+// it stops parsing is the day an export from last month becomes unopenable. It
+// is deliberately a literal rather than something built from the current schema —
+// a fixture generated from the code under test cannot notice the code changing.
+describe('handoff manifest read path across file formats ([POD-1153])', () => {
+  /** A v1 bundle header, verbatim. Do not regenerate; do not tidy. */
+  const V1_ON_DISK = {
+    format: 1,
+    sessionId: 'handoff-legacy',
+    agentKind: 'claude-code',
+    resume: { kind: 'claude-session', value: 'uuid-legacy' },
+    transcriptFilename: 'uuid-legacy.jsonl',
+    repoId: 'repo-1',
+    branch: 'issue/498-handoff',
+    headSha: 'a'.repeat(40),
+    snapshotSha: null,
+    snapshotFlattened: true,
+    worktreeName: 'issue-498',
+    bundleBase: ['c'.repeat(40)],
+    sourceMachineId: 'machine-1',
+    exportedAt: '2026-07-14T12:00:00.000Z',
+  }
+
+  const V2_ON_DISK = {
+    ...V1_ON_DISK,
+    format: 2,
+    exportedAt: undefined,
+    exported: {
+      at: '2026-07-30T12:00:00.000Z',
+      by: { actor: { kind: 'agent', id: 'agent-7' }, onBehalfOf: 'user-mgw' },
+    },
+    owner: 'user-mgw',
+    visibility: 'personal',
+  }
+
+  it('opens a v1 bundle and reports NO attribution rather than inventing one', () => {
+    const header = readHandoffManifest(V1_ON_DISK)
+    expect(header.manifest.format).toBe(1)
+    expect(header.exportedAt).toBe('2026-07-14T12:00:00.000Z')
+    // The whole point of the null: a v1 bundle never recorded a principal, so a
+    // synthesized actor here would be fabricated provenance in a durable record.
+    expect(header.attribution).toBeNull()
+    expect(header.claimedOwner).toBeNull()
+  })
+
+  it('opens a v2 bundle and reports the attribution pair and the claimed owner', () => {
+    const { exportedAt: _v1Key, ...v2 } = V2_ON_DISK
+    const header = readHandoffManifest(v2)
+    expect(header.manifest.format).toBe(2)
+    // ONE spelling of the export time: it comes from inside the pair, and the
+    // v1 key is not present in the input at all.
+    expect(header.exportedAt).toBe('2026-07-30T12:00:00.000Z')
+    expect(header.attribution).toEqual({
+      at: '2026-07-30T12:00:00.000Z',
+      by: { actor: { kind: 'agent', id: 'agent-7' }, onBehalfOf: 'user-mgw' },
+    })
+    // ADR 9 D5 A4: the OWNER is the on-behalf-of human, the ACTOR is the agent.
+    expect(header.claimedOwner).toBe('user-mgw')
+    expect(header.attribution?.by.actor).toEqual({ kind: 'agent', id: 'agent-7' })
+  })
+
+  it('refuses a v1 bundle relabelled as v2 instead of reading it as v1', () => {
+    // The negative that a positive round-trip cannot show: "upgrade" must never
+    // mean "assume the missing half was there all along".
+    expect(() => readHandoffManifest({ ...V1_ON_DISK, format: 2 })).toThrow(/unreadable/)
+  })
+
+  it('refuses a format newer than this reader, and says which', () => {
+    expect(() => readHandoffManifest({ ...V1_ON_DISK, format: 3 })).toThrow(
+      /format 3 is not readable by this Podium \(supports 1, 2\)/,
+    )
+    // Unknown input fails CLOSED, and the instrument is shown able to say YES:
+    // the same header at format 1 parses fine two cases above.
+    expect(() => readHandoffManifest({ nonsense: true })).toThrow(/unreadable/)
+    expect(() => readHandoffManifest(null)).toThrow(/unreadable/)
+  })
+
+  it('keeps the worktree containment refusal on the v2 arm', () => {
+    const { exportedAt: _v1Key, ...v2 } = V2_ON_DISK
+    expect(() => readHandoffManifest({ ...v2, worktreeRelativePath: '../escape' })).toThrow(
+      /unreadable/,
+    )
+    // Counterfactual: the same bundle with a contained path opens.
+    expect(
+      readHandoffManifest({ ...v2, worktreeRelativePath: '.worktrees/issue-498' }).manifest.format,
+    ).toBe(2)
+  })
+
+  it('imports a real v2 bundle end to end', async () => {
+    // The read path proven against a bundle a NEWER PEER would send: export the
+    // real thing, rewrite only its manifest.json to format 2, repack, import.
+    // Nothing else about the package changes, so a failure is attributable to the
+    // format and not to the fixture.
+    const origin = await repo('v2-origin')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-v2-target-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const source = await worktree(origin, 'issue/1153-v2')
+    await writeFile(join(source, 'state.txt'), 'from-v2\n')
+    const sourceHome = await home('v2-source')
+    const targetHome = await home('v2-target')
+    const resumeValue = 'claude-v2-bundle'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-v2',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    // Today's exporter writes v1 — asserted, because the rewrite below would be
+    // a no-op if it silently started writing v2, and this test would then prove
+    // nothing about reading v2.
+    expect(exported.manifest.format).toBe(1)
+
+    const repack = await mkdtemp(join(tmpdir(), 'podium-v2-repack-'))
+    roots.push(repack)
+    execFileSync('tar', ['-xzf', exported.stagePath, '-C', repack])
+    const onDisk = JSON.parse(await readFile(join(repack, 'manifest.json'), 'utf8'))
+    const { exportedAt, ...rest } = onDisk
+    await writeFile(
+      join(repack, 'manifest.json'),
+      JSON.stringify({
+        ...rest,
+        format: 2,
+        exported: {
+          at: exportedAt,
+          by: { actor: { kind: 'agent', id: 'agent-7' }, onBehalfOf: 'user-mgw' },
+        },
+        owner: 'user-mgw',
+        visibility: 'personal',
+      }),
+    )
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-v2.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    execFileSync('tar', ['-czf', stage, '-C', repack, '.'])
+
+    const imported = await importHandoffPackage({
+      sessionId: 'handoff-v2',
+      repoPath: target,
+      worktreeName: exported.manifest.worktreeName,
+      homeDir: targetHome,
+    })
+    expect(imported.manifest.format).toBe(2)
+    expect(git(imported.newCwd, 'branch', '--show-current')).toBe('issue/1153-v2')
+    expect(await readFile(join(imported.newCwd, 'state.txt'), 'utf8')).toBe('from-v2\n')
   })
 })
 

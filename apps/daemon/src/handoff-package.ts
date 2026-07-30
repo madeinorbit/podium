@@ -14,11 +14,89 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { claudeProjectSlug, locateClaudeSessionFile, resolvePinnedCodexRollout } from '@podium/harness'
+import type { Attribution } from '@podium/model'
 import { HandoffManifest, HandoffManifest as HandoffManifestType } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)
 const HANDOFF_REF_ROOT = 'refs/podium/handoff'
+
+/** Bundle file formats this reader can interpret, newest last. Widening this
+ *  list is the same act as adding an arm to `HandoffManifest` — it is here only
+ *  so the refusal below can NAME what it supports. */
+const READABLE_BUNDLE_FORMATS = [1, 2] as const
+
+/**
+ * What a bundle header says, read uniformly across file formats — **the one
+ * place in the daemon that knows a manifest has versions** (POD-1153).
+ *
+ * The v1 -> v2 lift lives HERE, in the read path, and the shape of this type is
+ * the whole reason it is not just `HandoffManifest`:
+ *
+ *   - `exportedAt` normalises v1's flat key and v2's `exported.at` to one
+ *     reading, so a caller never spells the export time two ways.
+ *   - `attribution` is `null` FOR A V1 BUNDLE, and that null is load-bearing. A
+ *     v1 file never recorded a principal, so there is nothing to lift; the
+ *     tempting move — synthesizing an actor so every bundle looks uniform —
+ *     would write invented provenance into the one record whose entire job is to
+ *     say who really did this (ADR 9 D5 A3, and ADR 9 D8 S5 forbids defaulting
+ *     the on-behalf-of half to an operator or an owner). "Not recorded" and
+ *     "recorded as nobody" are different facts and this keeps them apart.
+ *   - `claimedOwner` is named for what it is. **It is PROVENANCE and it is NEVER
+ *     an authorization input.** A bundle is payload from a machine outside this
+ *     trust domain, so ADR 3 D7 is absolute: the import path decides ownership
+ *     and visibility from its OWN authenticated transport principal, and a file
+ *     claiming an owner confers nothing — not ownership, not visibility, not a
+ *     right. A field called `owner` in scope at an import site invites exactly
+ *     the wrong reading, so the name carries the warning that a comment alone
+ *     would not.
+ */
+export interface HandoffBundleHeader {
+  manifest: HandoffManifestType
+  /** The export timestamp, wherever this format keeps it. */
+  exportedAt: string
+  /** WHO exported it, inseparably from WHEN — or `null` for a v1 bundle, which
+   *  never carried a principal. Never synthesized. */
+  attribution: { at: string; by: Attribution } | null
+  /** PROVENANCE ONLY — see the type's docs. Never an authorization input. */
+  claimedOwner: string | null
+}
+
+/**
+ * Parse a bundle manifest of any readable format into one reading.
+ *
+ * Fails CLOSED on anything it cannot interpret, including a format newer than
+ * this reader: guessing at an unknown version is how a reader silently drops a
+ * key it did not know was load-bearing. The refusal names the format so an
+ * operator can tell "your Podium is older than this bundle" from "this bundle is
+ * corrupt", which are the same empty failure otherwise.
+ */
+export function readHandoffManifest(raw: unknown): HandoffBundleHeader {
+  const parsed = HandoffManifest.safeParse(raw)
+  if (!parsed.success) {
+    const format = (raw as { format?: unknown } | null)?.format
+    if (typeof format === 'number' && !READABLE_BUNDLE_FORMATS.includes(format as 1 | 2))
+      throw new Error(
+        `handoff bundle format ${format} is not readable by this Podium (supports ${READABLE_BUNDLE_FORMATS.join(', ')})`,
+      )
+    throw new Error(`unreadable handoff manifest: ${parsed.error.issues[0]?.message ?? 'invalid'}`)
+  }
+  const manifest = parsed.data
+  if (manifest.format === 2)
+    return {
+      manifest,
+      exportedAt: manifest.exported.at,
+      attribution: manifest.exported,
+      claimedOwner: manifest.owner,
+    }
+  return {
+    manifest,
+    exportedAt: manifest.exportedAt,
+    // v1 recorded neither, and this reader does not invent either.
+    attribution: null,
+    claimedOwner: null,
+  }
+}
 
 async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await runFile('git', args, { cwd, env: { ...process.env, ...env } })
@@ -359,6 +437,14 @@ export async function exportHandoffPackage(input: {
       ? repositoryRelativeWorktreePath(sourceInfo.repoRoot, cwd)
       : undefined
     const manifest = HandoffManifest.parse({
+      // STILL FORMAT 1, deliberately (POD-1153). A `format: 2` manifest must
+      // carry the attribution pair and the owner, and those may only be stamped
+      // from an AUTHENTICATED TRANSPORT PRINCIPAL (ADR 3 D7) — which the handoff
+      // export request frame does not carry, so there is nothing here to stamp
+      // from. Writing a guess would put fabricated provenance in a durable file,
+      // which is worse than recording none. Threading the principal into the
+      // export request belongs to POD-644 (transfer path) / POD-1075 (principal
+      // module); the READ path above already opens v2.
       format: 1,
       sessionId: input.sessionId,
       agentKind: input.agentKind,
@@ -468,7 +554,11 @@ export async function importHandoffPackage(input: {
   let createdWorktree = false
   try {
     await runFile('tar', ['-xzf', archive, '-C', unpacked])
-    const manifest = HandoffManifest.parse(
+    // Every format arrives through the one reader (POD-1153): a v2 bundle from a
+    // newer peer opens here, and a v1 bundle on disk keeps opening. The header's
+    // `claimedOwner` is deliberately NOT consulted below — ADR 3 D7: the
+    // importing side owns what it imports, whatever the file claims.
+    const { manifest } = readHandoffManifest(
       JSON.parse(await readFile(join(unpacked, 'manifest.json'), 'utf8')),
     )
     if (manifest.sessionId !== input.sessionId) throw new Error('package session id mismatch')
