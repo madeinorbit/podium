@@ -222,14 +222,30 @@ export interface OutboxConfig {
  *    portable ambient transaction in a browser runtime. A seam that silently
  *    fails to enroll is worse than one that changes a signature. Both span
  *    parameters are OPTIONAL, so no existing caller breaks.
- * 2. **`onCommit` as well as `onAbort`.** Participants STAGE their in-memory
- *    effects and publish them from `onCommit`; `onAbort` is the escape hatch for
- *    state that had to mutate eagerly. Without `onCommit` an observation escapes
- *    to an external subscriber before the outer span commits, and an emitted
- *    event cannot be un-emitted. Commit callbacks run in registration order after
- *    the durable commit; abort callbacks in reverse order after the durable
- *    abort; a callback failure is surfaced but cannot rewrite the already-decided
- *    durable outcome.
+ * 2. **`onCommit` ONLY — there is deliberately no abort hook.** Participants stage
+ *    their in-memory effects and adopt them from `onCommit`, which runs in
+ *    registration order after the durable commit. POD-370 first proposed an abort
+ *    hook; POD-369 argued it out, on the reasoning both modules keep applying:
+ *    compare the failure mode of FORGETTING. Forget an `onAbort` and memory ends
+ *    up AHEAD of durable truth — a silent divergence that survives until
+ *    something trips over it, asserting a fact from a transaction that never
+ *    committed. Forget an `onCommit` and memory ends up BEHIND durable truth — a
+ *    stale read the next apply or rehydrate corrects, which can invent nothing.
+ *    The unsafe direction is therefore unreachable rather than merely forbidden,
+ *    and the shape matches what both kernels already did independently (stage,
+ *    write, adopt) instead of adding a second mechanism. A callback failure is
+ *    surfaced but cannot rewrite the already-decided durable outcome.
+ *
+ *    **Events are enrolled too, not just state** (POD-369's addition): emission
+ *    sits behind the same `onCommit` gate as adoption, because inside a shared
+ *    span "after my commit" means after the OUTER commit, and an emitted event
+ *    cannot be un-emitted by any hook. That is what makes "no observation escapes
+ *    on abort" a mechanism rather than a hope.
+ *
+ *    The cost POD-369 named against their own proposal is read-your-writes inside
+ *    a span. It does not bind the Outbox: a second batch in one span needs this
+ *    participant's OWN STAGED DRAFT, which is local and needs no hook — not a read
+ *    of uncommitted store state.
  * 3. **No silent per-write fallback on the durable path.** Leaving each write in
  *    its own transaction IS the D10 non-compliance, so it is legal only as ADR 2's
  *    explicitly surfaced degraded mode, never as normal POD-373 wiring. The
@@ -280,22 +296,16 @@ export interface SyncUnitOfWork {
 
 export interface SyncSpan {
   /**
-   * Publish in-memory effects (state adoption, event emission) that must become
-   * visible only once the span is durably committed. Runs in registration order
-   * after the commit.
-   */
-  onCommit(effect: () => void): void
-  /**
-   * Revert in-memory state a participant had to mutate eagerly. Runs in REVERSE
-   * order after a durable abort.
+   * Adopt in-memory state — and publish observations — for work this participant
+   * staged inside the span. Registered adoptions run in registration order AFTER
+   * the span commits.
    *
-   * Durability alone is not enough: without these, an aborted span leaves the
-   * participants consistent on disk and divergent in RAM. The Outbox stages
-   * everything and needs only `onCommit`, but it registers an `onAbort` too —
-   * a rollback that depends on an adapter calling you back is not a rollback, so
-   * it also restores its own snapshot if `transact` rejects.
+   * A participant that registers nothing simply does not update its memory, which
+   * is a stale read that the next apply or rehydrate corrects; it cannot
+   * manufacture a fact that never became durable. That asymmetry is why this is
+   * the ONLY hook — see `SyncUnitOfWork` rule 2.
    */
-  onAbort(revert: () => void): void
+  onCommit(adopt: () => void): void
 }
 
 /**

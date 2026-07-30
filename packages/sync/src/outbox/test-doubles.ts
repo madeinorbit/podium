@@ -114,9 +114,9 @@ export class InMemoryOutboxStore implements OutboxStorePort {
  * the conformance suite exercises the atomic path rather than the degraded
  * one-transaction-per-write fallback.
  *
- * `enrolled` collects every write in the span and applies them together, so a
- * failure anywhere in the body leaves the store exactly as it was and the
- * participants' `onAbort` reverts run.
+ * Enrolled writes are collected and applied together, so a failure anywhere in
+ * the body leaves the store exactly as it was — and because participants adopt
+ * only from `onCommit`, an abort needs no participant callback at all.
  */
 export class InMemoryUnitOfWork implements SyncUnitOfWork {
   /** Spans opened, for asserting that participants shared ONE transaction. */
@@ -150,15 +150,10 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
 
 class InMemorySpan implements SyncSpan {
   private readonly commits: (() => void)[] = []
-  private readonly aborts: (() => void)[] = []
   private readonly writes: (() => Promise<void>)[] = []
 
-  onCommit(effect: () => void): void {
-    this.commits.push(effect)
-  }
-
-  onAbort(revert: () => void): void {
-    this.aborts.push(revert)
+  onCommit(adopt: () => void): void {
+    this.commits.push(adopt)
   }
 
   /** Adapters enroll their durable work here; it lands only if the span commits. */
@@ -173,8 +168,11 @@ class InMemorySpan implements SyncSpan {
   }
 
   async abort(): Promise<void> {
-    // Reverse order after the durable abort. No enrolled write was applied.
-    for (const revert of [...this.aborts].reverse()) revert()
+    // Nothing to do: no enrolled write was applied, and no participant adopted
+    // anything, because adoption only happens in `commit()`. Dropping the span is
+    // the whole rollback.
+    this.writes.length = 0
+    this.commits.length = 0
   }
 }
 

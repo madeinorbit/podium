@@ -1387,14 +1387,13 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
     ): Promise<void> {
       const before = { ...this.entity, cursor: this.cursor }
       store.enlist?.(async () => undefined)
+      // Stages, then adopts AND emits from onCommit — POD-369's shape, so an
+      // abort needs no revert: `before` is only read to prove nothing moved.
+      void before
       span.onCommit(() => {
         this.entity = { id: 'E', revision: frame.revision }
         this.cursor = frame.cursor
         this.observations.push(`upserted:${frame.revision}`, `cursor:${frame.cursor}`)
-      })
-      span.onAbort(() => {
-        this.entity = { id: before.id, revision: before.revision }
-        this.cursor = before.cursor
       })
     }
   }
@@ -1540,5 +1539,57 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
     ).rejects.toThrow(OutboxInvariantError)
 
     expect(store.durable().map((r) => r.mutationId)).toEqual([adas.mutationId])
+  })
+})
+
+describe('the POD-373 crash case, outbox half', () => {
+  it('never leaves one retirement landed and the other queued inside one frame', async () => {
+    // POD-369's scenario, outbox side: a single frame covering (10, 12] carries an
+    // UPSERT for A with mutationId m1 and a REMOVE for B with m2. Both ops carry
+    // provenance deliberately — a tombstone the user authored must retire its
+    // command exactly as an edit does. The forbidden recovered states are "cursor
+    // 12 with m1 or m2 still queued" and "cursor 12 with m1 retired and m2
+    // queued": the torn mix INSIDE one frame.
+    //
+    // With one batch in one span there are only two outcomes, and this asserts
+    // both of them rather than the impossibility of a third.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const edit = { command: CLOSE, input: { entity: 'A' }, attribution: ADA, partitionKey: 'A' }
+    const tombstone = {
+      command: CLOSE,
+      input: { entity: 'B', deleted: true },
+      attribution: ADA,
+      partitionKey: 'B',
+    }
+
+    // ABORT: neither retires, and the pair is intact.
+    const aborted = await harness(() => applied, { store, clock, unitOfWork: uow, idPrefix: 'm' })
+    const m1 = await aborted.outbox.enqueue(edit)
+    const m2 = await aborted.outbox.enqueue(tombstone)
+    await aborted.outbox.drain()
+    await expect(
+      uow.transact(async (span) => {
+        await aborted.outbox.retireAllApplied([m1.mutationId, m2.mutationId], span)
+        throw new Error('crash inside the span')
+      }),
+    ).rejects.toThrow(/crash inside the span/)
+    expect(store.durable().map((r) => r.mutationId)).toEqual([m1.mutationId, m2.mutationId])
+    expect(aborted.events.filter((e) => e.type === 'retired')).toEqual([])
+
+    // COMMIT: both retire together. There is no third snapshot in between.
+    await uow.transact(async (span) => {
+      await aborted.outbox.retireAllApplied([m1.mutationId, m2.mutationId], span)
+    })
+    expect(store.durable()).toEqual([])
+    expect(aborted.events.filter((e) => e.type === 'retired').map((e) => e.mutationId)).toEqual([
+      m1.mutationId,
+      m2.mutationId,
+    ])
+
+    // And a cold rehydrate agrees with durable truth either way.
+    const reopened = await harness(() => applied, { store, clock, idPrefix: 'r' })
+    expect(reopened.outbox.all()).toEqual([])
   })
 })

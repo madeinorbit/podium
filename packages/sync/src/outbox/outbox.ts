@@ -922,12 +922,11 @@ export class Outbox {
         this.spanViews.delete(span)
         this.spanEvents.delete(span)
       })
-      span.onAbort(() => {
-        // Nothing was adopted and nothing was emitted, so the revert is simply
-        // dropping the staged view.
-        this.spanViews.delete(span)
-        this.spanEvents.delete(span)
-      })
+      // No abort hook, and none needed: nothing is adopted and nothing is emitted
+      // until `onCommit` runs, so an aborted span leaves this instance exactly as
+      // it was. The staged view is keyed by the span object in a WeakMap, so an
+      // abandoned span's staging is collected rather than lingering — there is no
+      // cleanup a forgotten callback could skip.
     }
     await this.store.apply(draft.delta(), span)
     return result

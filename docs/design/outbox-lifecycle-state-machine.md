@@ -175,14 +175,49 @@ transaction auto-close).
 It carries no cause, rung, rescope or re-bootstrap parameter and never will: it is not a place to
 smuggle back the replica→outbox edge both issues deliberately removed.
 
-**The case POD-373 owes this seam** (outbox half by POD-370, replica half by POD-369): given
-durable pre-state entity `E@r0`, cursor `C`, and mutation `M` applied but awaiting covering truth,
-receive a certified frame carrying `E@r1` with provenance matching `M` and cursor `C2`. Inject a
-failure after either participant's native write is enrolled but before the shared transaction
-commits, then recreate both kernels from the store. The only legal recovered snapshots are
-`PRE = {E@r0, C, M awaiting}` or `POST = {E@r1, C2, M retired}`; both torn mixes are forbidden, and
-on abort no `upserted`, `cursor` or `retired` observation may have escaped. Run it again for a
-buffered delta included in an atomic bootstrap install.
+```ts
+interface SyncSpan { onCommit(adopt: () => void): void }   // no abort hook, on purpose
+```
+
+**Why `onCommit` is the only hook.** POD-370 proposed an abort hook; POD-369 argued it out and was
+right, on the reasoning both modules keep applying — compare the failure mode of *forgetting*.
+Forget an `onAbort` and memory ends up AHEAD of durable truth: a silent divergence asserting a fact
+from a transaction that never committed. Forget an `onCommit` and memory ends up BEHIND durable
+truth: a stale read the next apply or rehydrate corrects, which can invent nothing. The unsafe
+direction is unreachable rather than merely forbidden, and it matches what both kernels already did
+independently (stage, write, adopt). **Events are enrolled behind the same gate as state**
+(POD-369's addition) — inside a shared span "after my commit" means after the OUTER commit, and an
+emitted event cannot be un-emitted, so this is what makes "no observation escapes on abort" a
+mechanism rather than a hope. The cost POD-369 named against their own proposal — no
+read-your-writes inside a span — does not bind the Outbox: a second batch needs this participant's
+own staged draft, which is local, not a read of uncommitted store state.
+
+### The case POD-373 owes this seam
+
+Both halves, so it is recorded in one document rather than in two mailboxes. POD-369 references
+this from `docs/spec/replica-state-machine.md`.
+
+**Replica half (POD-369, verbatim).** Given a replica live at cursor `(F, E, 10)` with an outbox
+holding `m1` and `m2` for entities A and B, when a single delta frame covering `(10, 12]` arrives
+carrying an upsert for A with `mutationId m1` and a REMOVE for B with `m2`, and the process crashes
+inside the span after the entity rows and the cursor are durable but before the retirements are,
+then on restart the recovered state MUST be one of exactly two snapshots: cursor 10 with both `m1`
+and `m2` queued and neither change applied, or cursor 12 with both changes applied and both `m1`
+and `m2` retired. It must never be cursor 12 with `m1` or `m2` still queued (the replica is past
+the revision while the outbox believes the command is in flight), and never cursor 12 with `m1`
+retired and `m2` queued (the torn mix inside one frame). Both ops carry provenance deliberately: a
+tombstone the user authored must retire its command exactly as an edit does. On abort, no
+`upserted`/`removed`/`evicted`/`cursor` event may have been observed for that frame.
+
+**Outbox half (POD-370).** The batch is submitted once per transaction, so those are the only two
+outcomes reachable from this side: on commit every id in the batch is retired and one `retired`
+event per id is published; on abort none is retired, none is published, and the entries are intact
+and still drainable. A bootstrap install aggregates matches across every buffered frame ACTUALLY
+included; frames dropped, rejected or left buffered retire nothing — an intent from a frame that
+was not applied would retire a command whose effect never landed. `outbox.test.ts` asserts both
+outcomes for exactly this upsert-plus-tombstone pair, including that a cold rehydrate agrees with
+durable truth either way; what only the real transaction of POD-373 can prove is that no third
+snapshot exists in between.
 
 ## Delivery semantics
 
