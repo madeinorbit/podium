@@ -172,6 +172,48 @@ export const LOCK_COMMAND_NAMES = [
 /** One lock-command def key — see {@link LOCK_COMMAND_NAMES}. */
 export type LockCommandName = (typeof LOCK_COMMAND_NAMES)[number]
 
+/**
+ * ADR 3 D3's transport tags — the set a contract opts INTO. Default-closed: a
+ * contract listing no transport is served nowhere, which is why every consumer
+ * reads this as an explicit list and never derives it from "has a handler".
+ *
+ * Declared here beside {@link CommandAction} rather than in a feature module
+ * because three migrations need the identical vocabulary (POD-380 presence,
+ * POD-381 command plane, POD-642 handoff) and a second spelling of `'relay'`
+ * would be a fork nobody notices until a command is exposed on a surface its
+ * author never listed. POD-311 folds this whole file into `packages/commands`.
+ */
+export type CommandTransport = 'trpc' | 'cli' | 'mcp' | 'relay' | 'outbox' | 'peer'
+
+/**
+ * ADR 3 D4's delivery class — whether a command's ENVELOPE may enter the client
+ * Outbox. Orthogonal to `message-class.ts`'s sync class, which answers how a
+ * FRAME fans out.
+ *
+ * - `offline-eligible` — may be queued; re-authorized at apply (D8/D16).
+ * - `online-only` — never queued. ADR 3 Amendment 1 D18.3 makes this a
+ *   CONSEQUENCE rather than a judgement call: a contract whose policy needs the
+ *   machine `use` verb is online-only, because a queued execution command is a
+ *   rights snapshot with a delayed fuse — it would run on someone else's
+ *   hardware after the grant was revoked.
+ * - `online-sensitive` — never queued and requires a fresh authenticated path
+ *   (secret writes; D4 rule 1).
+ */
+export type CommandDelivery = 'offline-eligible' | 'online-only' | 'online-sensitive'
+
+/**
+ * The machine verb a contract's policy requires, when it targets owned compute
+ * (ADR 3 Amendment 1 D18 / ADR 9 D6).
+ *
+ * Deliberately an ALIAS of the handshake's `MachineVerb` rather than a second
+ * declaration of the same three literals: `handshake/strategies/types.ts`
+ * already owns the vocabulary, beside the `MachineGrant` edge and the
+ * `machineUseAllowed` all-in-one guard that reads it. A duplicate would
+ * typecheck, encode identically and be a different fact — the exact drift class
+ * these contracts exist to end.
+ */
+export type { MachineVerb } from './handshake/strategies/types'
+
 /** The parsed input type of one command definition. */
 export type CommandInput<D extends CommandDef> = z.infer<D['input']>
 
