@@ -37,8 +37,34 @@ import { z } from 'zod'
 import { UserIdField } from '../ids'
 import { type EntityRef, parseUserEntityKey, userEntityKey } from '../ids/keys'
 
-export { parseUserEntityKey, userEntityKey }
 export type { EntityRef }
+export { parseUserEntityKey, userEntityKey }
+
+/**
+ * The USER HALF ALONE — for the members of §7.1's family that are about the
+ * person and about NOTHING ELSE.
+ *
+ * "Preference keys" is one of the eleven members and it is the first to need
+ * this: my session defaults and my sidebar layout are not state *about* an
+ * entity, so there is no entity half to brand and inventing one (`entityId:
+ * 'settings'`) would be a sentinel standing in for a dimension that does not
+ * exist. What must NOT happen is a second spelling of the user half — that is
+ * the whole point of POD-365's fragment — so {@link perUserKey} EXTENDS this
+ * one, and `per-user-key.test.ts` pins every `userId` member to the same schema
+ * INSTANCE.
+ *
+ * A per-user singleton is not the singleton the audit hunts. `scripts/
+ * representation-audit.ts::perUserSingletons` counts a per-user fact keyed as an
+ * INSTANCE-WIDE one (a bare `readAt` column on the sessions table); a row keyed
+ * `(userId)` already carries the user dimension and is the destination, not the
+ * defect.
+ */
+export const PerUserSingletonKey = z.object({
+  /** The person this row belongs to. Also its owner, resolved
+   *  `the-user-in-the-key` on the matrix — the row is created by and for them. */
+  userId: UserIdField,
+})
+export type PerUserSingletonKey = z.infer<typeof PerUserSingletonKey>
 
 /**
  * The key fragment, generic over which entity the row is about.
@@ -61,15 +87,12 @@ export type { EntityRef }
  * and never a per-row value a writer could set wrong.
  */
 export const perUserKey = <T extends z.ZodTypeAny>(entityId: T) =>
-  z.object({
-    /** The person this row belongs to. Also its owner, resolved
-     *  `the-user-in-the-key` on the matrix — the row is created by and for them. */
-    userId: UserIdField,
+  PerUserSingletonKey.extend({
     /** The entity the state is ABOUT. Branded by the caller's field schema. */
     entityId,
   })
 
 /** The un-parameterised shape, for code that only needs the user half's position
  *  (the matrix row, a totality test, documentation). Prefer {@link perUserKey}. */
-export const PerUserKey = z.object({ userId: UserIdField, entityId: z.string() })
+export const PerUserKey = perUserKey(z.string())
 export type PerUserKey = z.infer<typeof PerUserKey>

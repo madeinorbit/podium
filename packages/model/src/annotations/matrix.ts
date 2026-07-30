@@ -1154,7 +1154,10 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     id: ROW.preferencesPersonal,
     section: 'settings-secrets-accounts',
     title: 'Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …)',
-    sites: ['packages/runtime/src/settings.ts (`PodiumSettings` — one instance-wide blob today)'],
+    sites: [
+      'packages/model/src/settings/preferences.ts (`PersonalPreferences` — keyed `(userId)`, POD-418)',
+      'packages/runtime/src/settings.ts (`PodiumSettings` — one instance-wide blob today, COMPOSED from the split groups)',
+    ],
     conflictNote:
       'Moved out of field-LWW by Amendment 1 D10. `notifications.telegramChatId` moves here explicitly (ADR 9 D8 S4): it is ROUTING CONFIG, not a secret, and classifying it as a secret would break the per-user notification routing S3 depends on.',
     secret: 'preference',
@@ -1165,7 +1168,11 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     id: ROW.preferencesInstance,
     section: 'settings-secrets-accounts',
     title: 'Preferences — INSTANCE / deployment keys (instance-level settings, feature flags)',
-    sites: ['packages/runtime/src/settings.ts', '[spec:SP-f4b9] `settings.experimental`'],
+    sites: [
+      'packages/model/src/settings/preferences.ts (`InstancePreferences`, POD-418)',
+      'packages/runtime/src/settings.ts',
+      '[spec:SP-f4b9] `settings.experimental`',
+    ],
     home: 'server',
     idMinting: 'Settings singleton / keys',
     writers: ['operator'],
@@ -1200,7 +1207,10 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     id: ROW.serverSecrets,
     section: 'settings-secrets-accounts',
     title: 'Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`)',
-    sites: ['packages/runtime/src/settings.ts'],
+    sites: [
+      'packages/model/src/settings/secrets.ts (`ServerSecret` at rest; `SecretPresenceWire` on the wire, POD-418)',
+      'packages/runtime/src/settings.ts (the legacy in-blob groups POD-419 scrubs)',
+    ],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator'],

@@ -104,6 +104,17 @@ export * from './annotations/capability-snapshot'
 export * from './annotations/matrix'
 export * from './annotations/ownership'
 
+// SETTINGS, SPLIT BY MATRIX ROW (POD-418): the per-user preference aggregate,
+// the deployment-substrate one, and the server-owned secrets — which are a keyed
+// store whose wire projection is built INDEPENDENTLY and carries presence plus an
+// opaque fingerprint, never material. `classification.ts` derives a TOTAL
+// path→tier table by walking those shapes, so a leaf that belongs to no tier is
+// a missing classification rather than a silent default. `packages/runtime`
+// COMPOSES the blob from these bindings and redeclares none of them.
+export * from './settings/classification'
+export * from './settings/preferences'
+export * from './settings/secrets'
+
 // Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately
 // NOT the home for owner / visibility / actor / on-behalf-of — those are durable
 // entity truth and must not be droppable at a boundary.
