@@ -148,6 +148,7 @@ flagged everything, or nothing, could not produce it.
 | Drop `Ownership.shape` from `SessionAggregate` and restore `readAt` as a singleton | **killed** — 5 red, including "Session carries no per-user singleton" and "Session composes the Ownership group" (5 failed / 21) |
 | Smuggle a frozen grant set onto `SessionAggregate` under the innocent key `ctx` | **killed by the key-set pin only** — 1 red of 24; the name matcher passes, which is the point (§4.1) |
 | Grow `SESSION_IMMUTABLE_AFTER_CREATE` to swallow `status` / `lastActiveAt` / … — the well-typed nonsense its `satisfies` clause permits | **killed** — 1 red of 27: "leaves a NON-EMPTY mutable complement" (§8.1) |
+| Delete the whole `Session` entry from `CANONICAL_AGGREGATES` | **SURVIVED on first run — found and fixed (§4.2).** Now killed: 1 red of 26 |
 
 ### 4.1 No serializable capability — and a correction about how that is checked
 
@@ -183,6 +184,34 @@ principal-bearing fields, a detector that flagged them would be wrong rather tha
 The pin is deliberately a chore to update. Those two lists are the canonical durable vocabulary of
 the product; growing one should be a deliberate act with a reviewer on the diff, not a side effect
 of extending a field group.
+
+### 4.2 A survivor found in this suite, and fixed
+
+POD-367 generalised a rule mid-run: **prove the instrument can say YES before you believe it saying
+NO.** Applied to this suite rather than recorded, it found a survivor.
+
+**Mutant E** deletes the entire `Session` entry from `CANONICAL_AGGREGATES`. The suite stayed
+**green**. Two defects, both invisible:
+
+1. `aggregateVisibilityOf('Session') === 'personal'` is true *whether or not* `Session` is
+   registered, because the default-closed fallback answers `personal` for anything it has never
+   heard of. The assertion could not distinguish a correct declaration from a total absence — the
+   vacuous-preservation shape, where the expected value equals the default.
+2. The **test count silently fell 27 → 24**, because every `it.each(CANONICAL_AGGREGATES)`
+   iterated one fewer case. The per-user-state check, the ownership-composition check and the
+   attribution-pair check all stopped covering `Session` and nothing said so. Coverage evaporating
+   with no red is the worse half of the finding.
+
+Fixed with two assertions that make the registry's *contents* observable: a membership pin
+(`CANONICAL_AGGREGATES` names exactly `Issue` and `Session` — which also catches the `it.each`
+shrink), and a counterfactual proving `aggregateVisibilityOf` **reads the declaration** — over a
+registry declaring `deployment-substrate` it answers `deployment-substrate`, and still falls closed
+to `personal` for a name absent from that same registry.
+
+The pre-existing "classifies both as personal" test is kept, but is meaningful only alongside those
+two and its comment now says so. Its old comment claimed it was "not vacuous" because a *different*
+test showed `deployment-substrate` was reachable — which was wrong: reachability of the other value
+elsewhere says nothing about whether this lookup consulted the registry.
 
 ---
 
