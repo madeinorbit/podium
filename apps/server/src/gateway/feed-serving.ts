@@ -73,6 +73,7 @@ import type {
 } from '@podium/protocol'
 import type {
   AuthorityPort,
+  ScopedChange,
   FeedIdentityRegistry,
   FeedConnection,
   FeedPrincipal,
@@ -163,7 +164,7 @@ export class FeedServing {
       fromSeq: 0,
       seq: world.throughSeq,
       minAvailableSeq: this.deps.retention.minAvailableSeq() ?? 0,
-      changes: world.changes.map(toFeedChange) as FeedBootstrapMessage['changes'],
+      changes: world.changes.map(toFeedChange),
       // Single chunk today. `last` is not dropped from the shape for that
       // reason: chunking is D15's, the flag is what a replica installs on, and a
       // producer that never sets it false is not the same thing as a wire that
@@ -323,19 +324,18 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
   return resync
 }
 
-/** A bootstrap row, in the wire's spelling. */
-function toFeedChange(change: {
-  seq: number
-  entity: string
-  entityId: string
-  op: string
-  value?: unknown
-}): { seq: number; entity: string; entityId: string; op: string; value?: unknown } {
-  return {
-    seq: change.seq,
-    entity: change.entity,
-    entityId: change.entityId,
-    op: change.op,
-    ...(change.op === 'upsert' ? { value: change.value } : {}),
-  }
+/**
+ * A bootstrap row, in the wire's spelling.
+ *
+ * BOTH SIDES DERIVED, never restated: the input is the kernel's `ScopedChange`
+ * and the output is one element of the frame's own `changes` array. A hand-written
+ * field list here would be a third definition of a change row — invisible to
+ * every golden fixture, because a restatement is byte-identical on the wire — and
+ * `rearch-audit`'s `change-row-typings` item counts exactly that mistake.
+ */
+function toFeedChange(change: ScopedChange): FeedBootstrapMessage['changes'][number] {
+  const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
+  return (
+    change.op === 'upsert' ? { ...base, op: 'upsert', value: change.value } : { ...base, op: change.op }
+  ) as FeedBootstrapMessage['changes'][number]
 }
