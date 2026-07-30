@@ -434,6 +434,72 @@ function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string)
  * against the one file it targets, not per-file like the rest of checkFile's
  * rules, so it's a standalone function `runCheck` calls directly.
  */
+/**
+ * Every cross-package `@podium/*` import must be a DECLARED dependency of the
+ * importing workspace (POD-1131).
+ *
+ * This closes a hole the other rules could not see. All of them reason about
+ * DECLARED edges — layer order, platform tags, leaf purity — so an import whose
+ * package.json entry is simply MISSING is invisible to the whole gate: there is no
+ * edge to judge. It resolves anyway under Bun's hoisted node_modules, so nothing
+ * fails locally, and then a scoped typecheck of some UNRELATED consumer reports
+ * TS2307 because no workspace symlink exists. POD-300 produced exactly that:
+ * import specifiers moved to `@podium/model`, the dependency lists did not, and
+ * `packages/harness` silently imported a package it never declared until an
+ * unrelated app's typecheck broke.
+ *
+ * Reads package.json rather than trusting the import graph, and uses readFileSync
+ * over shell grep because one NUL byte makes grep answer "no match".
+ */
+export function checkDeclaredDeps(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  const manifests = new Map<string, { name?: string; deps: Set<string> }>()
+  for (const rootDir of ['apps', 'packages']) {
+    const root = join(repoRoot, rootDir)
+    if (!existsSync(root)) continue
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const ws = `${rootDir}/${entry.name}`
+      const pj = join(repoRoot, ws, 'package.json')
+      if (!existsSync(pj)) continue
+      const parsed = JSON.parse(readFileSync(pj, 'utf8')) as {
+        name?: string
+        dependencies?: Record<string, string>
+        devDependencies?: Record<string, string>
+      }
+      manifests.set(ws, {
+        name: parsed.name,
+        deps: new Set([
+          ...Object.keys(parsed.dependencies ?? {}),
+          ...Object.keys(parsed.devDependencies ?? {}),
+        ]),
+      })
+    }
+  }
+  const known = new Set([...manifests.values()].map((m) => m.name).filter(Boolean) as string[])
+  for (const [ws, { name, deps }] of manifests) {
+    const srcDir = join(repoRoot, ws, 'src')
+    if (!existsSync(srcDir)) continue
+    for (const abs of walk(srcDir)) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      const source = readFileSync(abs, 'utf8')
+      for (const ref of extractImports(source)) {
+        const spec = ref.specifier
+        if (!spec.startsWith('@podium/')) continue
+        // Only workspace packages: a published @podium/* dep is a normal dep.
+        if (!known.has(spec) || spec === name || deps.has(spec)) continue
+        violations.push({
+          file,
+          specifier: spec,
+          rule: 'declared-deps',
+          message: `${file}: imports '${spec}' but ${ws}/package.json does not declare it — it resolves via hoisting today and breaks an unrelated workspace's typecheck tomorrow (POD-1131)`,
+        })
+      }
+    }
+  }
+  return violations
+}
+
 export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
   const abs = join(repoRoot, RUNTIME_BARREL)
   let source: string
@@ -745,6 +811,7 @@ export function runCheck(repoRoot: string): {
     }
   }
   violations.push(...checkRuntimeBarrelPurity(repoRoot))
+  violations.push(...checkDeclaredDeps(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(

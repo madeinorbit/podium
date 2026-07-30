@@ -6,9 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { applyAllowlist, partitionAllowlist } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
+  checkDeclaredDeps,
   checkFile,
-  checkPrincipalFree,
   checkHostEdgeSeparationAll,
+  checkPrincipalFree,
   checkRuntimeBarrelPurity,
   clauseIsTypeOnly,
   extractImports,
@@ -596,5 +597,63 @@ describe('rule 9 — host edge vs agent command relay (ADR 7 D2)', () => {
       "import { c } from './codex-hooks.js'\nimport { u } from './util.js'\nexport const use = [c, u]\n",
     )
     expect(checkHostEdgeSeparationAll(root)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// declared-deps (POD-1131) — a cross-package import must be a DECLARED dep.
+// The other rules all reason about declared edges, so a MISSING dependency is
+// invisible to them: there is no edge to judge. It resolves via hoisting and
+// then breaks an unrelated workspace's typecheck.
+// ---------------------------------------------------------------------------
+
+describe('checkDeclaredDeps', () => {
+  const mk = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-deps-'))
+    for (const [rel, body] of Object.entries(files)) {
+      mkdirSync(join(root, rel.split('/').slice(0, -1).join('/')), { recursive: true })
+      writeFileSync(join(root, rel), body)
+    }
+    return root
+  }
+
+  it('flags an import of a workspace package the importer does not declare', () => {
+    const root = mk({
+      'packages/a/package.json': JSON.stringify({ name: '@podium/a', dependencies: {} }),
+      'packages/a/src/x.ts': "import { thing } from '@podium/b'\nexport const y = thing\n",
+      'packages/b/package.json': JSON.stringify({ name: '@podium/b' }),
+      'packages/b/src/i.ts': 'export const thing = 1\n',
+    })
+    const v = checkDeclaredDeps(root)
+    expect(v).toHaveLength(1)
+    expect(v[0]?.rule).toBe('declared-deps')
+    expect(v[0]?.specifier).toBe('@podium/b')
+  })
+
+  it('is silent once the dependency is declared', () => {
+    const root = mk({
+      'packages/a/package.json': JSON.stringify({
+        name: '@podium/a',
+        dependencies: { '@podium/b': 'workspace:*' },
+      }),
+      'packages/a/src/x.ts': "import { thing } from '@podium/b'\nexport const y = thing\n",
+      'packages/b/package.json': JSON.stringify({ name: '@podium/b' }),
+      'packages/b/src/i.ts': 'export const thing = 1\n',
+    })
+    expect(checkDeclaredDeps(root)).toEqual([])
+  })
+
+  it('accepts a devDependency, and ignores self-imports and non-workspace scopes', () => {
+    const root = mk({
+      'packages/a/package.json': JSON.stringify({
+        name: '@podium/a',
+        devDependencies: { '@podium/b': 'workspace:*' },
+      }),
+      'packages/a/src/x.ts':
+        "import { t } from '@podium/b'\nimport { s } from '@podium/a'\nimport z from '@podium/not-a-workspace'\nexport const y = [t, s, z]\n",
+      'packages/b/package.json': JSON.stringify({ name: '@podium/b' }),
+      'packages/b/src/i.ts': 'export const t = 1\n',
+    })
+    expect(checkDeclaredDeps(root)).toEqual([])
   })
 })
