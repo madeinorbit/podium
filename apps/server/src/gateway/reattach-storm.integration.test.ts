@@ -22,6 +22,22 @@
  * issued during the storm resolves, and resolves with the right body. A blocked
  * loop fails it by exhausting the (generous, watchdog-scale) test timeout rather
  * than by missing a millisecond budget. Nothing here sleeps.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE DOES *NOT* COVER — read before treating it as cap coverage
+ * ---------------------------------------------------------------------------
+ * It does not exercise the 16 MB budget's binding arm, and it cannot. Measured,
+ * not assumed: mutating the client cap to **0** leaves both tests below GREEN,
+ * because a loopback socket drains synchronously and its `bufferedAmount` never
+ * leaves 0 — so `bufferedAmount > limit` stays false however low the limit goes.
+ * The assertion is not vacuous (mutating the cap to **-1**, where every send
+ * exceeds, DOES fail it), but its real content is "a healthy recipient is neither
+ * reaped nor starved during a storm", not "the cap is 16 MB".
+ *
+ * The cap's arms are pinned where they can be forced exactly — `wsServer.test.ts`,
+ * against a socket double whose `bufferedAmount` the test sets: at the budget
+ * (sends), one byte over (terminates), not-OPEN and over (dropped, not
+ * terminated), and on both of the client plane's outbound doors.
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
