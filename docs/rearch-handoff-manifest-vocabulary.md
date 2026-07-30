@@ -235,10 +235,30 @@ invisible to this gate in the same way a restatement is (§6a), and for the same
 the corpus measures outputs for chosen inputs, not the boundary of what is admissible.
 
 Nothing here tightened validation, and the three `.unwrap()`s in the composition *loosen* nothing
-either: each replaces an optional/nullable shared field with the required form the hand-written
-schema already had, so the admissible set is unchanged field by field. But a future revision — POD-1142
-restructuring for `format: 2` is the obvious one — needs a fixture whose optional strings are *empty*,
-asserted to **parse**, if that boundary is to be covered at all. Contributed to POD-1142 in writing.
+either: each replaces an optional/nullable shared field with the required form the hand-written schema
+already had, so the admissible set is unchanged field by field.
+
+That was reasoning, so it is now **tested** — `handoff.test.ts` has an acceptance-boundary block
+asserting that a v1 manifest with every optional absent parses, and that every optional permitting
+`''` still accepts it. Two mutants prove the block has teeth, and finding the second one is why the
+block exists in its current form:
+
+| Mutant | Before the block | After |
+|---|---|---|
+| `.min(1)` on `title` (composed) | Caught — but only incidentally, by the reference-identity test, since `.min(1)` mints a new instance | Caught by both |
+| `.min(1)` on `transcriptRelativeDir` (bundle-local) | **Survived all 188 tests** | Killed |
+| `.min(1)` on `cwdSubpath` (bundle-local) | Survived | Killed |
+
+The split is the lesson: reference identity guards *composed* fields for free, because a tightening
+breaks the shared instance. It cannot guard **bundle-local** fields at all — those are declared here,
+so there is no shared instance to compare against, and an acceptance case naming each one is their
+only guard. My first draft of the block covered `title` and `cwdSubpath` and missed
+`transcriptRelativeDir`; the mutant found that, not review.
+
+`worktreeRelativePath` is deliberately excluded from the list — its `.min(1)` is intentional, its
+reader does not normalise, and the negative test pins that it rejects. Listing it would assert the
+opposite of a real invariant. Contributed to POD-1142 in writing, since `format: 2` is exactly when
+this boundary gets crossed.
 
 **Mutation tests** (mutate → run → revert as one unit; every revert verified clean):
 

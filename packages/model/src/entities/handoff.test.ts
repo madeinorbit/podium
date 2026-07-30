@@ -133,6 +133,68 @@ describe('HandoffManifest', () => {
   })
 })
 
+// The ACCEPTANCE boundary, which the golden corpora structurally cannot cover:
+// they assert the bytes emitted for values someone chose to write, and are silent
+// about inputs the schema used to accept and now refuses. So a narrowing — an
+// `.unwrap()` that tightens, a `.min(1)` added while tidying — passes every byte
+// pin unchanged. These cases test the other direction: a bundle already on disk
+// must still open. Deliberately includes the falsy-but-defined values, since those
+// are the ones a "tidy up the optionals" change would reject first.
+describe('HandoffManifest acceptance boundary (v1 bundles must keep parsing)', () => {
+  const required = {
+    format: 1 as const,
+    sessionId: 's1',
+    agentKind: 'codex' as const,
+    resume: { kind: 'codex-thread', value: 'thread-1' },
+    transcriptFilename: 'rollout.jsonl',
+    repoId: 'repo-1',
+    branch: 'issue/498-handoff',
+    headSha: 'a'.repeat(40),
+    snapshotSha: null,
+    snapshotFlattened: true as const,
+    worktreeName: 'issue-498',
+    bundleBase: ['a'.repeat(40)],
+    sourceMachineId: 'm1',
+    exportedAt: '2026-07-14T12:00:00.000Z',
+  }
+
+  it('accepts a manifest with every optional absent', () => {
+    expect(HandoffManifest.parse(required)).toEqual(required)
+  })
+
+  // EVERY optional that permits `''` must be listed here, and the list is the
+  // point rather than the assertion. `title` is composed, so the reference-identity
+  // test above happens to catch a narrowing of it too — but `transcriptRelativeDir`
+  // and `cwdSubpath` are BUNDLE-LOCAL, so identity cannot guard them and this is
+  // their only guard. Mutation-verified: `.min(1)` on `transcriptRelativeDir`
+  // survived all 188 tests until this case named it.
+  //
+  // `worktreeRelativePath` is deliberately ABSENT from the list: its `.min(1)` is
+  // intentional, its reader does not normalise, and the negative test above pins
+  // that it rejects. Adding it here would assert the opposite of a real invariant.
+  it('accepts empty-string values in every optional that permits them', () => {
+    const parsed = HandoffManifest.parse({
+      ...required,
+      title: '',
+      cwdSubpath: '',
+      transcriptRelativeDir: '',
+    })
+    expect(parsed.title).toBe('')
+    expect(parsed.cwdSubpath).toBe('')
+    expect(parsed.transcriptRelativeDir).toBe('')
+  })
+
+  it('accepts a snapshotSha, and a bundleBase carrying several refs', () => {
+    const parsed = HandoffManifest.parse({
+      ...required,
+      snapshotSha: 'b'.repeat(40),
+      bundleBase: ['a'.repeat(40), 'c'.repeat(40)],
+    })
+    expect(parsed.snapshotSha).toBe('b'.repeat(40))
+    expect(parsed.bundleBase).toHaveLength(2)
+  })
+})
+
 describe('HandoffRefusalReason', () => {
   // ADR 9 D6 M5 / ADR 1 Am1 D13.7: a denied handoff must not collapse into a
   // generic failure, because "denied" and "offline" otherwise produce the same
