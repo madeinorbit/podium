@@ -65,6 +65,14 @@ export {
   spawnAgentInput,
 } from './mail/contracts'
 export {
+  EXPORTABLE_HARNESSES,
+  type SessionHandoffInput,
+  type SessionHandoffOutput,
+  sessionHandoffContract,
+  sessionHandoffInput,
+  sessionHandoffOutput,
+} from './sessions/handoff'
+export {
   deliversUnwrapped,
   exemptFromBrakes,
   isHumanPrincipal,

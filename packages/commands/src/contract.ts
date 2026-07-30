@@ -279,6 +279,20 @@ export type ContractInput<C extends { readonly input: z.ZodTypeAny }> = z.infer<
  * `online-sensitive` (D4 rule 1), and a command taking a caller-supplied target
  * id must have answered D20.
  */
+/**
+ * Dotted names allowed to be `offline-eligible` DESPITE placing work on owned
+ * compute (D18.3). Empty in this package today, and the emptiness is the claim:
+ * the one known exception fleet-wide is `sessions.resumeAndSend`, whose
+ * offline-eligibility the client outbox oracle pins as must-not-change, and it
+ * lives in the protocol-side table until POD-311 folds that table in here — at
+ * which point it belongs in this list rather than in a second rule.
+ *
+ * An entry here is a licence, so it is checked: `contract.test.ts` asserts every
+ * name in this list belongs to a contract that actually exists. A licence for an
+ * undeclared command would silently pre-authorize whoever next used that name.
+ */
+export const MACHINE_USE_OFFLINE_EXCEPTIONS: readonly string[] = []
+
 export function classificationErrors(contract: AnyCommandContract): string[] {
   const errs: string[] = []
   const at = (msg: string): void => {
@@ -319,6 +333,28 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
   ) {
     at(
       'machine `use` must keep unauthorized distinguishable from unreachable (readiness §3.1.4 M5)',
+    )
+  }
+  // D18.3 — a command that EXECUTES on owned compute may not be queued and
+  // replayed after the world has moved. Added by POD-642, whose `sessions.handoff`
+  // is the first `use` tenant of this package.
+  //
+  // A LINT AND NOT A DERIVATION, deliberately, per the rule the coordinator
+  // adopted fleet-wide while POD-380 and POD-381 settled it: `delivery.class` stays
+  // EXPLICIT with its reasoning in `outboxReconciliation`, and D18.3 is enforced as
+  // a check over that declaration. Deriving the class from the verb would make the
+  // implication silent and unauditable — and it would erase the one legitimate
+  // exception the protocol-side table carries (`sessions.resumeAndSend`, which the
+  // client outbox oracle pins as offline-eligible must-not-change). MAKE THE
+  // EXCEPTION VISIBLE, DO NOT MAKE THE RULE SILENT: an exception belongs in the
+  // list below, named, where a reader can find it.
+  if (
+    contract.policy.machineVerb === 'use' &&
+    contract.delivery.class === 'offline-eligible' &&
+    !MACHINE_USE_OFFLINE_EXCEPTIONS.includes(contract.name)
+  ) {
+    at(
+      'machine `use` executes on someone else’s hardware and may not be offline-eligible (ADR 3 Amendment 1 D18.3) — name it in MACHINE_USE_OFFLINE_EXCEPTIONS if it genuinely is one',
     )
   }
   // D17: an actor that is not stamped from the capability is an actor a payload
