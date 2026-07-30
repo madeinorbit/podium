@@ -74,9 +74,7 @@ function buildProcedure(name: SpecCommandName): unknown {
   // and `SpecProcedures` re-derives the per-command types for the client. This
   // erasure is the one place the two meet.
   const run = handler as (svc: ReturnType<typeof mods>['specs'], input: unknown) => unknown
-  return t.procedure
-    .input(contract.input)
-    .mutation(({ ctx, input }) => run(mods(ctx).specs, input))
+  return t.procedure.input(contract.input).mutation(({ ctx, input }) => run(mods(ctx).specs, input))
 }
 
 /**
