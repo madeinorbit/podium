@@ -1,7 +1,4 @@
-import {
-  asIssueId,
-  type IssueWire,
-} from '@podium/model'
+import { asIssueId, type IssueId, type IssueWire } from '@podium/model'
 
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"
@@ -82,16 +79,15 @@ export function buildScreeningQueue(issues: IssueWire[]): IssueWire[] {
  * appended at the end rather than jumped ahead of the current card.
  */
 export function reconcileScreeningOrder(
-  order: string[],
+  order: IssueId[],
   index: number,
   issues: IssueWire[],
-): { order: string[]; index: number } {
+): { order: IssueId[]; index: number } {
   const queue = buildScreeningQueue(issues)
   const screenable = new Set(queue.map((issue) => issue.id))
   const decided = order.slice(0, index)
   const seen = new Set(order)
-  // // POD-361-EDGE-CAST (POD-363 owns): the persisted screening order is a plain string list.
-  const tail = order.slice(index).filter((id) => screenable.has(asIssueId(id)))
+  const tail = order.slice(index).filter((id) => screenable.has(id))
   const arrivals = queue.map((issue) => issue.id).filter((id) => !seen.has(id))
   return { order: [...decided, ...tail, ...arrivals], index: decided.length }
 }

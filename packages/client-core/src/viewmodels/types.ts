@@ -1,4 +1,4 @@
-import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/model'
+import type { ConversationSummaryWire, GitRepositoryWire, RepoId, SessionMeta } from '@podium/model'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -15,7 +15,7 @@ export interface WorktreeView {
   repoPath: string
   isMain: boolean
   /** Stable cross-machine repo identity (#74); undefined on older servers. */
-  repoId?: string
+  repoId?: RepoId
   /** Which machine this worktree lives on (undefined = single-machine or unknown). */
   machineId?: string
 }
@@ -31,7 +31,7 @@ export interface RepoView {
    *  Undefined for repos without a git remote. */
   originUrl?: string
   /** Stable cross-machine repo identity (#74); undefined on older servers. */
-  repoId?: string
+  repoId?: RepoId
 }
 
 export type { ConversationSummaryWire, GitRepositoryWire, SessionMeta }

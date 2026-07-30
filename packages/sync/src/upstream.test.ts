@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, type IssueWire } from '@podium/model'
+import { asIssueId, type IssueId, type IssueWire } from '@podium/model'
 import type { SyncChangesSinceResultLenient } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
@@ -179,9 +179,8 @@ describe('UpstreamSync kind tolerance', () => {
   // Must satisfy the real IssueWire zod schema — the snapshot arm of the heal
   // result parses STRICTLY now (#247); a sloppy fixture would fail the parse
   // and silently test the wrong path.
-  const validIssue = (id: string, title: string): IssueWire => ({
-    // POD-361-EDGE-CAST: test helper takes a plain string id.
-    id: asIssueId(id),
+  const validIssue = (id: IssueId, title: string): IssueWire => ({
+    id,
     repoPath: '/r',
     seq: 1,
     title,
@@ -237,7 +236,7 @@ describe('UpstreamSync kind tolerance', () => {
     setHealResult({
       kind: 'snapshot',
       sessions: [],
-      issues: [validIssue('healed', 'from snapshot')],
+      issues: [validIssue(asIssueId('healed'), 'from snapshot')],
       conversations: [],
       diagnostics: [],
       cursor: 9,

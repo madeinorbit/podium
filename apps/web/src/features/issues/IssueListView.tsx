@@ -1,4 +1,4 @@
-import type { IssueStage } from '@podium/model'
+import type { IssueId, IssueStage } from '@podium/model'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import { type JSX, type MouseEvent as ReactMouseEvent, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -33,13 +33,13 @@ export function IssueListView({
 }: {
   groups: { stage: IssueStage; rows: IssueRow[] }[]
   display: IssuesDisplay
-  onOpen: (id: string) => void
+  onOpen: (id: IssueId) => void
   onCreateIn: (stage: IssueStage) => void
   focusId: string | null
   selected: string[]
-  onToggleSelect: (id: string) => void
+  onToggleSelect: (id: IssueId) => void
   onToggleExpand: (id: string) => void
-  onContextMenu: (id: string, e: ReactMouseEvent) => void
+  onContextMenu: (id: IssueId, e: ReactMouseEvent) => void
 }): JSX.Element {
   const [revealedByStage, setRevealedByStage] = useState<
     Partial<Record<IssueStage, { scopeVersion: number; count: number }>>

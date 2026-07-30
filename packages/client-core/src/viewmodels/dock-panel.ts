@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { ArtifactId, IssueId, IssueWire, SessionMeta } from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -15,7 +15,7 @@ export interface FileTab {
    *  same checkout. Also keeps the dock's Issue panel on the artifact's issue
    *  instead of resolving by cwd ([spec:SP-0fc9] #441). Absent = opened outside
    *  any issue; the tab lives in the worktree-selected workspace only. */
-  issueId?: string
+  issueId?: IssueId
 }
 
 /** One entry in the "+"-menu Recent-files list (POD-149): enough to reopen a
@@ -26,7 +26,7 @@ export interface RecentFileEntry {
   path: string
   worktreePath: string
   machineId?: string
-  artifact?: { issueId: string; artifactId: string }
+  artifact?: { issueId: IssueId; artifactId: ArtifactId }
   openedAt: number
 }
 

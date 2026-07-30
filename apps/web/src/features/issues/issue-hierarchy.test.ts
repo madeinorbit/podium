@@ -1,7 +1,4 @@
-import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+import { asIssueId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   childStageCounts,
@@ -238,9 +235,9 @@ describe('childStageCounts', () => {
 
 describe('issuePageOrderIds', () => {
   it('uses the visible order when the open issue is visible', () => {
-    expect(issuePageOrderIds(['p', 'l'], ['p', 'c', 'l'], 'p')).toEqual(['p', 'l'])
+    expect(issuePageOrderIds([asIssueId('p'), asIssueId('l')], [asIssueId('p'), asIssueId('c'), asIssueId('l')], asIssueId('p'))).toEqual(['p', 'l'])
   })
   it('falls back to the full flat order for a hidden (collapsed) child', () => {
-    expect(issuePageOrderIds(['p', 'l'], ['p', 'c', 'l'], 'c')).toEqual(['p', 'c', 'l'])
+    expect(issuePageOrderIds([asIssueId('p'), asIssueId('l')], [asIssueId('p'), asIssueId('c'), asIssueId('l')], asIssueId('c'))).toEqual(['p', 'c', 'l'])
   })
 })

@@ -1,10 +1,10 @@
-import type { SessionId } from '@podium/model'
+import type { ArtifactId, IssueId, SessionId } from '@podium/model'
 export type FileScope =
   | { kind: 'session'; sessionId: SessionId }
   | { kind: 'worktree'; machineId?: string; root: string }
   /** A permanent issue-artifact snapshot ([spec:SP-0fc9] #441) — paths are
    *  relative to the artifact dir; served from the server-local store. */
-  | { kind: 'artifact'; issueId: string; artifactId: string }
+  | { kind: 'artifact'; issueId: IssueId; artifactId: ArtifactId }
 
 /** Stable key for a scope — used in tab ids and mode-persistence keys. */
 export function scopeKey(scope: FileScope): string {

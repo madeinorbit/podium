@@ -5,13 +5,17 @@
  * what the user sees and vanished ids (moved / deleted / filtered) are dropped.
  */
 
+import type { IssueId } from '@podium/model'
+
 export interface IssuesKeyState {
-  focusId: string | null
-  selected: string[]
+  focusId: IssueId | null
+  selected: IssueId[]
 }
 
 /** The current visual layout: flat rows (list) or per-column stacks (board). */
-export type IssuesNav = { kind: 'rows'; ids: string[] } | { kind: 'columns'; columns: string[][] }
+export type IssuesNav =
+  | { kind: 'rows'; ids: IssueId[] }
+  | { kind: 'columns'; columns: IssueId[][] }
 
 export type IssuesKeyAction =
   | { kind: 'next' }
@@ -22,12 +26,12 @@ export type IssuesKeyAction =
   | { kind: 'clear' }
 
 /** All ids in the nav, flattened in visual (top-to-bottom, left-to-right) order. */
-function flatIds(nav: IssuesNav): string[] {
+function flatIds(nav: IssuesNav): IssueId[] {
   return nav.kind === 'rows' ? nav.ids : nav.columns.flat()
 }
 
 /** Locate the focused id in the columns layout: which column, and its row index. */
-function locate(columns: string[][], id: string): { col: number; row: number } | null {
+function locate(columns: IssueId[][], id: IssueId): { col: number; row: number } | null {
   for (let col = 0; col < columns.length; col++) {
     const row = columns[col]?.indexOf(id) ?? -1
     if (row >= 0) return { col, row }
@@ -40,7 +44,7 @@ function locate(columns: string[][], id: string): { col: number; row: number } |
  * target column's length). Skips empty columns; no-op when there's no non-empty
  * column in `dir`. Only meaningful on the board (`columns`) layout.
  */
-function horizontal(columns: string[][], focusId: string | null, dir: -1 | 1): string | null {
+function horizontal(columns: IssueId[][], focusId: IssueId | null, dir: -1 | 1): IssueId | null {
   if (focusId === null) return focusId
   const at = locate(columns, focusId)
   if (!at) return focusId
@@ -55,7 +59,7 @@ function horizontal(columns: string[][], focusId: string | null, dir: -1 | 1): s
 }
 
 /** Step focus along the flattened order; clamp at both ends, `null` → first. */
-function step(nav: IssuesNav, focusId: string | null, dir: -1 | 1): string | null {
+function step(nav: IssuesNav, focusId: IssueId | null, dir: -1 | 1): IssueId | null {
   const ids = flatIds(nav)
   if (ids.length === 0) return null
   if (focusId === null) return ids[0] ?? null

@@ -32,6 +32,31 @@ export interface ApiMutation<I, O = unknown> {
 /** Outboxed mutations replay with a stable id so the server dedupes. */
 type WithMutationId<T> = T & { mutationId?: string }
 
+/**
+ * WHY THE ID MEMBERS BELOW ARE STILL PLAIN `string` (POD-363 → POD-1192).
+ *
+ * This interface is a hand-written MIRROR of the real tRPC router, and
+ * `apps/web/src/app/store.tsx` constrains the LIVE `TRPCClient` to it — so the
+ * real router must structurally satisfy it. The server's command inputs are
+ * still bare `z.string()`, which makes branding this side ALONE a compile break,
+ * not an improvement.
+ *
+ * Measured rather than assumed: POD-363 branded the id members of
+ * `sessions.create`, `files.read`, `files.write` and `tabs.setOrder`. It
+ * typechecks inside this package and then fails `store.tsx` at four sites with
+ * TS2344/TS2322. The change was reverted deliberately.
+ *
+ * These are NOT unmarked POD-361 edge casts — that inventory is at zero. They
+ * are one half of a restated pair, and the pair moves together or not at all:
+ * brand the server's input schemas with the shared brand-only `…Field` schemas
+ * (never the `.min(1)` boundary schemas — at least one producer sends an empty
+ * string) in the SAME commit as this side. POD-1192 owns that, and weighs the
+ * stronger option of deriving this interface from the router's inferred types
+ * instead of keeping two hand-written copies in sync.
+ *
+ * `machineId` stays unbranded regardless: carved out until POD-318 (ADR 1
+ * Amendment 2 D16.2), with a ratchet test that fails if you brand one.
+ */
 export interface PodiumClientApi {
   sync: {
     changesSince: ApiQuery<{ cursor: number | null }, SyncChangesSinceResult>

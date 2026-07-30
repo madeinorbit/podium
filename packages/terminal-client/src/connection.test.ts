@@ -67,7 +67,6 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     const meta = {
-      // POD-361-EDGE-CAST: inline test literal.
       sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 't',
@@ -181,7 +180,6 @@ describe('SocketHub', () => {
   it('patches a single session title on sessionTitleChanged and notifies observers', () => {
     const { sock, hub } = setup()
     const meta = {
-      // POD-361-EDGE-CAST: inline test literal.
       sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 'proj',

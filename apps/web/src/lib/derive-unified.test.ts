@@ -1,4 +1,5 @@
 import {
+  asRepoId,
   type IssueWireInput,
   type SessionMetaInput,
   type IssueWire,
@@ -722,14 +723,14 @@ describe('groupUnifiedWorkRows', () => {
       isMain: false,
       repoPath: '/m1/a',
       repoName: 'a',
-      repoId: 'repo-a',
+      repoId: asRepoId('repo-a'),
       sessions: [idle('s1', '/m1/a/.worktrees/x')],
     })
     const wt2 = navWt('/m2/a/.worktrees/y', {
       isMain: false,
       repoPath: '/m2/a',
       repoName: 'a',
-      repoId: 'repo-a',
+      repoId: asRepoId('repo-a'),
       sessions: [idle('s2', '/m2/a/.worktrees/y')],
     })
     const groups = groupUnifiedWorkRows(rowsFor([], [], [wt1, wt2]))

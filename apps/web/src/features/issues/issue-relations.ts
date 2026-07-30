@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueId, IssueWire } from '@podium/model'
 
 /**
  * Direction of a relation entry relative to the subject issue:
@@ -9,7 +9,9 @@ import type { IssueWire } from '@podium/model'
 export type RelationDirection = 'dep' | 'dependent'
 
 export interface RelationEntry {
-  id: string
+  /** The RELATED issue (dep target / dependent source) — already branded by
+   *  `IssueDepWire.id`, so this carries the brand rather than widening it. */
+  id: IssueId
   type: string
   direction: RelationDirection
 }

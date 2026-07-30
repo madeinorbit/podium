@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineWire, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, MachineWire, SessionId } from '@podium/model'
 import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
@@ -75,7 +75,7 @@ export function NewPanelMenu({
   onOpened: (sessionId: SessionId) => void
   /** Attach every session spawned from this menu to an issue (issue-as-workspace:
    *  the "+" inside an issue-keyed workspace). Omitted = today's behavior. */
-  issueId?: string
+  issueId?: IssueId
   /** Controlled open state. Omit to leave the menu self-managed (uncontrolled). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -397,7 +397,7 @@ function RecentFilesSection({
   issueId,
 }: {
   worktree: WorktreeView
-  issueId?: string
+  issueId?: IssueId
 }): JSX.Element | null {
   const { recentFiles, openFileInWorktree, openArtifact } = useStoreSelector(
     (s) => ({

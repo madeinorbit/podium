@@ -29,7 +29,6 @@ vi.mock('@/app/store', () => {
 const { NewAutomationDialog } = await import('./NewAutomationDialog')
 
 const automation: AutomationWire = {
-  // POD-361-EDGE-CAST: fixture literals.
   id: asAutomationId('aut_1'),
   name: 'Nightly sweep',
   enabled: false,

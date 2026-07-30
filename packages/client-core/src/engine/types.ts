@@ -6,7 +6,7 @@
  * client).
  */
 
-import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import type { AgentKind, ArtifactId, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
@@ -41,9 +41,14 @@ export function defaultFormatError(error: unknown, fallback: string): string {
 export interface UserFocus {
   view?: MainView
   worktreePath?: string
+  /** NOT branded, and deliberately so: this interface MIRRORS the server's
+   *  `UserFocus` zod schema field for field, and POD-362 branded that schema's
+   *  two session ids but left `issueId` a plain `z.string().max(128)`. Branding
+   *  only this side would make the mirror drift, which is worse than the widening
+   *  — the pair must move together, server-side first. */
   issueId?: string
-  focusedSessionId?: string
-  visibleSessionIds?: string[]
+  focusedSessionId?: SessionId
+  visibleSessionIds?: SessionId[]
   filePath?: string
 }
 
@@ -115,14 +120,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   tldrSession: (sessionId: SessionId, answerText: string) => Promise<void>
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
-  openIssueId: string | null
-  setOpenIssueId: (id: string | null) => void
+  openIssueId: IssueId | null
+  setOpenIssueId: (id: IssueId | null) => void
   /** The issue peeked in the right dock (POD-95): a chat ref's "open" that stays
    *  in the conversation. A labeled transient surface beside the Task panel —
    *  not routed, not persisted; the full /issues/:id page remains openIssueId.
    *  One peek at a time: opening another ref replaces it. */
-  peekIssueId: string | null
-  setPeekIssueId: (id: string | null) => void
+  peekIssueId: IssueId | null
+  setPeekIssueId: (id: IssueId | null) => void
   /** Whether the Cmd/Ctrl+K command palette is open. In the store (not palette-
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean
@@ -132,8 +137,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Issue-keyed workspace selection (unified sidebar only): the issue whose
    *  sessions the center tab strip shows. Null = today's worktree-keyed view.
    *  Classic sidebar never sets it; unified worktree rows clear it. */
-  selectedIssueId: string | null
-  setSelectedIssueId: (id: string | null) => void
+  selectedIssueId: IssueId | null
+  setSelectedIssueId: (id: IssueId | null) => void
   paneA: SessionId | null // sessionId in pane A
   paneB: SessionId | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: SessionId | null) => void
@@ -175,14 +180,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     machineId?: string
     root: string
     path: string
-    issueId?: string
+    issueId?: IssueId
   }) => void
   /** Open a permanent artifact snapshot as a read-only file tab ([spec:SP-0fc9]
    *  #441). `path` is the relpath inside the artifact dir (bundle entry or the
    *  artifact's basename). */
   openArtifact: (args: {
-    issueId: string
-    artifactId: string
+    issueId: IssueId
+    artifactId: ArtifactId
     path: string
     worktreePath?: string
   }) => void
@@ -230,14 +235,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  navigates without waiting on the round-trip. */
   spawnDraftAgent: (args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }) => {
     sessionId: SessionId
-    issueId: string
+    issueId: IssueId
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: SessionId) => Promise<void>
   /** Session whose first manual Continue should raise the auto-continue popup,
    *  or null when the popup is closed. */
-  autoContinuePromptSessionId: string | null
+  autoContinuePromptSessionId: SessionId | null
   closeAutoContinuePrompt: () => void
   /** [spec:SP-a1c0] Central navigate-to-session (#411): accepts a UUID or birth ref and is the ONLY way UI surfaces jump to a session. */
   navigateToSession: (sessionIdOrRef: string) => void

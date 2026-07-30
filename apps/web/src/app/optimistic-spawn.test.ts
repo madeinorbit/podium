@@ -1,4 +1,4 @@
-import { IssueWire, SessionMeta, asSessionId } from '@podium/model'
+import { IssueWire, SessionMeta, asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   mergeOptimistic,
@@ -10,7 +10,7 @@ import {
 describe('optimisticStartingSession', () => {
   const base = {
     sessionId: asSessionId('sess-1'),
-    issueId: 'iss_1',
+    issueId: asIssueId('iss_1'),
     agentKind: 'claude-code' as const,
     cwd: '/home/u/my-proj',
     nowIso: '2026-07-07T00:00:00.000Z',
@@ -44,9 +44,9 @@ describe('optimisticStartingSession', () => {
 
 describe('optimisticDraftIssue', () => {
   const base = {
-    issueId: 'iss_1',
+    issueId: asIssueId('iss_1'),
     repoPath: '/home/u/my-proj',
-    repoId: 'repo-1',
+    repoId: asRepoId('repo-1'),
     sortKey: 'c',
     agentKind: 'claude-code' as const,
     nowIso: '2026-07-07T00:00:00.000Z',
@@ -71,12 +71,12 @@ describe('optimisticDraftIssue', () => {
 
   it('mints the optimistic key above the existing project group', () => {
     const existing = [
-      optimisticDraftIssue({ ...base, issueId: 'iss_a', sortKey: 'i' }),
-      optimisticDraftIssue({ ...base, issueId: 'iss_b', sortKey: 'c' }),
+      optimisticDraftIssue({ ...base, issueId: asIssueId('iss_a'), sortKey: 'i' }),
+      optimisticDraftIssue({ ...base, issueId: asIssueId('iss_b'), sortKey: 'c' }),
       optimisticDraftIssue({
         ...base,
-        issueId: 'iss_other',
-        repoId: 'repo-2',
+        issueId: asIssueId('iss_other'),
+        repoId: asRepoId('repo-2'),
         sortKey: '1',
       }),
     ]

@@ -271,7 +271,6 @@ describe('nestStartedByIssues', () => {
       r.kind === 'issue' ? (r.startedByChildren?.map((c) => c.issue.id) ?? []) : [],
     )
     const all = new Set([...topIds, ...childIds])
-    // POD-361-EDGE-CAST: the set is keyed by branded issue ids.
     expect(all.has(asIssueId('a'))).toBe(true)
     expect(all.has(asIssueId('b'))).toBe(true)
     expect(topIds.length + childIds.length).toBe(2)

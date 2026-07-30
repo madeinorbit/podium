@@ -78,7 +78,7 @@ describe('reconcileScreeningOrder', () => {
   const board = [issue({ id: asIssueId('a'), seq: 3 }), issue({ id: asIssueId('b'), seq: 2 }), issue({ id: asIssueId('c'), seq: 1 })]
 
   it('keeps decided cards, drops undecided ones that left the lane, appends arrivals', () => {
-    const next = reconcileScreeningOrder(['a', 'b', 'c'], 1, [
+    const next = reconcileScreeningOrder([asIssueId('a'), asIssueId('b'), asIssueId('c')], 1, [
       // 'a' was accepted by this flow, 'b' was closed from another client.
       issue({ id: asIssueId('a'), stage: 'in_progress' }),
       issue({ id: asIssueId('c'), seq: 1 }),
@@ -90,7 +90,7 @@ describe('reconcileScreeningOrder', () => {
 
   it('never reorders the undecided tail around the current card', () => {
     // 'c' outranks the rest on the board, but the deck order is a snapshot.
-    const next = reconcileScreeningOrder(['a', 'b', 'c'], 0, [
+    const next = reconcileScreeningOrder([asIssueId('a'), asIssueId('b'), asIssueId('c')], 0, [
       ...board,
       issue({ id: asIssueId('z'), priority: 0, seq: 99 }),
     ])

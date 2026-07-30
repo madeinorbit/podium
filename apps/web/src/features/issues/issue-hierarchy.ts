@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/model'
+import { ISSUE_STAGES, type IssueId, type IssueStage, type IssueWire } from '@podium/model'
 import { type IssuesOrdering, orderIssues } from './issues-display'
 
 /**
@@ -128,7 +128,7 @@ export function issueRowsByStage(
 }
 
 /** Flatten row groups into ids in visual order — the keyboard-nav basis. */
-export function flattenRowGroups(groups: { rows: IssueRow[] }[]): string[] {
+export function flattenRowGroups(groups: { rows: IssueRow[] }[]): IssueId[] {
   return groups.flatMap((g) => g.rows.map((r) => r.issue.id))
 }
 
@@ -160,9 +160,9 @@ export function childStageCounts(
  * navigator instead of a dead one.
  */
 export function issuePageOrderIds(
-  visibleIds: string[],
-  allIds: string[],
-  openId: string,
-): string[] {
+  visibleIds: IssueId[],
+  allIds: IssueId[],
+  openId: IssueId,
+): IssueId[] {
   return visibleIds.includes(openId) ? visibleIds : allIds
 }

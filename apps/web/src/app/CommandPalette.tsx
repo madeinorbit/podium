@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind, IssueWire, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -207,7 +207,7 @@ function PaletteDialog({
     void run()
   }
 
-  const openSession = (sessionId: SessionId, cwd: string, issueId?: string): void => {
+  const openSession = (sessionId: SessionId, cwd: string, issueId?: IssueId): void => {
     // A draft spawn passes its issue id so the draft-agent row is selected; plain
     // session navigation passes none (worktree selection, issue cleared).
     setSelectedIssueId(issueId ?? null)

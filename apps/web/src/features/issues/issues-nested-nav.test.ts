@@ -1,7 +1,4 @@
-import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+import { asIssueId, type IssueId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { flattenRowGroups, issueRowsByStage } from './issue-hierarchy'
 import { type IssuesKeyState, type IssuesNav, issuesKeyReduce } from './issues-keys'
@@ -86,14 +83,14 @@ describe('keyboard nav over nested rows', () => {
 
   it('j/k skip hidden children when the parent is collapsed', () => {
     const nav = rowsNav(false, [])
-    let s: IssuesKeyState = { focusId: 'p', selected: [] }
+    let s: IssuesKeyState = { focusId: asIssueId('p'), selected: [] }
     s = issuesKeyReduce(s, { kind: 'next' }, nav)
     expect(s.focusId).toBe('l')
   })
 
   it('collapsing the parent normalizes a child focus instead of pointing at a hidden row', () => {
     // Focus a child while expanded...
-    let s: IssuesKeyState = { focusId: 'c1', selected: [] }
+    let s: IssuesKeyState = { focusId: asIssueId('c1'), selected: [] }
     // ...then the parent collapses; the next action sees the collapsed nav.
     s = issuesKeyReduce(s, { kind: 'next' }, rowsNav(false, []))
     // Vanished focus resets to null, so `next` lands on the first visible row.
@@ -103,14 +100,14 @@ describe('keyboard nav over nested rows', () => {
 
 describe('selection vs expansion/flatten (the bulk-op visibility filter)', () => {
   /** IssuesView's presentIds filter: bulk ops act only on visible selected ids. */
-  function visibleSelected(selected: string[], nav: IssuesNav): string[] {
+  function visibleSelected(selected: IssueId[], nav: IssuesNav): IssueId[] {
     const present = new Set(nav.kind === 'rows' ? nav.ids : nav.columns.flat())
     return selected.filter((id) => present.has(id))
   }
 
   it('x-selected child → collapse → the bulk-op set excludes the hidden child', () => {
     const expandedNav = rowsNav(false, ['p'])
-    let s: IssuesKeyState = { focusId: 'c1', selected: [] }
+    let s: IssuesKeyState = { focusId: asIssueId('c1'), selected: [] }
     s = issuesKeyReduce(s, { kind: 'toggleSelect' }, expandedNav)
     expect(s.selected).toEqual(['c1'])
     // Parent collapses: the raw selection still holds the id, but the visible
@@ -122,7 +119,7 @@ describe('selection vs expansion/flatten (the bulk-op visibility filter)', () =>
 
   it('flatten-toggle mid-selection: child selected flat stays selected only while visible', () => {
     const flatNav = rowsNav(true, [])
-    let s: IssuesKeyState = { focusId: 'c2', selected: [] }
+    let s: IssuesKeyState = { focusId: asIssueId('c2'), selected: [] }
     s = issuesKeyReduce(s, { kind: 'toggleSelect' }, flatNav)
     expect(visibleSelected(s.selected, flatNav)).toEqual(['c2'])
     // Un-flatten (collapsed): the child is hidden → excluded from bulk ops.
@@ -136,9 +133,9 @@ describe('selection vs expansion/flatten (the bulk-op visibility filter)', () =>
   it('board nav (roots-only columns) never exposes children to selection', () => {
     const columns: IssuesNav = {
       kind: 'columns',
-      columns: [['p'], ['l']], // backlog + planning lanes, roots only
+      columns: [[asIssueId('p')], [asIssueId('l')]], // backlog + planning lanes, roots only
     }
-    let s: IssuesKeyState = { focusId: 'c1', selected: ['c1', 'p'] }
+    let s: IssuesKeyState = { focusId: asIssueId('c1'), selected: [asIssueId(asIssueId('c1')), asIssueId(asIssueId('p'))] }
     expect(visibleSelected(s.selected, columns)).toEqual(['p'])
     s = issuesKeyReduce(s, { kind: 'next' }, columns)
     expect(s.focusId).toBe('p') // hidden focus normalized → first visible

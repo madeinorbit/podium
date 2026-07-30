@@ -1,4 +1,4 @@
-import { asSessionId, handoffAvailability, type HandoffAvailability, type HandoffIssue, type HandoffMachine, type HandoffRepo, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { asSessionId, handoffAvailability, type HandoffAvailability, type HandoffIssue, type HandoffMachine, type HandoffRepo, type IssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { agentSupportsHandoff } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
@@ -35,7 +35,7 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
 ): IssueHandoff<M> {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const agents = issue.sessions
-    .map((ref) => byId.get(asSessionId(ref.sessionId))) // // POD-361-EDGE-CAST
+    .map((ref) => byId.get(ref.sessionId))
     // Handoff eligibility is a harness CAPABILITY, read from the one declarative
     // table, not a pair of literals re-listed here (POD-1105).
     .filter((s): s is SessionMeta => s !== undefined && agentSupportsHandoff(s.agentKind))
@@ -145,8 +145,8 @@ export function issueMenuEligibility(
  */
 export function contextMenuTargets(
   state: IssuesKeyState,
-  clickedId: string,
-): { keyState: IssuesKeyState; targetIds: string[] } {
+  clickedId: IssueId,
+): { keyState: IssuesKeyState; targetIds: IssueId[] } {
   if (state.selected.includes(clickedId)) {
     return { keyState: { ...state, focusId: clickedId }, targetIds: state.selected }
   }

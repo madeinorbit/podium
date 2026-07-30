@@ -1,4 +1,4 @@
-import { asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, type IssueWire, type IssueWireInput, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from '@/app/store'
 import {
@@ -77,15 +77,15 @@ describe('resolveActiveWorktree', () => {
   it('carries issueId from an artifact file tab [spec:SP-0fc9]', () => {
     const tab: FileTab = {
       id: 'file:a:i9:art1:index.html',
-      scope: { kind: 'artifact', issueId: 'i9', artifactId: 'art1' },
+      scope: { kind: 'artifact', issueId: asIssueId('i9'), artifactId: asArtifactId('art1') },
       path: 'index.html',
       worktreePath: '/wt/c',
-      issueId: 'i9',
+      issueId: asIssueId('i9'),
     }
     expect(resolveActiveWorktree({ paneA: tab.id, fileTabs: [tab], sessions: [s1] })).toEqual({
       cwd: '/wt/c',
       machineId: undefined,
-      issueId: 'i9',
+      issueId: asIssueId('i9'),
     })
   })
 
@@ -142,7 +142,7 @@ describe('issueForPanel', () => {
   it('explicit session attachment beats the owning worktree (#243)', () => {
     // A session attached to a subissue but working in the parent's worktree
     // shows ITS issue, not the worktree owner.
-    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i2' })
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: asIssueId('i2') })
     expect(
       issueForPanel({
         issues: [owning, attached],
@@ -155,14 +155,14 @@ describe('issueForPanel', () => {
 
   it('explicit issueId beats both the session attachment and containment [spec:SP-0fc9]', () => {
     const target = issue({ id: 'i9', worktreePath: null })
-    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i2' })
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: asIssueId('i2') })
     expect(
       issueForPanel({
         issues: [owning, attached, target],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
         sessionId: asSessionId('s1'),
-        issueId: 'i9',
+        issueId: asIssueId('i9'),
       })?.id,
     ).toBe('i9')
     // Archived/deleted/unknown explicit issue falls through to the old logic.
@@ -173,7 +173,7 @@ describe('issueForPanel', () => {
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
         sessionId: asSessionId('s1'),
-        issueId: 'i9',
+        issueId: asIssueId('i9'),
       })?.id,
     ).toBe('i2')
     expect(
@@ -181,7 +181,7 @@ describe('issueForPanel', () => {
         issues: [owning],
         sessions: [],
         cwd: '/repo/.worktrees/issue-7',
-        issueId: 'missing',
+        issueId: asIssueId('missing'),
       })?.id,
     ).toBe('i1')
   })
@@ -202,7 +202,7 @@ describe('issueForPanel', () => {
 
   it('attachment to an archived issue resolves to no issue (#582)', () => {
     const archivedTarget = issue({ id: 'i3', worktreePath: null, archived: true })
-    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i3' })
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: asIssueId('i3') })
     expect(
       issueForPanel({
         issues: [owning, archivedTarget],
@@ -214,7 +214,7 @@ describe('issueForPanel', () => {
   })
 
   it('falls back to the active session explicit issue attachment', () => {
-    const s = sess('s1', '/elsewhere/wt', { issueId: 'i2' })
+    const s = sess('s1', '/elsewhere/wt', { issueId: asIssueId('i2') })
     expect(
       issueForPanel({
         issues: [owning, attached],
@@ -226,7 +226,7 @@ describe('issueForPanel', () => {
   })
 
   it('ignores archived attached issues and misses cleanly', () => {
-    const s = sess('s1', '/elsewhere/wt', { issueId: 'i2' })
+    const s = sess('s1', '/elsewhere/wt', { issueId: asIssueId('i2') })
     const archived = issue({ id: 'i2', worktreePath: null, archived: true })
     expect(
       issueForPanel({ issues: [archived], sessions: [s], cwd: '/elsewhere/wt', sessionId: asSessionId('s1') }),
@@ -295,8 +295,8 @@ describe('artifact helpers', () => {
     expect(
       artifactUrl({
         httpOrigin: 'http://x/',
-        issueId: 'iss_1',
-        artifact: { path: 'shots/a b.png', artifactId: 'abc123', entry: 'a b.png' },
+        issueId: asIssueId('iss_1'),
+        artifact: { path: 'shots/a b.png', artifactId: asArtifactId('abc123'), entry: 'a b.png' },
         root: '/wt',
       }),
     ).toBe('http://x/files/artifact/iss_1/abc123/a%20b.png')
@@ -304,22 +304,22 @@ describe('artifact helpers', () => {
     expect(
       artifactUrl({
         httpOrigin: 'http://x',
-        issueId: 'iss_1',
-        artifact: { path: 'shots/a.png', artifactId: 'abc' },
+        issueId: asIssueId('iss_1'),
+        artifact: { path: 'shots/a.png', artifactId: asArtifactId('abc') },
       }),
     ).toBe('http://x/files/artifact/iss_1/abc/a.png')
     // legacy entries (no artifactId) fall back to the live worktree route
     expect(
       artifactUrl({
         httpOrigin: 'http://x',
-        issueId: 'iss_1',
+        issueId: asIssueId('iss_1'),
         artifact: { path: 'p.png' },
         root: '/w',
         machineId: 'm1',
       }),
     ).toBe('http://x/files/asset?root=%2Fw&path=p.png&machineId=m1')
     expect(
-      artifactUrl({ httpOrigin: 'http://x', issueId: 'iss_1', artifact: { path: 'p.png' } }),
+      artifactUrl({ httpOrigin: 'http://x', issueId: asIssueId('iss_1'), artifact: { path: 'p.png' } }),
     ).toBeNull()
   })
 })

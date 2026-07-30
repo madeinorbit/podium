@@ -1,9 +1,4 @@
-import {
-  asArtifactId,
-  type IssuePanelArtifact,
-  type IssueWire,
-  type SessionOffer,
-} from '@podium/model'
+import { type ArtifactId, asArtifactId, type IssuePanelArtifact, type IssueWire, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
@@ -11,10 +6,10 @@ import { resolveOfferArtifacts } from './offer-artifacts'
 // issue panel's artifact list (newest entry wins, unresolved silently dropped);
 // an offer naming none falls back to artifacts newer than the user's last input.
 
-const art = (path: string, addedAt: string, artifactId?: string): IssuePanelArtifact => ({
+const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
   path,
   addedAt,
-  ...(artifactId ? { artifactId: asArtifactId(artifactId) } : {}), // // POD-361-EDGE-CAST
+  ...(artifactId ? { artifactId } : {}),
 })
 
 const issueWith = (artifacts: IssuePanelArtifact[]): IssueWire =>
@@ -39,8 +34,8 @@ describe('resolveOfferArtifacts [POD-120]', () => {
   })
 
   it('the newest re-added entry wins for a repeated path', () => {
-    const old = art('e2e/shot.png', '2026-07-21T08:00:00.000Z', 'art_old')
-    const fresh = art('e2e/shot.png', '2026-07-21T09:00:00.000Z', 'art_new')
+    const old = art('e2e/shot.png', '2026-07-21T08:00:00.000Z', asArtifactId('art_old'))
+    const fresh = art('e2e/shot.png', '2026-07-21T09:00:00.000Z', asArtifactId('art_new'))
     const out = resolveOfferArtifacts({
       offer: offerWith(['e2e/shot.png']),
       issue: issueWith([old, fresh]),

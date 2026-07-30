@@ -20,8 +20,8 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, ArtifactId, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
@@ -165,15 +165,15 @@ interface EngineState {
   tabOrders: Record<string, string[]>
   view: MainView
   settingsTab: string | null
-  openIssueId: string | null
-  peekIssueId: string | null
+  openIssueId: IssueId | null
+  peekIssueId: IssueId | null
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
   superRefreshKey: number
   paletteOpen: boolean
   selectedWorktree: string | null
-  selectedIssueId: string | null
+  selectedIssueId: IssueId | null
   paneA: SessionId | null
   paneB: SessionId | null
   split: boolean
@@ -181,7 +181,7 @@ interface EngineState {
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
-  autoContinuePromptSessionId: string | null
+  autoContinuePromptSessionId: SessionId | null
   drafts: Record<string, string>
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
@@ -192,6 +192,13 @@ interface EngineState {
 /** Narrow a raw route/persisted value into the session id space (POD-362). */
 const asSessionIdOrNull = (v: string | null | undefined): SessionId | null =>
   v ? asSessionId(v) : null
+
+/** The issue-id twin of {@link asSessionIdOrNull} (POD-363). Same DECODE EDGE:
+ *  the URL route and `localStorage` hand back raw strings, and this is the one
+ *  place they re-enter the id space — so the store's issue-selection surface can
+ *  be branded end to end without a cast at every consumer. */
+const asIssueIdOrNull = (v: string | null | undefined): IssueId | null =>
+  v ? asIssueId(v) : null
 
 export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly replica: Replica
@@ -351,7 +358,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       tabOrders: {},
       view: route.view,
       settingsTab: route.settingsTab,
-      openIssueId: route.issueId,
+      openIssueId: asIssueIdOrNull(route.issueId),
       peekIssueId: null,
       superThreadId: 'global',
       // Default OPEN: the superagent is the desktop shell's center column now, not
@@ -362,7 +369,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       paletteOpen: false,
       // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
       selectedWorktree: route.worktree ?? this.ui.get(WT_KEY),
-      selectedIssueId: this.ui.get(ISSUE_SEL_KEY),
+      selectedIssueId: asIssueIdOrNull(this.ui.get(ISSUE_SEL_KEY)),
       // DECODE EDGE: the pane selection comes from the URL route or persisted UI
       // state — both raw strings — so this is where it re-enters the id space.
       paneA: asSessionIdOrNull(route.pane ?? this.ui.get(PANE_A_KEY)),
@@ -667,7 +674,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const patch: Partial<EngineState> = {
       view: route.view,
       settingsTab: route.settingsTab,
-      openIssueId: route.issueId,
+      openIssueId: asIssueIdOrNull(route.issueId),
     }
     if (
       route.worktree &&
@@ -1155,7 +1162,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   // current route's stale pane). Selecting the tab's issue/worktree keeps
   // fileTabsForWorkspace from dropping the tab and bouncing the pane; an open
   // peek overlay is closed so the tab is actually visible.
-  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: string }): void {
+  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: IssueId }): void {
     this.apply({
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
@@ -1227,12 +1234,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           })
         }
       },
-      setOpenIssueId: (id: string | null) => {
+      setOpenIssueId: (id: IssueId | null) => {
         const cur = this.router.current()
         if (cur.view === 'issues' && cur.issueId === id) return
         this.router.navigate({ ...cur, view: 'issues', issueId: id })
       },
-      setPeekIssueId: (id: string | null) => this.apply({ peekIssueId: id }),
+      setPeekIssueId: (id: IssueId | null) => this.apply({ peekIssueId: id }),
       setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
       setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),
       setDockTab: (tab: DockTab) => this.apply({ dockTab: tab }),
@@ -1257,7 +1264,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       },
       setPaletteOpen: (open: boolean) => this.apply({ paletteOpen: open }),
       setSelectedWorktree: (path: string | null) => this.apply({ selectedWorktree: path }),
-      setSelectedIssueId: (id: string | null) => this.apply({ selectedIssueId: id }),
+      setSelectedIssueId: (id: IssueId | null) => this.apply({ selectedIssueId: id }),
       // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
       // proxy for input focus, and the terminal components don't expose a focus seam.
       setPane: (pane: 'A' | 'B', id: SessionId | null) =>
@@ -1367,7 +1374,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         machineId?: string
         root: string
         path: string
-        issueId?: string
+        issueId?: IssueId
       }) => {
         const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
         const id = tabIdFor(scope, args.path)
@@ -1408,8 +1415,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // gone), and `issueId` keeps the dock's Issue panel on the artifact's
       // issue instead of re-homing by cwd containment.
       openArtifact: (args: {
-        issueId: string
-        artifactId: string
+        issueId: IssueId
+        artifactId: ArtifactId
         path: string
         worktreePath?: string
       }) => {
@@ -1498,12 +1505,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         target: SpawnTarget
         agentKind: AgentKind
         firstPrompt?: string
-      }): { sessionId: SessionId; issueId: string } => {
+      }): { sessionId: SessionId; issueId: IssueId } => {
         // Client-minted ids (server reuses them verbatim) so the optimistic rows
         // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
         // MINT SITE: the optimistic client-side session id.
         const sessionId = asSessionId(randomUUID())
-        const issueId = `iss_${randomUUID()}`
+        // MINT SITE: the optimistic client-side issue id.
+        const issueId = asIssueId(`iss_${randomUUID()}`)
         const nowIso = new Date().toISOString()
         // Mirror the server's stable project identity and new-at-top sort key
         // before painting. Without these, the placeholder forms a temporary

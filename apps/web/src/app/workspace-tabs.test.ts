@@ -1,4 +1,4 @@
-import { asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, type IssueWire, type IssueWireInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from './store'
 import { fileTabsForWorkspace } from './workspace-tabs'
@@ -19,9 +19,9 @@ describe('fileTabsForWorkspace (strict issue scoping, POD-149)', () => {
   it('shows an owned artifact tab for a worktree-LESS issue (POD-502 regression)', () => {
     const artifact = tab({
       id: 'a',
-      issueId: 'i1',
+      issueId: asIssueId('i1'),
       worktreePath: '/repo',
-      scope: { kind: 'artifact', issueId: 'i1', artifactId: 'x' },
+      scope: { kind: 'artifact', issueId: asIssueId('i1'), artifactId: asArtifactId('x') },
     })
     const out = fileTabsForWorkspace([artifact], {
       issue: issue({ worktreePath: undefined }),
@@ -31,7 +31,7 @@ describe('fileTabsForWorkspace (strict issue scoping, POD-149)', () => {
   })
 
   it('matches a tab to its issue by issueId, not another issue', () => {
-    const artifact = tab({ id: 'a', issueId: 'i2', worktreePath: '/repo' })
+    const artifact = tab({ id: 'a', issueId: asIssueId('i2'), worktreePath: '/repo' })
     const out = fileTabsForWorkspace([artifact], {
       issue: issue({ id: 'i1' }),
       worktreePath: undefined,
@@ -42,7 +42,7 @@ describe('fileTabsForWorkspace (strict issue scoping, POD-149)', () => {
   it("does NOT leak another issue's (or an unowned) tab in via a shared checkout path", () => {
     // Pre-POD-149: any tab whose worktreePath matched the issue's worktree or
     // effective root rode along into every issue sharing the checkout.
-    const foreign = tab({ id: 'x', issueId: 'i2', worktreePath: '/main' })
+    const foreign = tab({ id: 'x', issueId: asIssueId('i2'), worktreePath: '/main' })
     const unowned = tab({ id: 'y', worktreePath: '/main' })
     const out = fileTabsForWorkspace([foreign, unowned], {
       issue: issue({ id: 'i1', worktreePath: '/main' }),
@@ -54,7 +54,7 @@ describe('fileTabsForWorkspace (strict issue scoping, POD-149)', () => {
   it('shows a worktree-scoped file tab under the issue that owns it', () => {
     const file = tab({
       id: 'w',
-      issueId: 'i1',
+      issueId: asIssueId('i1'),
       worktreePath: '/wt',
       scope: { kind: 'worktree', root: '/wt' },
     })
@@ -67,7 +67,7 @@ describe('fileTabsForWorkspace (strict issue scoping, POD-149)', () => {
 
   it('falls back to worktree-path matching only when no issue is selected', () => {
     const file = tab({ id: 'w', worktreePath: '/wt' })
-    const owned = tab({ id: 'o', issueId: 'i1', worktreePath: '/wt' })
+    const owned = tab({ id: 'o', issueId: asIssueId('i1'), worktreePath: '/wt' })
     expect(fileTabsForWorkspace([file, owned], { issue: null, worktreePath: '/wt' })).toEqual([
       file,
       owned,

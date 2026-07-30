@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -142,7 +142,7 @@ describe('HtmlFilePanel', () => {
     }
 
     it('grants allow-scripts and keeps the script for an artifact', () => {
-      const iframe = renderScope({ kind: 'artifact', issueId: 'i1', artifactId: 'a1' })
+      const iframe = renderScope({ kind: 'artifact', issueId: asIssueId('i1'), artifactId: asArtifactId('a1') })
       const srcdoc = iframe.getAttribute('srcdoc') ?? ''
 
       expect(iframe.getAttribute('sandbox')).toBe('allow-scripts')

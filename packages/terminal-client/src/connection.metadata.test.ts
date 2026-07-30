@@ -1,12 +1,4 @@
-import {
-  type AutomationRunWire,
-  type AutomationWire,
-  asAutomationId,
-  asAutomationRunId,
-  asIssueId,
-  asSessionId,
-  type IssueWire,
-} from '@podium/model'
+import { asAutomationId, asAutomationRunId, asIssueId, asSessionId, type AutomationRunWire, type AutomationWire, type IssueId, type IssueWire } from '@podium/model'
 import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -40,9 +32,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 // Must satisfy the real IssueWire zod schema: the hub's lenient parser quarantines
 // invalid change rows and treats a quarantined delta as a cursor gap (a heal),
 // so a sloppy fixture would silently test the WRONG code path.
-const issue = (id: string, title: string): IssueWire => ({
-  // POD-361-EDGE-CAST: test helpers take plain string ids.
-  id: asIssueId(id),
+const issue = (id: IssueId, title: string): IssueWire => ({
+  id,
   repoPath: '/r',
   seq: 1,
   title,
@@ -167,7 +158,7 @@ describe('SocketHub metadata delta mode', () => {
   })
 
   it('bootstraps lists + cursor from the snapshot, then applies deltas in order', async () => {
-    const { sock, hub, calls } = setup([snapshot(5, [issue('a', 'one')])])
+    const { sock, hub, calls } = setup([snapshot(5, [issue(asIssueId('a'), 'one')])])
     const seen: string[][] = []
     hub.onIssues((i) => seen.push(i.map((x) => x.title)))
     hub.connect()
@@ -179,7 +170,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
-      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') }],
     })
     expect(hub.issues().map((i) => i.title)).toEqual(['one', 'two'])
     // Upsert replaces in place; remove drops.
@@ -187,7 +178,7 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 7, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'one v2') },
+        { seq: 7, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one v2') },
         { seq: 8, entity: 'issue', id: 'b', op: 'remove' },
       ],
     })
@@ -261,7 +252,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
-      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue('x', 'late') }],
+      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') }],
     })
     await flush()
     expect(calls).toEqual([null, 5])
@@ -269,7 +260,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 10,
-      changes: [{ seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue('y', 'next') }],
+      changes: [{ seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') }],
     })
     expect(hub.issues().map((i) => i.title)).toEqual(['next'])
   })
@@ -309,10 +300,10 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
-      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'raced') }],
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'raced') }],
     })
     expect(hub.issues()).toEqual([])
-    resolveBoot?.(snapshot(5, [issue('a', 'base')]))
+    resolveBoot?.(snapshot(5, [issue(asIssueId('a'), 'base')]))
     await flush()
     expect(hub.issues().map((i) => i.title)).toEqual(['base', 'raced'])
   })
@@ -344,7 +335,7 @@ describe('SocketHub metadata delta mode', () => {
         type: 'metadataDelta',
         seq: 7,
         changes: [
-          { seq: 6, entity: 'issue', id: 'ok', op: 'upsert', value: issue('ok', 'fine') },
+          { seq: 6, entity: 'issue', id: 'ok', op: 'upsert', value: issue(asIssueId('ok'), 'fine') },
           { seq: 7, entity: 'issue', id: 'bad', op: 'upsert', value: { not: 'an issue' } },
         ],
       }),
@@ -357,7 +348,7 @@ describe('SocketHub metadata delta mode', () => {
 
   it('a malformed KNOWN-kind element in a heal delta escalates to a snapshot heal — never installed, never skipped (#247)', async () => {
     const { sock, hub, calls } = setup([
-      snapshot(5, [issue('a', 'base')]),
+      snapshot(5, [issue(asIssueId('a'), 'base')]),
       // Heal for the gap below: a delta whose KNOWN-kind element carries a
       // malformed value. isKnownMetadataChange alone (an entity-string check)
       // would install {bogus:true} into the issue list and advance the cursor
@@ -368,7 +359,7 @@ describe('SocketHub metadata delta mode', () => {
         cursor: 6,
       } as unknown as SyncChangesSinceResultLenient,
       // Escalation: the null-cursor refetch answers with the full snapshot.
-      snapshot(9, [issue('healed', 'from snapshot')]),
+      snapshot(9, [issue(asIssueId('healed'), 'from snapshot')]),
     ])
     hub.connect()
     sock.open()
@@ -378,7 +369,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
-      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue('x', 'late') }],
+      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') }],
     })
     await flush()
     // Heal from the live cursor → malformed → escalate to a null-cursor snapshot.
@@ -389,7 +380,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 10,
-      changes: [{ seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue('y', 'next') }],
+      changes: [{ seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') }],
     })
     await flush()
     expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot', 'next'])
@@ -403,7 +394,7 @@ describe('SocketHub metadata delta mode', () => {
         // Bootstrap answers with a snapshot missing its arrays — malformed, and
         // with a null cursor there is nowhere to escalate: fail → retry timer.
         { kind: 'snapshot', cursor: 5 } as unknown as SyncChangesSinceResultLenient,
-        snapshot(7, [issue('ok', 'valid')]),
+        snapshot(7, [issue(asIssueId('ok'), 'valid')]),
       ])
       hub.connect()
       sock.open()
@@ -433,9 +424,9 @@ describe('SocketHub metadata delta mode', () => {
         type: 'metadataDelta',
         seq: 8,
         changes: [
-          { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'known') },
+          { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'known') },
           { seq: 7, entity: 'machine', id: 'm1', op: 'upsert', value: { id: 'm1', os: 'linux' } },
-          { seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'also known') },
+          { seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'also known') },
         ],
       }),
     })
@@ -462,7 +453,7 @@ describe('SocketHub metadata delta mode', () => {
         {
           kind: 'delta',
           changes: [
-            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'known') },
+            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'known') },
             { seq: 7, entity: 'settings', id: 's1', op: 'upsert', value: { theme: 'dark' } },
           ],
           cursor: 7,
@@ -480,7 +471,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
-      changes: [{ seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'next') }],
+      changes: [{ seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'next') }],
     })
     expect(hub.issues().map((i) => i.title)).toEqual(['known', 'next'])
     expect(calls).toEqual([5])
@@ -493,7 +484,7 @@ describe('SocketHub metadata delta mode', () => {
         // Warm reload within retention → the server answers with a delta.
         {
           kind: 'delta',
-          changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'one') }],
+          changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one') }],
           cursor: 6,
         },
         // The gap heal below: contiguous 7..9 from the LIVE cursor (6). An
@@ -519,17 +510,17 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
-      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue('x', 'late') }],
+      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') }],
     })
     await flush()
     expect(calls).toEqual([5, 6])
   })
 
   it('initialCursor with a compaction fallback still full-replaces from the snapshot', async () => {
-    const { sock, hub, calls } = setup([snapshot(20, [issue('s', 'from snapshot')])], {
+    const { sock, hub, calls } = setup([snapshot(20, [issue(asIssueId('s'), 'from snapshot')])], {
       initialCursor: 5,
     })
-    hub.seedMetadata({ sessions: [], issues: [issue('old', 'stale seed')], conversations: [] })
+    hub.seedMetadata({ sessions: [], issues: [issue(asIssueId('old'), 'stale seed')], conversations: [] })
     hub.connect()
     sock.open()
     await flush()
@@ -556,10 +547,10 @@ describe('SocketHub metadata delta mode', () => {
   })
 
   it('seedMetadata paints lists + notifies observers, and server truth supersedes it', async () => {
-    const { sock, hub } = setup([snapshot(5, [issue('a', 'server')])])
+    const { sock, hub } = setup([snapshot(5, [issue(asIssueId('a'), 'server')])])
     const seen: string[][] = []
     hub.onIssues((i) => seen.push(i.map((x) => x.title)))
-    hub.seedMetadata({ sessions: [], issues: [issue('local', 'replica')], conversations: [] })
+    hub.seedMetadata({ sessions: [], issues: [issue(asIssueId('local'), 'replica')], conversations: [] })
     // Hydrate-first: the seed is visible before any socket traffic.
     expect(hub.issues().map((i) => i.title)).toEqual(['replica'])
     expect(seen.at(-1)).toEqual(['replica'])
@@ -569,7 +560,7 @@ describe('SocketHub metadata delta mode', () => {
     // Reconcile-on-snapshot: final state = server state.
     expect(hub.issues().map((i) => i.title)).toEqual(['server'])
     // A late seed (e.g. slow hydrate losing the race) can no longer clobber it.
-    hub.seedMetadata({ sessions: [], issues: [issue('late', 'stale')], conversations: [] })
+    hub.seedMetadata({ sessions: [], issues: [issue(asIssueId('late'), 'stale')], conversations: [] })
     expect(hub.issues().map((i) => i.title)).toEqual(['server'])
   })
 
@@ -579,7 +570,7 @@ describe('SocketHub metadata delta mode', () => {
         {
           kind: 'delta',
           changes: [
-            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'a v2') },
+            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'a v2') },
             { seq: 7, entity: 'issue', id: 'b', op: 'remove' },
           ],
           cursor: 7,
@@ -589,7 +580,7 @@ describe('SocketHub metadata delta mode', () => {
     )
     hub.seedMetadata({
       sessions: [],
-      issues: [issue('a', 'a v1'), issue('b', 'gone soon'), issue('c', 'untouched')],
+      issues: [issue(asIssueId('a'), 'a v1'), issue(asIssueId('b'), 'gone soon'), issue(asIssueId('c'), 'untouched')],
       conversations: [],
     })
     hub.connect()
@@ -601,7 +592,7 @@ describe('SocketHub metadata delta mode', () => {
 
   it('onMetadataApplied fires after each applied batch with cursor + lists', async () => {
     const applied: Array<{ cursor: number; issues: string[] }> = []
-    const { sock, hub } = setup([snapshot(5, [issue('a', 'one')])], {
+    const { sock, hub } = setup([snapshot(5, [issue(asIssueId('a'), 'one')])], {
       onMetadataApplied: (s) =>
         applied.push({ cursor: s.cursor, issues: s.issues.map((i) => i.title) }),
     })
@@ -613,7 +604,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
-      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') }],
     })
     expect(applied).toEqual([
       { cursor: 5, issues: ['one'] },
@@ -624,7 +615,7 @@ describe('SocketHub metadata delta mode', () => {
   it('a failed heal retries on a timer while the socket is up', async () => {
     vi.useFakeTimers()
     try {
-      const { sock, hub, calls } = setup([new Error('blip'), snapshot(3, [issue('a', 'ok')])])
+      const { sock, hub, calls } = setup([new Error('blip'), snapshot(3, [issue(asIssueId('a'), 'ok')])])
       hub.connect()
       sock.open()
       await vi.advanceTimersByTimeAsync(0)

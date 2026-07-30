@@ -7,7 +7,7 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, asIssueId, type IssueWire, type SessionId } from '@podium/model'
+import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, asIssueId, type IssueId, type IssueWire, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -159,7 +159,7 @@ export function IssueProperties({
   issue: IssueWire
   busy: boolean
   commands: IssuePageCommands
-  onNavigate: (id: string) => void
+  onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const { trpc, issues, machines, sessions, navigateToSession } = useStoreSelector(
@@ -187,12 +187,12 @@ export function IssueProperties({
   // Repo-mates: the pool for relations + parent, excluding self, seq-ordered.
   const repoMates = repoMatesOf(issues, issue)
   const byId = new Map(issues.map((i) => [i.id, i]))
-  const issueLabel = (id: string): string => {
-    const m = byId.get(asIssueId(id)) // // POD-361-EDGE-CAST
+  const issueLabel = (id: IssueId): string => {
+    const m = byId.get(id)
     return m ? issueRefLong(m) : id
   }
-  const issueStageGlyph = (id: string): JSX.Element | null => {
-    const target = byId.get(asIssueId(id)) // // POD-361-EDGE-CAST
+  const issueStageGlyph = (id: IssueId): JSX.Element | null => {
+    const target = byId.get(id)
     return target ? <StageGlyph stage={target.stage} size={13} /> : null
   }
   const mateOptions = mateOptionsOf(repoMates)
@@ -499,7 +499,7 @@ export function IssueProperties({
                   data-pressable
                   type="button"
                   className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
-                  onClick={() => byId.has(asIssueId(entry.id)) && onNavigate(entry.id)} // // POD-361-EDGE-CAST
+                  onClick={() => byId.has(entry.id) && onNavigate(entry.id)}
                   title={issueLabel(entry.id)}
                 >
                   {issueStageGlyph(entry.id)}

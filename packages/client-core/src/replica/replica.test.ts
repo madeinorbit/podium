@@ -8,15 +8,7 @@
  * what yanked the engine's worktree selection (see engine.test.ts).
  */
 
-import {
-  type AutomationRunWire,
-  type AutomationWire,
-  asAutomationId,
-  asAutomationRunId,
-  asSessionId,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asAutomationId, asAutomationRunId, asSessionId, type AutomationId, type AutomationRunId, type AutomationRunWire, type AutomationWire, type IssueWire, type SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
@@ -42,9 +34,8 @@ function session(id: string): SessionMeta {
 
 const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as IssueWire
 
-const automation = (id: string, name = id): AutomationWire => ({
-  // POD-361-EDGE-CAST: fixture helpers take plain string ids.
-  id: asAutomationId(id),
+const automation = (id: AutomationId, name: string = id): AutomationWire => ({
+  id,
   name,
   enabled: true,
   repoPath: '/r',
@@ -62,9 +53,9 @@ const automation = (id: string, name = id): AutomationWire => ({
   createdAt: '2026-07-01T00:00:00.000Z',
 })
 
-const automationRun = (id: string, automationId: string): AutomationRunWire => ({
-  id: asAutomationRunId(id), // POD-361-EDGE-CAST
-  automationId: asAutomationId(automationId),
+const automationRun = (id: AutomationRunId, automationId: AutomationId): AutomationRunWire => ({
+  id,
+  automationId,
   firedAt: '2026-07-01T00:00:00.000Z',
   sessionId: asSessionId('sess_1'),
   outcome: 'spawned',
@@ -138,8 +129,8 @@ describe('replica row-notification coalescing (#262 review)', () => {
 
   it('mirrors automation definitions and run history as independent durable kinds', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    const a = automation('aut_1', 'Nightly')
-    const run = automationRun('arun_1', a.id)
+    const a = automation(asAutomationId('aut_1'), 'Nightly')
+    const run = automationRun(asAutomationRunId('arun_1'), a.id)
     const observed: Array<{ automations: string[]; runs: string[] }> = []
     const record = () =>
       observed.push({

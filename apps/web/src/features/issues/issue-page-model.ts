@@ -4,7 +4,7 @@
  * "what to show" derivations — everything IssuePage renders but none of the
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
-import { type UserId } from '@podium/model'
+import { type IssueId, type UserId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core'
 import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -37,8 +37,8 @@ export interface IssuePageModel {
   toast: string
   /** Run a mutation, surfacing any thrown error verbatim as an inline toast. */
   run: RunMutation
-  prev?: string
-  next?: string
+  prev?: IssueId
+  next?: IssueId
   /** Last path segment of the repo — the breadcrumb label. */
   repoName: string
   /** Comments and state-transition events interleaved chronologically. */
@@ -53,7 +53,7 @@ export interface IssuePageModel {
   appendLocalComment: (body: string) => void
 }
 
-export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): IssuePageModel {
+export function useIssuePageModel(issue: IssueWire, orderedIds: IssueId[]): IssuePageModel {
   const { trpc, issues, hub } = useStoreSelector(
     (s) => ({ trpc: s.trpc, issues: s.issues, hub: s.hub }),
     shallowEqual,

@@ -9,7 +9,7 @@
  * no DOM, no network.
  */
 
-import { asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
@@ -1007,8 +1007,8 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine } = makeEngine()
     engine.start()
     engine.getSnapshot().openArtifact({
-      issueId: 'iss_1',
-      artifactId: 'abc123',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/wt',
     })
@@ -1016,17 +1016,17 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     expect(st.fileTabs).toEqual([
       {
         id: 'file:a:iss_1:abc123:index.html',
-        scope: { kind: 'artifact', issueId: 'iss_1', artifactId: 'abc123' },
+        scope: { kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') },
         path: 'index.html',
         worktreePath: '/wt',
-        issueId: 'iss_1',
+        issueId: asIssueId('iss_1'),
       },
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
     engine
       .getSnapshot()
-      .openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
+      .openArtifact({ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' })
     expect(engine.getSnapshot().fileTabs).toHaveLength(1)
     engine.dispose()
   })
@@ -1035,10 +1035,10 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().setPeekIssueId('iss_1')
+    engine.getSnapshot().setPeekIssueId(asIssueId('iss_1'))
     engine.getSnapshot().openArtifact({
-      issueId: 'iss_1',
-      artifactId: 'abc123',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo/.worktrees/wt1',
     })
@@ -1060,7 +1060,7 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'doc.md' })
+    engine.getSnapshot().openArtifact({ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'doc.md' })
     await settle()
     const st = engine.getSnapshot()
     expect(st.view).toBe('workspace')
@@ -1120,9 +1120,9 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     }
     const { engine } = makeEngine({ api })
     engine.start()
-    const scope = { kind: 'artifact', issueId: 'iss_1', artifactId: 'abc123' } as const
+    const scope = { kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') } as const
     await engine.getSnapshot().readFileScoped(scope, 'index.html')
-    expect(reads).toEqual([{ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' }])
+    expect(reads).toEqual([{ issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' }])
     // Immutable snapshot: the write API is never called.
     await expect(
       engine.getSnapshot().writeFileScoped({ scope, path: 'index.html', content: 'x' }),
@@ -1139,7 +1139,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     await settle()
     engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
     await settle()
-    engine.getSnapshot().setSelectedIssueId('iss_9')
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_9'))
     engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
     await settle()
     const st = engine.getSnapshot()
@@ -1158,10 +1158,10 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.start()
     await settle()
     engine.replica.applySnapshot('sessions', [
-      { ...session('s1', '/tmp/known-repo/.worktrees/wt1'), issueId: 'iss_own' } as SessionMeta,
+      { ...session('s1', '/tmp/known-repo/.worktrees/wt1'), issueId: asIssueId('iss_own') } as SessionMeta,
     ])
     await settle()
-    engine.getSnapshot().setSelectedIssueId('iss_other')
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_other'))
     engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
     await settle()
     const st = engine.getSnapshot()
@@ -1176,8 +1176,8 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.start()
     await settle()
     const snap = engine.getSnapshot()
-    snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: 'iss_1' })
-    engine.getSnapshot().setSelectedIssueId('iss_2')
+    snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: asIssueId('iss_1') })
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
     engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
     engine.getSnapshot().setSelectedIssueId(null)
     engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
@@ -1190,9 +1190,9 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.getSnapshot().setSelectedIssueId('iss_1')
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
     engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
-    engine.getSnapshot().setSelectedIssueId('iss_2')
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
     engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
     const st = engine.getSnapshot()
     expect(st.fileTabs).toHaveLength(1)
@@ -1212,8 +1212,8 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     // duplicate open moves to front instead of adding
     first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
     first.engine.getSnapshot().openArtifact({
-      issueId: 'iss_1',
-      artifactId: 'abc',
+      issueId: asIssueId('iss_1'),
+      artifactId: asArtifactId('abc'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo',
     })
@@ -1221,7 +1221,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     expect(recents).toHaveLength(30)
     expect(recents[0]).toMatchObject({
       path: 'index.html',
-      artifact: { issueId: 'iss_1', artifactId: 'abc' },
+      artifact: { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc') },
     })
     expect(recents[1]?.path).toBe('f31.md')
     first.engine.dispose()
@@ -1328,7 +1328,7 @@ describe('eager mark-read-on-view (POD-272)', () => {
     } as unknown as IssueWire
     engine.replica.applyChanges('issues', [issue], [])
     await settle()
-    engine.getSnapshot().setOpenIssueId('iss_1')
+    engine.getSnapshot().setOpenIssueId(asIssueId('iss_1'))
     engine.getSnapshot().setView('issues')
     await settle()
     engine.replica.applyChanges(
