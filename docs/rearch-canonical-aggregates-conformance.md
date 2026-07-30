@@ -155,6 +155,8 @@ written file), but that is a fact about this diff rather than a property of the 
 | Smuggle a frozen grant set onto `SessionAggregate` under the innocent key `ctx` | **killed by the key-set pin only** — 1 red of 24; the name matcher passes, which is the point (§4.1) |
 | Grow `SESSION_IMMUTABLE_AFTER_CREATE` to swallow `status` / `lastActiveAt` / … — the well-typed nonsense its `satisfies` clause permits | **killed** — 1 red of 27: "leaves a NON-EMPTY mutable complement" (§8.1) |
 | Delete the whole `Session` entry from `CANONICAL_AGGREGATES` | **SURVIVED on first run — found and fixed (§4.2).** Now killed: 1 red of 26 |
+| Delete the `Session` VALUE from the keyed registry | **killed at COMPILE time** — TS2741, property missing from the `Record` (§4.3) |
+| Delete `Session` from the NAME union only | **killed at COMPILE time** — TS2353 excess property (§4.3) |
 
 ### 4.1 No serializable capability — and a correction about how that is checked
 
@@ -218,6 +220,28 @@ The pre-existing "classifies both as personal" test is kept, but is meaningful o
 two and its comment now says so. Its old comment claimed it was "not vacuous" because a *different*
 test showed `deployment-substrate` was reachable — which was wrong: reachability of the other value
 elsewhere says nothing about whether this lookup consulted the registry.
+
+### 4.3 Two instruments, because neither one is sufficient
+
+POD-367 drew a distinction that turned out to apply to this registry, unfavourably. For its command
+list, **typecheck** catches a deletion twice (TS2820 on the names under `satisfies
+IssueCommandName[]`, and again on the server's `satisfies Record<IssueCommandName, …>`); what was
+unguarded there was only the *iterated coverage*.
+
+Checked here, and this registry was strictly worse: re-running **mutant E against typecheck**,
+deleting the whole `Session` entry left `bunx tsgo --noEmit` **green**. An array literal has no
+opinion about which members it contains, so the runtime membership pin was the *sole* defence.
+
+Fixed by keying the registry rather than listing it — `Record<CanonicalAggregateName,
+Omit<CanonicalAggregate, 'name'>>`, with `CANONICAL_AGGREGATES` derived from it. `name` is now the
+key rather than a field, so a key/name mismatch is unrepresentable rather than merely untested.
+**Mutant F** (delete the value) reds with TS2741; **mutant G** (delete from the name union) reds
+with TS2353.
+
+The runtime pin **stays**, and the two are not redundant: a type can see an omitted **key**; only a
+runtime assertion can see the **coverage of a loop over that key set** shrinking. A vitest run
+alone would have said nothing; a typecheck alone would have caught the deletion but not the shrink
+of what the loops cover.
 
 ---
 
