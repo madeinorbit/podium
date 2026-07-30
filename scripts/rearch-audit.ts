@@ -406,6 +406,53 @@ function declRe(names: string[]): RegExp {
   return new RegExp(`^export (?:interface|type|class) (?:${names.join('|')})\\b`)
 }
 
+/**
+ * THE ANCHOR FOR AN ITEM THAT REACHED ZERO (POD-309), exported so its own test can drive
+ * it with a BROKEN pattern instead of mutating the product to find out.
+ *
+ * `upstream-sync-forwarder` is at 0 and stays there, so from now on its count can only
+ * ever mean "nothing found" — which is also what a broken detector reports. It has no
+ * surviving code to anchor on (both classes and both construction sites are deleted), so
+ * it anchors on the two facts its zero DEPENDS on, neither satisfiable by deletion: the
+ * roots still resolve to files, and the pattern still matches text it is supposed to
+ * match.
+ *
+ * ONE CONTROL PER (BRANCH × NAME), AND EACH MEASURED ON ITS OWN. POD-308 found the general
+ * form while hardening its own gate: two controls that can only ever fail together are ONE
+ * control wearing two names. This pattern has two independent branches — a declaration
+ * form and a construction form — and two names inside each, so four controls, and
+ * `rearch-audit.test.ts` breaks each branch separately and asserts that EXACTLY the
+ * controls covering it are reported. That is why this returns every miss rather than the
+ * first: a throw naming one control cannot tell you which half of the regex died.
+ *
+ * It takes a pattern SOURCE rather than reading the constant, for the reason this function
+ * exists at all — a check that can only be exercised by editing the thing it checks is a
+ * check nobody exercises. (This guard was written once, silently reverted by an
+ * over-broad `git checkout --` while a mutant was being cleaned up, and re-committed only
+ * because a later reviewer asked about it. Nothing red. That is the whole argument for
+ * putting it under test rather than under a hand-run mutant.)
+ */
+export const UPSTREAM_RETIREMENT_ROOTS: readonly string[] = ['apps', 'packages']
+
+export const UPSTREAM_RETIREMENT_PATTERN =
+  /^export class (?:UpstreamSync|UpstreamForwarder)\b|new (?:UpstreamSync|UpstreamForwarder)\s*\(/
+
+/** The four control strings, grouped by the regex branch each one exercises. */
+export const UPSTREAM_RETIREMENT_CONTROLS: Readonly<
+  Record<'declaration' | 'construction', readonly string[]>
+> = {
+  declaration: ['export class UpstreamSync {', 'export class UpstreamForwarder {'],
+  construction: ['const f = new UpstreamSync({})', 'upstreamForwarder = new UpstreamForwarder({'],
+}
+
+/** Controls `patternSource` FAILS to match. Empty means the anchor is intact. */
+export function upstreamRetirementControlMisses(patternSource: string): string[] {
+  const re = new RegExp(patternSource)
+  return Object.values(UPSTREAM_RETIREMENT_CONTROLS)
+    .flat()
+    .filter((control) => !re.test(control))
+}
+
 export const CHECKS: AuditCheck[] = [
   {
     id: 'publish-computed-fanout',
@@ -419,12 +466,34 @@ export const CHECKS: AuditCheck[] = [
     title: 'UpstreamSync / UpstreamForwarder',
     phase: 'POD-309',
     unit: 'class declaration or construction site',
-    collect: (ctx) =>
-      grep(ctx, {
-        roots: ['apps', 'packages'],
-        pattern:
-          /^export class (?:UpstreamSync|UpstreamForwarder)\b|new (?:UpstreamSync|UpstreamForwarder)\s*\(/,
-      }),
+    collect: (ctx) => {
+      // REACHED ZERO at POD-309: both classes and both construction sites are gone, and a
+      // repo-wide grep for their destinations finds no code home — 4 VANISHED, 0 MOVED.
+      //
+      // A zeroed detector is the dangerous kind, because from here its count can only mean
+      // "nothing found", and "nothing found" is what a BROKEN detector reports too.
+      // `send-turn-duplicate` set the rule this follows: an item may sit in the audit
+      // test's ZERO_BY_DESIGN list only if its `collect` THROWS when its anchor stops
+      // matching. See {@link upstreamRetirementControlMisses} for what this one anchors on
+      // and why, since it has no surviving code to anchor to.
+      const missing = upstreamRetirementControlMisses(UPSTREAM_RETIREMENT_PATTERN.source)
+      if (missing.length > 0)
+        throw new Error(
+          `upstream-sync-forwarder: the pattern no longer matches ${missing.length} of its ` +
+            `control strings (${missing.map((c) => JSON.stringify(c)).join(', ')}). The ` +
+            'detector is broken; fix it rather than recording a phantom zero.',
+        )
+      const scanned = ctx.files.filter((f) =>
+        UPSTREAM_RETIREMENT_ROOTS.some((r) => f.file === r || f.file.startsWith(`${r}/`)),
+      )
+      if (scanned.length === 0)
+        throw new Error(
+          `upstream-sync-forwarder: the roots ${UPSTREAM_RETIREMENT_ROOTS.join(', ')} matched ` +
+            'no files. The detector is scanning nothing; its zero is a phantom, not the ' +
+            'retirement holding.',
+        )
+      return grep(ctx, { roots: UPSTREAM_RETIREMENT_ROOTS, pattern: UPSTREAM_RETIREMENT_PATTERN })
+    },
   },
   // REDEFINED at POD-368. The old detectors were `^export (interface|type|class)
   // X` over hardcoded lists of nine and seven NAMES, which POD-367 measured at
