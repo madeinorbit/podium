@@ -1516,3 +1516,33 @@ contain the defect.
 
 The corollary for anyone claiming NOT MINE: name the SHA you measured and say how you obtained a tree at
 it. "I merged it and it still fails" is not a not-mine proof.
+
+### Two numbers agreeing across a join is not evidence about the join
+
+POD-351's line, and the cleanest statement of why the gates get re-run on a merged tree. Its deletion
+audit read 207 and integration's read 207 — and the typecheck still failed on the merge of the two. Equal
+measurements on either side of a join say nothing about the join, because the thing that breaks is
+precisely what neither side contains alone.
+
+**Corollary — simulate the merge instead of predicting it.** POD-351 predicted an ADD/ADD conflict on
+every workflow path once POD-731 re-landed, reasoning that the merge base for those paths predated
+POD-731 on both sides. Careful reasoning, checkable premise, wrong answer: merging POD-731's BRANCH brings
+its whole history, so its four original commits (`e5d70e75 811443bd 64eb6fa0 a4da872b` — already ancestors
+of POD-351) become ancestors of integration too, making them the merge base. POD-351's side is then
+unchanged from base and git takes the fix automatically.
+
+Verified by simulation in a throwaway detached worktree rather than by argument — merge A, then merge B,
+count conflicts, then compare BLOB HASHES to see which side won:
+
+    after 731: conflicts = 0
+    after 351: conflicts = 0, workflow-path conflicts = 0
+    merged contracts.ts blob == POD-731 branch blob (654882540d...), != POD-351 ghost (4e989728f2...)
+
+The blob comparison is the part that matters. "No conflicts" only says git did not ask; it does not say
+which version survived. Compare hashes to find out.
+
+**The contingency that WOULD have made the prediction true:** if the author rewrites those commits while
+fixing (rebase, amend, squash), the SHAs change, the originals survive only in the sibling's history, and
+the ADD/ADD appears exactly as predicted. This is a concrete reason the fan-out rule is *merge, never
+rebase* — a rebase downstream of a shared ghost turns a clean automatic merge into a conflict where the
+reflexive resolution silently reinstates the broken version.
