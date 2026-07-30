@@ -676,7 +676,13 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
             entityId,
             command: r.command,
           })),
-      reduce: (base) => base,
+      // Identity passthrough. POD-372 widened this port from bare `unknown` to the
+      // closed OptimisticEffect while POD-371 was in flight, so the faithful
+      // translation of the old `(base) => base` is a `value` effect carrying the
+      // unchanged base — not `no-reducer`, which would change what this fixture
+      // exercises. Nothing here tests the overlay; the reducer is incidental to the
+      // dedupe-horizon assertions below.
+      reduce: (base) => ({ kind: 'value', value: base }) as const,
       retire: (matches) => {
         // The Replica reports the facts; what the outbox does with them is the
         // outbox's own lifecycle — note the apply, then retire after covering truth.
