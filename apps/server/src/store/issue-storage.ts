@@ -134,7 +134,7 @@ export type StoredAsked = z.infer<typeof StoredAsked>
  * shape exists to hold the combinations that one refuses.
  */
 export const LegacyAsked = z.object({
-  question: z.string(),
+  question: z.string().optional(),
   options: z.array(z.string()).optional(),
   at: z.string().optional(),
   by: z.string().optional(),
@@ -422,9 +422,8 @@ function opt<K extends string, V>(key: K, value: V | null | undefined): { [P in 
 /** Decode the needs-human quartet into whichever of the two shapes it satisfies.
  *  Returns `{}` when there is no question at all. */
 function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: LegacyAsked } {
-  if (!row.humanQuestion) return {}
   const options = row.humanQuestionOptions ?? undefined
-  if (row.humanQuestionAskedAt && row.humanQuestionAskedBy) {
+  if (row.humanQuestion && row.humanQuestionAskedAt && row.humanQuestionAskedBy) {
     return {
       asked: {
         question: row.humanQuestion,
@@ -434,20 +433,25 @@ function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: L
       },
     }
   }
-  return {
-    askedLegacy: {
-      question: row.humanQuestion,
-      ...(options ? { options } : {}),
-      ...opt('at', row.humanQuestionAskedAt),
-      ...opt('by', row.humanQuestionAskedBy),
-    },
+  const legacy: LegacyAsked = {
+    ...opt('question', row.humanQuestion),
+    ...(options ? { options } : {}),
+    ...opt('at', row.humanQuestionAskedAt),
+    ...opt('by', row.humanQuestionAskedBy),
   }
+  // Only the empty quartet decodes to nothing. ANY populated column travels —
+  // decoding is not the place to decide a partially-written question is junk,
+  // and dropping one here would delete it from the wire on the next write.
+  return Object.keys(legacy).length ? { askedLegacy: legacy } : {}
 }
 
 /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
  *  Moved here from `IssueService.parsePanel`: the raw-JSON-column split is an
- *  R1 ↔ R3 encoding and ADR 4 §4.1 puts it in this pair, not in a projection. */
-function decodePanel(raw: string): IssuePanel {
+ *  R1 ↔ R3 encoding and ADR 4 §4.1 puts it in this pair, not in a projection.
+ *  Exported because three `crud.ts` sites decode the panel of a row they are
+ *  about to patch as a row — one definition, two entry points. */
+export function decodePanel(raw: string | null | undefined): IssuePanel {
+  if (!raw) return { todos: [], artifacts: [], deferred: [] }
   try {
     return IssuePanel.parse(JSON.parse(raw))
   } catch {
