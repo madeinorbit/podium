@@ -550,15 +550,44 @@ export class Outbox {
    * parameter is optional, so callers that do not use the seam are unaffected.
    */
   async retireApplied(mutationId: MutationId, span?: SyncSpan): Promise<void> {
-    const record = this.require(mutationId)
-    if (record.state !== 'applied') {
-      throw new OutboxUsageError(
-        `cannot retire ${mutationId} from ${record.state}: only an applied entry retires after covering truth`,
-      )
-    }
+    await this.retireAllApplied([mutationId], span)
+  }
+
+  /**
+   * Retire SEVERAL applied entries as ONE batch: one enrolled write, one
+   * publication (D9 invariant 1's covering-truth licence, applied N times).
+   *
+   * This is the shape the Replica needs and the reason it exists: one certified
+   * frame can carry several provenance matches, and a bootstrap install
+   * aggregates matches across every buffered frame it includes. POD-369 collects
+   * and deduplicates them, then submits one ordered batch in the same span as the
+   * entity operations and the cursor advance — so this must produce exactly one
+   * outbox write, not N of them.
+   *
+   * Order is the caller's: the batch is applied in the order given. Ids are
+   * deduplicated defensively, and the whole batch is validated BEFORE anything is
+   * staged, so a bad id fails the batch rather than half-retiring it.
+   */
+  async retireAllApplied(ids: readonly MutationId[], span?: SyncSpan): Promise<void> {
+    const unique: MutationId[] = []
+    for (const id of ids) if (!unique.includes(id)) unique.push(id)
+    if (unique.length === 0) return
     await this.mutate((draft) => {
-      draft.remove(mutationId, 'covering-truth')
-      draft.emit({ type: 'retired', mutationId })
+      for (const id of unique) {
+        const record = draft.find(id)
+        if (!record || !belongsTo(record, this.principal)) {
+          throw new OutboxUsageError(`unknown outbox entry: ${id}`)
+        }
+        if (record.state !== 'applied') {
+          throw new OutboxUsageError(
+            `cannot retire ${id} from ${record.state}: only an applied entry retires after covering truth`,
+          )
+        }
+      }
+      for (const id of unique) {
+        draft.remove(id, 'covering-truth')
+        draft.emit({ type: 'retired', mutationId: id })
+      }
     }, span)
   }
 
@@ -661,6 +690,28 @@ export class Outbox {
   // in ports.ts for why absence beats a contractual no-op.
 
   // ---- internals ----------------------------------------------------------
+
+  /**
+   * No principal-bound instance may write another principal's keys — agreed with
+   * POD-369 for the shared-span case, and a stronger statement than "does not
+   * today": the delta is checked against ownership before it can be enrolled, so
+   * two instances staging into one span can only ever touch disjoint keys.
+   */
+  private assertOwnKeysOnly(delta: OutboxStoreMutation, base: readonly OutboxRecord[]): void {
+    const foreign: MutationId[] = []
+    for (const record of delta.put ?? []) {
+      if (!belongsTo(record, this.principal)) foreign.push(record.mutationId)
+    }
+    for (const id of delta.remove ?? []) {
+      const existing = base.find((r) => r.mutationId === id)
+      if (existing && !belongsTo(existing, this.principal)) foreign.push(id)
+    }
+    if (foreign.length > 0) {
+      throw new OutboxInvariantError(
+        `outbox bound to ${this.principal} tried to write keys owned by another principal: ${foreign.join(', ')}`,
+      )
+    }
+  }
 
   /** This principal's slice of the store. */
   private mine(): readonly OutboxRecord[] {
@@ -849,6 +900,7 @@ export class Outbox {
     const draft = new OutboxDraft(base)
     const result = body(draft)
     const next = draft.sealed()
+    this.assertOwnKeysOnly(draft.delta(), base)
     if (!span) {
       await this.store.apply(draft.delta())
       this.records = next

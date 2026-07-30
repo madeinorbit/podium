@@ -641,6 +641,7 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     // And the only two removals that exist are D9 invariant 1's two licences.
     expect(surface.filter((n) => /retire|purge/i.test(n)).sort()).toEqual([
       'purgeCancelled',
+      'retireAllApplied',
       'retireApplied',
     ])
   })
@@ -1370,5 +1371,174 @@ describe('review round 2 — one physical store, several writers', () => {
       fromOne.mutationId,
       fromTwo.mutationId,
     ])
+  })
+})
+
+describe('review round 2, second correction — the batch shape POD-369 submits', () => {
+  /** Stands in for the Replica half: entity rows + cursor, enrolled in the span. */
+  class FakeReplica {
+    entity = { id: 'E', revision: 0 }
+    cursor = 0
+    observations: string[] = []
+    async applyFrame(
+      span: SyncSpan,
+      frame: { revision: number; cursor: number },
+      store: { enlist?: (w: () => Promise<void>) => void },
+    ): Promise<void> {
+      const before = { ...this.entity, cursor: this.cursor }
+      store.enlist?.(async () => undefined)
+      span.onCommit(() => {
+        this.entity = { id: 'E', revision: frame.revision }
+        this.cursor = frame.cursor
+        this.observations.push(`upserted:${frame.revision}`, `cursor:${frame.cursor}`)
+      })
+      span.onAbort(() => {
+        this.entity = { id: before.id, revision: before.revision }
+        this.cursor = before.cursor
+      })
+    }
+  }
+
+  it('commits two provenance matches as ONE enrolled write, with entity and cursor', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const replica = new FakeReplica()
+    const a = await outbox.enqueue(close('POD-1'))
+    const b = await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+    const writesBefore = store.writes
+
+    await uow.transact(async (span) => {
+      await replica.applyFrame(span, { revision: 1, cursor: 7 }, store as never)
+      // ONE ordered batch, deduplicated by the Replica, in the same span.
+      await outbox.retireAllApplied([a.mutationId, b.mutationId], span)
+    })
+
+    // Rehydrate: both retired, entity and cursor present.
+    expect(store.durable()).toEqual([])
+    expect(replica.entity.revision).toBe(1)
+    expect(replica.cursor).toBe(7)
+    // Exactly ONE enrolled outbox write for the batch, not one per id.
+    expect(store.writes).toBe(writesBefore + 1)
+    expect(events.filter((e) => e.type === 'retired').map((e) => e.mutationId)).toEqual([
+      a.mutationId,
+      b.mutationId,
+    ])
+  })
+
+  it('aborts the batch whole: both entries and the OLD entity and cursor survive, no observations', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const replica = new FakeReplica()
+    const a = await outbox.enqueue(close('POD-1'))
+    const b = await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+
+    await expect(
+      uow.transact(async (span) => {
+        await replica.applyFrame(span, { revision: 1, cursor: 7 }, store as never)
+        await outbox.retireAllApplied([a.mutationId, b.mutationId], span)
+        throw new Error('frame validation failed after enrollment')
+      }),
+    ).rejects.toThrow(/frame validation failed/)
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([a.mutationId, b.mutationId])
+    expect(replica.entity.revision).toBe(0)
+    expect(replica.cursor).toBe(0)
+    expect(replica.observations).toEqual([])
+    expect(events.filter((e) => e.type === 'retired')).toEqual([])
+  })
+
+  it('extends the span draft when a second batch arrives — bootstrap aggregating two frames', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const a = await outbox.enqueue(close('POD-1'))
+    const b = await outbox.enqueue(close('POD-2'))
+    const c = await outbox.enqueue(close('POD-3'))
+    await outbox.drain()
+
+    await uow.transact(async (span) => {
+      await outbox.retireAllApplied([a.mutationId], span)
+      // A second call in the same span EXTENDS the staged draft rather than
+      // replacing it — two buffered provenance frames in one bootstrap install.
+      await outbox.retireAllApplied([b.mutationId], span)
+    })
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual([c.mutationId])
+    expect(events.filter((e) => e.type === 'retired').map((e) => e.mutationId)).toEqual([
+      a.mutationId,
+      b.mutationId,
+    ])
+  })
+
+  it('validates the whole batch before staging any of it', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const a = await outbox.enqueue(close('POD-1'))
+    const queued = await outbox.enqueue(close('POD-2'))
+    await uow.transact(async () => {
+      // POD-1 drains to applied; POD-2 stays queued.
+    })
+    await outbox.drain()
+    await outbox.noteTransportLost(queued.mutationId).catch(() => undefined)
+
+    // One bad id fails the batch rather than half-retiring it.
+    await expect(outbox.retireAllApplied([a.mutationId, 'nope' as MutationId])).rejects.toThrow(
+      /unknown outbox entry/,
+    )
+    expect(outbox.find(a.mutationId)?.state).toBe('applied')
+    expect(store.durable().map((r) => r.mutationId)).toContain(a.mutationId)
+  })
+
+  it('two principal-bound instances stage keyed mutations in ONE shared span and both survive', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => applied, { store, clock, unitOfWork: uow, idPrefix: 'ada-' })
+    const grace = await harness(() => applied, {
+      store,
+      clock,
+      unitOfWork: uow,
+      principal: 'u-grace',
+      idPrefix: 'grace-',
+    })
+
+    await uow.transact(async () => {
+      await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+      await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+    })
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual(['ada-1', 'grace-1'])
+    expect(ada.outbox.all().map((r) => r.mutationId)).toEqual(['ada-1'])
+    expect(grace.outbox.all().map((r) => r.mutationId)).toEqual(['grace-1'])
+  })
+
+  it('refuses to write a key owned by another principal, even inside a shared span', async () => {
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock, idPrefix: 'ada-' })
+    const adas = await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'grace-',
+    })
+
+    // Reach past the public API the way a mis-wired adapter would, and try to
+    // stage a removal of Ada's key from Grace's instance.
+    const internals = grace.outbox as unknown as {
+      mutate: (
+        body: (draft: { remove: (id: MutationId, l: string) => void }) => void,
+      ) => Promise<void>
+    }
+    await expect(
+      internals.mutate((draft) => {
+        draft.remove(adas.mutationId, 'user-discarded')
+      }),
+    ).rejects.toThrow(OutboxInvariantError)
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual([adas.mutationId])
   })
 })

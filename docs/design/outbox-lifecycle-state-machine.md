@@ -78,6 +78,8 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | D12 partitions | FIFO within, concurrent across; a parked head blocks only its own partition, on every later pass |
 | Two writers on one physical store | two principal-bound instances opened BEFORE either write both keep their records; interleaved lifecycles preserved; `mutationId` uniqueness enforced across instances; a second tab's write is picked up on the next rebase |
 | Several retirements in one span | three retirements, one publication, all three durable; an aborted multi-retirement span rolls every one back and emits nothing; an id already retired in the span cannot be resurrected |
+| The batch shape POD-369 submits | two provenance matches commit as **exactly one** enrolled write with entity + cursor present; abort preserves both entries, the OLD entity/cursor and emits no observation; a second batch extends the span draft (bootstrap across two buffered frames); a bad id fails the whole batch before staging |
+| Shared span, two principals | both stage keyed mutations in ONE span and both survive; a cross-principal key write is refused with `OutboxInvariantError` |
 
 ## Privacy is a binding, not a filter
 
@@ -114,7 +116,21 @@ resurrected the first. Two rebasing rules follow, each with its own regression t
   landed yet and a re-read would return the pre-span state. One span keeps one staged view and
   publishes ONCE, on commit; an abort drops it, so nothing is adopted and no event escapes.
 
-Only `retireApplied` takes a span: the span exists to cover the Replica's entity write, cursor
+**Retirement is submitted as a BATCH.** One certified frame can carry several provenance matches,
+and a bootstrap install aggregates matches across every buffered frame it includes, so
+`retireAllApplied(ids, span)` produces ONE enrolled write and ONE publication rather than N of
+each (agreed with POD-369, who collects and deduplicates on the Replica side and submits one
+ordered batch in the same span as the entity operations and the cursor advance). A second batch in
+the same span EXTENDS the staged draft. The whole batch is validated before anything is staged, so
+a bad id fails the batch rather than half-retiring it. Dropped, rejected or merely buffered frames
+retire nothing — that is the Replica's half, and nothing here retires on its own.
+
+**No instance may write another principal's keys.** The delta is checked against ownership before
+it can be enrolled, so two principal-bound instances staging into one shared span can only ever
+touch disjoint keys — a stronger statement than "does not today", and the reason a shared span is
+safe at all.
+
+Only `retireApplied` / `retireAllApplied` take a span: the span exists to cover the Replica's entity write, cursor
 advance and the retirement that follows from them. Enqueue, discard, retry and edit are USER
 actions and are not part of an entity commit — inside an open span they join it (so they compose
 rather than clobber), but `find`/`require` resolve against published state, so an entry created
