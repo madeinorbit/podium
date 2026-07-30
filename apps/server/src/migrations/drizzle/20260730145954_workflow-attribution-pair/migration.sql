@@ -1,0 +1,24 @@
+-- ATTRIBUTION IS A PAIR (POD-731, ADR 9 D5 A3 / docs/multi-user-readiness.md §3.1.3)
+--
+-- `workflow_events` recorded ONE identity — `actor_kind` + `actor_id`, a session
+-- id or the bare literal `operator`. POD-730 §9 pinned that as the gap: with a
+-- single collapsed id, "did a PERSON or an AGENT skip this step?" is
+-- unanswerable, and an operator write was attributable to nobody at all. Run
+-- history is the only durable audit trail this surface has (the table is
+-- append-only and has no reader in the product yet), so the answer has to be in
+-- the row.
+--
+-- ADDITIVE AND NULLABLE, deliberately, on both counts:
+--
+--   * every row written before this column existed genuinely has no human
+--     recorded. Backfilling one would put a name against a write that name may
+--     not have made — a lie in an audit trail is worse than a gap in one, and a
+--     reader can tell `NULL` means "from before the pair existed".
+--   * `NULL` is also the correct steady-state value for a `system` principal,
+--     which has no human by construction and is never assigned one
+--     (ADR 3 Amendment 1 D14.2/D21).
+--
+-- Not `NOT NULL DEFAULT ''`: an empty string is a value that compares equal to
+-- itself, so "unknown" and "deliberately none" would stop being distinguishable
+-- the moment anything grouped by this column.
+ALTER TABLE `workflow_events` ADD `on_behalf_of` text;

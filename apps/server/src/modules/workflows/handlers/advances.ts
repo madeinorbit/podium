@@ -43,6 +43,7 @@ export function checkpointHandler(
       runId: run.id,
       kind: `workflow.run_${input.status}`,
       actor: engine.actor(caller),
+      onBehalfOf: access.onBehalfOf(caller),
       payload: { summary: input.summary, evidence: input.evidence },
       now,
     })
@@ -89,6 +90,7 @@ export function checkpointHandler(
     runId: run.id,
     kind: `workflow.step_${input.status}`,
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { stepId: step.stepId, summary: input.summary, warnings },
     now,
   })
@@ -132,6 +134,7 @@ export function assignStepHandler(
     runId: run.id,
     kind: 'workflow.step_assigned',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { stepId: input.stepId, sessionId: input.sessionId },
     now: deps.now(),
   })
@@ -172,6 +175,7 @@ export function skipHandler(
     runId: run.id,
     kind: 'workflow.step_skipped',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { stepId: current.stepId, reason: input.reason },
     now,
   })
@@ -201,6 +205,7 @@ export function retryHandler(
     runId: run.id,
     kind: 'workflow.step_retried',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { stepId: target.stepId },
     now: deps.now(),
   })
@@ -242,6 +247,7 @@ export function adoptHandler(
   return engine.startRun({
     sessionId: session.sessionId,
     cwd: session.cwd,
+    onBehalfOf: access.onBehalfOf(caller),
     ...(issueId ? { issueId } : {}),
     revisionId: input.revisionId,
     supersedesRunId: current.id,

@@ -215,6 +215,20 @@ export class WorkflowAccess {
   }
 
   /**
+   * The ON-BEHALF-OF half of ADR 9 D5 A3's attribution pair, for the run
+   * history and every library write.
+   *
+   * Read from the PRINCIPAL, which reads it from the delegation the transport
+   * resolved — never from payload, and never defaulted to "the operator". A
+   * revoked delegation resolves to `null` here, which is the honest record: the
+   * write it accompanies will not happen, and if one ever did, `null` is what
+   * it truthfully acted for.
+   */
+  onBehalfOf(caller: WorkflowCaller): string | null {
+    return this.principal(caller).onBehalfOf
+  }
+
+  /**
    * Which CLASS a workflow row belongs to — and the one place scope becomes a
    * visibility class.
    *

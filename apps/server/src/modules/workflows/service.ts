@@ -214,6 +214,8 @@ export interface WorkflowEngine {
     revisionId: string
     supersedesRunId?: string
     startStepId?: string
+    /** The delegating human, when the caller could resolve one. */
+    onBehalfOf?: string | null
   }): WorkflowRunWire
 }
 
@@ -507,6 +509,8 @@ export class WorkflowService implements WorkflowEngine {
     revisionId: string
     supersedesRunId?: string
     startStepId?: string
+    /** The delegating human, when the caller could resolve one. */
+    onBehalfOf?: string | null
   }): WorkflowRunWire {
     const subjectKind = input.issueId ? 'issue' : 'session'
     const subjectId = input.issueId ?? input.sessionId
@@ -562,6 +566,14 @@ export class WorkflowService implements WorkflowEngine {
       runId: run.id,
       kind: input.supersedesRunId ? 'workflow.run_adopted' : 'workflow.run_started',
       actor: { kind: 'session', id: input.sessionId },
+      // ADR 9 D5 A3, as far as this path can carry it. `adopt` passes the
+      // human it resolved; the session-start path has no caller to resolve one
+      // from and records `null` rather than inventing one. POD-730 §9's
+      // ARTEFACT — "startRun hard-codes a SESSION actor, even when the operator
+      // started the run" — is therefore narrowed, not closed: an adopted run
+      // now names its human, a freshly started one still does not, and closing
+      // that needs the start path to carry a principal (POD-732's cutover).
+      onBehalfOf: input.onBehalfOf ?? null,
       payload: { revisionId: revision.id, subjectKind, subjectId, startStepId: input.startStepId },
       now,
     })

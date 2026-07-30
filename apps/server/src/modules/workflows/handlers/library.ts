@@ -50,6 +50,7 @@ export function createHandler(
     workflowId,
     kind: 'workflow.created',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { revisionId: revision.id, scope: input.scope, scopeRef },
     now,
   })
@@ -79,6 +80,7 @@ export function reviseHandler(
     workflowId: input.workflowId,
     kind: 'workflow.revised',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { revisionId: revision.id, version: revision.version },
     now,
   })
@@ -132,6 +134,7 @@ export function publishHandler(
     workflowId: workflow.id,
     kind: 'workflow.published',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: { revisionId: revision.id },
     now,
   })
@@ -189,6 +192,7 @@ export function assignHandler(
     workflowId: revision.workflowId,
     kind: 'workflow.assigned',
     actor: engine.actor(caller),
+    onBehalfOf: access.onBehalfOf(caller),
     payload: input,
     now,
   })

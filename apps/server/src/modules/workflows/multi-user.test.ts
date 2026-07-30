@@ -629,6 +629,66 @@ describe('workflows under two humans', () => {
   })
 })
 
+describe('run history records the attribution PAIR', () => {
+  /**
+   * ADR 9 D5 A3 with two real humans, which is the only setting where the pair
+   * says anything: under one human both halves are the same value, and a test
+   * that asserted them there could not tell a recorded human from a hard-coded
+   * one. Here Alice's agent and Bob's agent write to the same history and the
+   * rows have to disagree.
+   */
+  it('names WHICH agent acted and WHICH human it acted for, and they differ per row', () => {
+    const policy = twoUserPolicy()
+    const h = makeHarness(policy)
+    const created = h.service.create(
+      {
+        name: 'Shared history',
+        description: '',
+        scope: 'task',
+        scopeRef: 'issue-a',
+        instructions: '',
+        steps: [{ id: 'one', title: 'One', instructions: '', completionGuidance: '' }],
+      },
+      policy.caller('a1', ALICE),
+    )
+    policy.own(created.workflow.id, ALICE)
+    const run = h.service.startRun({
+      sessionId: 'a1',
+      cwd: '/repo-a/wt',
+      issueId: 'issue-a',
+      revisionId: created.revision.id,
+    })
+    policy.own(run.id, ALICE)
+    // Bob, an admin, skips a step on Alice's run. ONE row must carry BOTH: the
+    // session that acted (a1's coordinator seat is Alice's, but the actor here
+    // is the operator channel Bob came in on) and the human accountable for it.
+    h.service.skip(
+      { runId: run.id, stepId: 'one', reason: 'bob intervened' },
+      policy.caller(null, BOB, 'admin'),
+    )
+
+    // `workflow_events` has no reader on the repository (POD-730 §9: the table
+    // is write-only and reachable only by raw SQL), so the history is read the
+    // same way the characterization suite reads it.
+    const rows = (h.store as unknown as { db: { prepare(sql: string): { all(): unknown[] } } }).db
+      .prepare('SELECT kind, actor_kind, actor_id, on_behalf_of FROM workflow_events ORDER BY id')
+      .all() as {
+      kind: string
+      actor_kind: string
+      actor_id: string | null
+      on_behalf_of: string | null
+    }[]
+    const created_ = rows.find((r) => r.kind === 'workflow.created')
+    const skipped = rows.find((r) => r.kind === 'workflow.step_skipped')
+    expect([created_?.actor_id, created_?.on_behalf_of]).toEqual(['a1', ALICE])
+    expect([skipped?.actor_kind, skipped?.on_behalf_of]).toEqual(['operator', BOB])
+    // THE ASSERTION THAT MATTERS: the two rows name DIFFERENT humans. A hard-
+    // coded or actor-derived value could not produce that, and neither could a
+    // single collapsed identity — which is exactly what A3 forbids.
+    expect(created_?.on_behalf_of).not.toBe(skipped?.on_behalf_of)
+  })
+})
+
 describe('the ownership port is consulted, not assumed', () => {
   /**
    * THE INSTRUMENT PROBE for this whole file.

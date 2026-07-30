@@ -152,6 +152,8 @@ interface EventRow {
   kind: string
   actor_kind: string
   actor_id: string | null
+  /** ADR 9 D5 A3's other half (POD-731): the human the actor acted for. */
+  on_behalf_of: string | null
   run_id: string | null
   workflow_id: string | null
   payload_json: string
@@ -168,7 +170,7 @@ function readEvents(store: SessionStore): EventRow[] {
   const db = (store as unknown as { db: { prepare(sql: string): { all(): unknown[] } } }).db
   return db
     .prepare(
-      'SELECT kind, actor_kind, actor_id, run_id, workflow_id, payload_json FROM workflow_events ORDER BY id',
+      'SELECT kind, actor_kind, actor_id, on_behalf_of, run_id, workflow_id, payload_json FROM workflow_events ORDER BY id',
     )
     .all() as EventRow[]
 }
@@ -3352,7 +3354,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('attribution', () => {
-    it('ARTEFACT every advance records ONE identity — a session id or the bare operator, never a human', () => {
+    it('POD-731 every advance records the PAIR — the actor AND the human it acted for', () => {
       const { run } = twoStepRun(h)
       h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: 's2' }, agent('s1'))
       h.service.checkpoint(
@@ -3376,10 +3378,24 @@ describe('POD-730 workflow mutation characterization', () => {
         'workflow.step_complete:session:s2',
         'workflow.step_skipped:operator:null',
       ])
-      // ARTEFACT (3.1.3 A3): there is no actor + on-behalf-of pair. An operator
-      // action is recorded as `operator / null` — an unattributable write. A
-      // session action names the session, never the human behind it. POD-731
-      // widens this to a pair; the widening must show up as a diff here.
+      // POD-731: THE PAIR (ADR 9 D5 A3). Every row above now ALSO names the
+      // human the actor acted for, so "did a person or an agent skip this
+      // step?" is answerable from the row rather than unanswerable. The actor
+      // column is unchanged — this is a widening, not a substitution, which is
+      // the distinction A3 draws.
+      expect(
+        readEvents(h.store).map((e) => `${e.kind}:${e.actor_kind}:${String(e.on_behalf_of)}`),
+      ).toEqual([
+        'workflow.created:operator:user:single',
+        // …EXCEPT `run_started`, which is the one path with no caller to resolve
+        // a human from. It records `null` rather than inventing one, and that
+        // remains POD-730 §9's open ARTEFACT — narrowed (an ADOPTED run names
+        // its human) but not closed. See `startRun`.
+        'workflow.run_started:session:null',
+        'workflow.step_assigned:session:user:single',
+        'workflow.step_complete:session:user:single',
+        'workflow.step_skipped:operator:user:single',
+      ])
       const step = h.store.workflows.getRunSteps(run.id)[0]
       expect(step?.assignedSessionId).toBe('s2')
       expect(Object.keys(step ?? {})).not.toContain('completedBy')
