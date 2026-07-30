@@ -47,7 +47,7 @@
  * as a brief error rather than resolved silently in either direction.
  */
 
-import { AgentKind, ResumeRef } from '@podium/model'
+import { AgentKind, IssueIdField, ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from './commands'
 import { defineCommands } from './commands'
@@ -61,11 +61,11 @@ import { defineCommands } from './commands'
 const mutationId = z.string().max(128).optional()
 
 /** Every existing-target lifecycle command takes exactly this. */
-const targetInput = z.object({ sessionId: z.string() })
+const targetInput = z.object({ sessionId: SessionIdField })
 
 /** Both chat sends take exactly this — same bounds the router shipped. */
 const sendInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   text: z.string().min(1).max(32_768),
   mutationId,
 })
@@ -128,11 +128,15 @@ const createInput = z.object({
   cwd: z.string(),
   title: z.string().optional(),
   machineId: z.string().optional(),
-  issueId: z.string().optional(),
+  issueId: IssueIdField.optional(),
   workflowRevisionId: z.string().optional(),
-  /** uuid-bounded: it feeds durableLabel → the systemd-run scope name. */
-  sessionId: z.string().uuid().optional(),
-  draftIssue: z.object({ repoPath: z.string(), issueId: z.string().optional() }).optional(),
+  /** uuid-bounded: it feeds durableLabel → the systemd-run scope name. The uuid
+   *  check is KEPT and the shared `SessionIdField` is piped in after it (POD-362):
+   *  swapping `SessionIdField` for a bare `.brand<'SessionId'>()` here would be
+   *  byte-identical and invisible to every fixture, so the shared instance has to
+   *  be the one in the chain. */
+  sessionId: z.string().uuid().pipe(SessionIdField).optional(),
+  draftIssue: z.object({ repoPath: z.string(), issueId: IssueIdField.optional() }).optional(),
   mutationId,
 })
 
@@ -230,7 +234,7 @@ const resumeAndSend: CommandDef = {
 }
 
 const answerInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   choices: z
     .array(z.object({ optionIndices: z.array(z.number().int().min(1).max(9)).min(1) }))
     .min(1),

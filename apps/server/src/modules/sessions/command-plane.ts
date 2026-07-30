@@ -31,7 +31,7 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueId } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
 import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
 import type { z } from 'zod'

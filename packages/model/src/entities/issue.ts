@@ -156,7 +156,10 @@ const IssueWireCore = z.object({
   prUrl: IssueLinear.shape.prUrl,
   priority: IssueTriage.shape.priority,
   type: IssueTriage.shape.type,
-  assignee: z.string().optional(),
+  // COMPOSED (POD-362), was a bare `z.string().optional()` between two composed
+  // neighbours. Byte-identical either way, so no golden fixture could see the
+  // fork — only `toBe` against this instance can.
+  assignee: IssueTriage.shape.assignee,
   parentId: IssueGraphRefs.shape.parentId,
   design: IssueText.shape.design,
   acceptance: IssueText.shape.acceptance,
@@ -301,7 +304,13 @@ export type IssueWire = z.infer<typeof IssueWire>
 // universal record.
 // ---------------------------------------------------------------------------
 
-export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score: z.number() })
+/** `a`/`b` are ISSUE IDS and compose `IssueIdentity.shape.id` (POD-362) — they
+ *  were bare `z.string()`s, which is what forced `service/reads.ts` to cast. */
+export const DuplicateCandidate = z.object({
+  a: IssueIdentity.shape.id,
+  b: IssueIdentity.shape.id,
+  score: z.number(),
+})
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
 /**
@@ -318,8 +327,16 @@ export const LintFinding = IssueRefHead.omit({ title: true }).extend({
 export type LintFinding = z.infer<typeof LintFinding>
 
 export const DoctorReport = z.object({
-  cycles: z.array(z.array(z.string())),
-  danglingDeps: z.array(z.object({ from: z.string(), to: z.string(), type: z.string() })),
+  /** Cycles and dangling edges are lists of ISSUE IDS; composed, not restated
+   *  (POD-362). `type` stays a free string — it is a dep KIND, not an id. */
+  cycles: z.array(z.array(IssueIdentity.shape.id)),
+  danglingDeps: z.array(
+    z.object({
+      from: IssueIdentity.shape.id,
+      to: IssueIdentity.shape.id,
+      type: z.string(),
+    }),
+  ),
   lintCount: z.number().int(),
   staleCount: z.number().int(),
 })
@@ -356,7 +373,13 @@ export const IssueGraphNode = IssueRefHead.extend(
     blocked: true,
   }).shape,
 )
-export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
+/** Endpoints are ISSUE IDS and compose the shared instance (POD-362). `type` is
+ *  a dep kind, not an id, and stays a free string. */
+export const IssueGraphEdge = z.object({
+  from: IssueIdentity.shape.id,
+  to: IssueIdentity.shape.id,
+  type: z.string(),
+})
 export const IssueGraph = z.object({
   nodes: z.array(IssueGraphNode),
   edges: z.array(IssueGraphEdge),

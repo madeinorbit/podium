@@ -477,13 +477,13 @@ export class IssuesRepository {
 
   // ---- deps ----
 
-  addIssueDep(fromId: string, toId: string, type = 'blocks'): void {
+  addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): void {
     this.db
       .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
       .run(fromId, toId, type)
   }
 
-  removeIssueDep(fromId: string, toId: string, type?: string): void {
+  removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): void {
     if (type) {
       this.db
         .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
@@ -493,23 +493,26 @@ export class IssuesRepository {
     }
   }
 
-  listIssueDeps(fromId: string): { toId: string; type: string }[] {
+  /** SERIALIZATION EDGE: `to_id`/`from_id` come back untyped, so the row shape
+   *  re-declares the id space they were stored under. `type` is a dep KIND, not
+   *  an id, and stays a free string. */
+  listIssueDeps(fromId: IssueId): { toId: IssueId; type: string }[] {
     return (
       this.db
         .prepare(
           'SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC',
         )
-        .all(fromId) as { to_id: string; type: string }[]
+        .all(fromId) as { to_id: IssueId; type: string }[]
     ).map((r) => ({ toId: r.to_id, type: r.type }))
   }
 
-  listDependents(toId: string): { fromId: string; type: string }[] {
+  listDependents(toId: IssueId): { fromId: IssueId; type: string }[] {
     return (
       this.db
         .prepare(
           'SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC',
         )
-        .all(toId) as { from_id: string; type: string }[]
+        .all(toId) as { from_id: IssueId; type: string }[]
     ).map((r) => ({ fromId: r.from_id, type: r.type }))
   }
 

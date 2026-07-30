@@ -8,8 +8,11 @@ import {
   normalizeClosedPatch,
   sortKeyBetween,
   type ArtifactId,
+  type IssueId,
   type IssueWire,
+  type SessionId,
   type SessionMeta,
+  type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -554,8 +557,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Permanently purge an automatically-created empty draft. User-facing deletion
    *  must go through IssueSessionLifecycle and never reaches this method. */
-  purgeEmptyDraft(id: string): void {
-    id = this.resolveRef(id)
+  purgeEmptyDraft(ref: string): void {
+    const id = this.resolveRef(ref)
     this.rowOrThrow(id)
     this.deps.ledger.commit({
       write: () => this.deps.store.issues.deleteIssue(id),
@@ -599,12 +602,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   }
 
   addComment(id: string, author: string, body: string): IssueWire {
-    id = this.resolveRef(id)
-    const row = this.rowOrThrow(id)
+    const issueId = this.resolveRef(id)
+    const row = this.rowOrThrow(issueId)
     return this.persistWith(row, () =>
       this.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
-        issueId: id,
+        issueId,
         author,
         body,
         createdAt: this.now(),
@@ -712,7 +715,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     /** Structured question metadata (issue #53): suggested answers for the Tray's
      *  answer chips + the asking session. askedAt is stamped here (now()) — a
      *  re-flag replaces the WHOLE pending question, metadata included. */
-    meta?: { options?: string[]; askedBy?: string },
+    meta?: { options?: string[]; askedBy?: SessionId },
   ): IssueWire {
     const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
@@ -753,7 +756,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** The single cycle-checked reparent path. issues.parent_id is the ONLY
    *  parent storage (#164). Dependency edges do not participate: hierarchy
    *  cycles and scheduling cycles are separate invariants. */
-  private setParent(row: IssueRow, newParentId: string | null): void {
+  private setParent(row: IssueRow, newParentId: IssueId | null): void {
     if (newParentId === row.parentId) return
     if (newParentId) {
       this.rowOrThrow(newParentId)
@@ -804,7 +807,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
   }
 
-  claim(id: string, assignee: string): IssueWire {
+  claim(id: string, assignee: UserId): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
   }
 
@@ -812,27 +815,27 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
    *  Dangling-tolerant: we do not validate the session still exists — if it is
    *  later deleted, actionable mail falls back to selectMailNudgeSession. */
-  setCoordinator(id: string, sessionId: string | null): IssueWire {
+  setCoordinator(id: string, sessionId: SessionId | null): IssueWire {
     return this.update(id, { coordinatorSessionId: sessionId })
   }
 
-  close(id: string, reason = 'done', opts?: { actorSessionId?: string }): IssueWire {
+  close(id: string, reason = 'done', opts?: { actorSessionId?: SessionId }): IssueWire {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
     return this.update(id, { stage: 'done', closedReason: reason }, opts)
   }
 
-  supersede(oldId: string, newId: string): IssueWire {
-    oldId = this.resolveRef(oldId)
-    newId = this.resolveRef(newId)
+  supersede(oldRef: string, newRef: string): IssueWire {
+    const oldId = this.resolveRef(oldRef)
+    const newId = this.resolveRef(newRef)
     this.rowOrThrow(newId)
     this.addDep(oldId, newId, 'supersedes')
     return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
   }
 
-  duplicate(id: string, canonicalId: string): IssueWire {
-    id = this.resolveRef(id)
-    canonicalId = this.resolveRef(canonicalId)
+  duplicate(ref: string, canonicalRef: string): IssueWire {
+    const id = this.resolveRef(ref)
+    const canonicalId = this.resolveRef(canonicalRef)
     this.rowOrThrow(canonicalId)
     this.addDep(id, canonicalId, 'related')
     return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })
