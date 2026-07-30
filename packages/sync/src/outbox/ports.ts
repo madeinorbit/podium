@@ -124,8 +124,16 @@ export interface OutboxStorePort {
 export interface OutboxStoreMutation {
   readonly put?: readonly OutboxRecord[]
   readonly remove?: readonly MutationId[]
-  /** Checked atomically with the write. An unmet expectation is a conflict. */
-  readonly expect?: readonly OutboxRecordExpectation[]
+  /**
+   * Checked atomically with the write; an unmet expectation is a conflict.
+   *
+   * REQUIRED, and it must cover every key in `put` and `remove`. Optional would be
+   * a hole: a future caller could reintroduce an unconditional apply through a
+   * perfectly well-typed mutation, and the adapter would read the omission as "no
+   * checks" — which is exactly the race this field exists to close. An empty array
+   * is legal only for a mutation that touches nothing.
+   */
+  readonly expect: readonly OutboxRecordExpectation[]
 }
 
 /**
@@ -147,6 +155,27 @@ export interface OutboxRecordExpectation {
 export type OutboxApplyResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly conflicts: readonly MutationId[] }
+
+/**
+ * A precondition that could only be evaluated at COMMIT time did not hold.
+ *
+ * This exists because an adapter enrolled in a span often cannot answer when the
+ * write is handed to it: the check has to happen inside the native transaction, by
+ * which point there is no caller left to return `{ok: false}` to. So the span
+ * rejects — and it must reject with THIS type rather than a generic error, because
+ * a conflict is an ordinary concurrent-writer outcome that participants resolve by
+ * re-staging, while a generic failure is not resolvable and must surface. A typed
+ * channel is what lets both kernels tell those apart.
+ *
+ * Neutral on purpose: it lives beside the span types so the Replica can raise and
+ * recognise it too, without either kernel importing the other.
+ */
+export class SyncCommitConflict extends Error {
+  constructor(readonly conflicts: readonly string[]) {
+    super(`transaction rolled back: precondition failed at commit on ${conflicts.join(', ')}`)
+    this.name = 'SyncCommitConflict'
+  }
+}
 
 /**
  * The observable lifecycle. Three of these exist because ADR 3 D9 distinguishes
@@ -274,6 +303,14 @@ export interface OutboxConfig {
  *    and the shape matches what both kernels already did independently (stage,
  *    write, adopt) instead of adding a second mechanism. A callback failure is
  *    surfaced but cannot rewrite the already-decided durable outcome.
+ *
+ *    An adapter MUST be atomic across enrolled writes: staging or validating them
+ *    against a transaction-local view and publishing only once every one succeeds,
+ *    or restoring the pre-span state on failure. An implementation that applies
+ *    enrolled writes in sequence and cannot undo one already applied is not a unit
+ *    of work — it is a partially committed transaction, which is precisely what
+ *    ADR 2 D10 forbids. When a late precondition fails it rejects with
+ *    `SyncCommitConflict` so participants can re-stage.
  *
  *    **Events are enrolled too, not just state** (POD-369's addition): emission
  *    sits behind the same `onCommit` gate as adoption, because inside a shared

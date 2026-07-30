@@ -63,6 +63,7 @@ import type {
   OutboxSubmitOutcome,
   SyncSpan,
 } from './ports'
+import { SyncCommitConflict } from './ports'
 import {
   MAX_AGE_REASON,
   normalizeRefusal,
@@ -227,10 +228,25 @@ class OutboxDraft {
     const put = [...this.touched]
       .map((id) => this.records.find((r) => r.mutationId === id))
       .filter((r): r is OutboxRecord => r !== undefined)
-    return {
+    const mutation: OutboxStoreMutation = {
       ...(put.length > 0 ? { put } : {}),
       ...(this.removed.size > 0 ? { remove: [...this.removed] } : {}),
+      // Built HERE rather than by the caller, so a mutation cannot be assembled
+      // without its preconditions — the hole the reviewer asked to close.
+      expect: this.expectations(),
     }
+    const keys = new Set([
+      ...(mutation.put ?? []).map((r) => r.mutationId),
+      ...(mutation.remove ?? []),
+    ])
+    const covered = new Set(mutation.expect.map((e) => e.mutationId))
+    const uncovered = [...keys].filter((id) => !covered.has(id))
+    if (uncovered.length > 0) {
+      throw new OutboxInvariantError(
+        `mutation would touch ${uncovered.join(', ')} with no precondition — that is an unconditional apply`,
+      )
+    }
+    return mutation
   }
 
   emit(event: OutboxEvent): void {
@@ -245,6 +261,22 @@ class OutboxDraft {
     if (unlicensed.length > 0) {
       throw new OutboxInvariantError(
         `unlicensed outbox removal of ${unlicensed.join(', ')} — D9 invariant 1 permits "gone" only on user action or an applied retirement after covering truth`,
+      )
+    }
+    // The mirror of the removal rule for INSERTS and EDITS: a record that appeared
+    // or changed without going through `put()` would be adopted into memory and
+    // never written, because the delta is built from what `put()` tracked. Memory
+    // silently ahead of the store is the same defect class as an unlicensed
+    // removal, so it fails the same way.
+    const untracked = this.records
+      .filter((r) => {
+        const was = this.before.find((b) => b.mutationId === r.mutationId)
+        return (was === undefined || was !== r) && !this.touched.has(r.mutationId)
+      })
+      .map((r) => r.mutationId)
+    if (untracked.length > 0) {
+      throw new OutboxInvariantError(
+        `record(s) ${untracked.join(', ')} changed without going through put() — the store would never see them`,
       )
     }
     const phantom = [...this.licensed.keys()].filter((id) => after.has(id))
@@ -918,6 +950,9 @@ export class Outbox {
       // escapes until an attempt actually lands.
       for (let attempt = 1; ; attempt++) {
         try {
+          // An AMBIENT span belongs to the caller: a conflict inside it kills their
+          // transaction, and retrying our part alone would be meaningless, so it
+          // propagates for them to decide.
           if (ambient) return await this.stage(body, ambient)
           const uow = this.config.unitOfWork
           if (uow) return await uow.transact(async (span) => await this.stage(body, span))
@@ -925,9 +960,13 @@ export class Outbox {
           // ADR 2's surfaced degraded mode (SyncUnitOfWork rule 3).
           return await this.stage(body, undefined)
         } catch (error) {
-          if (!(error instanceof OutboxConflict) || attempt >= MUTATION_CONFLICT_ATTEMPTS) {
-            throw error
-          }
+          // Two shapes of the same outcome: the adapter answered at apply time
+          // (`OutboxConflict`) or only at commit time (`SyncCommitConflict`, raised
+          // by the transaction it rolled back). Both mean "another writer won"; both
+          // re-stage against fresh truth. A commit-time conflict that reached us
+          // through the caller's own span is not ours to retry.
+          const conflicted = error instanceof OutboxConflict || error instanceof SyncCommitConflict
+          if (!conflicted || ambient || attempt >= MUTATION_CONFLICT_ATTEMPTS) throw error
         }
       }
     })
@@ -965,7 +1004,7 @@ export class Outbox {
     const draft = new OutboxDraft(base)
     const result = body(draft)
     const next = draft.sealed()
-    const delta = { ...draft.delta(), expect: draft.expectations() }
+    const delta = draft.delta()
     this.assertOwnKeysOnly(delta, base)
     if (!span) {
       const outcome = await this.store.apply(delta)

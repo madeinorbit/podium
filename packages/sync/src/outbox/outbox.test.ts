@@ -1717,3 +1717,177 @@ describe('review round 3 — concurrent writers, deterministically', () => {
     expect(calls).toBe(5)
   })
 })
+
+describe('review round 4 — the same races on the CONFIGURED unit-of-work path', () => {
+  it('the id collision re-stages through a COMMIT-time conflict, not a generic error', async () => {
+    // Round 3 only covered the no-UoW path. With a unit of work configured — the
+    // NORMAL durable path — the adapter can only check its precondition at commit,
+    // so the loser used to reject with a generic Error and never re-stage. Now the
+    // transaction rejects with the typed `SyncCommitConflict`, which re-stages and
+    // then fails for the RIGHT reason.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    // A separate transaction per tab, as a real two-tab deployment has.
+    const ada = await harness(() => unreachable, {
+      store,
+      clock,
+      unitOfWork: new InMemoryUnitOfWork(),
+    })
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      unitOfWork: new InMemoryUnitOfWork(),
+    })
+    const collide = 'm-collide' as MutationId
+
+    const release = store.holdNextApplies(2)
+    const both = Promise.allSettled([
+      ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
+      grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
+    ])
+    await Promise.resolve()
+    release()
+    const settled = await both
+
+    expect(settled.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
+    const rejected = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult
+    // The point of the typed channel: the loser learns it collided, not that
+    // "something failed at commit".
+    expect(String(rejected.reason)).toMatch(/duplicate mutationId/)
+    expect(store.durable()).toHaveLength(1)
+  })
+
+  it('discard versus drain still settles BOTH successfully with a unit of work', async () => {
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const tabA = await harness(() => applied, {
+      store,
+      clock,
+      idPrefix: 'a-',
+      unitOfWork: new InMemoryUnitOfWork(),
+    })
+    const tabB = await harness(() => applied, {
+      store,
+      clock,
+      idPrefix: 'b-',
+      unitOfWork: new InMemoryUnitOfWork(),
+    })
+    const record = await tabA.outbox.enqueue(close('POD-1'))
+    await tabB.outbox.enqueue(close('POD-2'))
+
+    const release = store.holdNextApplies(2)
+    const both = Promise.allSettled([tabA.outbox.discard(record.mutationId), tabB.outbox.drain()])
+    await Promise.resolve()
+    release()
+    const [discarded, drained] = await both
+
+    // The contract the reviewer held me to: losing to a user discard is a normal
+    // successful drain outcome on the DURABLE path too, not only without a UoW.
+    expect(discarded?.status).toBe('fulfilled')
+    expect(drained?.status).toBe('fulfilled')
+    expect(store.durable().find((r) => r.mutationId === record.mutationId)?.state).toBe('cancelled')
+    expect(tabB.authority.envelopes.map((e) => e.mutationId)).not.toContain(record.mutationId)
+  })
+
+  it('a late precondition failure leaves NOTHING of the transaction behind', async () => {
+    // The partial-commit probe: two instances in ONE shared span enqueue the same
+    // id. The outer transaction rejects on the second precondition — and the first
+    // enrolled write must not survive it. Previously durable storage kept Ada's row
+    // while both memories were empty: a partially committed transaction, which is
+    // exactly what ADR 2 D10 forbids.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock, unitOfWork: uow })
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      unitOfWork: uow,
+    })
+    const collide = 'm-shared' as MutationId
+
+    await expect(
+      uow.transact(async () => {
+        await ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide }))
+        await grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide }))
+      }),
+    ).rejects.toThrow()
+
+    // Full rehydrate is unchanged: no row, no memory, no ack.
+    expect(store.durable()).toEqual([])
+    expect(ada.outbox.all()).toEqual([])
+    expect(grace.outbox.all()).toEqual([])
+    expect(types(ada.events)).not.toContain('local-ack')
+    expect(types(grace.events)).not.toContain('local-ack')
+    const reopened = await harness(() => unreachable, { store, clock, idPrefix: 'r-' })
+    expect(reopened.outbox.all()).toEqual([])
+  })
+
+  it('rolls back an EARLIER enrolled write when a later one fails in the same span', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox } = await harness(() => applied, { store, clock, unitOfWork: uow })
+    const first = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+    const durableBefore = store.durable()
+
+    await expect(
+      uow.transact(async (span) => {
+        await outbox.retireApplied(first.mutationId, span)
+        // A second enrolled write whose precondition cannot hold.
+        await store.apply(
+          {
+            remove: ['ghost' as MutationId],
+            expect: [{ mutationId: 'ghost' as MutationId, expect: 'queued' }],
+          },
+          span,
+        )
+      }),
+    ).rejects.toThrow()
+
+    expect(store.durable()).toEqual(durableBefore)
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([first.mutationId])
+  })
+
+  it('refuses a mutation that touches a key with no precondition', async () => {
+    // The nit, made structural in two places: `delta()` builds `expect` itself from
+    // the same sets it builds `put`/`remove` from, so an incomplete mutation is not
+    // constructible through the kernel — and the adapter refuses one anyway, so a
+    // future caller cannot reintroduce an unconditional apply through a well-typed
+    // mutation.
+    const { store } = await harness()
+    await expect(store.apply({ remove: ['ghost' as MutationId], expect: [] })).rejects.toThrow(
+      /no precondition/,
+    )
+  })
+
+  it('refuses to adopt a record that never went through put()', async () => {
+    // Memory silently ahead of the store is the same defect class as an unlicensed
+    // removal: the delta is built from what `put()` tracked, so an untracked change
+    // would be adopted and never written.
+    const { outbox, store } = await harness()
+    const internals = outbox as unknown as {
+      mutate: (body: (draft: unknown) => void) => Promise<void>
+    }
+    await expect(
+      internals.mutate((draft) => {
+        const d = draft as { records: OutboxRecord[] }
+        d.records.push({
+          mutationId: 'sneaky' as MutationId,
+          command: CLOSE,
+          input: {},
+          partitionKey: 'p',
+          attribution: ADA,
+          state: 'queued',
+          queuedAt: 0,
+          attempts: 0,
+        })
+      }),
+    ).rejects.toThrow(OutboxInvariantError)
+    expect(store.durable()).toEqual([])
+    expect(outbox.all()).toEqual([])
+  })
+})

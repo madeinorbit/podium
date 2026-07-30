@@ -16,6 +16,7 @@ import type {
   SyncSpan,
   SyncUnitOfWork,
 } from './ports'
+import { SyncCommitConflict } from './ports'
 import type { OutboxRecord } from './records'
 
 /**
@@ -60,6 +61,17 @@ export class InMemoryOutboxStore implements OutboxStorePort {
    */
   private readonly waiters: (() => void)[] = []
   private holds = 0
+  /**
+   * Per-transaction KEYED undo: for every key a span touched, the value that key
+   * held before the span first touched it (`undefined` = it was absent).
+   *
+   * Deliberately not a whole-store snapshot. A snapshot-restore rollback is wrong
+   * whenever two transactions run against one store: restoring it would delete
+   * rows another transaction committed in the meantime, which is precisely the
+   * clobbering the keyed-delta design exists to prevent. The rollback has to be
+   * keyed for the same reason the writes are.
+   */
+  private readonly spanUndo = new WeakMap<SyncSpan, Map<MutationId, OutboxRecord | undefined>>()
 
   holdNextApplies(n: number): () => void {
     this.holds = n
@@ -83,6 +95,17 @@ export class InMemoryOutboxStore implements OutboxStorePort {
    */
   async apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<OutboxApplyResult> {
     if (this.failWrite !== undefined) throw this.failWrite
+    // An adapter obligation, asserted here so the in-memory instantiation holds
+    // callers to it: every key the mutation touches must carry a precondition. A
+    // mutation that omits one is an unconditional apply wearing a typed coat.
+    const declared = new Set(mutation.expect.map((e) => e.mutationId))
+    const touched = [
+      ...(mutation.put ?? []).map((r) => r.mutationId),
+      ...(mutation.remove ?? []),
+    ].filter((id) => !declared.has(id))
+    if (touched.length > 0) {
+      throw new Error(`mutation touches ${touched.join(', ')} with no precondition`)
+    }
     if (this.holds > 0) {
       this.holds -= 1
       await new Promise<void>((resolve) => this.waiters.push(resolve))
@@ -122,15 +145,51 @@ export class InMemoryOutboxStore implements OutboxStorePort {
     // (ADR 2 D10). A precondition that fails at commit ABORTS the span, because by
     // then there is no caller left to hand a conflict back to.
     const enlistable = span as
-      | (SyncSpan & { enlist?: (w: () => Promise<void>) => void })
+      | (SyncSpan & { enlist?: (w: () => Promise<void>, undo?: () => void) => void })
       | undefined
     if (enlistable?.enlist) {
-      enlistable.enlist(async () => {
-        const outcome = commit()
-        if (!outcome.ok) {
-          throw new Error(`outbox precondition failed at commit: ${outcome.conflicts.join(', ')}`)
-        }
-      })
+      const key = span as SyncSpan
+      let undo = this.spanUndo.get(key)
+      if (!undo) {
+        undo = new Map()
+        this.spanUndo.set(key, undo)
+      }
+      const priors = undo
+      enlistable.enlist(
+        async () => {
+          // Record each touched key's prior value FIRST — at the moment the write
+          // actually lands, so it reflects what other transactions have committed
+          // by then — then apply.
+          const held = this.parse()
+          for (const id of [
+            ...(mutation.put ?? []).map((r) => r.mutationId),
+            ...(mutation.remove ?? []),
+          ]) {
+            if (!priors.has(id))
+              priors.set(
+                id,
+                held.find((r) => r.mutationId === id),
+              )
+          }
+          const outcome = commit()
+          if (!outcome.ok) {
+            // TYPED, not generic: a commit-time conflict is an ordinary
+            // concurrent-writer outcome that participants resolve by re-staging.
+            throw new SyncCommitConflict([...outcome.conflicts])
+          }
+        },
+        () => {
+          const records = this.parse()
+          for (const [id, prior] of priors) {
+            const idx = records.findIndex((r) => r.mutationId === id)
+            if (prior === undefined) {
+              if (idx !== -1) records.splice(idx, 1)
+            } else if (idx === -1) records.push(prior)
+            else records[idx] = prior
+          }
+          this.snapshot = JSON.stringify(records)
+        },
+      )
       return { ok: true }
     }
     return commit()
@@ -195,18 +254,36 @@ export class InMemoryUnitOfWork implements SyncUnitOfWork {
 class InMemorySpan implements SyncSpan {
   private readonly commits: (() => void)[] = []
   private readonly writes: (() => Promise<void>)[] = []
+  private readonly undos: (() => void)[] = []
 
   onCommit(adopt: () => void): void {
     this.commits.push(adopt)
   }
 
-  /** Adapters enroll their durable work here; it lands only if the span commits. */
-  enlist(write: () => Promise<void>): void {
+  /**
+   * Adapters enroll their durable work here; it lands only if the span commits.
+   * `undo` restores the participant store's PRE-SPAN state and is what makes this a
+   * real unit of work: applying enrolled writes in sequence with no way to undo one
+   * already applied is a partially committed transaction, which ADR 2 D10 forbids.
+   */
+  enlist(write: () => Promise<void>, undo?: () => void): void {
     this.writes.push(write)
+    if (undo) this.undos.push(undo)
   }
 
   async commit(): Promise<void> {
-    for (const write of this.writes) await write()
+    const applied: number[] = []
+    try {
+      for (let i = 0; i < this.writes.length; i++) {
+        await (this.writes[i] as () => Promise<void>)()
+        applied.push(i)
+      }
+    } catch (error) {
+      // A LATE failure — a precondition that could only be checked here — must not
+      // leave earlier enrolled writes applied.
+      for (const undo of [...this.undos].reverse()) undo()
+      throw error
+    }
     // Registration order after the durable commit.
     for (const effect of this.commits) effect()
   }
