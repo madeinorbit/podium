@@ -1288,3 +1288,36 @@ that item **rides with POD-363 and gates the POD-308 wire cutover**, where id EN
 POD-351's walking skeleton needs the vocabulary and the command contracts, both landed, not a completed
 branded-id sweep. Recorded as a deliberate narrowing rather than left sitting as an unmet criterion, on
 the same reasoning that split POD-423: gate the thing that depends on it, not everything downstream.
+
+### CORRECTION: I wedged POD-362 myself, and `send --wake` never worked
+
+POD-1167 diagnosed the POD-362 stall and it overturns two things I recorded confidently above.
+
+**1. The wedge was my own `--urgency interrupt` mail, re-injected by the sweep.** Interrupt urgency is
+`ESC + inject` (`messages/service.ts:14`), not merely a strong nudge. My `msg_288c94f8` was captured
+09:49:12 and echoed in Claude at 09:49:13 and again 09:53:52 — but the live transcript handler **never
+emits the `transcript.delta` bus event** that `MessageService` consumes, so the ledger saw neither echo and
+the message stayed unconfirmed. At 09:55:31 the requeue sweep re-injected **while Claude was working**,
+`interruptText` sent ESC, and Claude recorded `[Request interrupted by user]` at 09:55:31.677. It was
+finally marked delivered at 10:00:06 — an eleven-minute gap I could have read as the tell.
+
+> `--urgency interrupt` ESCs a working session, and while delivery confirmation is broken it will do so
+> REPEATEDLY. Do not use it to nudge a session that is producing; use it only for something that must
+> preempt, and prefer `next-turn` otherwise. Filed as POD-1169.
+
+So the transcript entry I kept reading as evidence of a mysterious stall was **my own tooling**, arriving
+three times.
+
+**2. `podium session send --wake` did NOT recover it.** I recorded in POD-1159 and in the check-in prompt
+that this was the working recovery, and told agents so. It failed silently three times (11:25/11:35/11:45)
+with `git worktree add: fatal: path already exists`, because `stop` had cleared `issue.worktreePath` while
+the directory still existed — and the echo cap then marked the message **falsely delivered**. The
+`hibernated/working` status I took as proof of resumption meant nothing. POD-362 only actually restarted
+when I did the full manual teardown (`git branch -D` + `git worktree prune` + removing the stale
+directory), which is the same state POD-1167 identifies as the cause.
+
+> A status field and a "delivered" receipt are both instruments. Neither told the truth here. The only
+> honest signal was the one I eventually used: did a new commit appear.
+
+The earlier `API Error: 529` was a separate, real event — two distinct failures on the same issue, and I
+had collapsed them into one story.
