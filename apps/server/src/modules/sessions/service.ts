@@ -51,6 +51,10 @@ import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
+// OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
+// binding, so importing it from both is a duplicate identifier rather than two
+// different capabilities — verified before deduping, because two same-named symbols
+// from different modules is exactly the shape that is a real vocabulary fork.
 import type { Capability } from '../../issue-authz'
 import {
   liveSessionsUsingWorktree,

@@ -21,6 +21,23 @@
  * second migration — when accounts arrive.
  *
  * ---------------------------------------------------------------------------
+ * WHY THIS IS NOT `@podium/protocol`'s `Principal`, THOUGH IT LOOKS LIKE ONE
+ * ---------------------------------------------------------------------------
+ *
+ * `planes/principal.ts` declares `UserPrincipal` / `AgentPrincipal` / … with
+ * nearly these arms, and the next reader will reasonably suspect a fork. It is
+ * not one, and the difference is a single field carrying the whole distinction:
+ * there, `capability` is a `CapabilityRef` — an OPAQUE server-minted reference
+ * the ports may carry and must never inspect, because "a port that could read a
+ * scope out of it would be a port that could evaluate policy". Here it is the
+ * live `Capability`, role and scope included, because THIS is the layer ADR 3 D8
+ * charges with evaluating policy at every apply.
+ *
+ * Two types, one vocabulary, opposite obligations: the ports must not look, and
+ * the command layer must. Collapsing them would either blind this module or hand
+ * the transport ports a policy engine. Same-shaped is not same-fact.
+ *
+ * ---------------------------------------------------------------------------
  * WHAT IS DELIBERATELY NOT HERE
  * ---------------------------------------------------------------------------
  *
