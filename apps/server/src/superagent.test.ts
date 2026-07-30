@@ -1,4 +1,4 @@
-import { SOLE_USER_ID, type TranscriptItem } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -68,7 +68,7 @@ describe('buildBtwSeed', () => {
     item({ id: 'u2', role: 'user', text: 'next thing', ts: '2026-06-16T07:02:00Z' }),
   ]
   const seed = buildBtwSeed({
-    session: { sessionId: 's1', name: 'feat-x', agentKind: 'claude-code', cwd: '/repo' },
+    session: { sessionId: asSessionId('s1'), name: 'feat-x', agentKind: 'claude-code', cwd: '/repo' },
     summary: 'Working on X.',
     items,
     maxChars: 20_000,
@@ -89,7 +89,7 @@ describe('buildBtwSeed', () => {
     expect(seed).not.toContain('x'.repeat(1000))
   })
   it('omits the summary line when none is given', () => {
-    expect(buildBtwSeed({ session: { sessionId: 's1' }, items })).not.toContain('Summary:')
+    expect(buildBtwSeed({ session: { sessionId: asSessionId('s1') }, items })).not.toContain('Summary:')
   })
 })
 
@@ -159,7 +159,7 @@ describe('start_agent tool wiring (issue #60)', () => {
         // the thread-blind MCP path must confirm explicitly.
         confirmed: true,
       }),
-    ) as { sessionId: string; cwd: string; agentKind: string }
+    ) as { sessionId: SessionId; cwd: string; agentKind: string }
     expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
     const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.title).toBe('Investigate flake')
@@ -170,7 +170,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const { registry, sa } = harness()
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
-    ) as { sessionId: string }
+    ) as { sessionId: SessionId }
     expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
       'superagent:btw_s1',
     )
@@ -187,7 +187,7 @@ describe('start_agent tool wiring (issue #60)', () => {
         issueId: issue.id,
         confirmed: true,
       }),
-    ) as { sessionId: string; cwd: string }
+    ) as { sessionId: SessionId; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.cwd).toBe('/r/.worktrees/issue-1-x')
@@ -227,7 +227,7 @@ describe('start_agent tool wiring (issue #60)', () => {
         issueId: issue.id,
         confirmed: true,
       }),
-    ) as { sessionId: string; cwd: string }
+    ) as { sessionId: SessionId; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
       '/r/.worktrees/issue-1-x',
@@ -260,7 +260,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const { registry, sa } = harness()
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'global'),
-    ) as { sessionId: string }
+    ) as { sessionId: SessionId }
     expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
       'superagent:global',
     )
@@ -384,7 +384,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }),
     })
 
-  const markPending = (h: ReturnType<typeof harness>, sessionId: string) =>
+  const markPending = (h: ReturnType<typeof harness>, sessionId: SessionId) =>
     h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,

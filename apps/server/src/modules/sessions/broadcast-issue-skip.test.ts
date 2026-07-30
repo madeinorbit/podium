@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -9,7 +10,7 @@ import { SessionRegistry } from '../../relay'
 // O(issues×sessions) rebuild — must be skipped while sessionsChanged still fans out.
 describe('POD-722 session broadcast skips issue republish when no issue field changed', () => {
   const G = { cols: 80, rows: 24 }
-  const bind = (sessionId: string) =>
+  const bind = (sessionId: SessionId) =>
     ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/repo/w', agentKind: 'claude-code', geometry: G }) as const
 
   function setup() {

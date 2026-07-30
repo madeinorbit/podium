@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
@@ -9,7 +10,7 @@ import { SuperagentService } from './modules/superagent'
 
 const geometry = { cols: 80, rows: 24 }
 
-const bind = (sessionId: string, cwd: string, agentKind: 'claude-code' | 'codex') =>
+const bind = (sessionId: SessionId, cwd: string, agentKind: 'claude-code' | 'codex') =>
   ({
     type: 'bind',
     sessionId,

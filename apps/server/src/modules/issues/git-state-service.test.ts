@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import { normalizeSettings } from '@podium/runtime'
@@ -41,7 +42,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
   return { svc: new IssueService(deps), repoOp, broadcast, ledger: plumbing.ledger as Ledger }
 }
 
-const member = (sessionId: string, issueId: string): SessionMeta =>
+const member = (sessionId: SessionId, issueId: string): SessionMeta =>
   ({
     sessionId,
     agentKind: 'claude-code',
@@ -67,11 +68,11 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
 
     // Daemon-captured attribution: one touched file. Registration also fires
     // the repopulation probe in the background, so poll until one settles.
-    svc.recordSessionGitActivity('sess-1', { touched: ['/repo/apps/a.ts'] })
+    svc.recordSessionGitActivity(asSessionId('sess-1'), { touched: ['/repo/apps/a.ts'] })
     await svc.refreshGitState(id, '/repo')
     for (let i = 0; i < 50; i++) {
       const gs = svc.allWire().find((w) => w.id === id)?.gitState
@@ -99,9 +100,9 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha9\t2026-07-20T11:30:00Z',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
 
-    svc.recordSessionGitActivity('sess-1', { commits: ['sha9'] })
+    svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['sha9'] })
     // The commit-triggered probe is fire-and-forget — poll until it settles
     // (vi.waitFor is unavailable under the bun runner).
     let commits: string[] | undefined
@@ -118,7 +119,7 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M x.ts',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
 
     await svc.refreshGitState(id, '/repo')
     const wire = svc.allWire().find((w) => w.id === id)
@@ -133,10 +134,10 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
 
     // The daemon's empty baseline registration (SessionStart) is enough.
-    svc.recordSessionGitActivity('sess-1', {})
+    svc.recordSessionGitActivity(asSessionId('sess-1'), {})
     let state: unknown
     for (let i = 0; i < 50 && state === undefined; i++) {
       await new Promise((r) => setTimeout(r, 10))
@@ -153,13 +154,13 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
     repoOp.mockClear()
     broadcast.mockClear()
 
-    svc.onSessionTurnEnd('sess-1')
-    svc.onSessionTurnEnd('sess-1')
-    svc.onSessionTurnEnd('sess-1')
+    svc.onSessionTurnEnd(asSessionId('sess-1'))
+    svc.onSessionTurnEnd(asSessionId('sess-1'))
+    svc.onSessionTurnEnd(asSessionId('sess-1'))
     expect(repoOp).not.toHaveBeenCalled()
     expect(broadcast).not.toHaveBeenCalled()
 
@@ -177,7 +178,7 @@ describe('POD-98 git-state service wiring', () => {
     const probed = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     svc.create({ repoPath: '/repo', title: 'two', startNow: false })
     svc.create({ repoPath: '/repo', title: 'three', startNow: false })
-    sessions.push(member('sess-1', probed))
+    sessions.push(member(asSessionId('sess-1'), probed))
 
     const cursor = ledger.cursor()
     await svc.refreshGitState(probed, '/repo')
@@ -195,7 +196,7 @@ describe('POD-98 git-state service wiring', () => {
     const sessions: SessionMeta[] = []
     const { svc, repoOp, broadcast } = harness(sessions, {})
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id))
+    sessions.push(member(asSessionId('sess-1'), id))
     let releaseStatus!: () => void
     const statusGate = new Promise<void>((resolve) => {
       releaseStatus = resolve
@@ -216,7 +217,7 @@ describe('POD-98 git-state service wiring', () => {
       await new Promise((resolve) => setTimeout(resolve, 1))
     }
     expect(statusCalls).toBe(1)
-    svc.recordSessionGitActivity('sess-1', { commits: ['late-sha'] })
+    svc.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['late-sha'] })
     releaseStatus()
     await initial
 
@@ -232,12 +233,12 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', id), member('sess-2', id))
-    svc.recordSessionGitActivity('sess-1', {
+    sessions.push(member(asSessionId('sess-1'), id), member(asSessionId('sess-2'), id))
+    svc.recordSessionGitActivity(asSessionId('sess-1'), {
       commits: ['sha-1'],
       touched: ['/repo/apps/a.ts'],
     })
-    svc.recordSessionGitActivity('sess-2', {
+    svc.recordSessionGitActivity(asSessionId('sess-2'), {
       commits: ['sha-2'],
       touched: ['/repo/apps/b.ts'],
     })
@@ -247,11 +248,11 @@ describe('POD-98 git-state service wiring', () => {
       dirtyOwn: 2,
     })
 
-    svc.onSessionRemovedOrArchived('sess-1')
+    svc.onSessionRemovedOrArchived(asSessionId('sess-1'))
     await svc.refreshGitState(id, '/repo')
     expect(svc.get(id)?.gitState).toMatchObject({ commits: ['sha-2'], dirtyOwn: 1 })
 
-    svc.onSessionRemovedOrArchived('sess-2')
+    svc.onSessionRemovedOrArchived(asSessionId('sess-2'))
     await svc.refreshGitState(id, '/repo')
     expect(svc.get(id)?.gitState).toMatchObject({ fallback: true })
     expect(svc.get(id)?.gitState?.commits).toBeUndefined()
@@ -260,10 +261,10 @@ describe('POD-98 git-state service wiring', () => {
 
   it('sessions without an issue are a no-op on turn end', () => {
     const sessions: SessionMeta[] = [
-      { ...member('sess-x', 'nope'), issueId: undefined } as unknown as SessionMeta,
+      { ...member(asSessionId('sess-x'), 'nope'), issueId: undefined } as unknown as SessionMeta,
     ]
     const { svc, repoOp } = harness(sessions, {})
-    svc.onSessionTurnEnd('sess-x')
+    svc.onSessionTurnEnd(asSessionId('sess-x'))
     expect(repoOp).not.toHaveBeenCalled()
   })
 })

@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -29,7 +31,7 @@ function harness(sessions: SessionMeta[]) {
   return { store, svc: new IssueService(deps) }
 }
 
-const member = (sessionId: string, issueId: string, workState?: string): SessionMeta =>
+const member = (sessionId: SessionId, issueId: string, workState?: string): SessionMeta =>
   ({
     sessionId,
     agentKind: 'claude-code',
@@ -54,8 +56,8 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     const { svc } = harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
-    sessions.push(member('sess-1', i1, 'planning'))
-    sessions.push(member('sess-2', i2, 'planning'))
+    sessions.push(member(asSessionId('sess-1'), i1, 'planning'))
+    sessions.push(member(asSessionId('sess-2'), i2, 'planning'))
 
     const first = svc.allWire()
     const w1a = first.find((w) => w.id === i1)!
@@ -80,7 +82,7 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     const sessions: SessionMeta[] = []
     const { svc } = harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
-    sessions.push(member('sess-1', i1))
+    sessions.push(member(asSessionId('sess-1'), i1))
 
     const w1a = svc.allWire().find((w) => w.id === i1)!
     svc.setLabels(i1, ['urgent'])
@@ -95,11 +97,11 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     const { svc } = harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
-    sessions.push(member('sess-2', i2))
+    sessions.push(member(asSessionId('sess-2'), i2))
 
     const w1a = svc.allWire().find((w) => w.id === i1)!
     // A new session attaches to issue 1 — no issue-side mutation.
-    sessions.push(member('sess-1', i1))
+    sessions.push(member(asSessionId('sess-1'), i1))
     const w1b = svc.allWire().find((w) => w.id === i1)!
 
     expect(w1b).not.toBe(w1a)

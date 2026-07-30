@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { LOCK_COMMAND_NAMES } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
@@ -38,7 +39,7 @@ describe('lock registry', () => {
     const r = (await dispatch({ capability: OPERATOR }, 'acquire', {
       repoPath: '/repo',
       name: 'merge:main',
-    })) as { granted: boolean; lock: { holder: { sessionId: string | null; label: string } } }
+    })) as { granted: boolean; lock: { holder: { sessionId: SessionId | null; label: string } } }
     expect(r.granted).toBe(true)
     expect(r.lock.holder).toMatchObject({ sessionId: null, label: 'operator' })
   })
@@ -53,7 +54,7 @@ describe('lock registry', () => {
     }
     const r = (await dispatch(caller, 'acquire', { repoPath: '/repo', name: 'agent-lock' })) as {
       granted: boolean
-      lock: { holder: { sessionId: string | null; label: string } }
+      lock: { holder: { sessionId: SessionId | null; label: string } }
     }
     expect(r.granted).toBe(true)
     expect(r.lock.holder).toMatchObject({ sessionId: 'sess_agent', label: 'session:sess_agent' })

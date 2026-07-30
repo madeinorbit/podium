@@ -1,3 +1,4 @@
+import { asIssueId, type SessionId } from '@podium/model'
 import type { ApprovalOp, ControlMessage, LiveServerMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
@@ -5,7 +6,7 @@ import { applyBaselineSchema } from '../../migrations'
 import { ApprovalsRepository } from '../../store/approvals'
 import { ApprovalService } from './service'
 
-function harness(executeServerOp?: (op: ApprovalOp, sessionId: string) => string | null) {
+function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => string | null) {
   const db = openDatabase(':memory:')
   applyBaselineSchema(db)
   const sent: Array<{ machineId: string; msg: ControlMessage }> = []
@@ -17,7 +18,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: string) => string
     now: () => '2026-07-13T00:00:00.000Z',
     toMachine: (machineId, msg) => sent.push({ machineId, msg }),
     clients: () => [{ send: (m: LiveServerMessage) => broadcasts.push(m) }],
-    sessionIssueId: () => 'iss_1',
+    sessionIssueId: () => asIssueId('iss_1'),
     issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
     machineName: () => 'ludovico',
     logEvent: (kind, issueId) => events.push({ kind, issueId }),
@@ -95,7 +96,7 @@ describe('ApprovalService', () => {
     expect(sent).toHaveLength(0)
   })
   it('executes server-owned workflow approvals without forwarding them to a daemon', () => {
-    const executed: Array<{ op: ApprovalOp; sessionId: string }> = []
+    const executed: Array<{ op: ApprovalOp; sessionId: SessionId }> = []
     const { svc, sent, events } = harness((op, sessionId) => {
       executed.push({ op, sessionId })
       return 'published workflow revision wfr_1'

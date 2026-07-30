@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,7 +39,7 @@ function runtime(
 }
 
 function observation(input: {
-  sessionId: string
+  sessionId: SessionId
   provider: ObservationProvider
   providerSessionId: string
   generation: number
@@ -141,7 +142,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       )
       registry.modules.sessions.attachClient((message) => web.push(message))
       const parentId = `parent-${provider}`
-      const childId = `child-${provider}`
+      const childId = asSessionId(`child-${provider}`)
       registry.modules.sessions.createSession({
         sessionId: parentId,
         agentKind: 'claude-code',

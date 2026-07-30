@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState, Geometry } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -12,7 +13,7 @@ function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeSt
 
 function makeSession(toDaemon = vi.fn()) {
   return new Session({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     cwd: '/w',
     title: 'w',
@@ -102,7 +103,7 @@ describe('Session', () => {
 
   it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {
     const s = new Session({
-      sessionId: 'sh',
+      sessionId: asSessionId('sh'),
       agentKind: 'shell',
       cwd: '/w',
       title: 'w',
@@ -475,7 +476,7 @@ describe('Session', () => {
 
   it('markLive promotes a reconnecting session to live', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -534,7 +535,7 @@ describe('Session', () => {
 
   it('preserves a persisted compute total when a reloaded old daemon omits it', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -567,7 +568,7 @@ describe('Session', () => {
 
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -591,7 +592,7 @@ describe('Session', () => {
 
   it('a running shell command advances lastActiveAt (output is its only signal)', () => {
     const s = new Session({
-      sessionId: 'sh',
+      sessionId: asSessionId('sh'),
       agentKind: 'shell',
       cwd: '/w',
       title: 'w',
@@ -728,7 +729,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -755,7 +756,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds counters from SessionInit ISO values', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',
@@ -773,7 +774,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
     const s = new Session({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/w',
       title: 'w',

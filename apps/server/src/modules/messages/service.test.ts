@@ -3,6 +3,7 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -150,12 +151,12 @@ function issueRow(over: Partial<IssueRow>): IssueRow {
 
 interface HarnessOpts {
   /** Override the fake queueText outcome per call (e.g. 'no resume ref'). */
-  queueText?: (i: { sessionId: string; text: string }) => {
+  queueText?: (i: { sessionId: SessionId; text: string }) => {
     ok: boolean
     queued?: boolean
     reason?: string
   }
-  sendText?: (i: { sessionId: string; text: string }) => {
+  sendText?: (i: { sessionId: SessionId; text: string }) => {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -188,9 +189,9 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       worktreePath: SENDER_ISSUE.worktreePath,
     }),
   )
-  const sent: { sessionId: string; text: string }[] = []
-  const queued: { sessionId: string; text: string }[] = []
-  const interrupted: { sessionId: string; text: string }[] = []
+  const sent: { sessionId: SessionId; text: string }[] = []
+  const queued: { sessionId: SessionId; text: string }[] = []
+  const interrupted: { sessionId: SessionId; text: string }[] = []
   const attention: { messageId: string; reason: string }[] = []
   const listCalls = { n: 0 }
   const issueGetLists: (SessionMeta[] | undefined)[] = []
@@ -249,7 +250,7 @@ const NEEDS_USER = {
 /** Simulate the transcript echo that confirms a pushed message [POD-834]: the
  *  daemon tails the target's transcript and the pasted `[podium message <id>]`
  *  envelope reappears as a user turn — which flips the ledger queued → delivered. */
-function echo(svc: MessageDeliveryService, sessionId: string, ...ids: string[]): void {
+function echo(svc: MessageDeliveryService, sessionId: SessionId, ...ids: string[]): void {
   svc.onTranscriptDelta(
     sessionId,
     ids.map((id) => ({ role: 'user', text: `[podium message ${id} · from x · to y]` })),
@@ -264,8 +265,8 @@ describe('MessagesRepository (store CRUD)', () => {
       threadId: 'msg_1',
       inReplyTo: null,
       fromKind: 'agent',
-      fromSession: 'sX',
-      fromIssue: 'iss_b',
+      fromSession: asSessionId('sX'),
+      fromIssue: asIssueId('iss_b'),
       toKind: 'issue',
       toId: 'iss_a',
       kind: 'message',
@@ -311,7 +312,7 @@ describe('MessageDeliveryService.send', () => {
   it('stamps the sender server-side and ignores caller-supplied sender fields', () => {
     const { svc } = harness()
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       // A smuggling client: sender-shaped junk in the payload is simply not read.
       {
         to: { kind: 'issue', id: ISSUE.id },
@@ -331,7 +332,7 @@ describe('MessageDeliveryService.send', () => {
 
   it('senderFromCapability: subtree → agent principal, all → operator', () => {
     expect(
-      senderFromCapability({ scope: { kind: 'subtree', rootId: 'iss_b' }, actorSessionId: 's9' }),
+      senderFromCapability({ scope: { kind: 'subtree', rootId: asIssueId('iss_b') }, actorSessionId: asSessionId('s9') }),
     ).toEqual({ kind: 'agent', issueId: 'iss_b', sessionId: 's9' })
     expect(senderFromCapability({ scope: { kind: 'all' } })).toEqual({ kind: 'operator' })
   })
@@ -339,14 +340,14 @@ describe('MessageDeliveryService.send', () => {
   it('senderFromCapability: scope none (issueless agent session) is NEVER the operator', () => {
     // The exact impersonation hole: an issueless worker session must stamp as
     // an agent (enveloped, peer-clamped, cooldown-subject), not the human.
-    expect(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: 's7' })).toEqual({
+    expect(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: asSessionId('s7') })).toEqual({
       kind: 'agent',
       sessionId: 's7',
     })
     expect(senderFromCapability({ scope: { kind: 'none' } })).toEqual({ kind: 'agent' })
     // ... and it is enveloped + clamped end-to-end.
     const { svc, sent, interrupted } = harness([session({ sessionId: 's1', agentState: WORKING })])
-    const r = svc.send(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: 's7' }), {
+    const r = svc.send(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: asSessionId('s7') }), {
       to: { kind: 'session', id: 's1' },
       body: 'pretend I am the human',
       urgency: 'interrupt',
@@ -426,7 +427,7 @@ describe('MessageDeliveryService.send', () => {
     expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s1')
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
 
     // Busy live agents → holds for the turn boundary; the first member to go
@@ -453,7 +454,7 @@ describe('MessageDeliveryService.send', () => {
     expect(r2.disposition).toBe('queued')
     h2.svc.onSessionIdle(session({ sessionId: 'sNew', lastActiveAt: 't9', issueId: ISSUE.id }))
     expect(h2.sent[0]!.sessionId).toBe('sNew')
-    echo(h2.svc, 'sNew', r2.message.id)
+    echo(h2.svc, asSessionId('sNew'), r2.message.id)
     expect(h2.store.messages.getMessage(r2.message.id)!.status).toBe('delivered')
 
     // No live member → stays queued (durable; prime/stop-hook surfaces it).
@@ -558,7 +559,7 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.status).toBe('queued')
     expect(r.message.injectedAt).not.toBeNull()
     // The transcript echo is what confirms delivered.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
     const events = store.events
       .listEventsSince(0, { kinds: ['message.queued', 'message.injected', 'message.delivered'] })
@@ -587,7 +588,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     // s1 is the sole member of ISSUE and also the sender: the POD-279 self-echo.
     const { svc, sent, queued, store } = harness([session({ sessionId: 's1' })])
     const r = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'status to self' },
     )
     expect(sent).toHaveLength(0)
@@ -612,7 +613,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     const other = session({ sessionId: 's2', lastActiveAt: 't1' })
     const { svc, sent, store } = harness([sender, other])
     const r = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'team note' },
     )
     expect(sent).toHaveLength(1)
@@ -622,7 +623,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s2')
-    echo(svc, 's2', r.message.id)
+    echo(svc, asSessionId('s2'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -632,7 +633,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     const other = session({ sessionId: 's2', agentState: WORKING, lastActiveAt: 't9' })
     const { svc, sent, store } = harness([sender, other])
     const r = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'held note', urgency: 'next-turn' },
     )
     expect(r.message.status).toBe('queued')
@@ -645,14 +646,14 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]!.sessionId).toBe('s2')
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
-    echo(svc, 's2', r.message.id)
+    echo(svc, asSessionId('s2'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
   it('an agent addressing its own session id is ledger-only, never echoed', () => {
     const { svc, sent, queued, store } = harness([session({ sessionId: 's1' })])
     const r = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: 's1' }, body: 'note to self' },
     )
     expect(sent).toHaveLength(0)
@@ -680,7 +681,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       expect(r.disposition).toBe('queued')
       expect(r.message.status).toBe('queued')
       expect(r.message.injectedAt).not.toBeNull()
-      echo(svc, 's1', r.message.id)
+      echo(svc, asSessionId('s1'), r.message.id)
       expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
     }
   })
@@ -698,7 +699,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // ... and the turn ending (phase → idle) drains it, then the echo confirms.
     svc.onSessionIdle(session({ sessionId: 's1' }))
     expect(sent).toHaveLength(1)
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -716,7 +717,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // ... and the turn ending (phase → idle) delivers it inline, then echo confirms.
     svc.onSessionIdle(session({ sessionId: 's1' }))
     expect(sent).toHaveLength(1)
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -774,7 +775,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // Only after the human answers (phase → idle) does it deliver, then echo confirms.
     svc.onSessionIdle(session({ sessionId: 's1' }))
     expect(sent).toHaveLength(1)
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -828,7 +829,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     // Enqueued to resurrect; queued until it wakes, types, and echoes.
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s1')
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -872,7 +873,7 @@ describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [
       now: () => 0, // deadline (10_000) is never reached: confirmation wins
       sleep: async () => {
         polls += 1
-        if (polls === 1) echo(svc, 's1', r.message.id)
+        if (polls === 1) echo(svc, asSessionId('s1'), r.message.id)
       },
     })
     expect(row?.status).toBe('delivered')
@@ -916,7 +917,7 @@ describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [
       now: () => 0,
       sleep: async () => {
         polls += 1
-        if (polls === 1) svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+        if (polls === 1) svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
       },
     })
     expect(row?.status).toBe('read')
@@ -1134,7 +1135,7 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
       session({ sessionId: 's1', agentState: WORKING }),
     ])
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt' },
     )
     expect(interrupted).toHaveLength(0)
@@ -1153,7 +1154,7 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
       session({ sessionId: 'child', agentState: WORKING, spawnedBy: 'session:parent1' }),
     ])
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'parent1' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('parent1') },
       { to: { kind: 'session', id: 'child' }, body: 'stop', urgency: 'interrupt' },
     )
     expect(interrupted).toHaveLength(1)
@@ -1265,7 +1266,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
       threadId: 'msg_deep',
       inReplyTo: null,
       fromKind: 'agent',
-      fromSession: 'sZ',
+      fromSession: asSessionId('sZ'),
       fromIssue: SENDER_ISSUE.id,
       toKind: 'session',
       toId: 's1',
@@ -1289,7 +1290,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     expect(store.messages.getMessage('msg_deep')!.injectedAt).not.toBeNull()
     // ...so what s1 sends within that turn is hop 6 → wake clamps to wait.
     const r = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: 's2' }, body: 'ping', lifecycle: 'wake' },
     )
     expect(r.message.hop).toBe(HOP_LIMIT + 1)
@@ -1300,7 +1301,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     // The NEXT turn (idle again) clears the hop context: hop resets to 0.
     svc.onSessionIdle(sessions[0]!)
     const r2 = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: 's2' }, body: 'later', lifecycle: 'wake' },
     )
     expect(r2.message.hop).toBe(0)
@@ -1338,7 +1339,7 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
     svc.onSessionIdle(s)
     expect(sent).toHaveLength(1)
     // Reading the inbox is what confirms them (read = the pull-path delivery).
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect(store.messages.getMessage(r1.message.id)!.status).toBe('read')
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
   })
@@ -1396,7 +1397,7 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
     svc.sweep()
     expect(sent).toHaveLength(1)
     // The sweep pushed it; the echo confirms delivered.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -1507,12 +1508,12 @@ describe('acks', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'do the thing', urgency: 'next-turn' },
     )
     expect(orig.message.status).toBe('queued') // pushed, awaiting echo
     const ack = svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         to: { kind: 'session', id: 'sX' },
         body: 'done it',
@@ -1544,11 +1545,11 @@ describe('acks', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn' },
     )
     const r1 = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: orig.message.id,
         body: 'a',
@@ -1562,7 +1563,7 @@ describe('acks', () => {
     const orig2 = store.messages.getMessage(orig.message.id)!
     store.messages.addMessage({ ...orig2, id: 'msg_o2', ackedBy: null })
     const r2 = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: 'msg_o2',
         body: 'a2',
@@ -1575,7 +1576,7 @@ describe('acks', () => {
     // Operator sender → operator row.
     const opMsg = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'op' })
     const r3 = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: opMsg.message.id,
         body: 'ok',
@@ -1603,7 +1604,7 @@ describe('acks', () => {
       createdAt: 't0',
       status: 'delivered',
       deliveredAt: 't1',
-      deliveredTo: 's1',
+      deliveredTo: asSessionId('s1'),
       ackedBy: null,
       hop: 0,
       clampedFrom: null,
@@ -1613,16 +1614,16 @@ describe('acks', () => {
     // Must not throw (previously: raw SQLite FOREIGN KEY constraint failed) and
     // must land in the SENDER's issue, resolved to the real id.
     const r = svc.sendReply(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: 'msg_legacy', body: 'finally replyable' },
     )
     expect(r.message).toMatchObject({ toKind: 'issue', toId: ISSUE.id })
     expect(r.legacy).toMatchObject({ issueId: ISSUE.id }) // mirror row holds the real id
 
     // An UNRESOLVABLE legacy sender degrades to an operator row, never an error.
-    store.messages.addMessage({ ...migrated, id: 'msg_ghost', fromIssue: 'issue:#404' })
+    store.messages.addMessage({ ...migrated, id: 'msg_ghost', fromIssue: asIssueId('issue:#404') })
     const r2 = svc.sendReply(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: 'msg_ghost', body: 'who were you?' },
     )
     expect(r2.message.toKind).toBe('operator')
@@ -1676,7 +1677,7 @@ describe('opt-in response [POD-835 §04b]', () => {
     ]
     const { svc, sent, queued, interrupted } = harness(sessions)
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'please check X',
@@ -1685,7 +1686,7 @@ describe('opt-in response [POD-835 §04b]', () => {
       },
     )
     const reply = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: orig.message.id, body: 'checked, all good' },
     )
     // fyi by default — surfaces at the requester's next stop, not a burned turn.
@@ -1693,7 +1694,7 @@ describe('opt-in response [POD-835 §04b]', () => {
     expect(reply.disposition).toBe('queued')
     // NOTHING was typed into the running requester: not queueText (next-turn), not
     // interruptText, and not an inline sendText push.
-    const toSx = (rows: { sessionId: string }[]) => rows.filter((r) => r.sessionId === 'sX')
+    const toSx = (rows: { sessionId: SessionId }[]) => rows.filter((r) => r.sessionId === 'sX')
     expect(toSx(queued)).toHaveLength(0)
     expect(toSx(interrupted)).toHaveLength(0)
     expect(toSx(sent)).toHaveLength(0)
@@ -1705,7 +1706,7 @@ describe('stop-hook single reminder (pendingReminders)', () => {
     const sessions = [session({ sessionId: 's1' })]
     const { svc } = harness(sessions)
     const m = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       // Only an explicit --expect-response owes a reply [POD-835].
       {
         to: { kind: 'session', id: 's1' },
@@ -1716,11 +1717,11 @@ describe('stop-hook single reminder (pendingReminders)', () => {
     )
     // The stop-hook only reminds about messages the agent DEMONSTRABLY has
     // (echo-confirmed delivered) — never a push we couldn't confirm [POD-834].
-    echo(svc, 's1', m.message.id)
-    const first = svc.pendingReminders('s1')
+    echo(svc, asSessionId('s1'), m.message.id)
+    const first = svc.pendingReminders(asSessionId('s1'))
     expect(first).toHaveLength(1)
     expect(first[0]!.from).toBe('issue:#212')
-    expect(svc.pendingReminders('s1')).toHaveLength(0) // persisted — never repeats
+    expect(svc.pendingReminders(asSessionId('s1'))).toHaveLength(0) // persisted — never repeats
   })
 
   it('never reminds about a message that did not request a response [POD-835]', () => {
@@ -1728,15 +1729,15 @@ describe('stop-hook single reminder (pendingReminders)', () => {
     const { svc } = harness(sessions)
     // An ordinary next-turn message owes no reply — receipt is mechanical.
     const m = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'heads up, no reply needed',
         urgency: 'next-turn',
       },
     )
-    echo(svc, 's1', m.message.id)
-    expect(svc.pendingReminders('s1')).toHaveLength(0)
+    echo(svc, asSessionId('s1'), m.message.id)
+    expect(svc.pendingReminders(asSessionId('s1'))).toHaveLength(0)
   })
 
   it('skips a requested response once a reply (any kind) has fulfilled it', () => {
@@ -1753,7 +1754,7 @@ describe('stop-hook single reminder (pendingReminders)', () => {
       { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         to: { kind: 'operator' },
         body: 'done, here is what I found',
@@ -1761,7 +1762,7 @@ describe('stop-hook single reminder (pendingReminders)', () => {
         inReplyTo: asked.message.id,
       },
     )
-    expect(svc.pendingReminders('s1')).toHaveLength(0)
+    expect(svc.pendingReminders(asSessionId('s1'))).toHaveLength(0)
   })
 })
 
@@ -1784,7 +1785,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     // Two requests from the same sender + one from the superagent, all delivered to
     // s1. Only --expect-response messages are notifiable [POD-835].
     const m1 = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'm1',
@@ -1793,7 +1794,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       },
     )
     const m2 = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'm2',
@@ -1811,9 +1812,9 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       },
     )
     // Echo-confirm all three so the settle fallback sees them as delivered.
-    echo(svc, 's1', m1.message.id, m2.message.id, m3.message.id)
+    echo(svc, asSessionId('s1'), m1.message.id, m2.message.id, m3.message.id)
 
-    svc.systemAckFallback('s1', {
+    svc.systemAckFallback(asSessionId('s1'), {
       outcome: 'finished',
       issueSeq: 228,
       issueStage: 'review',
@@ -1839,7 +1840,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const m1 = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'm1',
@@ -1847,12 +1848,12 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
         expectsResponse: true,
       },
     )
-    echo(svc, 's1', m1.message.id)
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    echo(svc, asSessionId('s1'), m1.message.id)
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(systemNotices(store)).toHaveLength(1)
     // Every subsequent settle (the real bug: 6 nags in 33 minutes) adds nothing.
-    svc.systemAckFallback('s1', { outcome: 'finished' })
-    svc.systemAckFallback('s1', { outcome: 'errored' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'errored' })
     expect(systemNotices(store)).toHaveLength(1)
     // The once-guard is the notification-exists check — NOT a false acked_by stamp.
     // The steward's own settle notice (kind:'notification') must never satisfy the
@@ -1865,11 +1866,11 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const { svc, store } = harness(sessions)
     // Even a next-turn message owes no reply — receipt is mechanical, no ack traffic.
     const m1 = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'FYI I landed the fix', urgency: 'next-turn' },
     )
-    echo(svc, 's1', m1.message.id)
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    echo(svc, asSessionId('s1'), m1.message.id)
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(systemNotices(store)).toHaveLength(0)
   })
 
@@ -1877,10 +1878,10 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'heads up', urgency: 'fyi' },
     )
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(systemNotices(store)).toHaveLength(0)
   })
 
@@ -1888,11 +1889,11 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const q = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'which one?', urgency: 'fyi', kind: 'question' },
     )
-    echo(svc, 's1', q.message.id)
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    echo(svc, asSessionId('s1'), q.message.id)
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(systemNotices(store)).toHaveLength(1)
   })
 
@@ -1900,18 +1901,18 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: orig.message.id,
         body: 'did it',
       },
     )
     const before = store.messages.listQueued(100).length
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(store.messages.listQueued(100).length).toBe(before) // nothing synthesized
   })
 
@@ -1919,7 +1920,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'can you rebase before merging?',
@@ -1927,11 +1928,11 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
         expectsResponse: true,
       },
     )
-    echo(svc, 's1', orig.message.id)
+    echo(svc, asSessionId('s1'), orig.message.id)
     // A thorough reply in the thread — kind 'message', NOT a bare ack. The old model
     // counted this as "no ack" (the 36 false notices); now it satisfies the request.
     svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: orig.message.id,
         body: 'Rebased onto main at abc123 and merged.',
@@ -1939,7 +1940,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       },
     )
     expect(store.messages.getMessage(orig.message.id)!.ackedBy).not.toBeNull()
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(systemNotices(store)).toHaveLength(0)
   })
 
@@ -1947,7 +1948,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const req = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'please confirm the API shape',
@@ -1955,10 +1956,10 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
         expectsResponse: true,
       },
     )
-    echo(svc, 's1', req.message.id)
-    svc.systemAckFallback('s1', { outcome: 'finished' })
-    svc.systemAckFallback('s1', { outcome: 'finished' })
-    svc.systemAckFallback('s1', { outcome: 'errored' })
+    echo(svc, asSessionId('s1'), req.message.id)
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'errored' })
     const notices = systemNotices(store)
     expect(notices).toHaveLength(1)
     expect(notices[0]!.inReplyTo).toBe(req.message.id)
@@ -1973,7 +1974,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const req = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'confirm?',
@@ -1981,14 +1982,14 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
         expectsResponse: true,
       },
     )
-    echo(svc, 's1', req.message.id)
+    echo(svc, asSessionId('s1'), req.message.id)
     // First settle: a notice fires and does NOT stamp acked_by.
-    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished' })
     expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
     // Now the RECIPIENT (s1) actually replies — that DOES fulfil it (stamps acked_by),
     // proving the guard admits the real answer while rejecting the steward's nag.
     const reply = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: req.message.id, body: 'confirmed', kind: 'message' },
     )
     expect(store.messages.getMessage(req.message.id)!.ackedBy).toBe(reply.message.id)
@@ -2003,7 +2004,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     ]
     const { svc, store } = harness(sessions)
     const req = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'session', id: 's1' },
         body: 'confirm?',
@@ -2013,7 +2014,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     )
     // A third-party session tries to reply in the thread — it is not who was asked.
     svc.send(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 'sZ' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('sZ') },
       {
         to: { kind: 'session', id: 'sX' },
         body: 'I got this',
@@ -2036,7 +2037,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
 
     const request = (body: string) => {
       const sent = svc.send(
-        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
         {
           to: { kind: 'session', id: 's1' },
           body,
@@ -2044,19 +2045,19 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
           expectsResponse: true,
         },
       )
-      echo(svc, 's1', sent.message.id)
+      echo(svc, asSessionId('s1'), sent.message.id)
     }
 
     request('first')
-    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished', notificationFact })
     const first = systemNotices(store)[0]!
     expect(first).toMatchObject({ factKey: 'settle:s1', factTarget: 's1' })
-    svc.readInbox([{ kind: 'session', id: 'sX' }], { consume: 'sX' })
+    svc.readInbox([{ kind: 'session', id: 'sX' }], { consume: asSessionId('sX') })
     expect(store.messages.getMessage(first.id)!.status).toBe('read')
     expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
 
     request('second')
-    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    svc.systemAckFallback(asSessionId('s1'), { outcome: 'finished', notificationFact })
     expect(systemNotices(store)).toHaveLength(2)
   })
 
@@ -2089,15 +2090,15 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
   it('messages without a fact reference dismiss and read without error', () => {
     const { svc } = harness([])
     const dismissed = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain dismiss' },
     )
     expect(() => svc.dismiss(dismissed.message.id, 's1')).not.toThrow()
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'plain read' },
     )
-    expect(() => svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })).not.toThrow()
+    expect(() => svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })).not.toThrow()
   })
 })
 
@@ -2105,13 +2106,13 @@ describe('readInbox (podium mail inbox)', () => {
   it('consuming reads mark queued rows READ (the pull path) and keep the legacy mirror in step', () => {
     const { svc, store } = harness([]) // no live member → issue send stays queued
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'hello' },
     )
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     // Opening the inbox is the PULL-path confirmation: read, distinct from a
     // pushed `delivered` [POD-834 §04d].
-    const rows = svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    const rows = svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect(rows[0]!.status).toBe('read')
     expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
     expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
@@ -2119,7 +2120,7 @@ describe('readInbox (podium mail inbox)', () => {
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
     // a NON-consuming peek never marks
     const r2 = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'again' },
     )
     svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {})
@@ -2209,7 +2210,7 @@ describe('sweep cooldown key for session-addressed wakes', () => {
       },
     })
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'wake', lifecycle: 'wake' },
     )
     expect(r.message.status).toBe('queued')
@@ -2232,11 +2233,11 @@ describe('inline delivery consumes the legacy issue_messages mirror', () => {
   it('an issue message injected inline no longer counts as legacy unread (stop-hook nag)', () => {
     const { svc, store } = harness([session({ sessionId: 's1' })])
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'note', urgency: 'next-turn' },
     )
     // The echo confirms delivered, and delivered is what consumes the mirror.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
   })
@@ -2280,7 +2281,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
     const now = () => new Date(clock).toISOString()
     const h1 = harness([], {
       now,
-      spawnOnWake: { spawn: () => ({ ok: true, sessionId: 'spawned' }) },
+      spawnOnWake: { spawn: () => ({ ok: true, sessionId: asSessionId('spawned') }) },
     })
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       clock += 60_000
@@ -2324,7 +2325,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
   const peerCap: Capability = {
     role: 'worker',
     scope: { kind: 'subtree', rootId: SENDER_ISSUE.id },
-    actorSessionId: 'sX',
+    actorSessionId: asSessionId('sX'),
   }
 
   it('a subtree-scoped peer sending to ANOTHER issue needs --outside-scope', async () => {
@@ -2361,7 +2362,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     // Operator ↔ issue traffic in ANOTHER subtree must not leak to a peer.
     svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'operator note' })
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'my own note' },
     )
     const peek = (await gate.dispatch(peerCap, undefined, 'inbox', {
@@ -2386,7 +2387,7 @@ describe('cross-machine provenance note [POD-658]', () => {
       session({ sessionId: 'sX', cwd: '/wt/b', machineId: 'm2' }),
     ])
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'ping', urgency: 'next-turn' },
     )
     expect(sent[0]?.text).toContain('runs on machine "m2"')
@@ -2399,7 +2400,7 @@ describe('cross-machine provenance note [POD-658]', () => {
       session({ sessionId: 'sX', cwd: '/wt/b', machineId: 'm1' }),
     ])
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'ping', urgency: 'next-turn' },
     )
     expect(sent[0]?.text).not.toContain('workspace fetch')
@@ -2434,7 +2435,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     const live: SessionMeta[] = []
     const { svc, sent, store } = harness(live)
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       {
         to: { kind: 'issue', id: ISSUE.id },
         body: 'Merged to main as e77e4ac',
@@ -2450,7 +2451,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     live.push(s)
     svc.onSessionIdle(s)
     expect(sent).toHaveLength(1)
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -2472,7 +2473,7 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
     const senderSession = session({ sessionId: 'sX', cwd: '/wt/b' })
     const { svc, store } = harness([senderSession], { archivedIds })
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'ping', urgency: 'next-turn' },
     )
     expect(r.disposition).toBe('held')
@@ -2499,7 +2500,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
     // The message's own id echoing back as a user turn is the proof.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     const confirmed = store.messages.getMessage(r.message.id)!
     expect(confirmed.status).toBe('delivered')
     expect(confirmed.deliveredTo).toBe('s1')
@@ -2515,13 +2516,13 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     // An assistant turn merely quoting the id must not self-confirm it.
-    svc.onTranscriptDelta('s1', [{ role: 'assistant', text: `re: podium message ${r.message.id}` }])
+    svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'assistant', text: `re: podium message ${r.message.id}` }])
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     // Nor an echo seen in a DIFFERENT session than the one we pushed to.
-    echo(svc, 's2', r.message.id)
+    echo(svc, asSessionId('s2'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     // The real session's user-turn echo confirms it.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -2533,13 +2534,13 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     const live: SessionMeta[] = []
     const { svc, store } = harness(live)
     const r = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'held note', urgency: 'next-turn' },
     )
     expect(r.disposition).toBe('held')
     expect(store.messages.getMessage(r.message.id)!.injectedAt).toBeNull()
     // A completely unrelated session echoes the id — must be ignored.
-    svc.onTranscriptDelta('someOtherSession', [
+    svc.onTranscriptDelta(asSessionId('someOtherSession'), [
       { role: 'user', text: `look at [podium message ${r.message.id} · from x · to y]` },
     ])
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
@@ -2548,7 +2549,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     const s = session({ sessionId: 's1', issueId: ISSUE.id })
     live.push(s)
     svc.onSessionIdle(s)
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
     expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
   })
@@ -2559,14 +2560,14 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
       session({ sessionId: 'sX', cwd: '/wt/b' }),
     ])
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
     )
     // Pushed to s1 but its echo never registered (empty-text paste, detached tail…).
     expect(store.messages.getMessage(orig.message.id)!.status).toBe('queued')
     // s1 answers it — the ack is stronger proof of receipt than an echo.
     svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: orig.message.id, body: 'done' },
     )
     // The original is now delivered, so the sweep will never re-inject it.
@@ -2597,7 +2598,7 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     const requeued = store.events.listEventsSince(0, { kinds: ['message.requeued'] })
     expect(requeued.some((e) => e.subject === r.message.id)).toBe(true)
     // And now its echo confirms it delivered.
-    echo(svc, 's1', r.message.id)
+    echo(svc, asSessionId('s1'), r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
@@ -2701,7 +2702,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     svc.onSessionIdle(s)
     expect(store.messages.getMessage(r1.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('queued')
-    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect(store.messages.getMessage(r1.message.id)!.status).toBe('read')
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
   })
@@ -2747,7 +2748,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       threadId: 'msg_s2',
       inReplyTo: null,
       fromKind: 'agent',
-      fromSession: 'sX',
+      fromSession: asSessionId('sX'),
       fromIssue: SENDER_ISSUE.id,
       toKind: 'issue',
       toId: ISSUE.id,
@@ -2768,7 +2769,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       clampedFrom: null,
       remindedAt: null,
     })
-    store.messages.markInjected('msg_s2', 's2', '2026-07-13T00:00:00.000Z')
+    store.messages.markInjected('msg_s2', asSessionId('s2'), '2026-07-13T00:00:00.000Z')
     // s1 reaches a turn boundary — must NOT confirm a row pushed to s2.
     svc.onSessionIdle(s1)
     expect(store.messages.getMessage('msg_s2')!.status).toBe('queued')
@@ -2791,7 +2792,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     const a = mk('a')
     const b = mk('b')
     const c = mk('c')
-    svc.onTranscriptDelta('s1', [
+    svc.onTranscriptDelta(asSessionId('s1'), [
       { role: 'user', text: `[podium message ${a} · from x · to y] and [podium message ${b}]` },
       { role: 'user', text: `[podium message ${c} · from x · to y]` },
     ])
@@ -2808,12 +2809,12 @@ describe('best-effort acks/notifications [POD-853]', () => {
       session({ sessionId: 'sX', cwd: '/wt/b' }),
     ])
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
     )
     // s1 acks it → the ack is addressed back to the live, idle session sX.
     const ack = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: orig.message.id, body: 'done' },
     )
     // An ack is never itself acked and ack-confirms-original does not apply to it,
@@ -2835,11 +2836,11 @@ describe('best-effort acks/notifications [POD-853]', () => {
     ]
     const { svc, sent, store } = harness(live, { now })
     const orig = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') },
       { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
     )
     const ack = svc.sendReply(
-      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
       { inReplyTo: orig.message.id, body: 'done' },
     )
     // Busy recipient: the ack is queued, not injected yet.
@@ -2971,13 +2972,13 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
     ]
     const { svc, sent } = harness(sessions)
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sender') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'ready on bind' },
     )
     expect(sent).toHaveLength(0)
 
     sessions[0] = session({ sessionId: 's1', status: 'live', issueId: ISSUE.id })
-    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged(asSessionId('s1'))
     svc.flushDeliveryTriggers()
 
     expect(sent).toHaveLength(1)
@@ -3012,7 +3013,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
       issueId: ISSUE.id,
       resume: { kind: 'claude', value: 'native-1' },
     })
-    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged(asSessionId('s1'))
     svc.flushDeliveryTriggers()
 
     expect(queued).toHaveLength(2)
@@ -3022,13 +3023,13 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
     const sessions: SessionMeta[] = []
     const { svc, sent } = harness(sessions)
     const result = svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sender') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'membership changed' },
     )
     expect(result.disposition).toBe('held')
 
     sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
-    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged(asSessionId('s1'))
     svc.flushDeliveryTriggers()
 
     expect(sent).toHaveLength(1)
@@ -3038,7 +3039,7 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
   it('reconciles queued rows once at startup without waiting for an idle edge', () => {
     const first = harness([])
     first.svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sender') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'survived restart' },
     )
 
@@ -3108,13 +3109,13 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
     const sessions: SessionMeta[] = []
     const { svc, sent } = harness(sessions)
     svc.send(
-      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sender') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'exactly once' },
     )
     sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
 
-    svc.onSessionEligibilityChanged('s1')
-    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged(asSessionId('s1'))
+    svc.onSessionEligibilityChanged(asSessionId('s1'))
     svc.onIssueEligibilityChanged(ISSUE.id)
     svc.flushDeliveryTriggers()
 
@@ -3206,13 +3207,13 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
             {
               urgency: 'fyi',
               injectedAt: '2026-07-13T00:00:00.000Z',
-              deliveredTo: 's1',
+              deliveredTo: asSessionId('s1'),
             },
           ),
         )
         store.messages.markInjected(
           `msg_awaiting_${String(i).padStart(3, '0')}`,
-          's1',
+          asSessionId('s1'),
           '2026-07-13T00:00:00.000Z',
         )
       }
@@ -3224,7 +3225,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         ),
       )
 
-      svc.onSessionEligibilityChanged('s1')
+      svc.onSessionEligibilityChanged(asSessionId('s1'))
       svc.flushDeliveryTriggers()
       expect(sent).toHaveLength(0)
       vi.runAllTimers()
@@ -3283,7 +3284,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
                 '2026-07-13T00:00:01.000Z',
               ),
             )
-            svc.onSessionEligibilityChanged('s1', idle)
+            svc.onSessionEligibilityChanged(asSessionId('s1'), idle)
           }
           return { ok: true }
         },
@@ -3383,7 +3384,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         ),
       )
 
-      first.svc.onSessionEligibilityChanged('s1')
+      first.svc.onSessionEligibilityChanged(asSessionId('s1'))
       first.svc.flushDeliveryTriggers()
       expect(first.queued).toHaveLength(1)
       expect(first.store.messages.getWakeCooldown('superagent|iss_a')).toBe(
@@ -3467,16 +3468,16 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
         session({ sessionId: 'remaining', issueId: ISSUE.id, lastActiveAt: 'a' }),
       ]
       const { svc, sent } = harness(sessions)
-      svc.onSessionEligibilityChanged('moving', sessions[0])
+      svc.onSessionEligibilityChanged(asSessionId('moving'), sessions[0])
       svc.flushDeliveryTriggers()
       svc.send(
-        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sender') },
         { to: { kind: 'issue', id: ISSUE.id }, body: `old target after ${transition.name}` },
       )
       expect(sent).toHaveLength(0)
 
       const changed = transition.apply(sessions)
-      svc.onSessionEligibilityChanged('moving', changed)
+      svc.onSessionEligibilityChanged(asSessionId('moving'), changed)
       svc.flushDeliveryTriggers()
 
       expect(sent).toHaveLength(1)
@@ -3497,7 +3498,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     const { svc, sent } = harness(sessions, {
       issueForCwd: (cwd) => issueForCwd(cwd),
     })
-    svc.onSessionEligibilityChanged('s1', sessions[0])
+    svc.onSessionEligibilityChanged(asSessionId('s1'), sessions[0])
     svc.flushDeliveryTriggers()
     svc.send(
       { kind: 'superagent' },

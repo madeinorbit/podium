@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -10,7 +11,7 @@ import { SessionRegistry } from '../../relay'
  */
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -36,12 +37,12 @@ function liveSession(reg: SessionRegistry): string {
 }
 
 /** Acquire `name` as the given live session via the relay dispatcher. */
-async function acquireAs(reg: SessionRegistry, sessionId: string, name: string): Promise<void> {
+async function acquireAs(reg: SessionRegistry, sessionId: SessionId, name: string): Promise<void> {
   const r = (await reg.modules.lockCommands.dispatch(
     { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId } },
     'acquire',
     { repoPath: '/repo', name },
-  )) as { granted: boolean; lock: { holder: { sessionId: string | null } } }
+  )) as { granted: boolean; lock: { holder: { sessionId: SessionId | null } } }
   expect(r.granted).toBe(true)
   expect(r.lock.holder.sessionId).toBe(sessionId)
 }

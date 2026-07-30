@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -84,7 +85,7 @@ describe('server agent relay handler (P1b)', () => {
     const spawned = await spawnReply
     expect(spawned.ok).toBe(true)
     expect(spawned.result).toMatchObject({ ok: true, issueId: A.id })
-    const childId = (spawned.result as { sessionId: string }).sessionId
+    const childId = (spawned.result as { sessionId: SessionId }).sessionId
     expect(registry.modules.sessions.listSessions()).toContainEqual(
       expect.objectContaining({
         sessionId: childId,
@@ -489,7 +490,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
 
   /** One relayed call from session `sessionId`, resolved to its reply. */
   const relay = async (
-    sessionId: string,
+    sessionId: SessionId,
     router: string,
     proc: string,
     input: unknown,
@@ -506,7 +507,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     return reply
   }
 
-  const nameOf = (sessionId: string): string | undefined =>
+  const nameOf = (sessionId: SessionId): string | undefined =>
     registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name
 
   beforeEach(() => {
@@ -606,7 +607,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   let requestSeq = 0
 
   const relay = async (
-    sessionId: string,
+    sessionId: SessionId,
     router: string,
     proc: string,
     input: unknown,
@@ -623,7 +624,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
     return reply
   }
 
-  const offerOf = (sessionId: string) =>
+  const offerOf = (sessionId: SessionId) =>
     registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
 
   beforeEach(() => {

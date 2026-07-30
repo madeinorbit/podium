@@ -6,6 +6,7 @@
  * cannot reach a user-visible path — the bus isolates listeners, so a thrown
  * emitter must not break the session spawn that emitted the event.
  */
+import { asSessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -46,7 +47,7 @@ describe('no consent = no collection, however hard the bus is driven', () => {
     saveConfig({ mode: 'all-in-one', telemetry: { usage: 'off', crash: 'off' } })
     const bus = new EventBus()
     const t = wire(bus)
-    bus.emit('session.created', { sessionId: 's1', agentKind: 'codex' })
+    bus.emit('session.created', { sessionId: asSessionId('s1'), agentKind: 'codex' })
     expect(readWindow(dir)).toBeUndefined()
     t.stop()
   })
@@ -60,7 +61,7 @@ describe('no consent = no collection, however hard the bus is driven', () => {
       })
       const bus = new EventBus()
       const t = wire(bus)
-      bus.emit('session.created', { sessionId: 's1', agentKind: 'codex' })
+      bus.emit('session.created', { sessionId: asSessionId('s1'), agentKind: 'codex' })
       expect(readWindow(dir)).toBeUndefined()
       t.stop()
     } finally {
@@ -84,9 +85,9 @@ describe('with consent', () => {
   it('counts sessions per harness kind', () => {
     const bus = new EventBus()
     const t = wire(bus)
-    bus.emit('session.created', { sessionId: 's1', agentKind: 'claude-code' })
-    bus.emit('session.created', { sessionId: 's2', agentKind: 'claude-code' })
-    bus.emit('session.created', { sessionId: 's3', agentKind: 'codex' })
+    bus.emit('session.created', { sessionId: asSessionId('s1'), agentKind: 'claude-code' })
+    bus.emit('session.created', { sessionId: asSessionId('s2'), agentKind: 'claude-code' })
+    bus.emit('session.created', { sessionId: asSessionId('s3'), agentKind: 'codex' })
     expect(readWindow(dir)?.sessions).toEqual({ 'claude-code': 2, codex: 1 })
     t.stop()
   })
@@ -119,7 +120,7 @@ describe('with consent', () => {
     const bus = new EventBus()
     const t = wire(bus)
     t.stop()
-    bus.emit('session.created', { sessionId: 's1', agentKind: 'codex' })
+    bus.emit('session.created', { sessionId: asSessionId('s1'), agentKind: 'codex' })
     expect(readWindow(dir)?.sessions ?? {}).toEqual({})
   })
 })
@@ -137,7 +138,7 @@ describe('a telemetry failure never reaches a user-visible path', () => {
       throw new Error('boom')
     })
     // The bus isolates per-listener; the spawn path that emits sees nothing.
-    expect(() => bus.emit('session.created', { sessionId: 's1', agentKind: 'codex' })).not.toThrow()
+    expect(() => bus.emit('session.created', { sessionId: asSessionId('s1'), agentKind: 'codex' })).not.toThrow()
     expect(sibling).toBe(1)
     t.stop()
   })

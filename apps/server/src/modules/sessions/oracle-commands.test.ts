@@ -10,6 +10,7 @@
  * the durable row. See oracle-support.ts for the tag contract.
  */
 
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -33,7 +34,7 @@ const inputs = (daemon: ControlMessage[]) =>
 /** Bind a created session as a live agent with a known resume ref and phase. */
 function goLive(
   o: ReturnType<typeof makeOracle>,
-  sessionId: string,
+  sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
   o.reg.modules.sessions.onDaemonMessageFrom('local', {

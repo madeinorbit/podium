@@ -26,6 +26,7 @@
  * poll seam.
  */
 
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import {
@@ -46,7 +47,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
   it('records threadId/inReplyTo/hop/expiresAt/deliveredTo and leaves an enveloped push awaiting its echo', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 'sTarget', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
     const expires = '2026-07-21T12:00:00.000Z'
 
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -103,7 +104,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
   it('dead-letters a session-addressed row whose session is gone, and an archived issue', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'archived' })
-    h.put({ sessionId: 'sGone', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sGone'), issueId: iss.id, phase: 'idle' })
     // The target session vanishes between the send surface's resolution and
     // delivery — resolution is deliberately TOCTOU-safe, so it is decided here.
     const r = await h.svc.send(
@@ -134,14 +135,14 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const h = mailHarness()
     const from = h.createIssue({ title: 'sender' })
     const to = h.createIssue({ title: 'receiver' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
 
     // The paste-END marker inside a body is the substrate-boundary attack: it
     // would terminate the bracketed paste early and everything after it would
     // run as raw keystrokes in another agent's session.
     const body = 'line1\n\u001b[201~rm -rf /\tTAB\u0000NUL'
     const r = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body, urgency: 'next-turn' },
     )
     const id = r.message.id
@@ -161,7 +162,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
   it('delivers an operator body unwrapped AND unsanitized — exact bytes, no frame', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // SINGLE-OPERATOR ARTEFACT: "unwrapped = the human" is an invariant the
     // receiver's prime rules trust, and it rests on there being exactly ONE
     // operator principal (one shared password, one capability that is admin over
@@ -175,7 +176,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
   it('renders the reply frame for an operator QUESTION around a still byte-faithful body', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'why \u001b[201~ this?'
     const r = h.svc.send(
       { kind: 'operator' },
@@ -198,9 +199,9 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const h = mailHarness()
     const from = h.createIssue({ title: 'sender' })
     const to = h.createIssue({ title: 'receiver' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
         body: 'please handle',
@@ -221,7 +222,7 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
   it('renders an oversized issue-addressed body as a pointer, never inline', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
     h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
     expect(h.pushes[0]!.text).toBe(
@@ -239,7 +240,7 @@ describe('characterization: urgency x target state (D3)', () => {
   it('interrupt lands MID-TURN on a busy session while next-turn and fyi are held', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'busy' })
-    h.put({ sessionId: 'sBusy', issueId: iss.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('sBusy'), issueId: iss.id, phase: 'working' })
 
     const fyi = h.svc.send(
       { kind: 'operator' },
@@ -271,7 +272,7 @@ describe('characterization: urgency x target state (D3)', () => {
   it('an idle session takes every urgency immediately via sendText', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'idle' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
       h.svc.send(
         { kind: 'operator' },
@@ -285,7 +286,7 @@ describe('characterization: urgency x target state (D3)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'drafting' })
     h.put({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       issueId: iss.id,
       phase: 'idle',
       draftUpdatedAt: '2026-07-20T11:59:00.000Z',
@@ -303,7 +304,7 @@ describe('characterization: urgency x target state (D3)', () => {
   it('a parked session holds a `wait` and resurrects on a `wake`', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'parked' })
-    h.put({ sessionId: 's1', issueId: iss.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
 
     const wait = h.svc.send(
       { kind: 'operator' },
@@ -327,7 +328,7 @@ describe('characterization: urgency x target state (D3)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'unresumable' })
     h.setWorktree(iss.id, '/wt/unresumable')
-    h.put({ sessionId: 's1', issueId: iss.id, status: 'exited' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'exited' })
     h.transport.ok = false
     h.transport.reason = 'no resume ref'
     h.transport.failSessions = ['s1']
@@ -358,10 +359,10 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     const h = mailHarness()
     const from = h.createIssue({ title: 'peer sender' })
     const to = h.createIssue({ title: 'peer target' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
 
     const r = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
     )
     // Not an error: the send succeeds at the capped axes.
@@ -382,13 +383,13 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     const parentIssue = h.createIssue({ title: 'parent' })
     const childIssue = h.createIssue({ title: 'child' })
     h.put({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       issueId: childIssue.id,
       phase: 'working',
       spawnedBy: 'session:sParent',
     })
     const r = h.svc.send(
-      { kind: 'agent', issueId: parentIssue.id, sessionId: 'sParent' },
+      { kind: 'agent', issueId: parentIssue.id, sessionId: asSessionId('sParent') },
       { to: { kind: 'session', id: 'sChild' }, body: 'stop', urgency: 'interrupt' },
     )
     expect(r.message.clampedFrom).toBeNull()
@@ -398,7 +399,7 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
   it('caps a system sender at next-turn/wait', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const r = h.svc.send(
       { kind: 'system', name: 'steward' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt', lifecycle: 'wake' },
@@ -420,7 +421,7 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     const h = mailHarness()
     const from = h.createIssue({ title: 'waker' })
     const to = h.createIssue({ title: 'sleeper' })
-    h.put({ sessionId: 'sTo', issueId: to.id, status: 'hibernated' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, status: 'hibernated' })
     const sender = { kind: 'agent' as const, issueId: from.id, sessionId: 'sFrom' }
 
     const first = h.svc.send(sender, {
@@ -453,8 +454,8 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     const h = mailHarness()
     const a = h.createIssue({ title: 'a' })
     const b = h.createIssue({ title: 'b' })
-    h.put({ sessionId: 'sA', issueId: a.id, phase: 'idle' })
-    h.put({ sessionId: 'sB', issueId: b.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sA'), issueId: a.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sB'), issueId: b.id, phase: 'idle' })
     const agentA = { kind: 'agent' as const, issueId: a.id, sessionId: 'sA' }
     const agentB = { kind: 'agent' as const, issueId: b.id, sessionId: 'sB' }
 
@@ -502,24 +503,24 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
   it('flips queued → delivered only on a USER-role transcript echo from the session we pushed to', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
-    h.put({ sessionId: 'sOther', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sOther'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     const id = r.message.id
     expect(h.svc.message(id)!.status).toBe('queued')
 
     // An assistant turn quoting the id must never self-confirm.
-    h.svc.onTranscriptDelta('s1', [{ role: 'assistant', text: `podium message ${id}` }])
+    h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'assistant', text: `podium message ${id}` }])
     expect(h.svc.message(id)!.status).toBe('queued')
     // Nor may a DIFFERENT session's transcript quoting the id confirm it (the
     // operator pasting it elsewhere) — that would strand the real target.
-    h.svc.onTranscriptDelta('sOther', [{ role: 'user', text: `podium message ${id}` }])
+    h.svc.onTranscriptDelta(asSessionId('sOther'), [{ role: 'user', text: `podium message ${id}` }])
     expect(h.svc.message(id)!.status).toBe('queued')
 
-    h.svc.onTranscriptDelta('s1', [{ role: 'user', text: `[podium message ${id} · from x]` }])
+    h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: `[podium message ${id} · from x]` }])
     const delivered = h.svc.message(id)!
     expect(delivered.status).toBe('delivered')
     expect(delivered.deliveredAt).toBe(h.now())
@@ -538,7 +539,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const id = r.message.id
     expect(h.svc.message(id)!.status).toBe('queued')
 
-    const rows = h.svc.readInbox([{ kind: 'issue', id: iss.id }], { consume: 'sReader' })
+    const rows = h.svc.readInbox([{ kind: 'issue', id: iss.id }], { consume: asSessionId('sReader') })
     expect(rows.map((m) => m.status)).toEqual(['read'])
     const read = h.svc.message(id)!
     expect(read).toMatchObject({ status: 'read', readAt: h.now(), deliveredTo: 'sReader' })
@@ -551,10 +552,10 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
   it('a turn boundary confirms an already-pushed row, but an ERRORED turn does not', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    const [s1] = h.put({ sessionId: 's1', issueId: iss.id, phase: 'working' })
+    const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     // next-turn to a busy session: held, nothing pushed yet.
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     const id = r.message.id
@@ -590,9 +591,9 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
   it('does not re-push inside the echo window, requeues past it, and caps the loop', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
     const id = r.message.id
@@ -618,7 +619,7 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
   it('never re-nudges a coalesced pointer row (no re-nudge storm)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    const [s1] = h.put({ sessionId: 's1', issueId: iss.id, phase: 'working' })
+    const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     for (const body of ['one', 'two']) {
       h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' })
     }
@@ -646,10 +647,10 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     const h = mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
-    h.put({ sessionId: 'sFrom', issueId: from.id, phase: 'idle' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
         body: 'question?',
@@ -693,10 +694,10 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     const h = mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
-    h.put({ sessionId: 'sFrom', issueId: from.id, phase: 'idle' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       {
         to: { kind: 'session', id: 'sTo' },
         body: 'please handle',
@@ -720,7 +721,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // from releasing awaitAck by itself, tested here on the one sender for whom
     // the other guards do not already decide it).
     h.svc.send(
-      { kind: 'agent', issueId: to.id, sessionId: 'sTo' },
+      { kind: 'agent', issueId: to.id, sessionId: asSessionId('sTo') },
       {
         to: { kind: 'session', id: 'sFrom' },
         kind: 'notification',
@@ -733,7 +734,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // Nor does a reply from a THIRD party.
     const third = h.createIssue({ title: 'bystander' })
     h.svc.send(
-      { kind: 'agent', issueId: third.id, sessionId: 'sThird' },
+      { kind: 'agent', issueId: third.id, sessionId: asSessionId('sThird') },
       { to: { kind: 'session', id: 'sFrom' }, kind: 'message', inReplyTo: oid, body: 'me too' },
     )
     expect(h.svc.message(oid)!.ackedBy).toBeNull()
@@ -742,7 +743,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // reply ends the thread, not only a kind:'ack' (POD-835 — treating such a
     // reply as "no ack" produced 36 false "finished without acking" notices).
     const substantive = h.svc.send(
-      { kind: 'agent', issueId: to.id, sessionId: 'sTo' },
+      { kind: 'agent', issueId: to.id, sessionId: asSessionId('sTo') },
       { to: { kind: 'session', id: 'sFrom' }, kind: 'message', inReplyTo: oid, body: 'handled it' },
     )
     expect(h.svc.message(oid)!.ackedBy).toBe(substantive.message.id)
@@ -758,7 +759,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
   it('sets expectsResponse for --expect-response and for a question, never for ack/notification', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
 
     expect(h.svc.send({ kind: 'operator' }, { to, body: 'plain' }).message.expectsResponse).toBe(
@@ -790,7 +791,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
   it('reminds about an unreplied --expect-response message exactly ONCE, and never about a plain one', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
     // Both are pushed to an idle session; the operator's body is unwrapped, so
     // it is confirmed on injection (delivered) — the state pendingReminders reads.
@@ -800,32 +801,32 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       { to, body: 'reply please', expectsResponse: true },
     )
 
-    const first = h.svc.pendingReminders('s1')
+    const first = h.svc.pendingReminders(asSessionId('s1'))
     expect(first).toEqual([{ id: asked.message.id, from: 'operator', body: 'reply please' }])
     // Each message earns exactly ONE reminder, persisted — then the steward
     // fallback owns it. Unreplied mail does not nag forever.
-    expect(h.svc.pendingReminders('s1')).toEqual([])
+    expect(h.svc.pendingReminders(asSessionId('s1'))).toEqual([])
     // Still outstanding for the settle path until a reply lands.
-    expect(h.svc.settleNotifiable('s1').map((m) => m.id)).toEqual([asked.message.id])
+    expect(h.svc.settleNotifiable(asSessionId('s1')).map((m) => m.id)).toEqual([asked.message.id])
     h.svc.sendReply(
-      { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       {
         inReplyTo: asked.message.id,
         body: 'done',
       },
     )
-    expect(h.svc.settleNotifiable('s1')).toEqual([])
+    expect(h.svc.settleNotifiable(asSessionId('s1'))).toEqual([])
   })
 
   it('emits one steward settle notice per unanswered message, routed like a reply', () => {
     const h = mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
-    h.put({ sessionId: 'sFrom', issueId: from.id, phase: 'idle' })
-    h.put({ sessionId: 'sTo', issueId: to.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     for (const body of ['q1', 'q2']) {
       const sent = h.svc.send(
-        { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+        { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
         {
           to: { kind: 'session', id: 'sTo' },
           body,
@@ -836,10 +837,10 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
       // The settle notice only fires for messages the recipient DEMONSTRABLY
       // has: the query is gated on status delivered/read, so an enveloped push
       // still awaiting its echo is deliberately not notifiable yet.
-      h.svc.onTranscriptDelta('sTo', [{ role: 'user', text: `podium message ${sent.message.id}` }])
+      h.svc.onTranscriptDelta(asSessionId('sTo'), [{ role: 'user', text: `podium message ${sent.message.id}` }])
     }
     h.pushes.length = 0
-    h.svc.systemAckFallback('sTo', { outcome: 'finished', issueSeq: to.seq, issueStage: 'review' })
+    h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished', issueSeq: to.seq, issueStage: 'review' })
     // ONE notice PER MESSAGE — a group notice referencing only the latest would
     // leave the others unmarked and re-fire them next settle (the loop that sent
     // one message 7 notices in 33 minutes).
@@ -850,7 +851,7 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     expect(notices[0]!.body).toContain('finished without responding to your message')
     expect(notices[0]!.body).toContain(`issue #${to.seq} stage=review`)
     // Idempotent: a second settle produces nothing new.
-    h.svc.systemAckFallback('sTo', { outcome: 'finished' })
+    h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished' })
     expect(
       h.svc.inbox([{ kind: 'session', id: 'sFrom' }]).filter((m) => m.kind === 'notification'),
     ).toHaveLength(2)
@@ -865,9 +866,9 @@ describe('characterization: self-delivery suppression (D10)', () => {
   it('consumes a session self-send straight to the ledger — delivered to nobody, never pushed', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'solo' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'session', id: 's1' }, body: 'note to self' },
     )
     // "The sender already knows it sent it." Recorded, not dropped — and it
@@ -883,9 +884,9 @@ describe('characterization: self-delivery suppression (D10)', () => {
   it('suppresses an issue-addressed note when the sender is the issue’s only member', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'solo issue' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 's1' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
       { to: { kind: 'issue', id: iss.id }, body: 'my own note' },
     )
     expect(r.disposition).toBe('delivered')
@@ -898,10 +899,10 @@ describe('characterization: self-delivery suppression (D10)', () => {
   it('excludes the sender from issue-recipient resolution but still reaches a sibling', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'two members' })
-    h.put({ sessionId: 'sSender', issueId: iss.id, phase: 'idle' })
-    h.put({ sessionId: 'sPeer', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'idle' })
     h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: iss.id }, body: 'for whoever is up' },
     )
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
@@ -911,11 +912,11 @@ describe('characterization: self-delivery suppression (D10)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'drain' })
     const [sender, peer] = h.put(
-      { sessionId: 'sSender', issueId: iss.id, phase: 'working' },
+      { sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'working' },
       { sessionId: 'sPeer', issueId: iss.id, phase: 'working' },
     )
     h.svc.send(
-      { kind: 'agent', issueId: iss.id, sessionId: 'sSender' },
+      { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: iss.id }, body: 'queued while both busy' },
     )
     expect(h.pushes).toEqual([])
@@ -950,10 +951,10 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
       },
     })
     const iss = h.createIssue({ title: 'target' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     echoOnce = () => {
       const row = h.svc.inbox([{ kind: 'session', id: 's1' }]).at(-1)!
-      h.svc.onTranscriptDelta('s1', [{ role: 'user', text: `podium message ${row.id}` }])
+      h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: `podium message ${row.id}` }])
     }
     const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
       to: 's1',
@@ -969,7 +970,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
   it('returns the honest `accepted` when the budget expires with the row still queued', async () => {
     const h = mailHarness({ awaitPollMs: 500 })
     const iss = h.createIssue({ title: 'busy' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
       to: 's1',
       body: 'held by a busy turn',
@@ -983,7 +984,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
   it('never blocks an fyi', async () => {
     const h = mailHarness({ awaitPollMs: 500 })
     const iss = h.createIssue({ title: 'busy' })
-    h.put({ sessionId: 's1', issueId: iss.id, phase: 'working' })
+    h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const before = h.now()
     const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
       to: 's1',
@@ -1006,9 +1007,9 @@ describe('characterization: sender-queryable status (D12)', () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'target' })
     const from = h.createIssue({ title: 'sender' })
-    h.put({ sessionId: 'sTo', issueId: iss.id, phase: 'idle' })
+    h.put({ sessionId: asSessionId('sTo'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
-      { kind: 'agent', issueId: from.id, sessionId: 'sFrom' },
+      { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'next-turn' },
     )
     const wire = (await h.gate.dispatch(h.agentCap(from.id, 'sFrom'), undefined, 'status', {

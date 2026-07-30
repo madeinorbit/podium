@@ -18,7 +18,7 @@
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { OPERATOR, SOLE_USER_ID } from '@podium/model'
+import { OPERATOR, SOLE_USER_ID, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
@@ -208,7 +208,7 @@ describe('per-user writes are SELF-SCOPED', () => {
 describe('owner-or-grant policy on the shared session writes', () => {
   const SHARED = ['sessions.rename', 'sessions.setArchived', 'sessions.setWorkState', 'sessions.setIssueId']
 
-  const inputFor = (name: string, sessionId: string) => {
+  const inputFor = (name: string, sessionId: SessionId) => {
     switch (name) {
       case 'sessions.rename':
         return { sessionId, name: 'renamed' }

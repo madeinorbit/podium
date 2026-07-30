@@ -12,7 +12,7 @@
  * context the router builds, from the same composition root.
  */
 
-import { asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -45,7 +45,7 @@ const human = (id: UserId): CommandPrincipal => ({
 })
 
 const agentFor = (
-  sessionId: string,
+  sessionId: SessionId,
   onBehalfOf: UserId,
   chain: string[] = [],
 ): AgentCommandPrincipal => ({
@@ -171,7 +171,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'box',
-      })) as { sessionId: string }
+      })) as { sessionId: SessionId }
       const input =
         command === 'sendText' || command === 'resumeAndSend'
           ? { sessionId: spawned.sessionId, text: 'hello' }
@@ -267,13 +267,13 @@ describe('delegation, resolved live at every apply', () => {
       name: 'The Box',
     })
     const ownership = ownershipTable(rows)
-    const worker = agentFor('agent-1', INSTANCE_OWNER)
+    const worker = agentFor(asSessionId('agent-1'), INSTANCE_OWNER)
 
     const first = (await dispatchSessionCommand(ctxFor(o, worker, { ownership }), 'create', {
       agentKind: 'shell',
       cwd: '/p',
       machineId: 'box',
-    })) as { sessionId: string }
+    })) as { sessionId: SessionId }
     expect(first.sessionId).toEqual(expect.any(String))
 
     // Revoke the HUMAN's grant. Nothing is told about the agent; nothing kills it.
@@ -313,7 +313,7 @@ describe('delegation, resolved live at every apply', () => {
       // human gate.
       new Map([['parent', ['a']]]),
     )
-    const child = agentFor('child', INSTANCE_OWNER, ['parent'])
+    const child = agentFor(asSessionId('child'), INSTANCE_OWNER, ['parent'])
 
     // The human may spawn on 'b'...
     await expect(
@@ -383,7 +383,7 @@ describe('invisible fails exactly like nonexistent', () => {
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const agent = agentFor('agent-1', INSTANCE_OWNER)
+    const agent = agentFor(asSessionId('agent-1'), INSTANCE_OWNER)
     const hidden = ctxFor(o, agent, { visibility: () => false })
     const visible = ctxFor(o, agent)
 
@@ -412,7 +412,7 @@ describe('attribution and ownership come from the principal', () => {
       agentKind: 'claude-code',
       cwd: '/p',
       machineId: 'box',
-    })) as { sessionId: string }
+    })) as { sessionId: SessionId }
     o.reg.modules.sessions.onDaemonMessageFrom('box', {
       type: 'bind',
       sessionId,
@@ -437,7 +437,7 @@ describe('attribution and ownership come from the principal', () => {
   })
 
   it('a created session is owned by the onBehalfOf human, with the agent as actor', () => {
-    const owned = createdOwnership(agentFor('agent-1', COLLEAGUE), undefined)
+    const owned = createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), undefined)
 
     expect(owned).toEqual({
       owner: COLLEAGUE,
@@ -445,12 +445,12 @@ describe('attribution and ownership come from the principal', () => {
       inheritedFrom: { kind: 'principal' },
     })
     // The actor half is what the shipped `spawnedBy` column already speaks.
-    expect(spawnedByFor(agentFor('agent-1', COLLEAGUE))).toBe('session:agent-1')
+    expect(spawnedByFor(agentFor(asSessionId('agent-1'), COLLEAGUE))).toBe('session:agent-1')
     expect(spawnedByFor(human(COLLEAGUE))).toBe('user')
   })
 
   it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
-    const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
+    const underIssue = createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), {
       id: 'podium-7',
       owner: INSTANCE_OWNER,
     })
@@ -464,7 +464,7 @@ describe('attribution and ownership come from the principal', () => {
     })
     // An issue with no owner recorded yet falls back to the delegating human,
     // never to nobody: the draft vessel is OWNED.
-    expect(createdOwnership(agentFor('agent-1', COLLEAGUE), { id: 'draft-1' }).owner).toBe(
+    expect(createdOwnership(agentFor(asSessionId('agent-1'), COLLEAGUE), { id: 'draft-1' }).owner).toBe(
       COLLEAGUE,
     )
   })

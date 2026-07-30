@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createGitCapture, type SessionGitActivityOut } from './git-capture'
 
@@ -31,9 +32,9 @@ describe('git-capture', () => {
       'rev-parse HEAD': 'aaa',
       'rev-list --reverse aaa..bbb': 'sha1\nsha2',
     })
-    cap.onHookPayload('s1', pre())
+    cap.onHookPayload(asSessionId('s1'), pre())
     await settle()
-    cap.onHookPayload('s1', post())
+    cap.onHookPayload(asSessionId('s1'), post())
     await settle()
     // pre read 'aaa'; post read 'aaa' again in this script → no delta.
     expect(sent.filter((m) => m.commits)).toEqual([])
@@ -50,10 +51,10 @@ describe('git-capture', () => {
         return null
       },
     })
-    cap.onHookPayload('s1', pre())
+    cap.onHookPayload(asSessionId('s1'), pre())
     await settle()
     head = 'bbb' // the Bash call committed
-    cap.onHookPayload('s1', post())
+    cap.onHookPayload(asSessionId('s1'), post())
     await settle()
     const commitMsgs = sent.filter((m) => m.commits)
     expect(commitMsgs).toHaveLength(1)
@@ -72,10 +73,10 @@ describe('git-capture', () => {
       },
     })
     // Grok Build native hooks: camelCase hookEventName + toolName.
-    cap.onHookPayload('s1', { hookEventName: 'PreToolUse', toolName: 'Bash', cwd: '/repo' })
+    cap.onHookPayload(asSessionId('s1'), { hookEventName: 'PreToolUse', toolName: 'Bash', cwd: '/repo' })
     await settle()
     head = 'bbb'
-    cap.onHookPayload('s1', { hookEventName: 'PostToolUse', toolName: 'Bash', cwd: '/repo' })
+    cap.onHookPayload(asSessionId('s1'), { hookEventName: 'PostToolUse', toolName: 'Bash', cwd: '/repo' })
     await settle()
     const commitMsgs = sent.filter((m) => m.commits)
     expect(commitMsgs).toHaveLength(1)
@@ -89,25 +90,25 @@ describe('git-capture', () => {
       send: (msg) => sent.push(msg),
       run: async (args) => (args.join(' ') === 'rev-parse HEAD' ? head : null),
     })
-    cap.onHookPayload('s1', pre())
+    cap.onHookPayload(asSessionId('s1'), pre())
     await settle()
     head = 'bbb'
-    cap.onHookPayload('s1', post())
+    cap.onHookPayload(asSessionId('s1'), post())
     await settle()
     expect(sent.filter((m) => m.commits)[0]?.commits).toEqual(['bbb'])
   })
 
   it('registers a session once via SessionStart when the cwd is a repo', async () => {
     const { cap, sent } = capture({ 'rev-parse HEAD': 'aaa' })
-    cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/repo' })
-    cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/repo' })
+    cap.onHookPayload(asSessionId('s1'), { hook_event_name: 'SessionStart', cwd: '/repo' })
+    cap.onHookPayload(asSessionId('s1'), { hook_event_name: 'SessionStart', cwd: '/repo' })
     await settle()
     expect(sent).toEqual([{ type: 'sessionGitActivity', sessionId: 's1' }])
   })
 
   it('never registers a session outside git', async () => {
     const { cap, sent } = capture({})
-    cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/not-a-repo' })
+    cap.onHookPayload(asSessionId('s1'), { hook_event_name: 'SessionStart', cwd: '/not-a-repo' })
     await settle()
     expect(sent).toEqual([])
   })
@@ -119,13 +120,13 @@ describe('git-capture', () => {
       send: (msg) => sent.push(msg),
       run,
     })
-    cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/repo' })
+    cap.onHookPayload(asSessionId('s1'), { hook_event_name: 'SessionStart', cwd: '/repo' })
     await settle()
     expect(run).toHaveBeenCalledTimes(1)
     run.mockClear()
 
-    cap.onHookPayload('s1', pre('BashOutput'))
-    cap.onHookPayload('s1', post('BashOutput'))
+    cap.onHookPayload(asSessionId('s1'), pre('BashOutput'))
+    cap.onHookPayload(asSessionId('s1'), post('BashOutput'))
     await settle()
     expect(run).not.toHaveBeenCalled()
     expect(sent).toEqual([{ type: 'sessionGitActivity', sessionId: 's1' }])
@@ -133,9 +134,9 @@ describe('git-capture', () => {
 
   it('reports edit-tool touches once per file', async () => {
     const { cap, sent } = capture({ 'rev-parse HEAD': 'aaa' })
-    cap.onHookPayload('s1', post('Edit', { file_path: '/repo/a.ts' }))
-    cap.onHookPayload('s1', post('Edit', { file_path: '/repo/a.ts' }))
-    cap.onHookPayload('s1', post('Write', { file_path: '/repo/b.ts' }))
+    cap.onHookPayload(asSessionId('s1'), post('Edit', { file_path: '/repo/a.ts' }))
+    cap.onHookPayload(asSessionId('s1'), post('Edit', { file_path: '/repo/a.ts' }))
+    cap.onHookPayload(asSessionId('s1'), post('Write', { file_path: '/repo/b.ts' }))
     await settle()
     const touches = sent.filter((m) => m.touched)
     expect(touches.map((m) => m.touched)).toEqual([['/repo/a.ts'], ['/repo/b.ts']])
@@ -143,8 +144,8 @@ describe('git-capture', () => {
 
   it('ignores non-shell, non-edit tools and missing cwd', async () => {
     const { cap, sent } = capture({ 'rev-parse HEAD': 'aaa' })
-    cap.onHookPayload('s1', post('Read', { file_path: '/repo/a.ts' }))
-    cap.onHookPayload('s1', { hook_event_name: 'PostToolUse', tool_name: 'Bash' })
+    cap.onHookPayload(asSessionId('s1'), post('Read', { file_path: '/repo/a.ts' }))
+    cap.onHookPayload(asSessionId('s1'), { hook_event_name: 'PostToolUse', tool_name: 'Bash' })
     await settle()
     expect(sent).toEqual([])
   })
@@ -156,11 +157,11 @@ describe('git-capture', () => {
       send: (msg) => sent.push(msg),
       run: async (args) => (args.join(' ') === 'rev-parse HEAD' ? head : null),
     })
-    cap.onHookPayload('s1', pre())
+    cap.onHookPayload(asSessionId('s1'), pre())
     await settle()
-    cap.clearSession('s1')
+    cap.clearSession(asSessionId('s1'))
     head = 'bbb'
-    cap.onHookPayload('s1', post())
+    cap.onHookPayload(asSessionId('s1'), post())
     await settle()
     expect(sent.filter((m) => m.commits)).toEqual([])
   })

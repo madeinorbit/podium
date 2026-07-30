@@ -1,10 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  asSessionId,
-  type AgentPhase,
-  type AgentRuntimeState, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type AgentPhase, type AgentRuntimeState, type SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -28,7 +25,7 @@ function sink() {
   return { send: (m: ServerMessage) => sent.push(m), sent }
 }
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -925,7 +922,7 @@ describe('SessionRegistry', () => {
 
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
     const store = new SessionStore(':memory:')
-    const id = 'orphan-1'
+    const id = asSessionId('orphan-1')
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -944,7 +941,7 @@ describe('SessionRegistry', () => {
 
   it('leaves a dead exited session exited and untouched when its master is gone', () => {
     const store = new SessionStore(':memory:')
-    const id = 'dead-1'
+    const id = asSessionId('dead-1')
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     reg.modules.sessions.attachDaemon('local', () => {})
@@ -999,8 +996,8 @@ describe('SessionRegistry', () => {
     const clientId = reg.modules.sessions.attachClient(() => {})
     reg.modules.sessions.onClientMessage(clientId, {
       type: 'viewState',
-      visible: ['visible', 'focused'],
-      focused: 'focused',
+      visible: [asSessionId('visible'), asSessionId('focused')],
+      focused: asSessionId('focused'),
     })
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
@@ -1081,7 +1078,7 @@ describe('SessionRegistry', () => {
     reg.modules.sessions.attachDaemon('local', () => {})
     const first = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const second = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
-    const meta = (sessionId: string) =>
+    const meta = (sessionId: SessionId) =>
       reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
 
     reg.modules.sessions.onDaemonMessageFrom('local', {
@@ -1248,7 +1245,7 @@ describe('SessionRegistry', () => {
     c.sent.length = 0
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'title',
-      sessionId: 'nope',
+      sessionId: asSessionId('nope'),
       title: 'x',
     })
     expect(c.sent).toEqual([])
@@ -1425,7 +1422,7 @@ describe('SessionRegistry', () => {
   it('skips a persisted session with an invalid agentKind on load', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
-      id: 'good',
+      id: asSessionId('good'),
       agentKind: 'claude-code',
       cwd: '/a',
       title: 'good',
@@ -1449,7 +1446,7 @@ describe('SessionRegistry', () => {
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
     store.sessions.upsertSession({
-      id: 'bad',
+      id: asSessionId('bad'),
       agentKind: 'claude-code',
       cwd: '/b',
       title: 'bad',
@@ -1673,7 +1670,7 @@ describe('agent state', () => {
     expect(() =>
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
-        sessionId: 'ghost',
+        sessionId: asSessionId('ghost'),
         state: STATE,
       }),
     ).not.toThrow()
@@ -1702,7 +1699,7 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.modules.sessions.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
+    expect(reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') })).toEqual({ ok: false })
   })
 
   it('sends every configured external push target only when no client is visible', () => {
@@ -2185,7 +2182,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
 
     const p = reg.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
     const req = daemon.find((m) => m.type === 'transcriptRead') as
-      | { requestId: string; direction: string; limit: number; sessionId: string }
+      | { requestId: string; direction: string; limit: number; sessionId: SessionId }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent — short-circuit regression')
@@ -2258,7 +2255,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.modules.rpc.readTranscript({ sessionId: 'nope', direction: 'before', limit: 10 }),
+      reg.modules.rpc.readTranscript({ sessionId: asSessionId('nope'), direction: 'before', limit: 10 }),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
@@ -2270,7 +2267,7 @@ describe('sendText (chat send path)', () => {
       .filter((m) => m.type === 'input')
       .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
   const agentStateMsg = (
-    sessionId: string,
+    sessionId: SessionId,
     phase: AgentPhase,
     extra: Record<string, unknown> = {},
   ) =>
@@ -3036,7 +3033,7 @@ describe('reconnect identity (hello reclaim)', () => {
       expect(() =>
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId: 'no-such-session',
+          sessionId: asSessionId('no-such-session'),
           text: 'into the void',
         }),
       ).not.toThrow()
@@ -3187,7 +3184,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.modules.sessions.attachClient((m) => b.push(m))
     reg.modules.sessions.onClientMessage(idA, {
       type: 'draftEdit',
-      sessionId: 'sess',
+      sessionId: asSessionId('sess'),
       baseRev: 0,
       text: 'hi',
     })
@@ -3203,13 +3200,13 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.modules.sessions.attachClient((m) => b.push(m))
     reg.modules.sessions.onClientMessage(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'a',
     })
     reg.modules.sessions.onClientMessage(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 1,
       text: 'ab',
     })
@@ -3227,7 +3224,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const idB = reg.modules.sessions.attachClient((m) => b.push(m))
     reg.modules.sessions.onClientMessage(idA, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'from A',
     })
@@ -3235,7 +3232,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     b.length = 0
     reg.modules.sessions.onClientMessage(idB, {
       type: 'draftEdit',
-      sessionId: 's',
+      sessionId: asSessionId('s'),
       baseRev: 0,
       text: 'from B',
     })
@@ -3252,7 +3249,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     reg.modules.sessions.attachClient((m) => c.push(m))
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'nativeDraft',
-      sessionId: 'sess',
+      sessionId: asSessionId('sess'),
       text: 'typed in native',
     })
     expect(c.find((m) => m.type === 'sessionDraftChanged')).toMatchObject({
@@ -3428,7 +3425,7 @@ describe('SessionRegistry read state (#124)', () => {
 })
 
 describe('SessionRegistry snooze', () => {
-  const agentState = (sessionId: string, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
+  const agentState = (sessionId: SessionId, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
     ({
       type: 'agentState',
       sessionId,
@@ -3496,7 +3493,7 @@ describe('SessionRegistry snooze', () => {
   it('seeds snoozedUntil from the store at load', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession({
-      id: 's1',
+      id: asSessionId('s1'),
       agentKind: 'claude-code',
       cwd: '/p',
       title: 't',
@@ -3516,7 +3513,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, asSessionId('s1'), null)
     const reg = new SessionRegistry(store)
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })

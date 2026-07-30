@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type SessionMeta, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, type SessionId, type SessionMeta } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -15,7 +15,7 @@ import { SessionStore } from './store'
 // relay.test.ts's 'queueText drain' describe — not duplicated here.
 
 const G = { cols: 80, rows: 24 }
-const bind = (sessionId: string) =>
+const bind = (sessionId: SessionId) =>
   ({
     type: 'bind',
     sessionId,
@@ -48,7 +48,7 @@ function hibernatedSession(reg: SessionRegistry): string {
 
 /** Drive the readiness engine to 'settled' after a bind: a short burst of output,
  *  then quiet long enough to clear the floor(800)+quiet(600) window (fake timers). */
-function settle(reg: SessionRegistry, sessionId: string): void {
+function settle(reg: SessionRegistry, sessionId: SessionId): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
     reg.modules.sessions.onDaemonMessageFrom('local', {

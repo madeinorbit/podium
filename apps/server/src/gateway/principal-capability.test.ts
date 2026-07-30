@@ -5,7 +5,7 @@
  * is ever defaulted.
  */
 
-import { authorize, capabilityAttribution, type IssueScope } from '@podium/model'
+import { asIssueId, authorize, capabilityAttribution, type IssueScope } from '@podium/model'
 import {
   asAgentIdentityId,
   asCapabilityRef,
@@ -46,7 +46,7 @@ describe('capabilityFromPrincipal', () => {
   it('an agent is the actor; its human is the on-behalf-of', () => {
     const capability = capabilityFromPrincipal(agentPrincipal, {
       role: 'worker',
-      scope: { kind: 'subtree', rootId: 'iss-1' },
+      scope: { kind: 'subtree', rootId: asIssueId('iss-1') },
     })
     expect(capabilityAttribution(capability)).toEqual({
       actor: 'sess-agent-1',
@@ -81,7 +81,7 @@ describe('capabilityFromPrincipal', () => {
   it('the pair reaches the command layer intact — authorize() runs on this value', () => {
     const capability = capabilityFromPrincipal(agentPrincipal, {
       role: 'worker',
-      scope: { kind: 'subtree', rootId: 'iss-1' },
+      scope: { kind: 'subtree', rootId: asIssueId('iss-1') },
     })
     // The authz decision is unchanged by the added attribution …
     expect(authorize(capability, 'write', { id: 'iss-1' })).toBe('allow')

@@ -3,6 +3,7 @@
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
@@ -127,8 +128,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
   function harness() {
     const store = new SessionStore(':memory:')
     const sessions: SessionMeta[] = []
-    const queued: { sessionId: string; text: string }[] = []
-    const interrupted: { sessionId: string; text: string }[] = []
+    const queued: { sessionId: SessionId; text: string }[] = []
+    const interrupted: { sessionId: SessionId; text: string }[] = []
     const deps: MessageDeliveryDeps = {
       messages: store.messages,
       notificationFacts: store.notificationFacts,
@@ -172,7 +173,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
   it('a wake to an empty issue spawns a fresh agent and the message is its first prompt', () => {
     const { svc, queued } = harness()
     const r = svc.send(
-      { kind: 'agent', sessionId: 'sParent', issueId: 'iss_b' },
+      { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'get going', lifecycle: 'wake' },
     )
     // Enqueued to the fresh agent's boot queue; queued until it drains + echoes.
@@ -187,11 +188,11 @@ describe('wake → spawn → first prompt (service integration)', () => {
   it('the spawn unlocks parent-grade clamps: the waker may interrupt its child', () => {
     const { svc, interrupted } = harness()
     svc.send(
-      { kind: 'agent', sessionId: 'sParent', issueId: 'iss_b' },
+      { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'go', lifecycle: 'wake' },
     )
     const r = svc.send(
-      { kind: 'agent', sessionId: 'sParent', issueId: 'iss_b' },
+      { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'stop!', urgency: 'interrupt' },
     )
     expect(r.message.urgency).toBe('interrupt') // not clamped to next-turn
@@ -199,7 +200,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     expect(interrupted).toHaveLength(1)
     // A PEER (not the parent) is still clamped.
     const peer = svc.send(
-      { kind: 'agent', sessionId: 'sOther', issueId: 'iss_b' },
+      { kind: 'agent', sessionId: asSessionId('sOther'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'hey', urgency: 'interrupt' },
     )
     expect(peer.message.urgency).toBe('next-turn')

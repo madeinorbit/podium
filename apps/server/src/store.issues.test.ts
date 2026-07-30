@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow } from './store'
 import { SessionStore } from './store'
@@ -56,7 +57,7 @@ describe('issues child tables (P1)', () => {
 
 function baseRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x',
+    id: asIssueId('iss_x'),
     repoPath: '/r',
     seq: 1,
     title: 'X',
@@ -109,7 +110,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
         needsHuman: true,
         humanQuestion: 'merge?',
         humanQuestionOptions: ['Yes, merge', 'No', 'Later'],
-        humanQuestionAskedBy: 'sess_1',
+        humanQuestionAskedBy: asSessionId('sess_1'),
         humanQuestionAskedAt: '2026-07-14T00:00:00.000Z',
       }),
     )
@@ -118,7 +119,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
     expect(back.humanQuestionAskedBy).toBe('sess_1')
     expect(back.humanQuestionAskedAt).toBe('2026-07-14T00:00:00.000Z')
     // A row literal without the optional fields (legacy shape) reads back null.
-    store.issues.upsertIssue(baseRow({ id: 'iss_plain', seq: 2, needsHuman: true }))
+    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_plain'), seq: 2, needsHuman: true }))
     const plain = store.issues.getIssue('iss_plain')!
     expect(plain.humanQuestionOptions).toBeNull()
     expect(plain.humanQuestionAskedBy).toBeNull()
@@ -147,16 +148,16 @@ describe('IssueRow rich fields round-trip (P1)', () => {
       baseRow({
         priority: 0,
         type: 'bug',
-        assignee: 'agent:claude',
-        parentId: 'iss_epic',
+        assignee: asUserId('agent:claude'),
+        parentId: asIssueId('iss_epic'),
         design: 'D',
         acceptance: 'A',
         notes: 'N',
         dueAt: '2026-07-01',
         deferUntil: '2026-07-05',
         closedReason: 'duplicate',
-        supersededBy: 'iss_new',
-        duplicateOf: 'iss_canon',
+        supersededBy: asIssueId('iss_new'),
+        duplicateOf: asIssueId('iss_canon'),
         pinned: true,
         color: 'violet',
         estimateMin: 30,
@@ -201,9 +202,9 @@ describe('issue read state persistence (#124)', () => {
 
   it('persists and reads back read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ id: 'iss_read', readAt: '2026-07-07T00:00:00.000Z' }))
+    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read'), readAt: '2026-07-07T00:00:00.000Z' }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
-    store.issues.upsertIssue(baseRow({ id: 'iss_unread', seq: 2 }))
+    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_unread'), seq: 2 }))
     expect(store.issues.getIssue('iss_read')!.readAt).toBe('2026-07-07T00:00:00.000Z')
     expect(store.issues.getIssue('iss_unread')!.readAt).toBeNull()
     store.close()
@@ -232,7 +233,7 @@ describe('needs_human data layer (P4)', () => {
   it('persists needsHuman + humanQuestion round-trip', () => {
     const store = new SessionStore(':memory:')
     store.issues.upsertIssue(
-      baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }),
+      baseRow({ id: asIssueId('iss_x'), needsHuman: true, humanQuestion: 'which API key?' }),
     )
     const got = store.issues.getIssue('iss_x')!
     expect(got.needsHuman).toBe(true)
@@ -241,7 +242,7 @@ describe('needs_human data layer (P4)', () => {
 
   it('defaults needsHuman=false / humanQuestion=null when unset', () => {
     const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ id: 'iss_y', needsHuman: false, humanQuestion: null }))
+    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }))
     const y = store.issues.getIssue('iss_y')!
     expect(y.needsHuman).toBe(false)
     expect(y.humanQuestion).toBeNull()
@@ -271,16 +272,16 @@ describe('issue deps (P1)', () => {
   it('adds, lists (both directions), and removes deps', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
-    store.issues.addIssueDep('iss_a', 'iss_b')
-    store.issues.addIssueDep('iss_a', 'iss_c', 'related')
-    store.issues.addIssueDep('iss_a', 'iss_b') // idempotent
-    expect(store.issues.listIssueDeps('iss_a')).toEqual([
+    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
+    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
+    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b')) // idempotent
+    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
       { toId: 'iss_b', type: 'blocks' },
       { toId: 'iss_c', type: 'related' },
     ])
-    expect(store.issues.listDependents('iss_b')).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
-    store.issues.removeIssueDep('iss_a', 'iss_b')
-    expect(store.issues.listIssueDeps('iss_a')).toEqual([{ toId: 'iss_c', type: 'related' }])
+    expect(store.issues.listDependents(asIssueId('iss_b'))).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
+    store.issues.removeIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
+    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([{ toId: 'iss_c', type: 'related' }])
   })
 })
 
@@ -290,26 +291,26 @@ describe('issue comments (P1)', () => {
     seedIssues(store, 'iss_a', 'iss_b')
     store.issues.addIssueComment({
       id: 'c1',
-      issueId: 'iss_a',
+      issueId: asIssueId('iss_a'),
       author: 'mike',
       body: 'first',
       createdAt: 't1',
     })
     store.issues.addIssueComment({
       id: 'c2',
-      issueId: 'iss_a',
+      issueId: asIssueId('iss_a'),
       author: 'agent',
       body: 'second',
       createdAt: 't2',
     })
     store.issues.addIssueComment({
       id: 'c3',
-      issueId: 'iss_b',
+      issueId: asIssueId('iss_b'),
       author: 'x',
       body: 'other',
       createdAt: 't1',
     })
-    const cs = store.issues.listIssueComments('iss_a')
+    const cs = store.issues.listIssueComments(asIssueId('iss_a'))
     expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
     expect(cs[0]!.author).toBe('mike')
   })

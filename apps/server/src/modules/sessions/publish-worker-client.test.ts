@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -38,7 +40,7 @@ function fakeWorker() {
   return worker
 }
 
-function session(sessionId: string): SessionMeta {
+function session(sessionId: SessionId): SessionMeta {
   return {
     sessionId,
     agentKind: 'codex',
@@ -122,7 +124,7 @@ describe('PublishWorkerClient', () => {
     client.replaceProjection({
       generation: 1,
       ledgerCursor: 2,
-      sessions: [session('outer'), session('inner')],
+      sessions: [session(asSessionId('outer')), session(asSessionId('inner'))],
     })
     const stale = client.request({ view: view('target'), sinceCursor: null })
     stale.catch(() => {})
@@ -155,7 +157,7 @@ describe('PublishWorkerClient', () => {
   it('runs the focused ViewKey before queued background views', async () => {
     const worker = fakeWorker()
     const client = new PublishWorkerClient({ spawn: () => worker })
-    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
 
     const first = client.request({ view: view('first'), sinceCursor: null }, { focused: false })
     const background = client.request(
@@ -188,7 +190,7 @@ describe('PublishWorkerClient', () => {
   it('drops a queued same-ViewKey job when a newer view revision supersedes it', async () => {
     const worker = fakeWorker()
     const client = new PublishWorkerClient({ spawn: () => worker })
-    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
 
     const blocker = client.request({ view: view('blocker'), sinceCursor: null })
     const stale = client.request({ view: view('target', 1), sinceCursor: null })
@@ -211,7 +213,7 @@ describe('PublishWorkerClient', () => {
     const client = new PublishWorkerClient({
       spawn: () => spawnedWorker(workers, spawnIndex++),
     })
-    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+    client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
 
     const staleWorker = spawnedWorker(workers, 0)
     const stale = client.request({ view: view('target', 1), sinceCursor: null })
@@ -234,7 +236,7 @@ describe('PublishWorkerClient', () => {
       spawn: () => spawnedWorker(workers, spawnIndex++),
     })
     const changes: MetadataChange[] = [
-      { seq: 1, entity: 'session', id: 's1', op: 'upsert', value: session('s1') },
+      { seq: 1, entity: 'session', id: 's1', op: 'upsert', value: session(asSessionId('s1')) },
     ]
     client.applyProjection({ generation: 1, ledgerCursor: 1, changes })
 
@@ -260,7 +262,7 @@ describe('PublishWorkerClient', () => {
         spawn: () => spawnedWorker(workers, spawnIndex++),
         timeoutMs: 25,
       })
-      client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+      client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
       const stuck = client.request({ view: view('stuck'), sinceCursor: null })
       await vi.advanceTimersByTimeAsync(25)
       expect(spawnIndex).toBe(2)
@@ -280,7 +282,7 @@ describe('PublishWorkerClient', () => {
       const client = new PublishWorkerClient({
         spawn: () => spawnedWorker(workers, spawnIndex++),
       })
-      client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+      client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session(asSessionId('s1'))] })
       const pending = client.request({ view: view('target'), sinceCursor: null })
 
       spawnedWorker(workers, 0).emit('exit', 1)

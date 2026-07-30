@@ -17,20 +17,7 @@
  *     thing under test cannot notice its own coverage shrinking.
  */
 
-import {
-  IssueAgentDefaults,
-  IssueCoordination,
-  IssueGraphRefs,
-  IssueIdentity,
-  IssueIntent,
-  IssueLifecycle,
-  IssueLinear,
-  IssuePanelGroup,
-  IssueText,
-  IssueTriage,
-  IssueWorkspace,
-  NeedsHuman,
-} from '@podium/model'
+import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
@@ -49,9 +36,9 @@ import type { IssueRow } from './types'
  * distinct strings, and the four date-ish columns all distinct.
  */
 const fullRow = (): IssueRow => ({
-  id: 'iss_1',
+  id: asIssueId('iss_1'),
   repoPath: '/repo',
-  repoId: 'repo_a',
+  repoId: asRepoId('repo_a'),
   seq: 42,
   title: 'Fix login',
   description: 'the human summary',
@@ -80,8 +67,8 @@ const fullRow = (): IssueRow => ({
   deletedAt: '2026-01-09T00:00:00Z',
   priority: 1,
   type: 'bug',
-  assignee: 'mgw',
-  parentId: 'iss_parent',
+  assignee: asUserId('mgw'),
+  parentId: asIssueId('iss_parent'),
   design: 'design doc',
   acceptance: 'acceptance text',
   notes: 'the notes document',
@@ -90,8 +77,8 @@ const fullRow = (): IssueRow => ({
   closedReason: 'fixed',
   closedAt: '2026-01-08T00:00:00Z',
   tuckedAt: '2026-01-10T00:00:00Z',
-  supersededBy: 'iss_super',
-  duplicateOf: 'iss_dupe',
+  supersededBy: asIssueId('iss_super'),
+  duplicateOf: asIssueId('iss_dupe'),
   pinned: true,
   sortKey: 'a0',
   color: 'rose',
@@ -99,7 +86,7 @@ const fullRow = (): IssueRow => ({
   needsHuman: true,
   humanQuestion: 'which branch?',
   humanQuestionOptions: ['main', 'develop'],
-  humanQuestionAskedBy: 'sess_1',
+  humanQuestionAskedBy: asSessionId('sess_1'),
   humanQuestionAskedAt: '2026-01-03T00:00:00Z',
   panel: JSON.stringify({ todos: [], artifacts: [], deferred: [] }),
   // The two type-identical enums, deliberately DIFFERENT.
@@ -107,13 +94,13 @@ const fullRow = (): IssueRow => ({
   audience: 'human',
   draft: true,
   readAt: '2026-01-04T00:00:00Z',
-  coordinatorSessionId: 'sess_coord',
-  startedBySession: 'sess_start',
+  coordinatorSessionId: asSessionId('sess_coord'),
+  startedBySession: asSessionId('sess_start'),
 })
 
 /** The same row with every nullable column at its empty value. */
 const emptyRow = (): IssueRow => ({
-  id: 'iss_2',
+  id: asIssueId('iss_2'),
   repoPath: '/repo',
   repoId: null,
   seq: 1,

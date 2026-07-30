@@ -16,6 +16,7 @@
  *    allowlist, and turns both daemon failure modes into TRPCErrors.
  */
 
+import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -64,7 +65,7 @@ function answerUploads(
 }
 
 /** A live idle claude-code session the seance can address. */
-function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
+function liveSession(o: ReturnType<typeof makeOracle>, sessionId: SessionId, cwd = '/p'): void {
   o.reg.modules.sessions.onDaemonMessageFrom('local', {
     type: 'bind',
     sessionId,

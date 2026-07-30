@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +27,7 @@ describe('runMemoryBreakdownJob', () => {
     fakeProc(root, 100, 1, 'abduco', 'abduco -n podium-S1 claude', 50)
     fakeProc(root, 101, 100, 'claude', 'claude --foo', 200)
     const out = runMemoryBreakdownJob({
-      sessions: [{ sessionId: 'S1', label: 'podium-S1', pid: 100 }],
+      sessions: [{ sessionId: asSessionId('S1'), label: 'podium-S1', pid: 100 }],
       roots: [],
       selfPid: 999,
       procRoot: root,

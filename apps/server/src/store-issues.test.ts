@@ -1,3 +1,4 @@
+import { asIssueId, asRepoId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,9 +45,9 @@ describe('store issues', () => {
     const s = new SessionStore(':memory:')
     const rid = (p: string) => s.repos.resolveRepoIdForPath(p)
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(1)
-    s.issues.upsertIssue({ ...base(), id: 'a', repoPath: '/r', seq: 1 })
-    s.issues.upsertIssue({ ...base(), id: 'b', repoPath: '/r', seq: 2 })
-    s.issues.upsertIssue({ ...base(), id: 'c', repoPath: '/other', seq: 1 })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('a'), repoPath: '/r', seq: 1 })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('b'), repoPath: '/r', seq: 2 })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('c'), repoPath: '/other', seq: 1 })
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(3)
     expect(s.issues.nextIssueSeq(rid('/other'))).toBe(2)
     expect(s.issues.listIssueRows('/r').map((i) => i.id).sort()).toEqual(['a', 'b'])
@@ -55,10 +56,10 @@ describe('store issues', () => {
 
   it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', () => {
     const s = new SessionStore(':memory:')
-    const repoId = 'repo_shared_origin'
+    const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
-    s.issues.upsertIssue({ ...base(), id: 'a', repoPath: '/home/alice/proj', repoId, seq: 1 })
-    s.issues.upsertIssue({ ...base(), id: 'b', repoPath: '/home/bob/proj', repoId, seq: 2 })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('a'), repoPath: '/home/alice/proj', repoId, seq: 1 })
+    s.issues.upsertIssue({ ...base(), id: asIssueId('b'), repoPath: '/home/bob/proj', repoId, seq: 2 })
     // One repo_id → one sequence; the next number is 3, not a per-path duplicate.
     expect(s.issues.nextIssueSeq(repoId)).toBe(3)
   })
@@ -68,10 +69,10 @@ describe('store issues', () => {
     // 005 installed UNIQUE(repo_id, seq), so the upsert itself throws and the #140
     // heal has nothing to do on a live DB.
     const s = new SessionStore(':memory:')
-    const repoId = 'repo_dup'
-    s.issues.upsertIssue({ ...base(), id: 'm4', repoPath: '/home/user/p', repoId, seq: 4 })
+    const repoId = asRepoId('repo_dup')
+    s.issues.upsertIssue({ ...base(), id: asIssueId('m4'), repoPath: '/home/user/p', repoId, seq: 4 })
     expect(() =>
-      s.issues.upsertIssue({ ...base(), id: 't4', repoPath: '/home/till/p', repoId, seq: 4 }),
+      s.issues.upsertIssue({ ...base(), id: asIssueId('t4'), repoPath: '/home/till/p', repoId, seq: 4 }),
     ).toThrow()
     expect(s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
@@ -81,15 +82,15 @@ describe('store issues', () => {
     // 005 index out-of-band, plant a collision raw, then reopen through the store —
     // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
     const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
-    const repoId = 'repo_dup'
+    const repoId = asRepoId('repo_dup')
     const s1 = new SessionStore(file)
     // Same origin, two paths; canonical (majority) path /home/user + a loser path
     // /home/till that minted colliding #4 (and a non-colliding #1).
-    s1.issues.upsertIssue({ ...base(), id: 'm3', repoPath: '/home/user/p', repoId, seq: 3 })
-    s1.issues.upsertIssue({ ...base(), id: 'm4', repoPath: '/home/user/p', repoId, seq: 4 })
-    s1.issues.upsertIssue({ ...base(), id: 'm5', repoPath: '/home/user/p', repoId, seq: 5 })
-    s1.issues.upsertIssue({ ...base(), id: 't4', repoPath: '/home/till/p', repoId, seq: 99 })
-    s1.issues.upsertIssue({ ...base(), id: 't1', repoPath: '/home/till/p', repoId, seq: 1 })
+    s1.issues.upsertIssue({ ...base(), id: asIssueId('m3'), repoPath: '/home/user/p', repoId, seq: 3 })
+    s1.issues.upsertIssue({ ...base(), id: asIssueId('m4'), repoPath: '/home/user/p', repoId, seq: 4 })
+    s1.issues.upsertIssue({ ...base(), id: asIssueId('m5'), repoPath: '/home/user/p', repoId, seq: 5 })
+    s1.issues.upsertIssue({ ...base(), id: asIssueId('t4'), repoPath: '/home/till/p', repoId, seq: 99 })
+    s1.issues.upsertIssue({ ...base(), id: asIssueId('t1'), repoPath: '/home/till/p', repoId, seq: 1 })
     s1.close()
     const raw = openDatabase(file)
     raw.exec('DROP INDEX idx_issues_repo_id_seq')

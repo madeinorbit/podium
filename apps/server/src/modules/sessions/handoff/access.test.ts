@@ -9,6 +9,7 @@
  * express cheaply, notably an admin-vs-owner-vs-grantee matrix.
  */
 
+import { asIssueId } from '@podium/model'
 import type { MachineId } from '@podium/model'
 import type { ResolvedMachine, UserId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -72,7 +73,7 @@ describe("legacy admin backing (what today's fleet can express)", () => {
     // with a constrained scope is not the operator, and machine `use` is not an
     // issue-tracker verb it inherits.
     expect(
-      refusal(() => gate({ role: 'admin', scope: { kind: 'subtree', rootId: 'i1' } })('m1')),
+      refusal(() => gate({ role: 'admin', scope: { kind: 'subtree', rootId: asIssueId('i1') } })('m1')),
     ).toEqual(['absent', "unknown machine 'm1'"])
   })
 })

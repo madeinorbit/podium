@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import type { IssueWire } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
@@ -196,13 +197,13 @@ describe('viaHub forwarding boundaries', () => {
 
   it('constrained (agent) capabilities are FORBIDDEN on hub issues — no autonomous viaHub actions', async () => {
     const { forwarded, caller } = makeNode()
-    const agent = caller({ role: 'worker', scope: { kind: 'subtree', rootId: 'iss_local_root' } })
+    const agent = caller({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId('iss_local_root') } })
     await expect(agent.issues.update({ id: HUB_ID, patch: { title: 'nope' } })).rejects.toThrow(
       /managed via the hub/,
     )
     // Not even --outside-scope overrides the hub gate (it is not a scope confirm).
     const overriding = caller(
-      { role: 'worker', scope: { kind: 'subtree', rootId: 'iss_local_root' } },
+      { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId('iss_local_root') } },
       true,
     )
     await expect(overriding.issues.close({ id: HUB_ID })).rejects.toThrow(/managed via the hub/)

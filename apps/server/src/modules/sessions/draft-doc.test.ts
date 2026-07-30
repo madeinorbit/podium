@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   applyDraftEdit,
@@ -13,7 +14,7 @@ const BASE = Date.parse('2026-07-17T12:00:00.000Z')
 const iso = (offsetMs: number) => new Date(BASE + offsetMs).toISOString()
 
 const doc = (over: Partial<DraftDoc> = {}): DraftDoc => ({
-  sessionId: 's1',
+  sessionId: asSessionId('s1'),
   text: 'hello',
   rev: 3,
   origin: 'clientA',
@@ -24,7 +25,7 @@ const doc = (over: Partial<DraftDoc> = {}): DraftDoc => ({
 
 describe('emptyDraftDoc', () => {
   it('is an empty, never-edited seed at rev 0', () => {
-    const d = emptyDraftDoc('s9')
+    const d = emptyDraftDoc(asSessionId('s9'))
     expect(d).toEqual({
       sessionId: 's9',
       text: '',
@@ -206,6 +207,6 @@ describe('leaseHolder', () => {
   })
 
   it('returns null for a never-edited (rev 0) doc', () => {
-    expect(leaseHolder(emptyDraftDoc('s1'), BASE)).toBe(null)
+    expect(leaseHolder(emptyDraftDoc(asSessionId('s1')), BASE)).toBe(null)
   })
 })

@@ -17,6 +17,7 @@
  * this file characterizes the server behaviour those replays depend on.
  */
 
+import type { SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -31,7 +32,7 @@ import {
 afterEach(() => disposeOracles())
 
 /** Bind a claude-code session live and idle so a send lands immediately. */
-function goIdle(o: ReturnType<typeof makeOracle>, sessionId: string): void {
+function goIdle(o: ReturnType<typeof makeOracle>, sessionId: SessionId): void {
   o.reg.modules.sessions.onDaemonMessageFrom('local', {
     type: 'bind',
     sessionId,

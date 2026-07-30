@@ -1,4 +1,4 @@
-import { asRepoId, asSessionId } from '@podium/model'
+import { asRepoId, asSessionId, type SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -129,7 +129,7 @@ describe('handoff package', () => {
     await seedTranscript(sourceHome, source, resumeValue)
     const foreign = '1234567890abcdef1234567890abcdef12345678'
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-intersect',
+      sessionId: asSessionId('handoff-intersect'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -142,7 +142,7 @@ describe('handoff package', () => {
     expect(exported.manifest.bundleBase).toEqual([base])
     await expect(
       exportHandoffPackage({
-        sessionId: 'handoff-intersect-none',
+        sessionId: asSessionId('handoff-intersect-none'),
         cwd: source,
         agentKind: 'claude-code',
         resume: { kind: 'claude-session', value: resumeValue },
@@ -175,7 +175,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-dirty-only'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-dirty-only',
+      sessionId: asSessionId('handoff-dirty-only'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -189,7 +189,7 @@ describe('handoff package', () => {
     await mkdir(dirname(stage), { recursive: true })
     await copyFile(exported.stagePath, stage)
     const first = await importHandoffPackage({
-      sessionId: 'handoff-dirty-only',
+      sessionId: asSessionId('handoff-dirty-only'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -203,7 +203,7 @@ describe('handoff package', () => {
     await copyFile(exported.stagePath, stage)
     await expect(
       importHandoffPackage({
-        sessionId: 'handoff-dirty-only',
+        sessionId: asSessionId('handoff-dirty-only'),
         repoPath: target,
         worktreeName: exported.manifest.worktreeName,
         homeDir: targetHome,
@@ -226,7 +226,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-path-preserved'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-path-preserved',
+      sessionId: asSessionId('handoff-path-preserved'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -241,7 +241,7 @@ describe('handoff package', () => {
     await mkdir(dirname(stage), { recursive: true })
     await copyFile(exported.stagePath, stage)
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-path-preserved',
+      sessionId: asSessionId('handoff-path-preserved'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -263,7 +263,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-roundtrip'
     await seedTranscript(homeA, sourceA, resumeValue, '{"machine":"a"}\n')
     const outbound = await exportHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       cwd: sourceA,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -278,7 +278,7 @@ describe('handoff package', () => {
     await mkdir(dirname(stageB), { recursive: true })
     await copyFile(outbound.stagePath, stageB)
     const onB = await importHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       repoPath: machineB,
       worktreeName: outbound.manifest.worktreeName,
       homeDir: homeB,
@@ -286,7 +286,7 @@ describe('handoff package', () => {
     expect(onB.worktreeRoot).toBe(join(machineB, relativePath))
     await writeFile(join(onB.worktreeRoot, 'state.txt'), 'from-b\n')
     const inbound = await exportHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       cwd: onB.worktreeRoot,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -300,7 +300,7 @@ describe('handoff package', () => {
     const stageA = join(homeA, '.podium', 'handoff', 'handoff-roundtrip.tgz')
     await copyFile(inbound.stagePath, stageA)
     const backOnA = await importHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       repoPath: machineA,
       worktreeName: inbound.manifest.worktreeName,
       homeDir: homeA,
@@ -328,7 +328,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-legacy-return'
     await seedTranscript(homeB, sourceB, resumeValue)
     const inbound = await exportHandoffPackage({
-      sessionId: 'handoff-legacy-return',
+      sessionId: asSessionId('handoff-legacy-return'),
       cwd: sourceB,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -342,7 +342,7 @@ describe('handoff package', () => {
     await mkdir(dirname(stageA), { recursive: true })
     await copyFile(inbound.stagePath, stageA)
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-legacy-return',
+      sessionId: asSessionId('handoff-legacy-return'),
       repoPath: machineA,
       worktreeName: inbound.manifest.worktreeName,
       homeDir: homeA,
@@ -359,7 +359,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-changed-residue'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-changed-residue',
+      sessionId: asSessionId('handoff-changed-residue'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -372,7 +372,7 @@ describe('handoff package', () => {
     await writeFile(join(source, 'after-handoff.txt'), 'must survive\n')
     await expect(
       importHandoffPackage({
-        sessionId: 'handoff-changed-residue',
+        sessionId: asSessionId('handoff-changed-residue'),
         repoPath: origin,
         worktreeName: exported.manifest.worktreeName,
         homeDir: sourceHome,
@@ -394,7 +394,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-occupied'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-occupied',
+      sessionId: asSessionId('handoff-occupied'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -409,7 +409,7 @@ describe('handoff package', () => {
     await copyFile(exported.stagePath, stage)
     await expect(
       importHandoffPackage({
-        sessionId: 'handoff-occupied',
+        sessionId: asSessionId('handoff-occupied'),
         repoPath: target,
         worktreeName: exported.manifest.worktreeName,
         occupiedWorktreePaths: [occupied],
@@ -438,7 +438,7 @@ describe('handoff package', () => {
     const resumeValue = 'claude-native-id'
     await seedTranscript(sourceHome, source, resumeValue, '{"memory":"bluebird"}\n')
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -460,7 +460,7 @@ describe('handoff package', () => {
     expect(finalChunk.eof).toBe(true)
     await expect(access(exported.stagePath)).rejects.toThrow()
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-roundtrip',
+      sessionId: asSessionId('handoff-roundtrip'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -591,7 +591,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
     const resumeValue = 'claude-v2-bundle'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-v2',
+      sessionId: asSessionId('handoff-v2'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -629,7 +629,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
     execFileSync('tar', ['-czf', stage, '-C', repack, '.'])
 
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-v2',
+      sessionId: asSessionId('handoff-v2'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -644,7 +644,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
   const exportFrom = async (input: {
     cwd: string
     fallbackCwd?: string
-    sessionId: string
+    sessionId: SessionId
     homeDir: string
     baseShas: string[]
     resumeValue: string
@@ -695,11 +695,11 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     await mkdir(join(origin, 'apps', 'web'), { recursive: true })
     await seedTranscript(sourceHome, origin, 'claude-main-guard')
     const common = { homeDir: sourceHome, baseShas: [base], resumeValue: 'claude-main-guard' }
-    await expect(exportFrom({ ...common, sessionId: 'guard-root', cwd: origin })).rejects.toThrow(
+    await expect(exportFrom({ ...common, sessionId: asSessionId('guard-root'), cwd: origin })).rejects.toThrow(
       /only worktree sessions can be handed off/,
     )
     await expect(
-      exportFrom({ ...common, sessionId: 'guard-subdir', cwd: join(origin, 'apps', 'web') }),
+      exportFrom({ ...common, sessionId: asSessionId('guard-subdir'), cwd: join(origin, 'apps', 'web') }),
     ).rejects.toThrow(/only worktree sessions can be handed off/)
   })
 
@@ -719,7 +719,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     const resumeValue = 'claude-subpath'
     await seedTranscript(sourceHome, agentCwd, resumeValue, '{"memory":"subdir"}\n')
     const exported = await exportFrom({
-      sessionId: 'handoff-subpath',
+      sessionId: asSessionId('handoff-subpath'),
       cwd: agentCwd,
       homeDir: sourceHome,
       baseShas: [base],
@@ -733,7 +733,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     await mkdir(dirname(stage), { recursive: true })
     await copyFile(exported.stagePath, stage)
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-subpath',
+      sessionId: asSessionId('handoff-subpath'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -774,7 +774,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     const resumeValue = 'claude-missing'
     await seedTranscript(sourceHome, agentCwd, resumeValue)
     const exported = await exportFrom({
-      sessionId: 'handoff-missing',
+      sessionId: asSessionId('handoff-missing'),
       cwd: agentCwd,
       homeDir: sourceHome,
       baseShas: [base],
@@ -785,7 +785,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     await mkdir(dirname(stage), { recursive: true })
     await copyFile(exported.stagePath, stage)
     const imported = await importHandoffPackage({
-      sessionId: 'handoff-missing',
+      sessionId: asSessionId('handoff-missing'),
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
@@ -806,7 +806,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     await seedTranscript(sourceHome, source, resumeValue)
 
     const exported = await exportFrom({
-      sessionId: 'handoff-anchored',
+      sessionId: asSessionId('handoff-anchored'),
       cwd: origin, // drifted: stamped at the repo root
       fallbackCwd: source,
       homeDir: sourceHome,
@@ -827,7 +827,7 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
     const resumeValue = 'claude-prefer-cwd'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportFrom({
-      sessionId: 'handoff-prefer-cwd',
+      sessionId: asSessionId('handoff-prefer-cwd'),
       cwd: source,
       fallbackCwd: other,
       homeDir: sourceHome,
@@ -878,7 +878,7 @@ describe('abandoned stage files ([POD-742])', () => {
     const abandoned = await stageFile(sourceHome, 'dead-handoff.tgz', 2 * STAGE_TTL_MS)
     const recentFetch = await stageFile(sourceHome, 'recent-fetch.tgz', 5 * 60_000)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-sweep-export',
+      sessionId: asSessionId('handoff-sweep-export'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -910,7 +910,7 @@ describe('abandoned stage files ([POD-742])', () => {
     const resumeValue = 'claude-import-fail'
     await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
-      sessionId: 'handoff-import-fail',
+      sessionId: asSessionId('handoff-import-fail'),
       cwd: source,
       agentKind: 'claude-code',
       resume: { kind: 'claude-session', value: resumeValue },
@@ -925,7 +925,7 @@ describe('abandoned stage files ([POD-742])', () => {
     await copyFile(exported.stagePath, stage)
     await expect(
       importHandoffPackage({
-        sessionId: 'wrong-session',
+        sessionId: asSessionId('wrong-session'),
         repoPath: target,
         worktreeName: exported.manifest.worktreeName,
         homeDir: targetHome,

@@ -8,7 +8,7 @@
  * be the answer the fixture gives to everything.
  */
 
-import { asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId, MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -40,7 +40,7 @@ const user = (id: UserId): CommandPrincipal => ({
 })
 
 const agent = (
-  sessionId: string,
+  sessionId: SessionId,
   onBehalfOf: UserId,
   chain: string[] = [],
 ): AgentCommandPrincipal => ({
@@ -236,7 +236,7 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
   it('an agent whose human loses the grant is denied on the NEXT apply, same principal object', () => {
     const rows = new Map([['laptop', { owner: COLLEAGUE, grants: [grant(OWNER, 'use')] }]])
     const ownership = ownershipTable(rows)
-    const worker = agent('agent-1', OWNER)
+    const worker = agent(asSessionId('agent-1'), OWNER)
 
     expect(checkMachineUse(worker, 'laptop', ownership)).toBeUndefined()
 
@@ -252,7 +252,7 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
     // The colleague owns it; an agent acting for the OWNER may not use it, even
     // though its capability is otherwise unconstrained.
     expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBeUndefined()
-    expect(checkMachineUse(agent('agent-1', OWNER), 'laptop', ownership)).toBe('absent')
+    expect(checkMachineUse(agent(asSessionId('agent-1'), OWNER), 'laptop', ownership)).toBe('absent')
   })
 
   it('a sub-agent cannot reach past a machine its PARENT could not use', () => {
@@ -266,7 +266,7 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
       // of the human gate above.
       new Map([['parent', ['a']]]),
     )
-    const child = agent('child', OWNER, ['parent'])
+    const child = agent(asSessionId('child'), OWNER, ['parent'])
 
     expect(checkMachineUse(user(OWNER), 'b', ownership)).toBeUndefined()
     expect(checkMachineUse(child, 'b', ownership)).toBe('unauthorized')
@@ -289,7 +289,7 @@ describe('the principal itself', () => {
     ])
 
     const principal = resolvePrincipal(
-      { role: 'worker', scope: { kind: 'none' }, actorSessionId: 'child' },
+      { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId('child') },
       { parentSessionOf: (id) => parents.get(id), onBehalfOfFor: (id) => onBehalfOf.get(id) },
     )
 
@@ -305,7 +305,7 @@ describe('the principal itself', () => {
     ])
 
     const principal = resolvePrincipal(
-      { role: 'worker', scope: { kind: 'none' }, actorSessionId: 'a' },
+      { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId('a') },
       { parentSessionOf: (id) => cycle.get(id) },
     )
 
@@ -324,7 +324,7 @@ describe('the principal itself', () => {
       capability: { role: 'admin', scope: { kind: 'all' } },
     })
     expect(attributionOf(human)).toEqual({ actor: INSTANCE_OWNER, onBehalfOf: INSTANCE_OWNER })
-    expect(attributionOf(agent('agent-1', OWNER))).toEqual({
+    expect(attributionOf(agent(asSessionId('agent-1'), OWNER))).toEqual({
       actor: 'session:agent-1',
       onBehalfOf: OWNER,
     })

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,7 +29,7 @@ const OFFER = {
   ],
 }
 
-function metaOffer(reg: SessionRegistry, sessionId: string) {
+function metaOffer(reg: SessionRegistry, sessionId: SessionId) {
   return reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
 }
 
@@ -183,7 +184,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // Raw PTY keystrokes from the controlling client — bumps lastInputAtMs.
     // Pinned a minute after the offer: same-ms input would not count as "after"
     // (strictly-greater, matching the boot reconcile).
-    function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
+    function typeIntoPty(reg: SessionRegistry, sessionId: SessionId, afterIso: string) {
       const clientId = reg.modules.sessions.attachClient(() => {})
       reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)

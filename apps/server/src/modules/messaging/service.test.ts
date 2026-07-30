@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
@@ -241,7 +242,7 @@ function makeHarness(
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
-  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: string }) => ({
+  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
     threadId: `btw_${sessionId}`,
     isNew: true,
   }))
@@ -531,7 +532,7 @@ describe('MessagingService', () => {
     function bindTopic(
       h: Harness,
       opts: { sessionId?: string; issueId?: string; threadRef?: string } = {},
-    ): { sessionId: string; issueId: string; threadRef: string } {
+    ): { sessionId: SessionId; issueId: string; threadRef: string } {
       const sessionId = opts.sessionId ?? 's_agent'
       const issueId = opts.issueId ?? 'iss_bound'
       const threadRef = opts.threadRef ?? '555'
@@ -636,7 +637,7 @@ describe('MessagingService', () => {
         sessionIssueId: () => 'iss_unbound',
       })
       h.bus.emit('session.stateChanged', {
-        sessionId: 's_unbound',
+        sessionId: asSessionId('s_unbound'),
         prev: undefined,
         next: agentState('working'),
       })
@@ -1037,7 +1038,7 @@ describe('MessagingService', () => {
     h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
-    }, { sessionId: 's_pod' })
+    }, { sessionId: asSessionId('s_pod') })
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1056,7 +1057,7 @@ describe('MessagingService', () => {
     h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
       botToken: 'tok',
       chatId: '42',
-    }, { sessionId: 's1' })
+    }, { sessionId: asSessionId('s1') })
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1100,7 +1101,7 @@ describe('MessagingService', () => {
         sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
         interruptTurn: vi.fn(),
         restartThread: vi.fn(),
-        startBtwTurn: vi.fn(({ sessionId }: { sessionId: string }) => ({
+        startBtwTurn: vi.fn(({ sessionId }: { sessionId: SessionId }) => ({
           threadId: `btw_${sessionId}`,
           isNew: true,
         })),

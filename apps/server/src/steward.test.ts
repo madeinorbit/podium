@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -486,7 +483,7 @@ describe('StewardService unblock handler', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
     issues.addDep(b.id, a.id, 'blocks')
-    issues.close(a.id, 'done', { actorSessionId: 'causer' })
+    issues.close(a.id, 'done', { actorSessionId: asSessionId('causer') })
     await steward.tick()
     // Comment/audit trail is unchanged — the note still lands on the dependent.
     expect(stewardComments(issues, b.id).length).toBe(1)
@@ -645,7 +642,7 @@ describe('StewardService parent-nudge handler', () => {
       startNow: false,
     })
     issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
-    issues.close(c1.id, 'done', { actorSessionId: 'causer' })
+    issues.close(c1.id, 'done', { actorSessionId: asSessionId('causer') })
     await steward.tick()
     // The parent comment is unchanged.
     expect(stewardComments(issues, parent.id).length).toBe(1)
@@ -1006,7 +1003,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     store.events.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
-    issues.close(x.id, 'done', { actorSessionId: 'causer' })
+    issues.close(x.id, 'done', { actorSessionId: asSessionId('causer') })
     await steward.tick()
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
     expect(targets).toEqual(['other'])

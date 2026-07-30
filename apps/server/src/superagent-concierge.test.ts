@@ -1,7 +1,4 @@
-import {
-  type IssueWireInput,
-  type IssueWire,
-} from '@podium/model'
+import { asSessionId, type IssueWire, type IssueWireInput, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -105,7 +102,7 @@ describe('buildConciergeSeed', () => {
     ],
     sessions: [
       {
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         name: 'worker',
         agentKind: 'claude-code',
         phase: 'working',
@@ -210,7 +207,7 @@ describe('concierge threads (issue #64)', () => {
         { agentKind: 'claude-code', cwd: '/r', confirmed: true },
         tid,
       ),
-    ) as { sessionId: string }
+    ) as { sessionId: SessionId }
     expect(out.sessionId).toBeDefined()
   })
 
@@ -218,7 +215,7 @@ describe('concierge threads (issue #64)', () => {
     const { registry, sa } = await harness()
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
-    ) as { sessionId: string }
+    ) as { sessionId: SessionId }
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId),
     ).toBeDefined()
@@ -355,7 +352,7 @@ describe('concierge threads (issue #64)', () => {
       const tok = sa.mcpThreadToken(tid)
       const out = JSON.parse(
         await call('start_agent', { agentKind: 'shell', cwd: '/r', confirmed: true }, tok),
-      ) as { sessionId: string }
+      ) as { sessionId: SessionId }
       expect(
         registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
           ?.spawnedBy,

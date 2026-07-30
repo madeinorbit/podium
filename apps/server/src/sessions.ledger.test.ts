@@ -1,6 +1,4 @@
-import {
-  asSessionId,
-  type SessionMeta, SOLE_USER_ID } from '@podium/model'
+import { SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -70,7 +68,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       ledger.commit({
         write: () =>
           store.sessions.upsertSession({
-            id: 's-atomic',
+            id: asSessionId('s-atomic'),
             agentKind: 'shell',
             cwd: '/w',
             title: 't',

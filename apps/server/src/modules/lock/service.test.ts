@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
@@ -180,7 +181,7 @@ describe('LockService', () => {
     svc.acquire(agent(2), { repoPath: REPO, name: 'a' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'b' })
     svc.acquire(agent(1), { repoPath: REPO, name: 'b' }) // sess_1 queued on b
-    svc.releaseForSession('sess_1')
+    svc.releaseForSession(asSessionId('sess_1'))
     // a: advanced to sess_2 (mailed); b: sess_1's queue entry pruned, sess_2 still holds
     expect(svc.status({ repoPath: REPO, name: 'a' })[0]?.holder.sessionId).toBe('sess_2')
     expect(svc.status({ repoPath: REPO, name: 'b' })[0]?.queue).toEqual([])

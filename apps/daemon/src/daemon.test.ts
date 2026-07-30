@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -157,7 +158,7 @@ const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf
 // Flatten each batch back into per-frame {sessionId, data} so the existing
 // frame-content assertions below keep reading individual frames.
 type AgentFrameBatch = Extract<DaemonMessage, { type: 'agentFrameBatch' }>
-type FlatFrame = { sessionId: string; data: string }
+type FlatFrame = { sessionId: SessionId; data: string }
 
 // The daemon now authenticates before doing anything: its FIRST frame is a `hello`
 // handshake (driven by bootstrapToken: 'test' below) and it waits for `helloOk` before
@@ -901,7 +902,7 @@ describe('durable backend resolution', () => {
 
 describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
   it('keeps the abduco session alive after the daemon closes, reattaches, and fails for a missing label', async () => {
-    const sessionId = `ab-survive-${process.pid}`
+    const sessionId = asSessionId(`ab-survive-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
@@ -999,7 +1000,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // real exit. We reproduce the client death directly (SIGKILL the `abduco -a`
     // process) while the daemon's control channel stays open, so any wrongful
     // agentExit is observable.
-    const sessionId = `ab-noexit-${process.pid}`
+    const sessionId = asSessionId(`ab-noexit-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
@@ -1086,7 +1087,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // working) showed an idle session as active. Reattach must seed idle the same
     // way a fresh spawn does. Two daemons are essential: a single daemon's spawn
     // boot-probe would leak onto the re-armed tracker and mask the bug.
-    const sessionId = `ab-restart-seed-${process.pid}`
+    const sessionId = asSessionId(`ab-restart-seed-${process.pid}`)
     const label = `podium-${sessionId}`
     const settingsDir = trackTmp('podium-hooks-')
     const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
@@ -1188,7 +1189,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // whose native PTY view was full of history. The reattach handler never
     // registered a transcript tail, and a fresh daemon's tails map is empty; an idle
     // agent fires no hook to lazily add one. Reattach must re-tail the live JSONL.
-    const sessionId = `ab-retail-${process.pid}`
+    const sessionId = asSessionId(`ab-retail-${process.pid}`)
     const label = `podium-${sessionId}`
     const settingsDir = trackTmp('podium-hooks-')
     const resumeValue = 'conv-history-xyz'
@@ -1319,7 +1320,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
   }, 20000)
 
   it('close({ reapSessions: true }) kills the durable sessions instead of detaching', async () => {
-    const sessionId = `ab-reap-${process.pid}`
+    const sessionId = asSessionId(`ab-reap-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
@@ -1369,7 +1370,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
 
 describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
   it('keeps the tmux session alive after the daemon closes', async () => {
-    const sessionId = `survive-${process.pid}`
+    const sessionId = asSessionId(`survive-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
@@ -1418,7 +1419,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
   })
 
   it('reattach re-binds to a live tmux session, and reports failure for a missing one', async () => {
-    const sessionId = `reattach-${process.pid}`
+    const sessionId = asSessionId(`reattach-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
@@ -1830,7 +1831,7 @@ describe('daemon memory breakdown', () => {
         serverWs?.send(
           encode({
             type: 'spawn',
-            sessionId: 'sb1',
+            sessionId: asSessionId('sb1'),
             agentKind: 'claude-code',
             cwd: '/tmp',
             geometry: G,
@@ -1911,7 +1912,7 @@ describe('Codex identity receipt recovery', () => {
         serverSocket.send(
           encode({
             type: 'sessionResumeRefAck',
-            sessionId: 'pane-a',
+            sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
           }),
         )
@@ -1987,7 +1988,7 @@ describe('agent state instrumentation', () => {
   })
 
   it('seedCliTheme rides the spawn into the settings file: absent/true seed theme:auto, false leaves the user theme alone [spec:SP-a04d]', async () => {
-    const themeOf = async (sessionId: string): Promise<string | undefined> => {
+    const themeOf = async (sessionId: SessionId): Promise<string | undefined> => {
       const raw = await readFile(join(settingsDir, `${sessionId}.json`), 'utf8')
       return (JSON.parse(raw) as { theme?: string }).theme
     }
@@ -2256,7 +2257,7 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
       })
       const msg: ReattachControl = {
         type: 'reattach',
-        sessionId: 'seedgate-1',
+        sessionId: asSessionId('seedgate-1'),
         durableLabel: 'podium-seedgate-1',
         agentKind: 'claude-code',
         cwd,
@@ -2279,7 +2280,7 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
         await new Promise((r) => setTimeout(r, 10))
       }
       expect(sent.some((m) => m.type === 'agentState' && m.sessionId === 'seedgate-1')).toBe(true)
-      observers.clearSession('seedgate-1')
+      observers.clearSession(asSessionId('seedgate-1'))
     } finally {
       if (prevHome === undefined) delete process.env.HOME
       else process.env.HOME = prevHome
@@ -2610,7 +2611,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
 })
 
 /** Seed a temp opencode store under `home` with one session + N text parts. */
-function seedOpencodeDb(home: string, sessionId: string, texts: string[]): void {
+function seedOpencodeDb(home: string, sessionId: SessionId, texts: string[]): void {
   const root = join(home, '.local', 'share', 'opencode')
   mkdirSync(root, { recursive: true })
   const db = openDatabase(join(root, 'opencode.db'))

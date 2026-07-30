@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionInstructionRegistry } from './instructions'
 
@@ -23,7 +24,7 @@ describe('SessionInstructionRegistry', () => {
     })
 
     const prepared = registry.prepare({
-      sessionId: 'ses-1',
+      sessionId: asSessionId('ses-1'),
       cwd: '/worktree',
       agentKind: 'codex',
     })

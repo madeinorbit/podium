@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
@@ -162,7 +163,7 @@ describe('issues.* subtree scope (P1a)', () => {
     const c = callerWith({
       role: 'worker',
       scope: { kind: 'subtree', rootId: A.id },
-      actorSessionId: 'sess_gone',
+      actorSessionId: asSessionId('sess_gone'),
     })
     await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
       /outside your subtree/,
@@ -226,7 +227,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     // No session behind the id → no actor to name.
-    expect(registry.modules.sessions.capabilityForSession('no-such-session')).toEqual({
+    expect(registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })
