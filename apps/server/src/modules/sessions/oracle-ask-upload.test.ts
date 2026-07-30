@@ -313,7 +313,7 @@ describe('oracle: sessions.uploadImage', () => {
     ).toBe('no daemon answered the image upload request')
   })
 
-  it(`${willChange('POD-1079', 'machines become owned compute; use defaults to the owner only')}: an upload is routed to the SESSION's machine, whichever machine that is, with no ownership check`, async () => {
+  it(`${MUST_NOT_CHANGE}: an upload is routed to the SESSION's machine, not the default one`, async () => {
     // The second machine gets its own responder; the DEFAULT machine keeps the
     // recorder makeOracle installed and is never re-attached. Swapping the local
     // handler mid-test was a needless moving part — attachDaemon has retarget
@@ -339,10 +339,11 @@ describe('oracle: sessions.uploadImage', () => {
       dataBase64: Buffer.from('bytes').toString('base64'),
     })
 
-    // The bytes land on the machine that RUNS the session, so the returned path
-    // is valid in that session's prompt. Dropping the routing argument sends
-    // every upload to the default machine, and these two assertions together —
-    // the request AT 'other', and NOTHING at the default — are what catch it.
+    // ROUTING IS AN INVARIANT, not an ownership question: the returned path has
+    // to be valid in THIS session's prompt, so the bytes must land on the machine
+    // that runs it. Tagged must-not-change deliberately — if POD-1079's ownership
+    // work regresses routing, the red test must not be dismissible as "expected".
+    // The ambient-authorization half is the separate characterization below.
     expect(result).toEqual({ path: '/on/other/x.png' })
     expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toEqual([
       expect.objectContaining({
@@ -354,6 +355,37 @@ describe('oracle: sessions.uploadImage', () => {
       }),
     ])
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+  })
+
+  it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: nothing checks whether the caller may USE the machine an upload lands on`, async () => {
+    // The routing test above pins WHERE the bytes go. This pins that no check
+    // stands between the caller and that machine: the upload writes to a machine
+    // this operator has no declared relationship with, because there is no owner
+    // column and no per-machine grant to consult (§3.1.4 M1/M2). Under POD-1079
+    // an upload onto a machine the principal lacks `use` on must be refused.
+    const o = makeOracle({ offlineMachines: [{ id: 'someones-laptop', name: 'Personal Mac' }] })
+    const seen = answerUploads(
+      o,
+      () => ({ path: '/Users/someone/.podium/uploads/x.png' }),
+      'someones-laptop',
+    )
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      machineId: 'someones-laptop',
+    })
+    seen.length = 0
+
+    const result = await o.call.sessions.uploadImage({
+      sessionId,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: 'AA==',
+    })
+
+    // Accepted, with no capability, grant or ownership consulted anywhere.
+    expect(result).toEqual({ path: '/Users/someone/.podium/uploads/x.png' })
+    expect(seen.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(1)
   })
 
   it(`${willChange('POD-1073', 'invisible must later fail identically to nonexistent — §3.1.5')}: an upload for an UNKNOWN session is dispatched anyway, to the default machine`, async () => {
@@ -377,31 +409,79 @@ describe('oracle: sessions.uploadImage', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: an upload to a machine that never answers times out after the RPC budget and surfaces as TIMEOUT`, async () => {
+  it(`${MUST_NOT_CHANGE}: an upload to a DETACHED (offline) machine times out after the RPC budget and surfaces as TIMEOUT`, async () => {
     vi.useFakeTimers()
     try {
       const o = makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-      // The daemon is attached but DEAF: it records the request and never replies,
-      // which is what an unreachable machine looks like from the server's side.
-      o.reg.modules.sessions.attachDaemon('local', (msg) => o.daemon.push(msg))
-
-      const pending = o.call.sessions.uploadImage({
+      o.reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'bind',
         sessionId,
-        filename: 'shot.png',
-        mimeType: 'image/png',
-        dataBase64: 'AA==',
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
       })
-      const settled = pending.then(
-        () => 'resolved',
-        (e: unknown) => (e instanceof Error ? e.message : String(e)),
-      )
 
-      // Drive the real 30s RPC budget rather than waiting it out or faking the
-      // reply — this is the unreachable path, not the router guard in isolation.
+      // The REAL offline state: the daemon socket is gone, so the registry knows
+      // the machine is not there. A deaf-but-attached daemon is a different state
+      // (below) and would let a future "refuse immediately when offline" change
+      // land while this test stayed green.
+      o.reg.modules.sessions.detachDaemon('local')
+      expect(o.meta(sessionId).status).toBe('reconnecting')
+      expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
+      o.daemon.length = 0
+
+      const settled = o.call.sessions
+        .uploadImage({
+          sessionId,
+          filename: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'AA==',
+        })
+        .then(
+          () => 'resolved',
+          (e: unknown) => (e instanceof Error ? e.message : String(e)),
+        )
+
+      // Today there is NO early offline check: the request is dispatched into the
+      // void and the caller waits out the whole 30s RPC budget.
       await vi.advanceTimersByTimeAsync(30_000)
 
       expect(await settled).toBe('no daemon answered the image upload request')
+      // Nothing reached any daemon — the detached machine received no frame.
+      expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`${MUST_NOT_CHANGE}: an ONLINE but unresponsive machine is indistinguishable from an offline one — same TIMEOUT, after the same budget`, async () => {
+    vi.useFakeTimers()
+    try {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      // Attached and considered ONLINE, but never answers. Kept as its own
+      // characterization because the two states are genuinely different inputs
+      // that today produce the same output — which is the fact worth pinning.
+      o.reg.modules.sessions.attachDaemon('local', (msg) => o.daemon.push(msg))
+      expect(o.reg.modules.machines.onlineMachineIds()).toEqual(['local'])
+
+      const settled = o.call.sessions
+        .uploadImage({
+          sessionId,
+          filename: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'AA==',
+        })
+        .then(
+          () => 'resolved',
+          (e: unknown) => (e instanceof Error ? e.message : String(e)),
+        )
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(await settled).toBe('no daemon answered the image upload request')
+      // Unlike the detached case, the frame WAS sent — it just went unanswered.
       expect(o.daemon).toContainEqual(
         expect.objectContaining({ type: 'imageUploadRequest', sessionId }),
       )

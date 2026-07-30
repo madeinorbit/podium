@@ -1,6 +1,6 @@
 # The session-write oracle (POD-379)
 
-**What it is:** 159 characterization tests that pin TODAY's observable behaviour of every session
+**What it is:** 161 characterization tests that pin TODAY's observable behaviour of every session
 write, so the 3.2 migration onto command contracts (POD-380 presence class, POD-381 command plane,
 POD-642 handoff, POD-382 the cutover that deletes the hand-written router mutations) can be proven
 behaviour-preserving instead of merely compiling.
@@ -17,7 +17,7 @@ behaviour-preserving instead of merely compiling.
 | `…/oracle-attribution.test.ts` | spawnedBy · nameSource · deletion_source · stopReason · inputOrigin · humanQuestionAskedBy · (handoff: none) |
 | `…/oracle-idempotency.test.ts` | mutationId dedup, ONE test per mutation-bearing route, and the writes with no replay protection |
 | `…/oracle-handoff.test.ts` | two machines: success + ordering, bundle base, mid-transfer crash, duplicate dispatch, worktree reuse |
-| `…/oracle-ask-upload.test.ts` | the remaining hand-written router mutations: `sessions.ask` (the seance, answered and unanswered) and `sessions.uploadImage` (machine routing, both failure modes, the real RPC timeout) |
+| `…/oracle-ask-upload.test.ts` | the remaining hand-written router mutations: `sessions.ask` (the seance, answered and unanswered) and `sessions.uploadImage` (machine routing as an invariant, ambient machine authz as a separate POD-1079 baseline, both failure modes, detached-vs-deaf timeout) |
 | `…/oracle-tags.test.ts` | the ratchet over EVERY oracle file (including the client-core one): every characterization carries a tag, every will-change tag names a real issue |
 | `packages/client-core/src/engine/outbox-coverage.oracle.test.ts` | which writes are offline-queued, and which deliberately are not |
 
@@ -44,7 +44,9 @@ The will-change classes, all five represented and enforced by the ratchet:
 
 1. **Offline queueing is NOT issue-writes-only.** `createEngineOutbox` covers eight SESSION writes
    (rename, setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread, resumeAndSend)
-   plus three issue writes. Pins, tab order and sendText are the deliberate exclusions.
+   plus three issue writes. The deliberate exclusions are pins, tab order, sendText, `ask` and
+   `uploadImage` — all five are machine-enforced, so adding an executor for any of them turns the
+   oracle red.
 2. **The not-found shape is not uniform, and one write succeeds against a ghost.** Presence writes
    are silent no-ops; hibernate/resurrect return `{ ok: false, reason: 'unknown session' }`; handoff
    throws; sends dead-letter; and `snoozes.set`, `pins.set`, `tabs.setOrder` *persist a row for an id
@@ -73,49 +75,51 @@ deliberately.
 
 ## Proof the net catches things
 
-Twenty-seven mutants were applied to the product, run, and reverted; every one turned the intended test red:
+**28 mutants applied to the product, run, and reverted. 28 caught.** Every one turned the test named
+below red, and every one was reverted with the working tree verified clean afterwards.
 
-| Mutant | Test that caught it |
-|---|---|
-| Agent may overwrite a user-set name | presence · "a user-set name is sovereign" |
-| Archive stops parking the process | presence · "archiving … parks a running session" |
-| Cleared draft no longer flushes immediately | presence · "persistence is DEBOUNCED …" |
-| `withMutation` stops reading the applied-mutation row | idempotency · "a replayed rename does NOT re-apply" |
-| `withMutation` removed from `sessions.setIssueId` | idempotency · "sessions.setIssueId dedupes its replay" |
-| `withMutation` removed from `sessions.markUnread` | idempotency · "sessions.markUnread dedupes its replay" |
-| `withMutation` removed from `snoozes.clear` | idempotency · "snoozes.clear dedupes its replay" |
-| `withMutation` removed from `sessions.resumeAndSend` | idempotency · "sessions.resumeAndSend dedupes its replay" |
-| A CR appended inside the bracketed paste | commands · "reaches the PTY stamped 'mail'" AND idempotency · "does not double-type" |
-| `rename` added to the relay allowlist | authz · "sessions.rename is refused via the relay" |
-| `askedBy` spoof guard removed | attribution · "humanQuestionAskedBy is stamped from the transport principal" |
-| Bundle-base guard removed | handoff · "no verified common bundle base ⇒ refuse" |
-| Handoff rollback removed | handoff · "an export failure rolls the session back onto the SOURCE" |
-| Source killed BEFORE the target's bundle-base probe | handoff · "the whole two-machine step sequence, in order" |
-| An in-flight guard added (handoff serialized) | handoff · "CONCURRENT duplicate dispatch is NOT serialized" |
-| An untagged characterization added in apps/server | tags · "every characterization opens with a tag helper" |
-| An untagged `test(` added in packages/client-core | tags · same, for the client-core oracle |
-| The client-core tag literal drifted | tags · "a file that re-declares the tag locally must use the canonical literal" |
-| A will-change tag naming an unknown issue | tags · "every will-change tag names a superseding issue" |
-| `POD-642` dropped from the declared superseding set | tags · same |
-| Self-stop kill armed BEFORE the relay reply | authz · "a self-stop … kill reaches the daemon strictly AFTER the reply" |
-| `ask` added to the relay allowlist | ask-upload · "ask is NOT relay-reachable" |
-| `ask`'s session-target gate removed | ask-upload · "ask against an unknown session THROWS 'session not found'" |
-| `uploadImage`'s empty-path TIMEOUT guard removed | ask-upload · "an answer with no path is treated as NOBODY ANSWERING" |
-| `uploadImage` routed to the default machine instead of the session's | ask-upload · "an upload is routed to the SESSION's machine" |
-| The ack dropped so `ask` never resolves answered | ask-upload · "an ANSWERED ask returns answered:true …" |
-| An `ask` executor added to `createEngineOutbox` | outbox-coverage · "… ask and uploadImage are NOT offline-capable" — see the note below |
+| # | Mutant | Test that caught it |
+|---|---|---|
+| 1 | Agent may overwrite a user-set name | presence · "a user-set name is sovereign" |
+| 2 | Archive stops parking the process | presence · "archiving … parks a running session" |
+| 3 | Cleared draft no longer flushes immediately | presence · "persistence is DEBOUNCED …" |
+| 4 | `withMutation` stops reading the applied-mutation row | idempotency · "a replayed rename does NOT re-apply" |
+| 5 | `withMutation` removed from `sessions.setIssueId` | idempotency · "sessions.setIssueId dedupes its replay" |
+| 6 | `withMutation` removed from `sessions.markUnread` | idempotency · "sessions.markUnread dedupes its replay" |
+| 7 | `withMutation` removed from `snoozes.clear` | idempotency · "snoozes.clear dedupes its replay" |
+| 8 | `withMutation` removed from `sessions.resumeAndSend` | idempotency · "sessions.resumeAndSend dedupes its replay" |
+| 9 | A CR appended inside the bracketed paste (`typeText`) | commands · "reaches the PTY stamped 'mail'" AND idempotency · "does not double-type" |
+| 10 | `rename` added to the relay allowlist | authz · "sessions.rename is refused via the relay" |
+| 11 | `askedBy` spoof guard removed | attribution · "humanQuestionAskedBy is stamped from the transport principal" |
+| 12 | Bundle-base guard removed | handoff · "no verified common bundle base ⇒ refuse" |
+| 13 | Handoff rollback removed | handoff · "an export failure rolls the session back onto the SOURCE" |
+| 14 | Source killed BEFORE the target's bundle-base probe | handoff · "the whole two-machine step sequence, in order" |
+| 15 | An in-flight guard added (handoff serialized) | handoff · "CONCURRENT duplicate dispatch is NOT serialized" |
+| 16 | An untagged characterization added in apps/server | tags · "every characterization opens with a tag helper" |
+| 17 | An untagged `test(` added in packages/client-core | tags · same, for the client-core oracle |
+| 18 | The client-core tag literal drifted | tags · "a file that re-declares the tag locally must use the canonical literal" |
+| 19 | A will-change tag naming an unknown issue | tags · "every will-change tag names a superseding issue" |
+| 20 | `POD-642` dropped from the declared superseding set | tags · same |
+| 21 | Self-stop kill armed BEFORE the relay reply | authz · "a self-stop … kill reaches the daemon strictly AFTER the reply" |
+| 22 | `ask` added to the relay allowlist | ask-upload · "ask is NOT relay-reachable" |
+| 23 | `ask`'s session-target gate removed | ask-upload · "ask against an unknown session THROWS 'session not found'" |
+| 24 | `uploadImage`'s empty-path TIMEOUT guard removed | ask-upload · "an answer with no path is treated as NOBODY ANSWERING" |
+| 25 | `uploadImage` routed to the default machine instead of the session's | ask-upload · "an upload is routed to the SESSION's machine" |
+| 26 | The ack never stamped, so `ask` cannot resolve answered | ask-upload · "an ANSWERED ask returns answered:true …" |
+| 27 | An `ask` executor added to `createEngineOutbox` | outbox-coverage · "… ask and uploadImage are NOT offline-capable" |
+| 28 | An `uploadImage` executor added to `createEngineOutbox` | outbox-coverage · same |
 
-Twenty-seven mutants, twenty-six caught and one BLOCKED rather than passed: this environment
-declined the tool call that edits `packages/client-core/src/engine/wiring.ts`, twice, so the
-"add an `ask` executor" mutant could not be applied to the product. Standing in for it,
-`outbox-coverage.oracle.test.ts` carries "the exclusion assertion discriminates on EXECUTOR
-PRESENCE" — a local outbox with an `ask` executor drains instead of poison-dropping, which proves
-the exclusion test's outcome is caused by the missing executor and would flip if one were added.
-That is weaker than a product mutant and is labelled as such.
+Two attempts are worth recording because neither was a caught mutant and both taught something:
 
-Twenty-seven mutants, twenty-seven caught. The one mutation that did NOT red a test — appending a CR in
-`packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
-`SessionsService.typeText`, and mutating THAT is the row above.
+- **A mutant applied at the wrong site proves nothing.** Appending a CR to `PASTE_END` in
+  `packages/composer/src/driver.ts` reddened no test — the server builds its own wrapper in
+  `SessionsService.typeText`, which is row 9. Mutate the code the test's path actually executes.
+- **A mutant that HANGS is not a kill.** Mutants 27–28 first hung to a bounded process timeout
+  instead of failing: the fake api in the outbox oracle had no `ask`/`uploadImage` procedure, so the
+  mutant executor threw a retryable `TypeError` and the drain loop retried forever. Fixed in the
+  harness, not worked around — the fake api now exposes both procedures, and `drainFully()` bounds
+  the loop at 20 passes and throws with the stuck count. Both mutants now fail on the first
+  assertion. A stall says a test noticed something; it never says what.
 
 ## The name audit (POD-279 broadcast: "a test that asserts its own name")
 

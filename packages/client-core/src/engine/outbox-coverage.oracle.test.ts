@@ -58,6 +58,12 @@ function recordingApi() {
       markRead: proc('sessions.markRead'),
       markUnread: proc('sessions.markUnread'),
       sendText: proc('sessions.sendText'),
+      // Present so that a MUTANT executor for these kinds RESOLVES and the
+      // exclusion assertion fails sharply. Without them the executor throws a
+      // retryable TypeError and the drain loop spins forever — a hang, which
+      // tells the next reader nothing about what changed.
+      ask: proc('sessions.ask'),
+      uploadImage: proc('sessions.uploadImage'),
     },
     snoozes: { set: proc('snoozes.set'), clear: proc('snoozes.clear') },
     pins: { set: proc('pins.set') },
@@ -93,6 +99,19 @@ function makeOutbox() {
   return { outbox, calls, poisoned, errors }
 }
 
+/**
+ * Drain to empty, but BOUNDED. `while (size > 0)` retries a failing executor
+ * forever, so a harness fault (a missing fake procedure, a thrown TypeError)
+ * shows up as a 20s process timeout instead of an assertion. A stall says a test
+ * noticed something; it never says what.
+ */
+async function drainFully(outbox: { size(): number; drain(): Promise<void> }): Promise<void> {
+  for (let pass = 0; pass < 20 && outbox.size() > 0; pass += 1) await outbox.drain()
+  if (outbox.size() > 0) {
+    throw new Error(`outbox did not drain after 20 passes — ${outbox.size()} entries stuck`)
+  }
+}
+
 /** The covered set, as the engine enqueues it (engine.ts session/issue actions). */
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'rename', input: { sessionId: 's1', name: 'n' }, path: 'sessions.rename' },
@@ -123,7 +142,7 @@ describe('oracle: the offline-queued write set', () => {
     for (const covered of COVERED) {
       outbox.enqueue(covered.kind, covered.input as OutboxKinds[typeof covered.kind])
     }
-    while (outbox.size() > 0) await outbox.drain()
+    await drainFully(outbox)
 
     expect(calls.map((c) => c.path)).toEqual(COVERED.map((c) => c.path))
     expect(
@@ -164,7 +183,7 @@ describe('oracle: the offline-queued write set', () => {
         } as OutboxKinds[keyof OutboxKinds],
       )
     }
-    while (outbox.size() > 0) await outbox.drain()
+    await drainFully(outbox)
 
     expect(calls).toEqual([])
     expect(poisoned.map((e) => e.kind)).toEqual([
@@ -181,10 +200,12 @@ describe('oracle: the offline-queued write set', () => {
 
   it(`${MUST_NOT_CHANGE}: the exclusion assertion discriminates on EXECUTOR PRESENCE — the same kind drains when an executor exists`, async () => {
     // Guards the guard. The exclusion test above proves ask/uploadImage are
-    // poison-dropped TODAY; this proves that outcome is caused by the missing
-    // executor and not by something incidental, so adding one to
-    // createEngineOutbox necessarily flips it. Built with a local outbox rather
-    // than by editing the product wiring, which this environment declines.
+    // poison-dropped today, and the real product mutant (adding an executor to
+    // createEngineOutbox) reds it. This keeps the two arms honest independently:
+    // the fake api now exposes ask/uploadImage procedures so a mutant resolves
+    // rather than hanging, and this test proves a resolving executor really does
+    // change poison-drop into drain — i.e. that the exclusion assertion turns on
+    // executor presence and not on some incidental property of the harness.
     const sent: unknown[] = []
     const dropped: string[] = []
     const withExecutor = createOutbox<{ ask: { sessionId: string } }>({
@@ -199,7 +220,7 @@ describe('oracle: the offline-queued write set', () => {
     })
 
     withExecutor.enqueue('ask', { sessionId: 's1' })
-    while (withExecutor.size() > 0) await withExecutor.drain()
+    await drainFully(withExecutor)
 
     expect(sent).toHaveLength(1)
     expect(dropped).toEqual([])
