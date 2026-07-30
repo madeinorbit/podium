@@ -140,7 +140,13 @@ practice — alongside the two correct aggregates, and requires the check to fla
 the correct aggregates in the same fixture set is what makes the result meaningful: a check that
 flagged everything, or nothing, could not produce it.
 
-**Mutation-tested, zero survivors** (mutate / run / revert as one unit):
+**Mutation-tested** (mutate / run / revert as one unit). Five mutants: four killed on the first
+attempt, one survived and was fixed (§4.2). A note on the method's own limits: mutants A–C were
+applied with a plain string replace and are verified **by their red** — a never-applied mutant goes
+green, so a red is self-certifying about application. Mutants D–E additionally assert the pattern
+matches exactly once, which is the half A–C lack: had a pattern occurred twice, both sites would
+have been mutated silently. That did not happen here (each was a unique literal in a freshly
+written file), but that is a fact about this diff rather than a property of the method.
 
 | Mutant | Result |
 |---|---|
