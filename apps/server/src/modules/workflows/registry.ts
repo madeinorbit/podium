@@ -49,11 +49,13 @@ export interface WorkflowCommand {
  * dispatches on. The wire names are kept: renaming them is a
  * client-compatibility change and this is a migration.
  *
- * ELEVEN, matching POD-311's list exactly. The three QUERIES this surface also
- * serves (`bindings`, `runs`, `profiles`) are deliberately NOT here — they stay
- * hand-written on the service until POD-732 — but their AUTHORIZATION already
- * routes through the same `WorkflowAccess` these handlers use, which is the
- * property POD-730 pinned them for.
+ * ELEVEN, matching POD-311's list exactly. The seven QUERIES this surface also
+ * serves are NOT here and are not contracts: they are declared in
+ * `./queries.ts`, for the reason that file gives — a `visibility` class
+ * describes what a command WRITES, and a read writes nothing. Their
+ * AUTHORIZATION runs through the same `WorkflowAccess` these handlers use,
+ * which is the property POD-730 pinned them for, and both transports read the
+ * one declaration, which is the property POD-732's cutover was for.
  */
 export const WORKFLOW_COMMANDS = {
   create: { contract: WORKFLOW_CONTRACTS.create, handler: createHandler },
@@ -132,23 +134,25 @@ export function dispatchWorkflowCommand(
   proc: WorkflowProcName,
   ctx: WorkflowHandlerContext,
   rawInput: unknown,
-  opts?: { ledger?: AdvanceIdempotencyPort; validated?: boolean },
+  opts?: { ledger?: AdvanceIdempotencyPort },
 ): unknown {
   const { contract, handler } = WORKFLOW_COMMANDS[proc]
   const ledger = opts?.ledger
-  // `validated` is the SERVICE-SHIM door and nothing else.
+  // THE PARSE IS UNCONDITIONAL (POD-732).
   //
-  // The transports parse; the shims do not, because they never did. POD-730's
-  // suite calls `service.create(input, caller)` with a hand-built object and
-  // pins the DOMAIN errors that shape produces — `task workflows require
-  // scopeRef`, for one — which a schema parse would replace with a ZodError
-  // before the handler ever ran. Re-parsing there would have made the oracle
-  // red for a reason that is not a behaviour change, hiding the ones that are.
+  // POD-731 carried a `validated` flag so the service shims could pass
+  // hand-built objects through unparsed, on the reasoning that a parse would
+  // replace POD-730's pinned DOMAIN errors with ZodErrors. The shims are gone,
+  // and the reasoning was MEASURED rather than inherited: of the 88 pins, the
+  // parse moved exactly ONE — `create` with `scopeRef: ''`, which the schema's
+  // `.min(1)` has always rejected on every transport, so the pin described a
+  // path only the shims could take. Every other pinned domain error is thrown
+  // by a handler for input this schema accepts.
   //
-  // Nothing on the wire reaches this branch: `WorkflowService.dispatch` and
-  // both transports go through the parse. POD-732 deletes the shims and this
-  // flag with them.
-  const input = opts?.validated === true ? rawInput : contract.input.parse(rawInput ?? {})
+  // So the flag is deleted rather than inherited. One door, always validated —
+  // a bypass that exists is a bypass a future caller will find, and the one
+  // behaviour it preserved was a behaviour no wire caller could observe.
+  const input = contract.input.parse(rawInput ?? {})
   const run = (ctx: WorkflowHandlerContext, i: unknown): unknown =>
     (handler as (c: WorkflowHandlerContext, i: unknown) => unknown)(ctx, i)
 

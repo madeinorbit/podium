@@ -65,6 +65,7 @@ import { SettingsService, type TelegramSetupClient } from './modules/settings/se
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import { HeadlessService } from './modules/superagent/headless'
+import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { StewardService } from './steward'
@@ -480,18 +481,21 @@ export class SessionRegistry {
           protectedWrite: true,
         }
         if (op.kind === 'workflow-publish') {
-          const revision = workflows.publish({ revisionId: op.revisionId }, caller)
+          // The approval broker's server-side ops enter by the SAME door every
+          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
+          // its only other way in, and a server op that skipped the contract's
+          // parse would be the one caller whose input nobody validated.
+          const revision = workflows.execute(caller, 'publish', {
+            revisionId: op.revisionId,
+          })
           return `published workflow revision ${revision.id}`
         }
         if (op.kind === 'workflow-set-default') {
-          const binding = workflows.assign(
-            {
-              targetKind: op.targetKind,
-              targetId: op.targetId,
-              revisionId: op.revisionId,
-            },
-            caller,
-          )
+          const binding = workflows.execute(caller, 'assign', {
+            targetKind: op.targetKind,
+            targetId: op.targetId,
+            revisionId: op.revisionId,
+          })
           return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
         }
         if (op.kind === 'automation-schedule') {
@@ -694,8 +698,14 @@ export class SessionRegistry {
         if (router === 'messages') {
           return messageGate.dispatch(capability, overrideScope, proc, input)
         }
+        // The workflow surface, derived from the contract + query tables
+        // (POD-732). `WorkflowService.dispatch` — a reflective call over the
+        // deleted `workflowInputs` that served any proc with a schema — is gone;
+        // exposure is asked per declaration and both transports enter through
+        // the same `execute` door.
         if (router === 'workflows') {
-          return workflows.dispatch(
+          return dispatchWorkflowRpc(
+            workflows,
             {
               // WorkflowActor is discriminated (POD-362): the operator arm carries
               // `id: null` and only the session arm carries a SessionId, so the arm
@@ -989,7 +999,7 @@ export class SessionRegistry {
         if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
           return Promise.resolve(result).then((issuePrime) => {
             const workflowPrime = featureEnabled('workflows')
-              ? workflows.prime({}, { actor: { kind: 'session', id: actorSessionId }, capability })
+              ? workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
               : ''
             // Name-your-own-session (#490): asked for only while the session HAS no
             // name — a named session (by the user or by an earlier turn of this agent)

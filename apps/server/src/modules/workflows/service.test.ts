@@ -1,7 +1,9 @@
 import { asIssueId, asSessionId } from '@podium/model'
+import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
-import { type WorkflowCaller, WorkflowService, workflowInputs } from './service'
+import { type WorkflowCaller, WorkflowService } from './service'
+import { type DrivenWorkflowService, driveWorkflows } from './test-support'
 
 const operator: WorkflowCaller = {
   actor: { kind: 'operator', id: null },
@@ -18,7 +20,9 @@ const agent = (sessionId: string, issueId = 'issue-1'): WorkflowCaller => ({
 
 describe('WorkflowService', () => {
   let store: SessionStore
-  let service: WorkflowService
+  // POD-732: the eleven shims are deleted; the suite drives `execute` through
+  // the argument-order adapter. See `test-support.ts`.
+  let service: DrivenWorkflowService
   let notices: Array<{ sessionId: string; text: string }>
   const sessions = new Map([
     [
@@ -40,17 +44,19 @@ describe('WorkflowService', () => {
   beforeEach(() => {
     store = new SessionStore(':memory:')
     notices = []
-    service = new WorkflowService({
-      store: store.workflows,
-      now: () => '2026-07-13T12:00:00.000Z',
-      session: (id) => sessions.get(id),
-      issue: (id) =>
-        id === 'issue-1'
-          ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
-          : undefined,
-      repoIdForPath: () => 'repo-1',
-      notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
-    })
+    service = driveWorkflows(
+      new WorkflowService({
+        store: store.workflows,
+        now: () => '2026-07-13T12:00:00.000Z',
+        session: (id) => sessions.get(id),
+        issue: (id) =>
+          id === 'issue-1'
+            ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
+            : undefined,
+        repoIdForPath: () => 'repo-1',
+        notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
+      }),
+    )
   })
 
   afterEach(() => store.close())
@@ -175,7 +181,7 @@ describe('WorkflowService', () => {
     // POD-731 CONVERGENCE (ADR 3 Amendment 1 D20.2): an invisible workflow id
     // fails identically to an unknown one.
     expect(() => service.get({ id: other.workflow.id }, agent('s1'))).toThrow('unknown workflow')
-    expect(service.bindings({}, agent('s1'))).toMatchObject([
+    expect(service.bindings(agent('s1'))).toMatchObject([
       { targetKind: 'issue', targetId: 'issue-1' },
     ])
     expect(
@@ -214,9 +220,7 @@ describe('WorkflowService', () => {
       issueId: 'issue-1',
       revisionId: created.revision.id,
     })
-    expect(service.prime({}, agent('s1'))).toContain(
-      'Execution profile unavailable: profile-missing',
-    )
+    expect(service.prime(agent('s1'))).toContain('Execution profile unavailable: profile-missing')
     // POD-731: an advance against a stepped run must name its step or carry a
     // mutation id, so an unnamed delivery cannot be told apart from a duplicate.
     const checkpoint = service.checkpoint(
@@ -392,7 +396,7 @@ describe('WorkflowService', () => {
     expect(rehydrated?.revision.id).toBe(created.revision.id)
     expect(rehydrated?.prompt).toContain('version one')
     expect(rehydrated?.prompt).not.toContain('version two')
-    expect(service.prime({}, agent('s2'))).toContain('role: issue participant')
+    expect(service.prime(agent('s2'))).toContain('role: issue participant')
     expect(service.status({}, agent('s2')).id).toBe(run.id)
     expect(() =>
       service.checkpoint(
@@ -446,7 +450,7 @@ describe('WorkflowService', () => {
 
   it('rejects duplicate step ids and keeps execution profiles operator-managed', () => {
     expect(() =>
-      workflowInputs.create.parse({
+      WORKFLOW_CONTRACTS.create.input.parse({
         name: 'Invalid steps',
         scope: 'global',
         steps: [
@@ -464,7 +468,11 @@ describe('WorkflowService', () => {
       // POD-731: the refusal names the ACCOUNT GRADE (ADR 1 D6), not a role class.
     ).toThrow('only an administrator')
     expect(() =>
-      workflowInputs.profileSave.parse({ name: 'Bad', accountId: 'acct', harness: 'unknown' }),
+      WORKFLOW_CONTRACTS.profileSave.input.parse({
+        name: 'Bad',
+        accountId: 'acct',
+        harness: 'unknown',
+      }),
     ).toThrow()
   })
 

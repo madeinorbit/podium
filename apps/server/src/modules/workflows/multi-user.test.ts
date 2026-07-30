@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import type { WorkflowMachineAccess } from './handlers/context'
 import { type WorkflowCaller, WorkflowService } from './service'
+import { driveWorkflows } from './test-support'
 
 const NOW = '2026-07-30T00:00:00.000Z'
 const ALICE = 'user:alice'
@@ -132,9 +133,7 @@ function twoUserPolicy() {
     ): WorkflowCaller => {
       acting = human
       return {
-        actor: sessionId
-          ? ({ kind: 'session', id: sessionId } as const)
-          : ({ kind: 'operator', id: null } as const),
+        actor: sessionId ? { kind: 'session', id: sessionId } : { kind: 'operator', id: null },
         ...(sessionId
           ? {
               capability: {
@@ -169,7 +168,9 @@ function makeHarness(policy: Policy) {
     },
     { ownership: policy.ownership, machines: policy.machines },
   )
-  return { store, service }
+  // POD-732: the eleven shims are deleted from production; the suite drives the
+  // one door (`WorkflowService.execute`) through the argument-order adapter.
+  return { store, service: driveWorkflows(service) }
 }
 
 const thrown = (fn: () => unknown): string => {
@@ -320,8 +321,8 @@ describe('workflows under two humans', () => {
 
     const bob = () => policy.caller(asSessionId('b1'), BOB)
     expect(h.service.runs({}, bob())).toEqual([])
-    expect(h.service.bindings({}, bob())).toEqual([])
-    expect(h.service.profiles({}, bob())).toEqual([])
+    expect(h.service.bindings(bob())).toEqual([])
+    expect(h.service.profiles(bob())).toEqual([])
     // …and a named run id tells Bob nothing either.
     expect(thrown(() => h.service.status({ runId: run.id }, bob()))).toBe(
       'no active workflow run for this session',
@@ -330,8 +331,8 @@ describe('workflows under two humans', () => {
     // THE COUNTERFACTUAL for all four: Alice sees her own. Without this the
     // assertions above would pass against a surface that lists nothing at all.
     expect(h.service.runs({}, policy.caller(asSessionId('a1'), ALICE)).map((r) => r.id)).toEqual([run.id])
-    expect(h.service.bindings({}, policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
-    expect(h.service.profiles({}, policy.caller(null, ALICE, 'admin'))).toHaveLength(1)
+    expect(h.service.bindings(policy.caller(asSessionId('a1'), ALICE))).toHaveLength(1)
+    expect(h.service.profiles(policy.caller(null, ALICE, 'admin'))).toHaveLength(1)
     expect(h.service.status({ runId: run.id }, policy.caller(asSessionId('a1'), ALICE)).id).toBe(run.id)
   })
 

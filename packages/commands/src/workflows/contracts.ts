@@ -774,10 +774,15 @@ export const workflowAdoptContract = {
     'run',
     'THE TARGET IS THE RUN, so there is no step to name and the unnamed-frame refusal does not apply. ' +
       'Its duplicate is a real hazard all the same — a second adopt supersedes the run the FIRST one ' +
-      'created and starts a third — and the close for it is the mutation-id ledger alone. That is ' +
-      'RECORDED rather than fixed here: POD-730 did not pin adopt’s duplicate as a defect, this ' +
-      'issue’s criterion is the checkpoint double-advance, and refusing every adopt that carries no ' +
-      'mutation id would break six behaviours POD-730 pinned for a hazard nobody has hit.',
+      'created and starts a third — and the close for it is the mutation-id ledger alone. POD-731 ' +
+      'RECORDED it rather than fixing it, because refusing every adopt that carries no mutation id ' +
+      'would break six behaviours POD-730 pinned for a hazard nobody has hit. ' +
+      'POD-732 CLOSED IT FOR AN IDENTIFIED DELIVERY and still refuses nothing: the cutover made ' +
+      'adopt’s callers enumerable, so the CLI now mints one mutation id per invocation and a repeated ' +
+      'DELIVERY of that invocation is a ledger replay — the handler is not invoked and the first ' +
+      'result comes back verbatim. Two separate invocations remain two intents and still supersede; ' +
+      'deduping those would answer a question the operator did not ask. What is still open is an ' +
+      'unidentified adopt, which is a REFUSAL question and stays POD-731’s six-pin problem.',
   ),
   cli: { positional: ['revisionId'], summary: 'Adopt a revision mid-run' },
 } as const satisfies WorkflowCommandContract

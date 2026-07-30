@@ -358,28 +358,27 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (message) => daemon.push(message))
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
-    const created = reg.modules.workflows.create(
-      {
-        name: 'Research, plan, implement',
-        description: '',
-        scope: 'global',
-        instructions: 'Research before changing code.',
-        steps: [
-          {
-            id: asSessionId('research'),
-            title: 'Research',
-            instructions: 'Inspect the system.',
-            completionGuidance: 'Unknowns resolved.',
-          },
-        ],
-      },
-      operator,
-    )
-    reg.modules.workflows.publish({ revisionId: created.revision.id }, operator)
-    reg.modules.workflows.assign(
-      { targetKind: 'global', targetId: '', revisionId: created.revision.id },
-      operator,
-    )
+    // POD-732: the eleven shims are deleted; every caller enters at `execute`.
+    const created = reg.modules.workflows.execute(operator, 'create', {
+      name: 'Research, plan, implement',
+      description: '',
+      scope: 'global',
+      instructions: 'Research before changing code.',
+      steps: [
+        {
+          id: 'research',
+          title: 'Research',
+          instructions: 'Inspect the system.',
+          completionGuidance: 'Unknowns resolved.',
+        },
+      ],
+    })
+    reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
+    reg.modules.workflows.execute(operator, 'assign', {
+      targetKind: 'global',
+      targetId: '',
+      revisionId: created.revision.id,
+    })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -453,23 +452,20 @@ describe('SessionRegistry', () => {
       cwd: '/w',
     }).sessionId
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
-    const created = reg.modules.workflows.create(
-      {
-        name: 'Delegated review',
-        description: '',
-        scope: 'global',
-        instructions: 'Use a separate reviewer.',
-        steps: [
-          {
-            id: asSessionId('review'),
-            title: 'Review',
-            instructions: 'Review the change.',
-            completionGuidance: 'Report findings.',
-          },
-        ],
-      },
-      operator,
-    )
+    const created = reg.modules.workflows.execute(operator, 'create', {
+      name: 'Delegated review',
+      description: '',
+      scope: 'global',
+      instructions: 'Use a separate reviewer.',
+      steps: [
+        {
+          id: 'review',
+          title: 'Review',
+          instructions: 'Review the change.',
+          completionGuidance: 'Report findings.',
+        },
+      ],
+    })
     const run = reg.modules.workflows.startRun({
       sessionId: coordinator,
       cwd: '/w',
@@ -479,21 +475,23 @@ describe('SessionRegistry', () => {
       actor: { kind: 'session' as const, id: coordinator },
       capability: reg.modules.sessions.capabilityForSession(coordinator),
     }
-    reg.modules.workflows.assignStep(
-      { runId: run.id, stepId: 'review', sessionId: worker },
-      coordinatorCaller,
-    )
-    reg.modules.workflows.checkpoint(
+    reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
+      runId: run.id,
+      stepId: 'review',
+      sessionId: worker,
+    })
+    reg.modules.workflows.execute(
+      {
+        actor: { kind: 'session', id: worker },
+        capability: reg.modules.sessions.capabilityForSession(worker),
+      },
+      'checkpoint',
       {
         runId: run.id,
         stepId: 'review',
         status: 'complete',
         summary: 'No findings.',
         evidence: { summary: '', tests: [], artifacts: [] },
-      },
-      {
-        actor: { kind: 'session', id: worker },
-        capability: reg.modules.sessions.capabilityForSession(worker),
       },
     )
 
@@ -922,7 +920,7 @@ describe('SessionRegistry', () => {
 
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
     const store = new SessionStore(':memory:')
-    const id = asSessionId('orphan-1')
+    const id = 'orphan-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -933,7 +931,7 @@ describe('SessionRegistry', () => {
     )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
-    reg.gateway.routeDaemonFrame('local', bind(id))
+    reg.gateway.routeDaemonFrame('local', bind(asSessionId(id)))
     const healed = reg.modules.sessions.listSessions().find((m) => m.sessionId === id)
     expect(healed).toMatchObject({ status: 'live' })
     expect(healed?.exitCode).toBeUndefined()
@@ -941,7 +939,7 @@ describe('SessionRegistry', () => {
 
   it('leaves a dead exited session exited and untouched when its master is gone', () => {
     const store = new SessionStore(':memory:')
-    const id = asSessionId('dead-1')
+    const id = 'dead-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     reg.gateway.attachDaemon('local', () => {})
@@ -949,7 +947,7 @@ describe('SessionRegistry', () => {
     // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
     reg.gateway.routeDaemonFrame('local', {
       type: 'reattachFailed',
-      sessionId: id,
+      sessionId: asSessionId(id),
       reason: 'session not found',
     })
     expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === id)).toMatchObject({
@@ -1041,7 +1039,7 @@ describe('SessionRegistry', () => {
       // The registry enriches broadcasts with the stable podium identity.
       conversations: [
         {
-          id: asSessionId('conv-1'),
+          id: 'conv-1',
           agentKind: 'codex',
           providerId: 'codex-jsonl',
           podiumId: expect.stringMatching(/^conv_/),
@@ -1078,7 +1076,7 @@ describe('SessionRegistry', () => {
     reg.gateway.attachDaemon('local', () => {})
     const first = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const second = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
-    const meta = (sessionId: SessionId) =>
+    const meta = (sessionId: string) =>
       reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1124,7 +1122,7 @@ describe('SessionRegistry', () => {
         type: 'conversationsChanged',
         conversations: [
           {
-            id: asSessionId('conv-2'),
+            id: 'conv-2',
             agentKind: 'claude-code',
             providerId: 'claude-code-jsonl',
             podiumId: expect.stringMatching(/^conv_/),
@@ -1159,7 +1157,7 @@ describe('SessionRegistry', () => {
       type: 'conversationsChanged',
       conversations: [
         {
-          id: asSessionId('conv-3'),
+          id: 'conv-3',
           agentKind: 'codex',
           providerId: 'codex-jsonl',
           podiumId: expect.stringMatching(/^conv_/),
@@ -1511,7 +1509,7 @@ describe('host metrics relay', () => {
     // replaces — see the "latest sample per host" test above).
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({
-      id: asSessionId('m-alpha'),
+      id: 'm-alpha',
       name: 'alpha',
       hostname: 'alpha',
       tokenHash: 'x',
@@ -1571,7 +1569,7 @@ describe('memory breakdown relay', () => {
       sampledAt: '2026-06-11T00:00:00.000Z',
       supported: true,
       memory,
-      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }],
+      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }], // // POD-361-EDGE-CAST
       projects: [],
       otherBytes: 12,
     })
@@ -2124,7 +2122,7 @@ describe('structured transcript channel', () => {
       sessionId,
       items: [
         {
-          id: asSessionId('u1'),
+          id: 'u1',
           role: 'user',
           text: '<command-name>/model</command-name>\n<command-message>model</command-message>',
           cursor: 'c1',
@@ -2182,7 +2180,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
 
     const p = reg.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
     const req = daemon.find((m) => m.type === 'transcriptRead') as
-      | { requestId: string; direction: string; limit: number; sessionId: SessionId }
+      | { requestId: string; direction: string; limit: number; sessionId: string }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent — short-circuit regression')
@@ -3425,7 +3423,11 @@ describe('SessionRegistry read state (#124)', () => {
 })
 
 describe('SessionRegistry snooze', () => {
-  const agentState = (sessionId: SessionId, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
+  const agentState = (
+    sessionId: SessionId,
+    phase: AgentPhase,
+    extra: Record<string, unknown> = {},
+  ) =>
     ({
       type: 'agentState',
       sessionId,

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { type IssueTrpc, makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 import type {
@@ -24,6 +25,8 @@ export interface WorkflowCliDeps {
   readText?(path: string): Promise<string>
   observeGit?(cwd: string): WorkflowGitObservation
   approve?(endpoint: string, op: ApprovalOp): Promise<{ text: string; exitCode: number }>
+  /** Injectable so a test can pin the id rather than assert on a UUID shape. */
+  newMutationId?(): string
 }
 
 export function parseWorkflowArgs(argv: string[]): {
@@ -447,6 +450,25 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
     if (!revisionId) throw new WorkflowCliError('adopt needs a revision id')
     result = await call(deps.client, 'adopt', {
       revisionId,
+      // THE DELIVERY IDENTITY for adopt's recorded duplicate hazard (POD-732;
+      // the contract's `advance` note records it and POD-731 left it open).
+      //
+      // WHAT THIS DOES AND WHAT IT DELIBERATELY DOES NOT DO. Adopt supersedes
+      // the run it is applied to and starts another, so a second DELIVERY of
+      // the same invocation supersedes the run the first one created and starts
+      // a third. Minting one id per invocation makes that second delivery a
+      // ledger replay: the handler is not invoked and the first delivery's
+      // result comes back verbatim.
+      //
+      // It does NOT dedup two separate `podium workflow adopt` invocations, and
+      // must not: those are two intents, and a tool that silently swallowed the
+      // second would be answering a question the operator did not ask. POD-731's
+      // three reasons for not REFUSING an unidentified adopt all still hold —
+      // POD-730 pinned six behaviours that a refusal would break — so nothing is
+      // refused here. What changed at the cutover is that adopt's callers became
+      // enumerable (this one and the tRPC arm), which is what makes minting at
+      // the edge a complete answer rather than a partial one.
+      mutationId: deps.newMutationId?.() ?? randomUUID(),
       ...(value(args, 'start-step') ? { startStepId: value(args, 'start-step') } : {}),
       ...(value(args, 'run') ? { runId: value(args, 'run') } : {}),
     })
