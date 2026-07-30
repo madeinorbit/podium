@@ -1160,6 +1160,55 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.store.transactions - before).toBe(1)
   })
 
+  it('an install retires ONLY the frames it included, not every frame it buffered', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 5, [])
+    queued(h, 'm-covered', 's-covered')
+    queued(h, 'm-included', 's-included')
+    queued(h, 'm-beyond', 's-beyond')
+    const channel = h.authority.driveManually()
+
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(10, [], false))
+    await Promise.resolve()
+
+    // Three buffered frames with three different fates against a snapshot at 10.
+    // The counterfactual matters: with only INCLUDED frames in the fixture, a batch
+    // built from `buffered` instead of from the included set is indistinguishable
+    // from a correct one, and that mutation survives the whole suite.
+    // 1. wholly covered by the snapshot — dropped (D6-BUFFER-COVERED).
+    h.replica.receive(
+      deltaFrame(3, 4, [
+        session(4, 's-covered', 'old', { causationId: 'cmd-c', mutationId: 'm-covered' }),
+      ]),
+    )
+    // 2. chains exactly from the snapshot point — INCLUDED.
+    h.replica.receive(
+      deltaFrame(10, 11, [
+        session(11, 's-included', 'mine', { causationId: 'cmd-i', mutationId: 'm-included' }),
+      ]),
+    )
+    // 3. beyond the install gap — left behind, so it retires nothing.
+    h.replica.receive(
+      deltaFrame(20, 21, [
+        session(21, 's-beyond', 'later', { causationId: 'cmd-b', mutationId: 'm-beyond' }),
+      ]),
+    )
+    // The gap at frame 3 makes the install heal; let that heal finish rather than
+    // re-bootstrap, so the test ends quiet.
+    h.authority.changesSinceQueue = [deltaFrame(11, 12, [])]
+    channel.push(bootstrapChunk(10, [], true))
+    h.authority.manual = null
+    await h.replica.settled()
+
+    // Retiring a command whose effect never landed tells the user their write was
+    // accepted when it was not, and takes the optimistic value off screen with it.
+    expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-included'])
+    expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-covered', 'm-beyond'])
+    expect(h.replica.trace).toContain('D6-BUFFER-COVERED')
+    expect(h.replica.trace).toContain('D6-INSTALL-GAP')
+  })
+
   it('a bootstrap install that ABORTS retires neither buffered frame', async () => {
     const h = overlayHarness()
     await bootstrapped(h, 5, [])
