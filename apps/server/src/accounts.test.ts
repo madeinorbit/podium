@@ -41,8 +41,15 @@ afterEach(() => {
   else process.env.CLAUDE_CONFIG_DIR = prevClaudeConfigDir
 })
 
-const settings = (keys: Partial<PodiumSettings['apiKeys']> = {}): PodiumSettings =>
-  normalizeSettings({ apiKeys: { openrouter: '', anthropic: '', openai: '', ...keys } })
+/** The LEGACY provider-key resolver `accountViews` now takes (POD-419): the
+ *  material moved out of the settings blob into the server-only keyed store, so
+ *  the fixture supplies a lookup rather than a blob. Same values, same cases. */
+const settings = (
+  keys: Partial<Record<'openrouter' | 'anthropic' | 'openai', string>> = {},
+): ((provider: string) => string | undefined) => {
+  const table: Record<string, string> = { openrouter: '', anthropic: '', openai: '', ...keys }
+  return (provider) => table[provider] || undefined
+}
 
 function jwt(payload: Record<string, unknown>): string {
   return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`

@@ -688,7 +688,10 @@ export const appRouter = t.router({
     // native identity/quota drifts, so it's never cached as truth.
     // NB: never returns a credential — only its masked `identity`.
     list: t.procedure.query(({ ctx }) =>
-      accountViews(mods(ctx).settings.getSettings(), ctx.registry.sessionStore.accounts),
+      accountViews(
+        (provider) => ctx.registry.sessionStore.secrets.apiKeyFor(provider),
+        ctx.registry.sessionStore.accounts,
+      ),
     ),
     connect: t.procedure
       // Rejects kind 'oauth' for non-anthropic providers — see AccountConnectInput.

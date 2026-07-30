@@ -201,7 +201,7 @@ export async function startServer(
         claude: {
           apiKey:
             process.env.ANTHROPIC_API_KEY ||
-            store.settings.getSettings().apiKeys.anthropic ||
+            store.secrets.get('apiKeys.anthropic') ||
             undefined,
         },
       }),
@@ -258,6 +258,8 @@ export async function startServer(
   messaging = new MessagingService({
     bus: registry.modules.bus,
     getSettings: () => store.settings.getSettings(),
+    // POD-419: the bot token is server-only material; the chat id stays routing.
+    telegramBotToken: () => store.secrets.getOrEmpty('notifications.telegramBotToken'),
     superagent,
     issues: registry.modules.issues,
     topics: store.messagingTopics,

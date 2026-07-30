@@ -21,6 +21,18 @@ export function resolveOneShotBackend(settings: PodiumSettings, role: OneShotRol
 
 export interface CompleteForRoleDeps {
   settings: PodiumSettings
+  /**
+   * Resolve the API key for a provider, at the moment of use — POD-419.
+   *
+   * REQUIRED, and that is the point. It used to be read off `settings.apiKeys`,
+   * which no longer carries material: the secrets moved to the server-only keyed
+   * store. Optional-with-a-default would mean a caller that forgot to inject it
+   * silently loses every one-shot completion with a "no API key configured"
+   * error that looks like an unconfigured instance — so the composition root is
+   * made to name its source. A provider with no configured secret answers
+   * `undefined`, which is a real "not configured" and fails closed.
+   */
+  apiKey: (provider: string) => string | undefined
   /** Injectable client factory (tests / alternate transports). */
   llm?: typeof llmClient
 }
@@ -54,7 +66,7 @@ export async function completeForRole<T>(
 ): Promise<{ text: string; data: T | null | string; label: string }> {
   const backend = resolveOneShotBackend(deps.settings, opts.role)
   const factory = deps.llm ?? llmClient
-  const client: LlmClient = factory(backend, deps.settings.apiKeys)
+  const client: LlmClient = factory(backend, deps.apiKey(backend.provider))
   const resp = await client.complete(opts.messages, [])
   const data = opts.parse ? opts.parse(resp.text) : resp.text
   return { text: resp.text, data, label: client.label }

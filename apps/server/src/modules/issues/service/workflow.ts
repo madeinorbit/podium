@@ -796,7 +796,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   }
 
   async linearSearch(query: string): Promise<LinearIssue[]> {
-    const key = this.d.getSettings().integrations?.linearApiKey
+    // POD-419: the material is in the server-only keyed store, not the blob.
+    const key = this.d.store.secrets.get('integrations.linearApiKey')
     if (!key) return []
     const search = this.d.linearSearch ?? searchIssues
     return search(key, query)
@@ -1045,7 +1046,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       // The shared one-shot primitive (SP-6454): resolves the 'background' role's
       // backend + account, runs one completion, parses into structured data.
       const resp = await completeForRole(
-        { settings, llm: this.d.llm },
+        {
+          settings,
+          // POD-419: the provider's key, resolved at the moment of use out of
+          // the server-only store — `settings.apiKeys` no longer carries any.
+          apiKey: (provider) => this.d.store.secrets.apiKeyFor(provider),
+          llm: this.d.llm,
+        },
         { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
       )
       result = resp.data

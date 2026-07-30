@@ -67,6 +67,11 @@ import type {
   OutboxStorePort,
 } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
+import {
+  mergeScrubReports,
+  planSecretScrub,
+  type SecretScrubReport,
+} from '../secret-scrub'
 import type {
   CacheMutation,
   OwnedSyncSpan,
@@ -124,6 +129,16 @@ export interface IndexedDbStoreOptions {
   readonly databaseName?: string
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
+  /**
+   * Called after every open with what the secret scrub found (POD-419).
+   *
+   * OPTIONAL, and deliberately not the mechanism anything depends on: the
+   * property is enforced by the pass itself, and `audit-client-secrets.ts`
+   * verifies it by inspecting the RUNNING store rather than by trusting a
+   * callback a composition root might not wire. This exists so an instance can
+   * SAY that it removed material it should never have held.
+   */
+  readonly onSecretsScrubbed?: (report: SecretScrubReport) => void
 }
 
 /** One staged IndexedDB operation, issued into the commit transaction verbatim and IN ORDER. */
@@ -281,6 +296,13 @@ export class IndexedDbSyncStore {
     const store = new IndexedDbSyncStore(db, options)
     try {
       await store.hydrate()
+      // POD-419: material written by an EARLIER build is removed before this
+      // store answers its first read. After hydrate, so the pass sees the same
+      // rows every later read is served from; inside `open`, so no caller can
+      // observe an unscrubbed store. It is not gated on the schema version —
+      // see `../secret-scrub.ts` for why a one-shot arm is the wrong shape for a
+      // property that can be violated again.
+      await store.scrubSecrets()
     } catch (error) {
       // Decode failure or unreadable region: clear the whole replica DB and proceed
       // as a cold client (D4.5). The outbox is lost with it, which is why this path
@@ -648,6 +670,106 @@ export class IndexedDbSyncStore {
       this.outboxRows.set(row.principal, slice)
       this.nextOrdinal = Math.max(this.nextOrdinal, row.ordinal + 1)
     }
+  }
+
+  /**
+   * Remove every classified secret member from every stored row, in ONE native
+   * transaction over all three object stores.
+   *
+   * THE MIRROR IS UPDATED ONLY AFTER THE TRANSACTION COMPLETES, which is this
+   * adapter's ordering rule everywhere else and matters especially here: a
+   * mirror scrubbed ahead of its durable write would make every in-process
+   * assertion — including this issue's own audit, if it read through the store's
+   * API — report clean while the material sat on disk. `secret-scrub.test.ts`
+   * therefore drops the store and re-opens over the same factory, so it reads
+   * what actually committed.
+   */
+  private async scrubSecrets(): Promise<void> {
+    const entityRows: { principal: string; key: string; record: EntityRecord }[] = []
+    for (const [principal, slice] of this.entities)
+      for (const [key, record] of slice) entityRows.push({ principal, key, record })
+
+    const entities = planSecretScrub(
+      entityRows.map((row) => ({
+        address: `entities[${row.principal}/${row.record.entity}/${row.record.entityId}]`,
+        row,
+        value: row.record.value,
+      })),
+    )
+
+    const cursorRows = [...this.cursors].map(([principal, value]) => ({ principal, value }))
+    const cursors = planSecretScrub(
+      cursorRows.map((row) => ({
+        address: `meta[${row.principal}/${CURSOR_KEY}]`,
+        row,
+        value: row.value,
+      })),
+    )
+
+    const outboxRows: { principal: string; index: number; stored: StoredOutboxRecord }[] = []
+    for (const [principal, slice] of this.outboxRows)
+      slice.forEach((stored, index) => outboxRows.push({ principal, index, stored }))
+    // The WHOLE record, in EVERY state. Terminal and dead-lettered entries keep
+    // the author's `input` verbatim, and they are exactly the rows a scrub
+    // written against the live queue would walk past.
+    const outbox = planSecretScrub(
+      outboxRows.map((row) => ({
+        address: `outbox[${row.principal}/${row.stored.mutationId}]`,
+        row,
+        value: row.stored.record,
+      })),
+    )
+
+    const report = mergeScrubReports(entities.report, cursors.report, outbox.report)
+    if (report.rewritten === 0) {
+      this.options.onSecretsScrubbed?.(report)
+      return
+    }
+
+    const tx = this.db.transaction([...ALL_STORES], 'readwrite')
+    const completion = transactionCompletion(tx)
+    for (const rewrite of entities.rewrites) {
+      const { principal, record } = rewrite.row
+      tx.objectStore(ENTITY_STORE).put({
+        principal,
+        entity: record.entity,
+        entityId: record.entityId,
+        value: rewrite.value,
+        ...(record.revision === undefined ? {} : { revision: record.revision }),
+        ...(record.provenance === undefined ? {} : { provenance: record.provenance }),
+      } satisfies StoredEntity)
+    }
+    for (const rewrite of cursors.rewrites) {
+      tx.objectStore(META_STORE).put({
+        principal: rewrite.row.principal,
+        key: CURSOR_KEY,
+        value: rewrite.value,
+      } satisfies StoredMeta)
+    }
+    for (const rewrite of outbox.rewrites) {
+      const { stored } = rewrite.row
+      tx.objectStore(OUTBOX_STORE).put({
+        principal: stored.principal,
+        mutationId: stored.mutationId,
+        ordinal: stored.ordinal,
+        record: rewrite.value,
+      } satisfies StoredOutboxRecord)
+    }
+    await completion
+
+    // …and only now the mirror.
+    for (const rewrite of entities.rewrites) {
+      const { principal, key, record } = rewrite.row
+      this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
+    }
+    for (const rewrite of cursors.rewrites)
+      this.cursors.set(rewrite.row.principal, rewrite.value as Cursor | null)
+    for (const rewrite of outbox.rewrites) {
+      const { principal, index, stored } = rewrite.row
+      const slice = this.outboxRows.get(principal)
+      if (slice) slice[index] = { ...stored, record: rewrite.value }
+    }
+    this.options.onSecretsScrubbed?.(report)
   }
 
   private async clearAll(): Promise<void> {

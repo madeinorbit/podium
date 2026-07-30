@@ -85,6 +85,21 @@ export class ServerSecretsRepository {
       .run(key, value, updatedAt)
   }
 
+  /**
+   * The provider API key for an LLM backend's provider, or `undefined`.
+   *
+   * A CHECKED lookup rather than a cast. `LlmBackend.provider` includes `codex`,
+   * which authenticates off a local login and has no row in this vocabulary — so
+   * `apiKeys.codex` is not a `ServerSecretKey` and asserting it were one would be
+   * a well-typed lie that happens to return `undefined` today. An unrecognised
+   * provider answers "no key", which is what every caller already handles.
+   */
+  apiKeyFor(provider: string): string | undefined {
+    const candidate = `apiKeys.${provider}`
+    if (!(SERVER_SECRET_KEYS as readonly string[]).includes(candidate)) return undefined
+    return this.get(candidate as ServerSecretKey)
+  }
+
   clear(key: ServerSecretKey): void {
     this.db.prepare('DELETE FROM server_secrets WHERE key = ?').run(key)
   }

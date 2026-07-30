@@ -156,6 +156,20 @@ type SettingsStore = Pick<
   'getSettings' | 'setSettings' | 'getModelCatalog' | 'setModelCatalog'
 >
 
+/**
+ * The server-only secret store (POD-419) — a SEPARATE constructor parameter, not
+ * a member of {@link SettingsStore}.
+ *
+ * Keeping them apart is the point of 3.7b: the two are different matrix rows
+ * with different replication, offline and authorization answers, and a single
+ * `store` object with both on it is the shape that let one `settings.set` write
+ * all three at once. Every secret read below names its key at the moment of use.
+ */
+type SecretStore = Pick<
+  SessionStore['secrets'],
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence'
+>
+
 export interface SettingsServiceOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
@@ -189,6 +203,7 @@ export class SettingsService {
 
   constructor(
     private readonly store: SettingsStore,
+    private readonly secrets: SecretStore,
     private readonly bus: EventBus,
     options: SettingsServiceOptions = {},
   ) {
@@ -230,10 +245,30 @@ export class SettingsService {
    * save through the legacy command would fail. Only a CHANGE is refused, which
    * is precisely the write that must go through the secret commands.
    */
-  private assertNoSecretChange(previous: PodiumSettings, next: PodiumSettings): void {
+  private assertNoSecretChange(_previous: PodiumSettings, next: PodiumSettings): void {
+    // POD-419 CHANGED WHAT "UNCHANGED" MEANS, and the comparison had to follow.
+    //
+    // POD-420 compared the incoming blob against the PREVIOUS BLOB, which was
+    // then where the material lived. It no longer is: the blob's secret members
+    // are gone, so a stale client that still posts `apiKeys.openai: 'sk-…'`
+    // would compare against `''`, be refused — correct — while a client posting
+    // the blank it was served compares equal and is accepted, also correct.
+    // Comparing against the KEYED STORE keeps both answers right for a client
+    // that was served the material by an older build and posts it back
+    // unchanged: that is a round-trip, not a rotation, and refusing it would
+    // break every preference save from a browser tab left open across the
+    // upgrade.
     const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
       String(readSettingsLeaf(blob, key) ?? '')
-    const changed = SERVER_SECRET_KEYS.filter((key) => leaf(previous, key) !== leaf(next, key))
+    const changed = SERVER_SECRET_KEYS.filter((key) => {
+      const incoming = leaf(next, key)
+      const stored = this.secrets.getOrEmpty(key)
+      // A blank incoming member is the scrubbed blob coming home, never a
+      // request to clear: clearing is `settings.clearSecret`, which is
+      // online-only and admin-grade. Treating it as a clear would let any
+      // preference save from a client that never had the material delete it.
+      return incoming !== '' && incoming !== stored
+    })
     if (changed.length === 0) return
     // Names the KEYS and never a value: the key vocabulary is public (the
     // presence projection publishes all five), the material is not.
@@ -296,16 +331,17 @@ export class SettingsService {
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   setSecret(key: ServerSecretKey, value: string): SecretPresenceWire {
-    const previous = this.store.getSettings()
-    const next = normalizeSettings(applySettingsPatch(previous, { [key]: value }))
-    this.store.setSettings(next)
-    this.bus.emit('settings.changed', { previous, next })
-    // RECORDED GAP: the blob has nowhere to persist a per-secret rotation time,
-    // so this is the time of THIS write and a later read projection cannot
-    // recover it. POD-419's keyed store is where `updatedAt` becomes durable;
-    // returning the write time is truthful about what just happened and is the
-    // only honest non-null answer available here.
-    return secretPresence(key, value, this.fingerprintKey(), new Date(this.now()).toISOString())
+    // POD-419: the material lands in the keyed store, never in the blob. The
+    // rotation time is now DURABLE — POD-420 could only return it.
+    const updatedAt = new Date(this.now()).toISOString()
+    this.secrets.set(key, value, updatedAt)
+    // Still emitted, and still with the blob pair: every subscriber that reacts
+    // to a changed credential (the notify replay, the messaging bridge) must
+    // react whichever command wrote it, and they read the material through
+    // their own dependency rather than off this payload.
+    const settings = this.store.getSettings()
+    this.bus.emit('settings.changed', { previous: settings, next: settings })
+    return secretPresence(key, value, this.fingerprintKey(), updatedAt)
   }
 
   /**
@@ -316,11 +352,31 @@ export class SettingsService {
    * the presence projection reports `present: false` with both nullables null.
    */
   clearSecret(key: ServerSecretKey): SecretPresenceWire {
-    const previous = this.store.getSettings()
-    const next = normalizeSettings(applySettingsPatch(previous, { [key]: '' }))
-    this.store.setSettings(next)
-    this.bus.emit('settings.changed', { previous, next })
+    // In the keyed store absence IS the row being absent (POD-418 removed the
+    // `''` spelling at the model; the migration removed it at rest).
+    this.secrets.clear(key)
+    const settings = this.store.getSettings()
+    this.bus.emit('settings.changed', { previous: settings, next: settings })
     return secretPresence(key, '', this.fingerprintKey())
+  }
+
+  /**
+   * The whole secret surface as a replica may see it: presence, an opaque
+   * fingerprint and a rotation time — one row per key in the closed vocabulary,
+   * always all of them, and no value key by construction.
+   *
+   * This is the read POD-421's UI renders. It exists here rather than on the
+   * repository because the fingerprint needs the server-held MAC key.
+   */
+  secretPresenceList(): SecretPresenceWire[] {
+    // The repository answers presence and the rotation time (it is the only
+    // thing that knows them); this adds the fingerprint, which needs the
+    // server-held MAC key. `secretPresence` returns all-null for an empty value,
+    // so an absent row cannot acquire a fingerprint by accident.
+    const serverKey = this.fingerprintKey()
+    return this.secrets
+      .presence()
+      .map((row) => secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt))
   }
 
   /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
@@ -345,7 +401,7 @@ export class SettingsService {
   }
 
   async startTelegramSetup(): Promise<TelegramSetupStartResult> {
-    const botToken = this.store.getSettings().notifications.telegramBotToken.trim()
+    const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const { username } = await this.telegramSetup.getMe(botToken)
@@ -371,7 +427,7 @@ export class SettingsService {
     }
 
     const current = this.store.getSettings()
-    const botToken = current.notifications.telegramBotToken.trim()
+    const botToken = this.secrets.getOrEmpty('notifications.telegramBotToken').trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)

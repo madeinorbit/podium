@@ -23,21 +23,33 @@ export const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
 
 type NotificationSettings = PodiumSettings['notifications']
 
-function telegramConfig(settings: NotificationSettings): TelegramConfig {
-  return {
-    botToken: settings.telegramBotToken,
-    chatId: settings.telegramChatId,
-  }
+/**
+ * THE TOKEN NO LONGER COMES FROM THE SETTINGS BLOB (POD-419).
+ *
+ * `notifications` was one object spanning two matrix rows: `telegramBotToken`
+ * (server-owned secret) beside `telegramChatId` (per-user routing). The token
+ * moved to the server-only keyed store, so every config here is assembled from
+ * TWO sources — the routing half out of the blob, the material out of
+ * `NotifyDeps.telegramBotToken()`, read at the moment of use so a rotation takes
+ * effect on the next notice rather than on the next restart.
+ */
+function telegramConfig(settings: NotificationSettings, botToken: string): TelegramConfig {
+  return { botToken, chatId: settings.telegramChatId }
 }
 
-function isTelegramEnabled(settings: NotificationSettings): boolean {
-  const telegram = telegramConfig(settings)
-  return telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+function isTelegramEnabled(settings: NotificationSettings, botToken: string): boolean {
+  return botToken.trim() !== '' && settings.telegramChatId.trim() !== ''
 }
 
-function normalizedTelegramKey(settings: NotificationSettings): string {
-  const telegram = telegramConfig(settings)
-  return `${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
+function normalizedTelegramKey(settings: NotificationSettings, botToken: string): string {
+  return `${botToken.trim()}\n${settings.telegramChatId.trim()}`
+}
+
+/** Is a key from {@link normalizedTelegramKey} a CONFIGURED target? Both halves
+ *  must be present — the same test {@link isTelegramEnabled} makes, asked of a
+ *  remembered key rather than of a live pair. */
+function telegramKeyEnabled(key: string): boolean {
+  return key.split('\n').every((half) => half.trim() !== '')
 }
 
 /** The session fields an attention notice needs — a plain projection so the
@@ -52,6 +64,17 @@ export interface SessionNoticeInfo {
 
 export interface NotifyDeps {
   getSettings(): PodiumSettings
+  /**
+   * The Telegram bot token out of the server-only secret store (POD-419) —
+   * `''` when none is configured.
+   *
+   * REQUIRED rather than optional-defaulting-to-empty: an omitted dependency
+   * would silently disable every Telegram notification on an instance that has
+   * a token configured, and "the push stopped arriving" is the failure nobody
+   * reports as a bug. A composition root must name where the material comes
+   * from.
+   */
+  telegramBotToken(): string
   /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
   notificationsEnabled?(): boolean
   /** store.appendEvent — the durable podium_events log. */
@@ -80,6 +103,12 @@ export interface NotifyDeps {
  * - 'settings.changed'     → replay current blocked states to newly configured targets
  */
 export class NotifyService {
+  /** The effective Telegram key (token + chat id) as of the last
+   *  `settings.changed`. `undefined` until the first one — see the comparison
+   *  in `notifyAttentionForNewExternalTargets` for why that case falls back to
+   *  the blob-only reading rather than guessing. */
+  private lastTelegramKey: string | undefined
+
   constructor(
     private readonly deps: NotifyDeps,
     private readonly pushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
@@ -116,13 +145,23 @@ export class NotifyService {
     if (this.deps.notificationsEnabled?.() === false) return
     const nextNtfy = next.ntfyTopic.trim()
     const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
+    // Both sides are evaluated against the LIVE token, plus the memo below, so
+    // the two transitions that mean "a target became reachable" both fire: a
+    // chat id newly filled in (the blob changed) and a token newly set or
+    // rotated (the keyed store changed, and the blob did not). Before the split
+    // the token was in the blob and one comparison caught both; keeping only the
+    // blob comparison would silently stop replaying blocked states on the write
+    // that most needs it — the first time a bot token is configured.
+    const botToken = this.deps.telegramBotToken()
+    const nextKey = normalizedTelegramKey(next, botToken)
+    const previousKey = this.lastTelegramKey ?? normalizedTelegramKey(previous, botToken)
+    const previouslyEnabled = telegramKeyEnabled(previousKey)
     const sendTelegram =
-      isTelegramEnabled(next) &&
-      (!isTelegramEnabled(previous) ||
-        normalizedTelegramKey(previous) !== normalizedTelegramKey(next))
+      isTelegramEnabled(next, botToken) && (!previouslyEnabled || previousKey !== nextKey)
+    this.lastTelegramKey = nextKey
     if (!sendNtfy && !sendTelegram) return
 
-    const telegram = telegramConfig(next)
+    const telegram = telegramConfig(next, botToken)
     for (const { info, state } of this.deps.sessionStates()) {
       if (!state) continue
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
@@ -150,7 +189,9 @@ export class NotifyService {
     const settings = this.deps.getSettings().notifications
     if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-    if (isTelegramEnabled(settings)) this.sendTelegram(telegramConfig(settings), notice)
+    const botToken = this.deps.telegramBotToken()
+    if (isTelegramEnabled(settings, botToken))
+      this.sendTelegram(telegramConfig(settings, botToken), notice)
   }
 
   /**
@@ -218,8 +259,9 @@ export class NotifyService {
       }
       for (const c of this.deps.clients()) c.send(event)
     }
-    const telegram = telegramConfig(settings)
-    const telegramEnabled = isTelegramEnabled(settings)
+    const botToken = this.deps.telegramBotToken()
+    const telegram = telegramConfig(settings, botToken)
+    const telegramEnabled = isTelegramEnabled(settings, botToken)
     if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.deps.clients()].some((c) => c.visible)
       if (!someoneWatching) {

@@ -71,7 +71,17 @@ async function fetchWithTimeout(
 /** Build a client for an api-kind backend. Throws LlmConfigError when unusable. */
 export function llmClient(
   backend: LlmBackend,
-  apiKeys: PodiumSettings['apiKeys'],
+  /**
+   * The material for THIS backend's provider, resolved by the caller — POD-419.
+   *
+   * It used to be `PodiumSettings['apiKeys']`, the whole three-key object out of
+   * the settings blob. The secrets now live in the server-only keyed store, and
+   * passing one resolved key rather than a record of them is deliberate: a
+   * function that takes every key can be handed the blob again, and the blob is
+   * what round-trips to a browser. `undefined` is "not configured" and lands on
+   * the `LlmConfigError` below.
+   */
+  apiKey: string | undefined,
   fetchImpl: FetchLike = fetch,
 ): LlmClient {
   if (backend.kind !== 'api') {
@@ -80,7 +90,7 @@ export function llmClient(
     )
   }
   if (backend.provider === 'codex') return codexClient(backend, fetchImpl)
-  const key = apiKeys[backend.provider]
+  const key = apiKey
   if (!key) {
     throw new LlmConfigError(
       `no API key configured for ${backend.provider} — add one in Settings → API keys`,
