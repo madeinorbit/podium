@@ -60,10 +60,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { IssueAggregate } from '../packages/model/src/aggregates/issue'
+import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { SessionAggregate } from '../packages/model/src/aggregates/session'
 import { IssueWire } from '../packages/model/src/entities/issue'
 import { SessionMeta } from '../packages/model/src/entities/session'
-import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import type { AuditContext, AuditSite } from './rearch-audit'
 
@@ -438,7 +438,7 @@ export const NOT_A_REPRESENTATION: readonly {
     reason:
       'the in-process EVENT PAYLOAD map: one declared payload per event name, deliberately not ' +
       'stringly-typed. Its entity-carrying events pass whole representations by reference ' +
-      "(`{ sessions: SessionMeta[] }`, `{ issue: IssueWire }`) and its own members are event " +
+      '(`{ sessions: SessionMeta[] }`, `{ issue: IssueWire }`) and its own members are event ' +
       'facts (`prev`/`next`/`code`), so it is the same class as an L1 frame. Its ATTRIBUTION ' +
       'obligations are tracked separately — inventory §9 enumerates the event-payload principal ' +
       'keys that a column-shaped search could not see.',
@@ -470,12 +470,30 @@ export const NOT_A_REPRESENTATION: readonly {
       '`LinearIssue` and `CloudAgentSourceSession`: a foreign shape must not become ours.',
   },
 
+  // --- L1 COMMAND CONTRACT inputs (POD-728). Same class as a tRPC procedure
+  // input, and this pair MOVED rather than appeared: `spawnAgentInput` was
+  // excluded at `apps/server/src/modules/messages/gate.ts` until the L1/L3 split
+  // relocated the schema to its contract. The exclusion is keyed on the
+  // (file, symbol) PAIR on purpose, so a move shows up as one item GREW and has
+  // to be re-declared here — which is the detector working, not a false
+  // positive, and is why the baseline was not touched.
+  {
+    file: 'packages/commands/src/mail/contracts.ts',
+    symbol: 'spawnAgentInput',
+    reason:
+      'a command CONTRACT input (ADR 3 D1): it declares the ARGUMENTS OF A CALL, not a ' +
+      'representation of a session. Its three session-shaped keys (workflowRunId, workflowStepId, ' +
+      'executionProfileId) are spawn parameters the caller supplies, and its entity-shaped subset ' +
+      'owes inventory §6.4 rule 1 — a Pick from model plus transport keys — which is POD-308 wire ' +
+      'work. Same class as the tRPC procedure inputs below, and it carried that exclusion at its ' +
+      'previous site in apps/server/src/modules/messages/gate.ts.',
+  },
+
   // --- tRPC procedure inputs and the client API surface: the transport edge.
   ...(
     [
       ['apps/server/src/router.ts', 'appRouter'],
       ['apps/server/src/router.ts', 'cloudSourceSessionInput'],
-      ['apps/server/src/modules/messages/gate.ts', 'spawnAgentInput'],
       ['apps/server/src/modules/workflows/service.ts', 'workflowInputs'],
       ['packages/client-core/src/api.ts', 'PodiumClientApi'],
       ['apps/mobile/src/client/trpc.ts', 'MobileTrpcExtras'],
@@ -554,8 +572,10 @@ export function unregisteredRestatements(
  */
 export function danglingRegistryEntries(
   repoRoot: string,
-  representations: readonly { readonly symbol: string; readonly site: string }[] =
-    RETAINED_REPRESENTATIONS,
+  representations: readonly {
+    readonly symbol: string
+    readonly site: string
+  }[] = RETAINED_REPRESENTATIONS,
 ): AuditSite[] {
   const sites: AuditSite[] = []
   for (const rep of representations) {

@@ -58,8 +58,7 @@ export interface MailSenderPrincipal {
  * Why not "anyone with scope all": that is the thing being replaced. Scope `all`
  * is a capability breadth; `operator` must become an identity.
  */
-export const isHumanPrincipal = (sender: MailSenderPrincipal): boolean =>
-  sender.kind === 'operator'
+export const isHumanPrincipal = (sender: MailSenderPrincipal): boolean => sender.kind === 'operator'
 
 /**
  * Byte-faithful, envelope-free delivery (readiness §3.2). Questions are excepted
@@ -82,8 +81,7 @@ export const deliversUnwrapped = (sender: MailSenderPrincipal, kind: string): bo
  * A superagent is NOT exempt: it is "you, automated" (readiness §3.1.6 S1) and is
  * exactly the unattended loop the brakes were written for.
  */
-export const exemptFromBrakes = (sender: MailSenderPrincipal): boolean =>
-  isHumanPrincipal(sender)
+export const exemptFromBrakes = (sender: MailSenderPrincipal): boolean => isHumanPrincipal(sender)
 
 /**
  * The brake bucket key.

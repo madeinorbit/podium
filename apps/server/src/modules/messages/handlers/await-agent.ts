@@ -16,7 +16,7 @@
  * `write` through the session-target gate. See the contract for the working.
  */
 
-import type { ContractInput, awaitAgentContract } from '@podium/commands'
+import type { awaitAgentContract, ContractInput } from '@podium/commands'
 import type { SessionMeta } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
 import type { MailHandlerContext } from './context'

@@ -284,7 +284,8 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
   const at = (msg: string): void => {
     errs.push(`${contract.name}: ${msg}`)
   }
-  if (!Number.isInteger(contract.version) || contract.version < 1) at('version must be a positive integer')
+  if (!Number.isInteger(contract.version) || contract.version < 1)
+    at('version must be a positive integer')
   if (!contract.name.includes('.')) at('name must be a dotted wire name')
   if (contract.policy.rationale.trim() === '') at('policy.rationale is required')
   if (contract.delivery.outboxReconciliation.trim() === '') {
@@ -316,7 +317,9 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
     contract.errorConsistency.callerSuppliedTargetId &&
     !contract.errorConsistency.distinguishesUnauthorizedFromUnreachable
   ) {
-    at('machine `use` must keep unauthorized distinguishable from unreachable (readiness §3.1.4 M5)')
+    at(
+      'machine `use` must keep unauthorized distinguishable from unreachable (readiness §3.1.4 M5)',
+    )
   }
   // D17: an actor that is not stamped from the capability is an actor a payload
   // could set. There is deliberately no `from-payload` member; this catches the
@@ -346,9 +349,7 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
 }
 
 /** Every classification error across a table of contracts. */
-export function registryClassificationErrors(
-  contracts: readonly AnyCommandContract[],
-): string[] {
+export function registryClassificationErrors(contracts: readonly AnyCommandContract[]): string[] {
   const errs = contracts.flatMap(classificationErrors)
   const names = contracts.map((c) => c.name)
   const dupes = names.filter((n, i) => names.indexOf(n) !== i)

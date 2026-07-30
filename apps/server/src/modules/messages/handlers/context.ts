@@ -32,6 +32,7 @@ import {
 import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import type { MessageGateDeps, MessageWire } from '../gate'
+import type { MessageDeliveryDeps } from '../service'
 
 export interface MailCaller {
   capability: Capability
@@ -67,6 +68,32 @@ export const SINGLE_USER_MACHINE_ACCESS: MachineAccess = {
   mayUse: () => true,
   isReachable: () => true,
 }
+
+/**
+ * THE OTHER HALF OF THE CEILING, and it must be wired from the SAME object.
+ *
+ * `MailAccess` applies the ceiling when an address is RESOLVED. That closes the
+ * ordinary case, but not the collision case: a caller who supplies the literal
+ * internal id of an issue beyond its human's visibility gets an address that
+ * looks unresolvable to the gate and resolvable to the delivery path. The
+ * apply-time port is what closes it, at both sites that could act on the row
+ * (the legacy mirror write and every delivery attempt).
+ *
+ * So a composition root that hands a real ceiling to `MessageGate` must hand
+ * THIS to `MessageDeliveryService`, built from the same object. Two ceilings
+ * that could disagree is the defect; one object read twice is the fix.
+ *
+ * The refusal reason is byte-identical to the one an id that does not exist
+ * produces, so the queue cannot be read as an existence oracle one step removed
+ * (ADR 3 Amendment 1 D20.2).
+ */
+export const applyAuthFromCeiling =
+  (ceiling: HumanCeiling): NonNullable<MessageDeliveryDeps['authorizeAtApply']> =>
+  (message) => {
+    if (message.toKind !== 'issue' || !message.toId) return { ok: true }
+    if (ceiling.canSee({ kind: 'issue', id: message.toId })) return { ok: true }
+    return { ok: false, reason: 'issue no longer exists' }
+  }
 
 export interface MailHandlerContext {
   caller: MailCaller

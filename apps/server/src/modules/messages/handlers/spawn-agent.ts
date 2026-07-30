@@ -11,7 +11,7 @@
  * the machine the resolved execution profile places the child on.
  */
 
-import type { ContractInput, spawnAgentContract } from '@podium/commands'
+import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { checkIssueAccess } from '../../../issue-authz'
 import { SPAWN_BUDGET_PER_DAY } from '../service'
 import type { MailHandlerContext } from './context'
@@ -30,7 +30,7 @@ export function spawnAgentHandler(
     // delegating human's visibility must fail as an unknown issue, so it takes
     // the `unknown issue` branch below rather than a distinguishable denial.
     const resolved = access.resolveIssueAddress(input.issue)
-    issueId = resolved.kind === 'issue' ? resolved.id : input.issue
+    issueId = resolved.kind === 'issue' ? resolved.id : UNADDRESSABLE
     checkIssueAccess(caller, issues, 'agent.spawn', 'write', issueId)
   } else if (input.newTitle) {
     if (!deps.createIssue) throw new Error('issue creation is not wired on this server')

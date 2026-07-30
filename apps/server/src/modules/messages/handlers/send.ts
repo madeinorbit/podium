@@ -4,7 +4,7 @@
  * `IssueService` behind it.
  */
 
-import type { ContractInput, mailSendContract } from '@podium/commands'
+import { type ContractInput, type mailSendContract, UNADDRESSABLE } from '@podium/commands'
 import { checkIssueAccess } from '../../../issue-authz'
 import { senderFromCapability } from '../service'
 import type { MailHandlerContext } from './context'
@@ -18,22 +18,20 @@ export async function sendHandler(
   const resolved = access.resolveRecipient(input.to)
   // THE CONSISTENT-ERROR RULE (ADR 3 Amendment 1 D20.2), by construction.
   //
-  // An address beyond the delegating human's visibility resolves to
-  // `unresolvable`, and this branch re-addresses it to the caller's own raw
-  // ref — which is EXACTLY what `IssueService.resolveRef` hands back for an id
-  // that does not exist. From here on the two cases are the same row travelling
-  // the same code path, so they cannot be told apart by a code, a message, or a
-  // timing class. The apply-time authorization port (ADR 3 D8, wired in
-  // MessageDeliveryService) is what stops the collision case — a caller
-  // supplying the literal internal uuid of an invisible issue — from resolving
-  // at delivery or reaching the legacy mirror.
+  // An id that does not exist and an id beyond the delegating human's visibility
+  // are the SAME resolution value, and both are written to the same
+  // {@link UNADDRESSABLE} address. From here on there is one row on one code
+  // path, so the two cannot be told apart by a code, a message, a row, or a
+  // timing class. The scope gate below then finds no target — which is what an
+  // unknown ref has always produced — instead of finding a real one and
+  // answering `confirm-required` with the invisible issue's id in the message.
   //
   // NOT the same thing, and deliberately still distinguishable: an issue OUTSIDE
   // the agent's own subtree but INSIDE its human's visibility. That is D2's
   // confirm-required widening (`--outside-scope`), which D20.1 ratifies rather
   // than collapses — it may name its target because the human can already see it.
   const to =
-    resolved.kind === 'unresolvable' ? ({ kind: 'issue', id: input.to } as const) : resolved
+    resolved.kind === 'unresolvable' ? ({ kind: 'issue', id: UNADDRESSABLE } as const) : resolved
   if (to.kind === 'session') {
     access.assertSessionTargetAccess(caller, to.id, 'messages.send')
   } else {

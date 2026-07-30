@@ -16,7 +16,6 @@
 export {
   type AnyCommandContract,
   type AttributionPolicy,
-  classificationErrors,
   type CommandAction,
   type CommandContract,
   type CommandContractBase,
@@ -25,14 +24,15 @@ export {
   type ConfirmationRule,
   type ContractInput,
   type CreationOwnership,
+  classificationErrors,
   type DeliveryClass,
   type DeliveryPolicy,
   type ErrorConsistency,
   type MachineVerb,
   type OptimisticReducer,
   type RedactionPolicy,
-  registryClassificationErrors,
   type RoleFloor,
+  registryClassificationErrors,
   SERVED_NOWHERE,
   type TransportTag,
   type VisibilityClass,
@@ -46,6 +46,7 @@ export {
   placementDecision,
   resolveAddress,
   SINGLE_USER_CEILING,
+  UNADDRESSABLE,
 } from './mail/ceiling'
 export {
   awaitAgentContract,

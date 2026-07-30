@@ -104,14 +104,31 @@ export function resolveAddress(ref: string, deps: AddressDeps): AddressResolutio
       : { kind: 'unresolvable' }
   }
   const id = deps.resolveIssueRef(ref)
-  if (!deps.issueExists(id)) {
-    // Unknown id. Falls through to the substrate's existing dead-letter path,
-    // which is the branch the beyond-ceiling case converges onto.
-    return { kind: 'issue', id }
-  }
+  // ONE VALUE for both failures, which is what makes them indistinguishable by
+  // CONSTRUCTION rather than by two branches producing similar-looking output.
+  // An earlier shape here returned the caller's raw ref for the beyond-ceiling
+  // case, on the theory that it would then travel the unknown-id path — and it
+  // does, EXCEPT when the caller supplies the literal internal id, which is
+  // precisely the enumeration attempt. There the "unresolvable" address was the
+  // real one, the scope gate found a real target, and the caller got a
+  // confirm-required error naming an issue it may not see. Collapsing to a
+  // single value removes the branch that could differ.
+  if (!deps.issueExists(id)) return { kind: 'unresolvable' }
   if (!deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
   return { kind: 'issue', id }
 }
+
+/**
+ * The address an unresolvable send is written to.
+ *
+ * Deliberately NOT an issue-id shape, so it can never collide with a real row,
+ * and deliberately a CONSTANT rather than a function of the caller's input: two
+ * sends that failed for different reasons must not be separable by comparing the
+ * rows they left behind. It resolves to nothing, so the substrate's existing
+ * "issue no longer exists" dead-letter is what the sender sees — the same answer,
+ * the same code path, the same timing class.
+ */
+export const UNADDRESSABLE = 'unresolved-address'
 
 /**
  * MACHINE PLACEMENT — the deliberate opposite of the rule above

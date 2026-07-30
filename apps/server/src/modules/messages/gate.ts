@@ -228,7 +228,7 @@ export class MessageGate {
   ): MessageWire {
     const svc = this.deps.messages()
     const message = svc.message(input.id)
-    if (!message) throw new Error('unknown message ' + input.id)
+    if (!message) throw new Error(`unknown message ${input.id}`)
     if (
       caller.capability.scope.kind !== 'all' &&
       !this.access.isRecipient(caller.capability, message)

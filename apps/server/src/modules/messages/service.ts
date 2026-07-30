@@ -25,13 +25,13 @@
  *    operator is an invariant).
  */
 
+import { randomUUID } from 'node:crypto'
 import {
   deliversUnwrapped,
   exemptFromBrakes,
   type MailSenderPrincipal,
   senderBrakeKey,
 } from '@podium/commands'
-import { randomUUID } from 'node:crypto'
 import type { AgentPhase, SessionMeta } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {

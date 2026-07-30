@@ -14,8 +14,8 @@
  */
 
 import {
-  awaitAgentContract,
   type AnyCommandContract,
+  awaitAgentContract,
   mailInboxConsumeContract,
   mailLedgerContract,
   mailReplyContract,

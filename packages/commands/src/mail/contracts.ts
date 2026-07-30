@@ -79,7 +79,7 @@ const MAIL_ATTRIBUTION: AttributionPolicy = {
     'agent rules ([spec:SP-eb60] nameSource, server-authoritative humanQuestionAskedBy) exist ' +
     'precisely so that question stays answerable. Recorded now because a wire shape is cheap ' +
     'before the POD-308 cutover and expensive after it. The KEYS are reserved here; the values ' +
-    'arrive with POD-1075\'s User aggregate, which is what gives on-behalf-of something to hold — ' +
+    "arrive with POD-1075's User aggregate, which is what gives on-behalf-of something to hold — " +
     'a message row has no column for a UserId until then, and reserving the name is the part that ' +
     'has to happen before the freeze.',
 }
@@ -104,8 +104,8 @@ const ADDRESS_ORACLE_RULE = {
   distinguishesUnauthorizedFromUnreachable: false,
   note:
     'Beyond the human ceiling and nonexistent are ONE resolution value, not two rendered alike ' +
-    '(see resolveAddress in ./ceiling.ts). Outside the agent\'s own subtree but INSIDE its ' +
-    'human\'s visibility is a different case and stays a confirm-required widening ' +
+    "(see resolveAddress in ./ceiling.ts). Outside the agent's own subtree but INSIDE its " +
+    "human's visibility is a different case and stays a confirm-required widening " +
     '(`--outside-scope`), which may name the target because the human can already see it.',
 } as const
 
@@ -179,10 +179,10 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
       '`write` checked against the RESOLVED target issue with --outside-scope for a cross-subtree ' +
       'target. Unlike the append-only issues-registry mailSend these messages carry ' +
       'urgency/lifecycle — wake, resurrect, spawn — so a cross-subtree send is a real act on ' +
-      'someone else\'s subtree and earns its confirmation. The confirmation only crosses scope; it ' +
+      "someone else's subtree and earns its confirmation. The confirmation only crosses scope; it " +
       'never elevates the clamp matrix. Above both arms sits the human ceiling: the bound on ' +
-      'addressing is the delegating human\'s CURRENT rights (§3.1.5, D20.2), resolved at every ' +
-      'apply, never the agent\'s own scope and never a snapshot.',
+      "addressing is the delegating human's CURRENT rights (§3.1.5, D20.2), resolved at every " +
+      "apply, never the agent's own scope and never a snapshot.",
   },
   exposure: ['trpc', 'cli', 'mcp', 'relay'],
   delivery: DURABLE_QUEUED_ONLINE,
@@ -190,7 +190,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
   ownership: {
     creates: [],
     note:
-      'A message row is not an owned entity in ADR 9 D3\'s sense: it belongs to a conversation ' +
+      "A message row is not an owned entity in ADR 9 D3's sense: it belongs to a conversation " +
       'between two mailboxes, and its visibility is already decided by sender-ship and ' +
       'recipient-ship (the mayView arithmetic). It creates no issue and no session.',
   },
@@ -209,7 +209,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
     resource: 'none',
     confirmation: 'none',
     rationale:
-      'Recipient-ship IS the authorization: a reply routes back to the original\'s sender, so only ' +
+      "Recipient-ship IS the authorization: a reply routes back to the original's sender, so only " +
       'the party the message was addressed to (or a human principal) may write one. No target ' +
       'scope gate — the destination is not caller-chosen, it is derived from a row the caller has ' +
       'already been authorized to read, which is why no --outside-scope confirmation applies. The ' +
@@ -229,7 +229,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
     distinguishesUnauthorizedFromUnreachable: false,
     note:
       'The caller supplies a MESSAGE id. A message it may not view must fail as an unknown ' +
-      'message id, or the reply path enumerates other principals\' traffic.',
+      "message id, or the reply path enumerates other principals' traffic.",
   },
   cli: { positional: ['id'], summary: 'Reply to a message you received' },
 }
@@ -249,10 +249,10 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
       'issue, same posture as mail.send — the spawn-on-wake seam sits downstream of the same ' +
       'check, so a spawn has always required write on the target. (2) `use` on the machine the ' +
       'resolved execution profile places the child on. `use` is a CODE-EXECUTION boundary ' +
-      '(readiness §3.1.4 M2): it means arbitrary execution on someone\'s hardware with their SSH ' +
+      "(readiness §3.1.4 M2): it means arbitrary execution on someone's hardware with their SSH " +
       'keys, git identity, dotfiles and checked-out private repos, which is a different blast ' +
       'radius from "can read my issue" and must not read as the same toggle. It is checked against ' +
-      'the EFFECTIVE principal — the agent\'s scope intersected with its human\'s current rights ' +
+      "the EFFECTIVE principal — the agent's scope intersected with its human's current rights " +
       '(§3.1.4 M6) — so agents inherit machine grants through the delegation chain and no separate ' +
       'fleet ACL exists to disagree with it. Placement NEVER silently retargets: a denied ' +
       'placement is a denial, because moving the child to a machine the caller may use would run ' +
@@ -290,8 +290,8 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
       'with the spawning agent as actor. Otherwise the personal sidebar would not show work your ' +
       'own agent did for you, and retiring an agent session would orphan its issues. ' +
       'INHERITANCE (ADR 9 §3 O4, declared here rather than left to handler code): a child spawned ' +
-      'under an issue takes THAT ISSUE\'s owner and grants, not the actor\'s — sharing an issue ' +
-      'shares the work done on it, and a colleague\'s agent spawning into an issue you shared must ' +
+      "under an issue takes THAT ISSUE's owner and grants, not the actor's — sharing an issue " +
+      "shares the work done on it, and a colleague's agent spawning into an issue you shared must " +
       'not produce a session you cannot see. The --new path has no parent issue to inherit from ' +
       'when the caller has no issue scope, and falls back to the on-behalf-of human.',
   },
@@ -308,7 +308,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
       'must stay DISTINGUISHABLE from unreachable, because "denied" and "offline" otherwise ' +
       'produce the same empty list and nobody can tell a permissions problem from a dead machine. ' +
       'Authorization is decided before reachability, so a principal without `use` cannot read the ' +
-      'difference between the two errors to probe which of a colleague\'s machines are online.',
+      "difference between the two errors to probe which of a colleague's machines are online.",
   },
   cli: { summary: 'Spawn a full Podium session as a subagent' },
 }
@@ -390,7 +390,7 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
       'is otherwise unchanged: your OWN issue box consumes; an in-scope ancestor box is readable ' +
       'unfiltered but never consumed; anything else comes back mayView-FILTERED, so a cross-scope ' +
       'peek returns only rows you sent or received. Evaluated against the effective principal ' +
-      '(agent scope intersected with the human\'s current rights), not against the agent\'s scope ' +
+      "(agent scope intersected with the human's current rights), not against the agent's scope " +
       'alone.',
   },
   exposure: ['trpc', 'cli', 'mcp', 'relay'],
@@ -440,9 +440,9 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
       'member, CROSS-USER only at admin grade. A member sees the delivery ledger for traffic they ' +
       'sent or received — which is the "why did my wake not fire" question the view exists to ' +
       'answer, and it is answerable from their own rows. The unfiltered instance-wide projection is ' +
-      'the part that exposes other principals\' traffic, and it needs admin grade. roleFloor stays ' +
+      "the part that exposes other principals' traffic, and it needs admin grade. roleFloor stays " +
       '`member` because a member may legitimately ATTEMPT the command; the grade decides which ROWS ' +
-      'come back, which is exactly Amendment 1 D15\'s split between the role floor and the row gate.',
+      "come back, which is exactly Amendment 1 D15's split between the role floor and the row gate.",
   },
   exposure: ['trpc', 'cli', 'mcp'],
   delivery: {
@@ -452,7 +452,7 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
       'an absent classification mean "served nowhere", and this command IS served.',
     applyTimeReauthorization:
       'Evaluated at read time against the effective principal. Under ADR 3 Amendment 1 D19.2 reads ' +
-      'are no longer unconditionally allowed, so revoking a member\'s access takes effect on their ' +
+      "are no longer unconditionally allowed, so revoking a member's access takes effect on their " +
       'next read with no cache to invalidate.',
   },
   redaction: NO_SECRETS,
