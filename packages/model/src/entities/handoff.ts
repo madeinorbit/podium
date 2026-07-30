@@ -48,7 +48,9 @@
  *   - `repoId` from **`IssueIdentity`**, not from `IssueWorkspace`.
  *   - `branch` from **`IssueWorkspace`** (`{worktreePath, branch, parentBranch,
  *     machineId}`).
- *   - Attribution from the single `Attribution` schema — `{actor: ActorRef,
+ *   - ON THE `format: 2` ARM ONLY (POD-1153, and see the format-bump block
+ *     below for why it cannot be on v1): attribution from the single
+ *     `Attribution` schema — `{actor: ActorRef,
  *     onBehalfOf: UserIdField.nullable()}` — plus `Ownership` (`{owner,
  *     visibility}`) for the owner half. `onBehalfOf` is NULLABLE, not optional,
  *     and that distinction is load-bearing: `null` is a representable "no human
@@ -72,12 +74,16 @@
  * > for an equivalent `z.string()` reds that test and NOTHING else out of 185,
  * > golden corpora included.
  * >
- * > STILL OUTSTANDING: the attribution pair and `owner`, which cannot land
- * > additively — see the format-2 decision immediately below.
+ * > AND AS OF POD-1153, DONE for the attribution half too: `Attribution` and
+ * > `Ownership` are composed into a `format: 2` arm, by the reasoning below. The
+ * > one thing still missing is a PRODUCER — the exporter has no principal to
+ * > stamp from yet; see {@link HandoffManifestV2}'s note, which names the issues
+ * > that own it.
  *
  * ---------------------------------------------------------------------------
- * ATTRIBUTION NEEDS A FORMAT BUMP, NOT AN ADDITIVE FIELD — read this before
- * composing, because the obvious move breaks every bundle in the wild.
+ * ATTRIBUTION WAS A FORMAT BUMP, NOT AN ADDITIVE FIELD — POD-643 decided this,
+ * POD-1153 landed it. Kept in full because the obvious move breaks every bundle
+ * in the wild, and the next reader's first instinct is that obvious move.
  * ---------------------------------------------------------------------------
  *
  * POD-365 made the attribution pair STRUCTURALLY UNSPLITTABLE at its three
@@ -109,13 +115,13 @@
  * IS the export timestamp (one spelling); v1 keeps parsing through a
  * discriminated union on `format`, upgraded in the read path.
  *
- * CONSEQUENCE FOR WHOEVER LANDS IT, stated plainly because it corrects an
- * earlier claim of mine: the remaining work is therefore NOT purely mechanical.
- * Swapping hand-written keys for `Pick`s is mechanical; adding attribution is a
- * format revision that touches the bundle READER (POD-644's transfer path, not
- * this file) and needs a v1 fixture retained in the golden corpus forever, as
- * the proof that old bundles still open. Do not fold it into the `Pick` change
- * as though it were one step.
+ * HOW IT LANDED (POD-1153), so the shape is auditable against that decision:
+ * `HandoffManifestV1` is byte-for-byte the old schema — same instances, same key
+ * order — `HandoffManifestV2` replaces flat `exportedAt` with `exported: {at,
+ * by}` plus `owner`/`visibility`, and `HandoffManifest` is the discriminated
+ * union over the two. The v1 arm and its golden fixtures are PERMANENT: they are
+ * the proof old bundles still open, and deleting them would silently retire the
+ * compatibility promise while every remaining test stayed green.
  *
  * `exportedAt` and `sourceMachineId` remain, per POD-364 §9, DEVICE-level facts
  * — which machine, when. They are not the attribution pair and must not be
@@ -175,7 +181,9 @@
  */
 
 import { z } from 'zod'
+import { Attribution } from '../fields/attribution'
 import { IssueIdentity, IssueWorkspace } from '../fields/issue'
+import { Ownership } from '../fields/ownership'
 import { SessionIdentity, SessionNaming, SessionPlacement, SessionResume } from '../fields/session'
 import { machineIdBlockedOnPOD318 } from '../ids'
 
@@ -209,9 +217,25 @@ import { machineIdBlockedOnPOD318 } from '../ids'
 // halves are pinned — `handoff.test.ts` asserts reference identity against the
 // shared groups, and the golden corpora assert the bytes.
 
-/** Canonical portable session package ([spec:SP-3f7a]). */
-export const HandoffManifest = z.object({
-  format: z.literal(1),
+// ---------------------------------------------------------------------------
+// THE CORE, DEFINED ONCE AND SHARED BY BOTH FORMAT ARMS
+// ---------------------------------------------------------------------------
+//
+// Everything both formats agree on lives here, as ONE set of schema instances
+// that both arms spread. Two properties fall out of that, and both were the
+// reason for doing it this way rather than writing v2 out again:
+//
+//   1. v1's KEY ORDER is untouched — `format`, this core in order, then
+//      `exportedAt` last, exactly as before — so v1's encoded bytes cannot move.
+//      `.omit().extend()` would have been shorter and would have moved `format`
+//      to the END of v2, which is a readability loss for no gain.
+//   2. v2 cannot DRIFT from v1 on a shared member. A hand-copied v2 would be
+//      byte-plausible and invisible to every golden fixture (the POD-302 class,
+//      and rule 9: branding is compile-time). Here the two arms hold the SAME
+//      instance, and `handoff.test.ts` asserts that by reference — including the
+//      `worktreeRelativePath` containment refinement, which therefore cannot be
+//      present on v1 and missing on v2.
+const HANDOFF_BUNDLE_CORE = {
   sessionId: SessionIdentity.shape.sessionId,
   agentKind: z.enum(['claude-code', 'codex']),
   resume: SessionResume.shape.resume.unwrap(),
@@ -250,8 +274,129 @@ export const HandoffManifest = z.object({
    *  length-only brand would launder that sentinel into a well-typed identity.
    *  POD-318 retires it; this becomes MachineIdField then. */
   sourceMachineId: machineIdBlockedOnPOD318,
+} as const
+
+/**
+ * **FORMAT 1 — every bundle written before POD-1153, and still every bundle
+ * this daemon writes.** Frozen, deliberately: this arm is the compatibility
+ * promise, and its only job is to keep opening files that already exist. It
+ * carries the export timestamp FLAT and no principal at all.
+ *
+ * Do not "tidy" it. A narrowing here (an `.unwrap()`, a `.min(1)`) is invisible
+ * to every golden fixture — those pin the bytes of values someone chose to
+ * write, not the inputs the schema used to accept — and turns a bundle on
+ * someone's disk into a parse failure. `handoff.test.ts`'s acceptance-boundary
+ * suite is the guard that runs in the other direction.
+ */
+export const HandoffManifestV1 = z.object({
+  format: z.literal(1),
+  ...HANDOFF_BUNDLE_CORE,
   exportedAt: z.string(),
 })
+export type HandoffManifestV1 = z.infer<typeof HandoffManifestV1>
+
+/**
+ * **FORMAT 2 — the attribution pair and the owner (POD-1153).**
+ *
+ * WHY A NEW FORMAT AND NOT THREE MORE KEYS: the block above. In one line —
+ * POD-365's pair is unsplittable because the timestamp nests INSIDE the object
+ * carrying the actor, and there is no additive way to get that here without
+ * either breaking yesterday's bundle or giving the export timestamp two
+ * spellings in one schema.
+ *
+ * WHAT CHANGES, and nothing else changes:
+ *
+ *   - flat `exportedAt` is GONE, replaced by `exported: {at, by}`. One spelling
+ *     of the export time, and it lives inside the object naming the principal —
+ *     so a v2 manifest that records WHEN without recording WHO does not
+ *     typecheck and does not parse. That is the whole point of the bump.
+ *   - `owner` + `visibility` arrive from `Ownership`.
+ *
+ * `{at, by: Attribution}` is POD-365's own nesting IDIOM, not a shape invented
+ * here: `SessionTombstone.deleted` and the issue-side site are spelled exactly
+ * this way. (The idiom is hand-written at each of those sites — there is no
+ * shared `{at, by}` schema to compose yet. Filed as a proposal rather than
+ * invented here, because a fourth site is the evidence for one, and `Attribution`
+ * itself — the part that carries the principal — IS composed.)
+ *
+ * `sourceMachineId` stays flat and stays OUT of the pair: per POD-364 §9 it and
+ * the export time are DEVICE-level facts — which machine, when. `sourceMachineId`
+ * names a machine, not a principal, so folding it into attribution would claim
+ * the daemon acted for someone.
+ *
+ * WHO IS THE OWNER (ADR 9 D5 A4): the ON-BEHALF-OF HUMAN of whoever minted the
+ * bundle — never the agent. The minting agent or session is the ACTOR, in
+ * `exported.by.actor`. So for the ordinary case the two are: actor
+ * `{kind: 'agent', id}`, `onBehalfOf` and `owner` the same human.
+ *
+ * **AND IT IS PROVENANCE, NEVER AN AUTHORIZATION INPUT.** Restated at the field
+ * rather than only in the header, because the header is what an import path
+ * skims: see `owner` below and the ADR 3 D7 block above.
+ *
+ * NO PRODUCER YET, said plainly rather than implied (rule 12): the exporter in
+ * `apps/daemon/src/handoff-package.ts` still writes `format: 1`, because a v2
+ * manifest needs an authenticated principal and the handoff export request frame
+ * carries none — there is nothing to stamp from, and stamping a guess would put
+ * fabricated provenance in a durable file. Threading the principal into the
+ * export request belongs to POD-644 (the transfer path) and POD-1075 (the
+ * principal module); both have been mailed. The READ path is already here, so a
+ * v2 bundle from a newer peer opens today.
+ */
+export const HandoffManifestV2 = z.object({
+  format: z.literal(2),
+  ...HANDOFF_BUNDLE_CORE,
+  /** WHEN the bundle was exported and WHO exported it, inseparably (ADR 9 D5
+   *  A3). `at` is THE export timestamp — v1's `exportedAt` moved in here rather
+   *  than being duplicated beside it, so this schema has exactly one spelling
+   *  of it. `by` is the shared {@link Attribution} instance: `actor` = the
+   *  minting agent/session, `onBehalfOf` = the human it acted for (`null` only
+   *  for the machine and system arms, which is a representable fact and never a
+   *  default). */
+  exported: z.object({
+    at: z.string(),
+    by: Attribution,
+  }),
+  /** The ON-BEHALF-OF HUMAN of the minting principal (ADR 9 D5 A4) — the same
+   *  person as `exported.by.onBehalfOf` for an agent-minted bundle.
+   *
+   *  PROVENANCE ONLY. A bundle is PAYLOAD from outside this trust domain, so ADR
+   *  3 D7 applies at full force: an importer MUST decide ownership from its own
+   *  authenticated transport principal and MUST NOT confer ownership,
+   *  visibility or any right because a file claims this value. Reading it as an
+   *  authorization input is the one mistake a key named `owner` invites. */
+  owner: Ownership.shape.owner,
+  /** The bundle's visibility class — `personal` for every bundle today (matrix
+   *  row `handoff-bundle`), and the shared five-member field rather than a
+   *  `z.literal('personal')`, because a FILE format that could only ever say
+   *  one word would have to be versioned again the first time a shared bundle
+   *  exists. Tightening a persisted format is a compatibility decision, not a
+   *  free test-time one. Same caveat as `owner`: it records what the exporter
+   *  believed, and confers nothing on import. */
+  visibility: Ownership.shape.visibility,
+})
+export type HandoffManifestV2 = z.infer<typeof HandoffManifestV2>
+
+/**
+ * Canonical portable session package ([spec:SP-3f7a]) — **the discriminated
+ * union over file formats**, and the schema every reader should parse with.
+ *
+ * Discriminated on `format`, so a bundle is read as the version it says it is:
+ * a v1 file cannot satisfy the v2 arm (its `format` literal refuses), which is
+ * what stops "upgrade" from silently meaning "assume it had attribution all
+ * along". `handoff.test.ts` pins that negative directly.
+ *
+ * A format this reader has never heard of (`format: 3`) is REFUSED, not
+ * best-effort read. That is unchanged behaviour, not a new restriction — the
+ * single `z.literal(1)` refused it too — and it is the correct direction for a
+ * file whose meaning depends on its version: guessing at an unknown format is
+ * how a reader silently drops a field it did not know was load-bearing. The
+ * read path is responsible for saying so legibly; see
+ * `apps/daemon/src/handoff-package.ts`.
+ */
+export const HandoffManifest = z.discriminatedUnion('format', [
+  HandoffManifestV1,
+  HandoffManifestV2,
+])
 export type HandoffManifest = z.infer<typeof HandoffManifest>
 
 /**

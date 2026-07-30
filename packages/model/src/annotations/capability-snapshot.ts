@@ -99,7 +99,16 @@ function walk(schema: z.ZodTypeAny, prefix: string, found: string[]): void {
     return
   }
 
-  if (def.typeName === 'ZodUnion' && def.options) {
+  // Both union kinds, and the discriminated one is NOT a formality. A VERSIONED
+  // file format is a discriminated union on its version key (POD-1153 made
+  // `HandoffManifest` one), so this is exactly the shape a portable
+  // representation grows into — and the arm carrying a new field is the arm a
+  // reviewer has not read yet. Before this case existed the audit answered `[]`
+  // for a planted `effectiveRights` inside an arm: not a clean bill, a detector
+  // that stopped looking. `capability-snapshot.test.ts` plants one in an arm and
+  // asserts the audit names it, so the fix is pinned by a case that must fail
+  // without it.
+  if ((def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') && def.options) {
     for (const option of def.options) walk(option, prefix, found)
   }
 }

@@ -281,7 +281,9 @@ describe('the detector’s two judgement calls are pinned', () => {
     // Never on a path PREFIX: a path-scoped exclusion is as blind as a
     // path-scoped detector, and this repo has shipped that bug twice. A new shape
     // in an excluded file is still counted.
-    expect(NOT_A_REPRESENTATION.length).toBe(31)
+    // 31 + POD-1153's `HANDOFF_BUNDLE_CORE`, the shape both handoff format arms
+    // spread. Bumping this number is the deliberate act the pin exists to force.
+    expect(NOT_A_REPRESENTATION.length).toBe(32)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)

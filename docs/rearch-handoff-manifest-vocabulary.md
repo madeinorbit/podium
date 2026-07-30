@@ -431,6 +431,115 @@ diff. Reported to POD-1138 with the site and this evidence. Making the schema `.
 the wrong fix — a file format needs forward compatibility, and a newer bundle read by an older
 reader must not be rejected for carrying a key that reader has not heard of.
 
+## 6b. POD-1153 — format 2 landed the attribution pair
+
+The format-2 decision recorded in §5a is now the schema. What shipped, and the parts a reviewer
+should check rather than take on trust.
+
+### The shape
+
+`HandoffManifest` is a **discriminated union on `format`**:
+
+| | |
+|---|---|
+| `HandoffManifestV1` | Byte-for-byte the old schema — same field *instances*, same key order, flat `exportedAt` still last. Frozen: this arm is the compatibility promise. |
+| `HandoffManifestV2` | The same core with flat `exportedAt` **replaced** by `exported: {at, by: Attribution}`, plus `owner` and `visibility` from `Ownership`. |
+
+Both arms spread ONE shared `HANDOFF_BUNDLE_CORE`, which is not a tidiness choice. A hand-copied v2
+would be byte-plausible and invisible to all 177 golden cases (the POD-302 drift class — branding is
+compile-time), and sharing the instances makes reference identity able to see it. It also means the
+`worktreeRelativePath` containment refinement is a single instance and *cannot* be present on v1 and
+quietly missing on v2.
+
+`{at, by}` is POD-365's own nesting idiom (`SessionTombstone.deleted`, and the issue-side site), not
+a shape invented here — so a v2 manifest recording *when* without *who* neither typechecks nor
+parses. Filed as a proposal rather than built here: that idiom is hand-written at each of its now
+**three** sites and there is no shared `{at, by}` schema to compose. `Attribution` itself — the half
+that carries the principal — *is* composed.
+
+### Three things deliberately NOT done
+
+1. **`visibility` is the shared five-member field, not `z.literal('personal')`.** Every bundle today
+   is `personal`, so the literal is tempting and would be free on an in-memory projection. On a
+   PERSISTED format it is a compatibility decision (rule 11): the first shared bundle would need a
+   third format. The matrix row owns the value; the schema owns the shape.
+2. **No v1 -> v2 defaulting.** `readHandoffManifest` reports `attribution: null` for a v1 bundle. The
+   uniform-looking alternative — synthesizing a legacy system actor — writes *invented provenance*
+   into the record whose only job is to say who actually did this (ADR 9 D8 S5 forbids defaulting the
+   on-behalf-of half). "Not recorded" and "recorded as nobody" stay distinguishable, and the negative
+   test pins that a v1 payload relabelled `format: 2` is REFUSED rather than read as v1.
+3. **No v2 producer.** Stated plainly because the alternative is dressing a documented rule as a
+   tested one: the exporter still writes `format: 1`. A v2 manifest may only be stamped from an
+   authenticated transport principal (ADR 3 D7) and the handoff export request frame carries none, so
+   there is nothing to stamp from and a guess would be fabricated provenance in a durable file.
+   Handed to **POD-644** (transfer path) and **POD-1075** (principal module). The mutant that would
+   prove it once the principal is threaded: change the exporter's stamped `onBehalfOf` to the ACTOR's
+   id and a test asserting owner-is-the-human must red — ADR 9 D5 A4 is the property, and today there
+   is no producer for it to hold at.
+
+### The owner is provenance, and the reader's API says so
+
+The daemon exposes it as **`claimedOwner`**, not `owner`. ADR 3 D7: a bundle is payload from a
+machine outside this trust domain, so the import path decides ownership from its OWN authenticated
+principal and a file claiming an owner confers nothing — not ownership, not visibility, not a right.
+`importHandoffPackage` consults it nowhere. A variable named `owner` in scope at an import site
+invites exactly the wrong reading, which a comment does not prevent and a name does.
+
+### Evidence, in the order that makes the proof exist
+
+**Wire, proven before regenerating anything.** The captured corpus (`messages/wire-golden.json`,
+POD-300's baseline) passed UNCHANGED against the union — 90 cases, including both v1 manifest
+fixtures — so the union does not move v1's bytes, measured on a corpus captured *before* the change.
+Then the generated corpus was compared case-by-case in memory before being rewritten, matching on
+(schema, wire payload) rather than on the variant label (a label is *expected* to move when a schema
+becomes a union; matching on it would report that rename as a byte change): **338 committed cases
+matched, 0 with changed bytes, 0 orphaned**, with a deliberately corrupted canary reporting DETECTED
+so the zero is falsifiable. The regeneration's full diff is 555 insertions and **one** deletion —
+`"variant": "full"` becoming `"full/arm0"`. No committed `encoded` line was rewritten.
+
+**The instrument was fixed before its answer was believed.** `findCapabilitySnapshotKeys` handled
+`ZodUnion` and *not* `ZodDiscriminatedUnion`, so run over the new schema it would have answered `[]`
+for a capability field planted in any arm — a green that means the gate stopped looking, and
+indistinguishable from a clean representation. Probed and confirmed before relying on it. It now
+walks both union kinds, is asserted over the union AND each arm by name, and
+`HandoffManifest.options` is pinned so a format 3 cannot inherit a green line. Its blind spot is
+unchanged and worth restating: it matches KEY NAMES, so an authority-shaped value under a bland key
+(`meta`, `ctx`, `extra`) is invisible to it. The key-set locks are the guard for that class, and they
+are a *different class* of instrument — an enumeration, not a second name matcher — which is why the
+two complement rather than corroborate.
+
+**"Retained permanently" is now executable.** A comment cannot hold a fixture in a corpus: deleting
+both v1 cases and keeping v2 left every other test in that file green. The corpus now asserts the v1
+fixtures by name, asserts the golden really pins `"format":1` for each (present-but-unpinned proves
+nothing), and asserts v2's presence as the counterfactual.
+
+**Mutation, seven mutants and seven named kills, no survivors.** Each applied/run/reverted as one
+unit, with the pattern asserted to match exactly once, the file hash checked, the mutant text grepped
+back out, and the revert compared against a backup rather than `git diff` (the tree had other
+uncommitted work, so "dirty" meant nothing).
+
+| Mutant | Test that died |
+|---|---|
+| Drop the `ZodDiscriminatedUnion` disjunct from the audit | `names a capability field inside a discriminated-union arm` |
+| Restate a shared key on v2 (`sessionId: z.string()`) | `shares every common key with v1` |
+| Restate the pair object instead of composing `Attribution` | `composes the attribution pair and the owner` |
+| Make the actor optional (`Attribution.optional()`) | `refuses a v2 manifest that records WHEN without WHO` |
+| Add a key to the shared core, so v1 grows one silently | `has exactly the locked v1 key set` |
+| Synthesize a legacy system actor for a v1 bundle | `opens a v1 bundle and reports NO attribution` |
+| Read v2's export time from `by.onBehalfOf` | `opens a v2 bundle and reports the attribution pair` |
+| Delete the `handoffManifest.minimal` v1 fixture | `still carries a format 1 manifest fixture` |
+
+One further attempt is recorded because it is the failure mode that reads as a kill: a mutant
+restating `Attribution` referenced an unimported symbol, so the suite went red by WEDGING the module
+rather than by the named assertion. Reported as a FAILED mutant, re-derived against the current file,
+and not counted.
+
+**Read path, proven against a real bundle.** A genuine export, its `manifest.json` rewritten to
+format 2 and repacked, imported for real — and the test first asserts the exporter emitted `format: 1`,
+so the rewrite cannot be a silent no-op. Refusals: `format: 3` names the format it cannot read
+(`your Podium is older than this bundle` and `this bundle is corrupt` are otherwise the same empty
+failure), and `{nonsense}` / `null` fail closed.
+
 ## 7. Handed forward in writing
 
 | To | What |
@@ -439,4 +548,6 @@ reader must not be rejected for carrying a key that reader has not heard of.
 | **POD-365** | The consumer contract — the exact `Pick` set, the `agentKind` narrowing that must stay expressible, `ResumeRef` is already the shared one, `Attribution` must be one schema carrying the pair, and *do not* define a serializable effective-capability shape anywhere in the shared set. |
 | **POD-368** | The representation entry to grade, the reusable detector, and an explicit note that the "zero hand-restated fields" criterion is **not** met yet — grade the literal criterion. |
 | **POD-304** | The O4 answer above. |
+| **POD-644** / **POD-1075** | POD-1153: the export path needs an authenticated principal before a `format: 2` bundle can be produced. The schema and the READ path are done; the exporter still writes v1 on purpose. Do not read a bundle's `owner` as authorization — it is `claimedOwner` in the reader for that reason. |
+| **POD-365** (second) | The `{at, by}` nesting idiom is now hand-written at three sites with no shared schema to compose; filed as a proposal rather than invented inside this diff. |
 | **POD-364** / **POD-366** | The `agentKind` decision; corrections to two stale premises (the manifest already imports the shared `ResumeRef`, and its ids were branded at POD-361). |

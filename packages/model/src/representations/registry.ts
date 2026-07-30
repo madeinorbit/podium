@@ -234,12 +234,20 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'from data into decisions: `sourceMachineId`/`exportedAt` are export provenance rather ' +
       'than replica-delivery facts, and its `owner` is PROVENANCE and never an authorization ' +
       'input — a bundle is payload from outside, so per ADR 3 D7 the import path decides ' +
-      'ownership from its OWN transport principal.',
+      'ownership from its OWN transport principal and an imported bundle claiming an owner ' +
+      'confers nothing. It is also the only representation versioned INDEPENDENTLY of the wire: ' +
+      '`format` is a FILE version, which is what let POD-1153 add the unsplittable attribution ' +
+      'pair without breaking bundles already on disk.',
     composition: {
       state: 'composed',
       from:
         'Pick over the session identity/resume/naming members plus the IssueWorkspace subset ' +
-        'and bundle-local keys (POD-643)',
+        'and bundle-local keys (POD-643), and — on the `format: 2` arm — the shared `Attribution` ' +
+        'and `Ownership` groups (POD-1153). It is a DISCRIMINATED UNION over file formats: the v1 ' +
+        'arm is frozen as the compatibility promise, both arms spread one shared core so v2 cannot ' +
+        'drift from v1 on a common member, and the v1 -> v2 lift lives in the bundle read path. ' +
+        'No v2 PRODUCER exists yet: stamping attribution needs an authenticated transport ' +
+        'principal (ADR 3 D7) and the export request frame carries none — POD-644 / POD-1075',
     },
     matrixRow: ROW.handoffBundle,
     visibility: 'personal',
