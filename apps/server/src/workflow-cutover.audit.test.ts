@@ -23,6 +23,7 @@
  * someone has to remember, which is the one thing the sessions split gives up.
  */
 
+import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
@@ -57,14 +58,18 @@ describe('POD-732 workflow cutover gate', () => {
     // cannot find its planted fixture, so a green run here cannot mean "the scan
     // broke". The JSON arm is parsed rather than the exit code alone, so a
     // failure names the finding instead of just the status.
-    const probe = Bun.spawnSync(['bun', 'scripts/audit-workflow-commands.ts', '--probe'], {
-      cwd: REPO_ROOT,
-    })
-    expect(probe.exitCode, probe.stderr.toString()).toBe(0)
-    const gate = Bun.spawnSync(['bun', 'scripts/audit-workflow-commands.ts', '--json'], {
-      cwd: REPO_ROOT,
-    })
-    expect(JSON.parse(gate.stdout.toString())).toEqual({ ok: true, findings: [] })
+    // `node:child_process`, not `Bun.spawnSync`: `Bun` is not in this package's
+    // ambient types, so the Bun global typechecks RED while the vitest lane
+    // stays green — the exact type-level/test-lane split this run has paid for
+    // before. Both typechecks are the instrument, not one of them.
+    const audit = (...args: string[]) =>
+      spawnSync('bun', ['scripts/audit-workflow-commands.ts', ...args], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      })
+    const probe = audit('--probe')
+    expect(probe.status, probe.stderr).toBe(0)
+    expect(JSON.parse(audit('--json').stdout)).toEqual({ ok: true, findings: [] })
   })
 
   /**

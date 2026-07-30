@@ -98,6 +98,11 @@ deleted rather than inherited.
 
 ## 5. Evidence
 
+- Both typechecks caught something the test lane could not: the spawned-gate
+  helper first used the `Bun` global, which is not in `apps/server`'s ambient
+  types — **vitest green, `bun run typecheck` RED**. Rewritten on
+  `node:child_process`. This is precisely the type-level/test-lane split this
+  run has paid for before, and it is why both were run rather than either.
 - Both typechecks, **instrument probed first** (a deliberate TS2322 injected into
   `modules/workflows/trpc.ts` was REPORTED by in-package `tsgo` *and* by
   repo-wide `bun run typecheck --force`, then reverted with hash restored).
