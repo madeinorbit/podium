@@ -68,7 +68,7 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
-import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
+import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField, UserIdField } from '../ids'
 import { z } from 'zod'
 import { SessionMeta } from './session'
 import {
@@ -402,8 +402,8 @@ export const IssueSearchFilter = z.object({
   stage: IssueStage.optional(),
   priority: z.number().int().optional(),
   type: IssueType.optional(),
-  assignee: z.string().optional(),
+  assignee: UserIdField.optional(),
   label: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
 })
 export type IssueSearchFilter = z.infer<typeof IssueSearchFilter>

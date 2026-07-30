@@ -4,6 +4,7 @@
  */
 
 import type {
+  AccountId,
   Geometry,
   IssueColorSlot,
   IssueId,
@@ -107,13 +108,13 @@ export interface TerminalCandidateRecord {
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
-  id: string
+  id: SessionId
   agentKind: string
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
   model?: string | null
   effort?: string | null
   /** Account selection, not credential material. */
-  accountId?: string | null
+  accountId?: AccountId | null
   cwd: string
   title: string
   /** Curated display name; null = derive from title. Written by a human OR by the
@@ -124,6 +125,14 @@ export interface SessionRow {
    *  null/absent = nobody named it (also every row from before the column existed). */
   nameSource?: 'user' | 'agent' | null
   originKind: 'spawn' | 'resume'
+  /** NOT a branded `ConversationId`, and deliberately so — POD-362 branded this
+   *  and reverted it on evidence. This column holds the HARNESS-NATIVE
+   *  conversation id: `session.ts#toRow` writes `origin.conversationId`, which
+   *  `entities/session.ts` documents as the native id that is unbranded BY
+   *  DECISION (a native id has no brand; and the `?? ''` default means a `.min(1)`
+   *  schema could not hold it either). The stable Podium `ConversationId` is a
+   *  DIFFERENT FACT and lives on `conversationPodiumId`. Type-identical, encodes
+   *  identically, different id space. */
   conversationId: string | null
   resumeKind: string | null
   resumeValue: string | null
@@ -162,11 +171,11 @@ export interface SessionRow {
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
    *  (legacy / shells) — cwd-derived worktree grouping applies. */
-  issueId?: string | null
+  issueId?: IssueId | null
   /** BIRTH issue for the permanent human-facing nice name (#474). Set once at
    *  naming time and never changed — re-attaching to a different issue does NOT
    *  rename. null/absent = named in the DRAFT namespace (see refDraft). */
-  refIssueId?: string | null
+  refIssueId?: IssueId | null
   /** Column letter allocated within refIssueId (`A`, `B`, … `POD-13-A`). */
   refLetter?: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
@@ -190,7 +199,7 @@ export interface SessionRow {
   deletionSource?: SessionDeletionSource | null
   /** The issue deletion that produced this tombstone. Kept separate from issueId
    *  because cwd-derived member sessions may not have been explicitly attached. */
-  deletedByIssueId?: string | null
+  deletedByIssueId?: IssueId | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */

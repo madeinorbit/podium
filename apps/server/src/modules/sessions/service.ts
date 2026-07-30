@@ -1,8 +1,9 @@
 import {
   AgentKind,
   asIssueId,
+  asSessionId,
 } from '@podium/model'
-import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueId, IssueWire, ResumeRef, SessionId, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -1518,11 +1519,11 @@ export class SessionsService {
     /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
      *  spawned inside a worktree owned by exactly one non-archived issue is
      *  "continuing that issue" and gets its id stamped. */
-    issueId?: string
+    issueId?: IssueId
     /** Client-supplied id (optimistic UI): use this verbatim instead of minting a
      *  fresh uuid, so an optimistic client row reconciles onto the real session
      *  without a swap. Absent = mint one (unchanged default behavior). */
-    sessionId?: string
+    sessionId?: SessionId
     /** Explicit workflow override; absent = issue → repository → global default. */
     workflowRevisionId?: string
     /** The CALLING principal's per-machine `use` decision (ADR 3 Am1 D18). Absent
@@ -1562,7 +1563,9 @@ export class SessionsService {
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
-    const sessionId = input.sessionId ?? randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: input.cwd,
@@ -1630,7 +1633,7 @@ export class SessionsService {
   /** The capability a relayed agent session presents: worker, scoped to the issue whose
    *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
    *  issue needs --outside-scope). Unknown session → most-restricted. */
-  capabilityForSession(sessionId: string): Capability {
+  capabilityForSession(sessionId: SessionId): Capability {
     const s = this.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
@@ -1678,7 +1681,9 @@ export class SessionsService {
       return { sessionId: existing.sessionId }
     }
     const issueId = this.issues().soleOwnerForCwd(input.cwd) ?? undefined
-    const sessionId = randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = asSessionId(randomUUID())
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: input.cwd,
@@ -2626,7 +2631,7 @@ export class SessionsService {
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
-  setSessionIssueId(sessionId: string, issueId: string | null): void {
+  setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.issueId = issueId ?? undefined
       // Naming point (#474): the first attach on a still-unnamed session brands
@@ -3784,9 +3789,9 @@ export class SessionsService {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-    issueId?: string
+    issueId?: IssueId
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
-    sessionId?: string
+    sessionId?: SessionId
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let `sessions.set` overwrite the live
@@ -3795,7 +3800,9 @@ export class SessionsService {
     if (input.sessionId && this.sessions.has(input.sessionId)) {
       throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
     }
-    const sessionId = input.sessionId ?? randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
     const launch = this.modelDefaults(
       input.agentKind,

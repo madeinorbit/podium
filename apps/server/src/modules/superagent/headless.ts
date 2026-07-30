@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { asSessionId } from '@podium/model'
 import type { AgentKind, Geometry, HarnessAgent, ResumeRef } from '@podium/model'
 import type {
   ControlMessage,
@@ -63,7 +64,9 @@ export class HeadlessService {
     spawnedBy?: string
     machineId?: string
   }): { sessionId: string } {
-    const sessionId = randomUUID()
+    // MINT SITE: a server-minted session id. The brand belongs where the id is
+    // GENERATED — nothing upstream had it, so this is not an adapter cast.
+    const sessionId = asSessionId(randomUUID())
     const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
     const session = new Session({
       sessionId,

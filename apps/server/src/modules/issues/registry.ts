@@ -1,10 +1,11 @@
 import {
   IssueColor,
+  IssueIdField,
   IssueStage,
   IssueType,
   isSortKey,
-  type IssueSearchFilter,
   type SessionMeta,
+  UserIdField,
 } from '@podium/model'
 import {
   type CommandDef,
@@ -488,14 +489,12 @@ const defs = {
       stage: IssueStage.optional(),
       priority: z.number().int().optional(),
       type: IssueType.optional(),
-      assignee: z.string().optional(),
+      assignee: UserIdField.optional(),
       label: z.string().optional(),
-      parentId: z.string().optional(),
+      parentId: IssueIdField.optional(),
     }),
     action: 'read',
-    // POD-361-EDGE-CAST (POD-362 owns): the command input is a parsed but
-    // UNBRANDED zod shape; POD-362 declares the input schema with the brands.
-    handler: (ctx, input) => ctx.issues.search(input as IssueSearchFilter),
+    handler: (ctx, input) => ctx.issues.search(input),
   }),
   count: def({
     kind: 'query',
@@ -646,9 +645,9 @@ const defs = {
         .optional(),
       priority: z.number().int().min(0).max(4).optional(),
       type: IssueType.optional(),
-      assignee: z.string().optional(),
+      assignee: UserIdField.optional(),
       labels: z.array(z.string()).optional(),
-      parentId: z.string().optional(),
+      parentId: IssueIdField.optional(),
       // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
       color: IssueColor.optional(),
       // #198: an agent opts a work item onto the human's top-level board with
@@ -791,7 +790,7 @@ const defs = {
   update: def({
     kind: 'mutation',
     input: z.object({
-      id: z.string(),
+      id: IssueIdField,
       patch: z.object({
         title: z.string().optional(),
         description: z.string().optional(),
@@ -805,8 +804,8 @@ const defs = {
         archived: z.boolean().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         type: IssueType.optional(),
-        assignee: z.string().optional(),
-        parentId: z.string().optional(),
+        assignee: UserIdField.optional(),
+        parentId: IssueIdField.optional(),
         design: z.string().optional(),
         acceptance: z.string().optional(),
         notes: z.string().optional(),

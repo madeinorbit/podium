@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { asConversationId, type ConversationId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ConversationIndexRow } from './types'
 
@@ -285,11 +286,13 @@ export class ConversationsRepository {
 
   // ---- conversation registry (docs/spec/conversation-registry.md) ----
 
-  /** The Podium identity a native conversation maps to, or undefined if unseen. */
-  conversationPodiumId(machineId: string, nativeId: string): string | undefined {
+  /** The Podium identity a native conversation maps to, or undefined if unseen.
+   *  SERIALIZATION EDGE: `podium_id` comes back from sqlite untyped, so the row
+   *  shape re-declares the brand it was stored under. */
+  conversationPodiumId(machineId: string, nativeId: string): ConversationId | undefined {
     const row = this.db
       .prepare('SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?')
-      .get(machineId, nativeId) as { podium_id: string } | undefined
+      .get(machineId, nativeId) as { podium_id: ConversationId } | undefined
     return row?.podium_id
   }
 
@@ -320,7 +323,7 @@ export class ConversationsRepository {
      *  `reported_bytes` so attach-time dirty reconciliation can use the LAST
      *  KNOWN size without waiting for a fresh scan (or sweeping everything). */
     sizeBytes?: number
-  }): string {
+  }): ConversationId {
     const existing = this.conversationPodiumId(opts.machineId, opts.nativeId)
     if (existing !== undefined) {
       if (opts.parentPodiumId) {
@@ -341,7 +344,9 @@ export class ConversationsRepository {
       }
       return existing
     }
-    const podiumId = `conv_${randomUUID()}`
+    // MINT SITE — the ConversationId is generated here, so this is where the
+    // brand is applied. Not an adapter cast: nothing upstream had the id.
+    const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
     this.db
       .prepare(
@@ -378,7 +383,7 @@ export class ConversationsRepository {
     newNativeId: string
     priorNativeId: string
     providerId: string
-  }): string {
+  }): ConversationId {
     const already = this.conversationPodiumId(opts.machineId, opts.newNativeId)
     if (already !== undefined) return already
     const podiumId = this.ensureConversationIdentity({
@@ -410,13 +415,13 @@ export class ConversationsRepository {
   }
 
   /** Batch lookup for wire enrichment: native id → podium id (per machine). */
-  conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
-    const out = new Map<string, string>()
+  conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, ConversationId> {
+    const out = new Map<string, ConversationId>()
     const q = this.db.prepare(
       'SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
     )
     for (const id of nativeIds) {
-      const row = q.get(machineId, id) as { podium_id: string } | undefined
+      const row = q.get(machineId, id) as { podium_id: ConversationId } | undefined
       if (row) out.set(id, row.podium_id)
     }
     return out

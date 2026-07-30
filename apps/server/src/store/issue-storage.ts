@@ -88,8 +88,8 @@ import {
   type IssueType,
   isIssueColorSlot,
   NeedsHuman,
+  SessionIdField,
 } from '@podium/model'
-import type { IssueId, RepoId, SessionId, UserId } from '@podium/model'
 import { z } from 'zod'
 import type { IssueRow } from './types'
 
@@ -137,7 +137,12 @@ export const LegacyAsked = z.object({
   question: z.string().optional(),
   options: z.array(z.string()).optional(),
   at: z.string().optional(),
-  by: z.string().optional(),
+  /** SAME FACT as {@link StoredAsked}'s `by` — the asking session — so it carries
+   *  the SAME brand (POD-362). `SessionIdField`, not the `.min(1)` `SessionId`
+   *  schema: this shape exists to hold what the strict one refuses, and adding
+   *  validation here would turn a legacy row that decodes today into one that
+   *  throws. The field schema is brand-only, so what parses is unchanged. */
+  by: SessionIdField.optional(),
 })
 export type LegacyAsked = z.infer<typeof LegacyAsked>
 

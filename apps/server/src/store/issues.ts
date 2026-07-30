@@ -523,14 +523,14 @@ export class IssuesRepository {
       .run(c.id, c.issueId, c.author, c.body, c.createdAt)
   }
 
-  listIssueComments(issueId: string): IssueCommentRow[] {
+  listIssueComments(issueId: IssueId): IssueCommentRow[] {
     return (
       this.db
         .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
         .all(issueId) as Record<string, unknown>[]
     ).map((r) => ({
       id: r.id as string,
-      issueId: r.issue_id as string,
+      issueId: r.issue_id as IssueId,
       author: r.author as string,
       body: r.body as string,
       createdAt: r.created_at as string,
@@ -585,7 +585,7 @@ export class IssuesRepository {
   private mapIssueMessage(r: Record<string, unknown>): IssueMessageRow {
     return {
       id: r.id as string,
-      issueId: r.issue_id as string,
+      issueId: r.issue_id as IssueId,
       fromAuthor: r.from_author as string,
       body: r.body as string,
       createdAt: r.created_at as string,

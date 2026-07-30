@@ -4,7 +4,12 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import { AgentKind } from '@podium/model'
+import {
+  type AccountId,
+  AgentKind,
+  type IssueId,
+  type SessionId,
+} from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
   OfferMap,
@@ -73,13 +78,20 @@ export class SessionsRepository {
     return rows.map((r) => this.mapSession(r))
   }
 
+  /**
+   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
+   * a `SessionRow`. Every cast is a decode of an untyped column, brands included:
+   * sqlite carries no brand, so this is where a stored string re-enters the branded
+   * id space. NOT POD-361 adapter casts; above this function every session id is
+   * branded.
+   */
   private mapSession(r: Record<string, unknown>): SessionRow {
     return {
-      id: r.id as string,
+      id: r.id as SessionId,
       agentKind: r.agent_kind as string,
       ...(r.model != null ? { model: r.model as string } : {}),
       ...(r.effort != null ? { effort: r.effort as string } : {}),
-      ...(r.account_id != null ? { accountId: r.account_id as string } : {}),
+      ...(r.account_id != null ? { accountId: r.account_id as AccountId } : {}),
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
@@ -118,8 +130,8 @@ export class SessionsRepository {
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
       spawnedBy: (r.spawned_by as string | null) ?? null,
       headless: r.headless === 1,
-      issueId: (r.issue_id as string | null) ?? null,
-      refIssueId: (r.ref_issue_id as string | null) ?? null,
+      issueId: (r.issue_id as IssueId | null) ?? null,
+      refIssueId: (r.ref_issue_id as IssueId | null) ?? null,
       refLetter: (r.ref_letter as string | null) ?? null,
       refDraft: (r.ref_draft as number | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
@@ -136,7 +148,7 @@ export class SessionsRepository {
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
       deletedAt: (r.deleted_at as string | null) ?? null,
       deletionSource: (r.deletion_source as SessionDeletionSource | null) ?? null,
-      deletedByIssueId: (r.deleted_by_issue_id as string | null) ?? null,
+      deletedByIssueId: (r.deleted_by_issue_id as IssueId | null) ?? null,
     }
   }
 
