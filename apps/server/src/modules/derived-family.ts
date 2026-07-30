@@ -59,9 +59,9 @@
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import type { RegistryModules } from '../relay'
+import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
-import { mods, t } from '../trpc'
+import { type Context, mods, t } from '../trpc'
 
 /**
  * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
@@ -85,6 +85,36 @@ import { mods, t } from '../trpc'
 export interface FamilyState {
   readonly modules: RegistryModules
   readonly repos: RepoRegistry
+  /**
+   * The opt-in telemetry emitter [spec:SP-f933], present only when the server was
+   * assembled with one. On the bundle for the same reason as `repos`: exactly one
+   * family (`telemetry.preview`) needs it, and naming it here is a smaller claim
+   * than widening `RegistryModules`. Optional, so contexts without one — tests,
+   * the in-process MCP caller — simply have no preview, which is the shipped
+   * behaviour.
+   *
+   * CONSENT STATE IS NOT HERE and must not be: it is read from `config.json` by
+   * the instance service, never from the request, because turning telemetry off
+   * has to work with no server.
+   */
+  readonly telemetry?: Context['telemetry']
+  /**
+   * The durable store. On the bundle because four families genuinely read it —
+   * `accounts` (the credential rows), and the per-user `pins` / `snoozes` /
+   * `tabs` lists — and because `RegistryModules` composes SERVICES while these
+   * are store tables with no service in front of them.
+   *
+   * THIS IS THE ONE MEMBER THAT COULD BECOME A BACK DOOR, so it is worth saying
+   * what stops it. `store` is the same object `ctx.registry.sessionStore`
+   * resolves to; naming it here does not narrow what a determined handler could
+   * touch. What it buys is that the reach is DECLARED — a family that wants the
+   * store selects it in its `service` function, in one line a reviewer can see,
+   * instead of spelling `ctx.registry.sessionStore` inline in a procedure body
+   * where no audit attributes it to a family. Putting a service in front of each
+   * of these tables is the right end state and is POD-1071's ownership work, not
+   * a router cutover's.
+   */
+  readonly store: SessionRegistry['sessionStore']
 }
 
 // ---------------------------------------------------------------------------
@@ -287,17 +317,31 @@ export function derivedFamilyProcedures<
       // point because the table is heterogeneous — each pairing is checked where
       // it is declared, and re-derived for the client by `MutationProcedures`.
       .mutation(({ ctx, input }) =>
-        command.handler(spec.service({ modules: mods(ctx), repos: ctx.repos }), input),
+        command.handler(
+          spec.service({
+            modules: mods(ctx),
+            repos: ctx.repos,
+            telemetry: ctx.telemetry,
+            store: ctx.registry.sessionStore,
+          }),
+          input,
+        ),
       )
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
-    built[name] = t.procedure
-      .input(query.input)
-      .query(({ ctx, input }) =>
-        query.run(spec.service({ modules: mods(ctx), repos: ctx.repos }), input),
-      )
+    built[name] = t.procedure.input(query.input).query(({ ctx, input }) =>
+      query.run(
+        spec.service({
+          modules: mods(ctx),
+          repos: ctx.repos,
+          telemetry: ctx.telemetry,
+          store: ctx.registry.sessionStore,
+        }),
+        input,
+      ),
+    )
   }
 
   assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)

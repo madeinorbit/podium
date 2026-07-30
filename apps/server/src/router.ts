@@ -38,7 +38,6 @@ import {
 } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { AccountConnectInput, accountViews, maskCredential } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
@@ -50,11 +49,17 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
+import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
 import { fileFamilyProcedures } from './modules/files/trpc'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
+import {
+  authFamilyProcedures,
+  setupFamilyProcedures,
+  telemetryFamilyProcedures,
+} from './modules/instance/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
@@ -614,68 +619,19 @@ export const appRouter = t.router({
     ),
   }),
   /**
-   * Opt-in telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
-   *
-   * Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
-   * `podium telemetry off` are the same switch. Self-persisting: each `set` lands
-   * immediately rather than riding the settings Save button, because "I turned
-   * telemetry off" must never be lost to an unsaved page.
-   *
-   * Same auth as settings.get (the /trpc guard = the operator).
+   * THE TELEMETRY SURFACE IS DERIVED (POD-314) — opt-in telemetry
+   * [spec:SP-f933], Settings → Privacy's backing surface. Reads/writes
+   * config.json (D8), NOT the settings blob, so the web toggles and
+   * `podium telemetry off` are the same switch.
    */
-  telemetry: t.router({
-    state: t.procedure.query(() => readTelemetryState(loadConfig())),
-    set: t.procedure
-      .input(
-        z
-          .object({
-            usage: z.enum(['on', 'off']).optional(),
-            crash: z.enum(['on', 'off']).optional(),
-          })
-          // At least one tier, so an empty call can't silently no-op.
-          .refine((v) => v.usage !== undefined || v.crash !== undefined, {
-            message: 'specify usage and/or crash',
-          }),
-      )
-      .mutation(({ input }) => setConsent(input)),
-    resetId: t.procedure.mutation(() => resetInstallId()),
-    /** The example report the Privacy page shows. Rendered from the REAL emitter
-     *  where one exists, so what the user is shown cannot drift from what is
-     *  sent; falls back to the illustrative sample before anyone has opted in
-     *  (there is no real report to show until then — by design). */
-    preview: t.procedure.query(({ ctx }) => ctx.telemetry?.emitter.buildUsageReport() ?? null),
-  }),
-  accounts: t.router({
-    // The Accounts & Keys hub (SP-6454): native CLI logins on this machine
-    // (observed read-only) + managed credentials Podium holds. Read at call-time —
-    // native identity/quota drifts, so it's never cached as truth.
-    // NB: never returns a credential — only its masked `identity`.
-    list: t.procedure.query(({ ctx }) =>
-      accountViews(mods(ctx).settings.getSettings(), ctx.registry.sessionStore.accounts),
-    ),
-    connect: t.procedure
-      // Rejects kind 'oauth' for non-anthropic providers — see AccountConnectInput.
-      .input(AccountConnectInput)
-      .mutation(({ ctx, input }) => {
-        // A Claude setup-token is its own account, distinct from an Anthropic API key.
-        const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
-        ctx.registry.sessionStore.accounts.upsert({
-          id,
-          provider: input.provider,
-          kind: input.kind,
-          credential: input.credential,
-          identity: maskCredential(input.credential),
-          scope: 'role',
-          createdAt: Date.now(),
-        })
-        // Only the id: the credential must never be echoed back to a client.
-        return { id }
-      }),
-    disconnect: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
-      ctx.registry.sessionStore.accounts.remove(input.id)
-      return { ok: true as const }
-    }),
-  }),
+  telemetry: t.router(telemetryFamilyProcedures()),
+  /**
+   * THE ACCOUNT SURFACE IS DERIVED (POD-314) — the Accounts & Keys hub
+   * (SP-6454): native CLI logins on this machine (observed read-only) plus the
+   * managed credentials Podium holds. Read at call-time, never cached as truth,
+   * and never returning a credential — only its masked `identity`.
+   */
+  accounts: t.router(accountFamilyProcedures()),
   tabs: t.router({
     // PER-USER STATE (POD-380): the caller's saved orders.
     listOrders: t.procedure.query(({ ctx }) =>
@@ -795,140 +751,21 @@ export const appRouter = t.router({
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,
   }),
-  // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
-  // reaches these instead of importing @podium/runtime/setup directly, which would pull node:fs
-  // (via ./config) into the browser bundle.
-  setup: t.router({
-    // Current deployment identity, for Settings → Network to show + let the user change how this
-    // server is reached after first-run setup.
-    info: t.procedure.query(() => {
-      const c = loadConfig()
-      return {
-        mode: c.mode ?? null,
-        publicUrl: c.publicUrl ?? null,
-        serverUrl: c.serverUrl ?? null,
-        // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun --define);
-        // the Machines panel compares each daemon's reported version against this. [POD-838]
-        appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
-      }
-    }),
-    options: t.procedure.query(() => NETWORK_OPTIONS),
-    commandFor: t.procedure
-      .input(
-        z.object({
-          option: z.enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual']),
-          port: z.number(),
-        }),
-      )
-      .query(({ input }) => networkOptionCommand(input.option, input.port)),
-    complete: t.procedure
-      // password is optional: making the instance reachable strongly suggests setting one.
-      // Blank password is still supported, but must be an explicit, auditable opt-out.
-      .input(
-        z.object({
-          publicUrl: z.string(),
-          // Which host mode this reachable box is (the web runs this step for both now); absent
-          // preserves the existing mode (default all-in-one on first run).
-          mode: z.enum(['all-in-one', 'server']).optional(),
-          password: z.string().optional(),
-          acknowledgeNoPassword: z.literal(true).optional(),
-          /**
-           * The web setup's telemetry answers [spec:SP-f933]. Rides THIS payload so
-           * the wizard commits atomically — and because setting a password here
-           * closes the /trpc guard, a follow-up telemetry call from the not-yet-
-           * logged-in setup page would 401. Absent = not asked (host modes ask;
-           * the embedded Settings → Machines reuse of this proc does not).
-           */
-          telemetry: z
-            .object({ usage: z.enum(['on', 'off']), crash: z.enum(['on', 'off']) })
-            .optional(),
-        }),
-      )
-      .mutation(async ({ input }) => {
-        const v = validatePublicUrl(input.publicUrl)
-        if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
-        const password = input.password?.trim()
-        // Neither a new password NOR an explicit no-password ack is required when one is ALREADY
-        // set — that's "keep the current password" (e.g. setting the URL later from Settings →
-        // Machines). It's only a mandatory choice on a fresh, password-less instance.
-        if (!password && !input.acknowledgeNoPassword && !hasPassword()) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Confirm running without a login password.',
-          })
-        }
-        const cfg = applySetup({
-          publicUrl: v.normalized,
-          ...(input.mode ? { mode: input.mode } : {}),
-        })
-        // After applySetup, so a telemetry write can never be lost to the config
-        // round-trip that follows it. Honours the kill switches: an env that says
-        // "do not track" wins over an answer the UI should not have collected.
-        if (input.telemetry && shouldAskForConsent()) setConsent(input.telemetry)
-        if (password) await setPassword(password)
-        return cfg
-      }),
-    // Daemon onboarding: one pasted join code (server URL + pairing code) → daemon config.
-    // Same core `applyJoin` the CLI uses, so the web and terminal flows stay identical.
-    join: t.procedure.input(z.object({ code: z.string() })).mutation(({ input }) => {
-      try {
-        return applyJoin(input.code.trim())
-      } catch (e) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
-      }
-    }),
-    // Modes with no reachability flow: all-in-one ("skip"), client (remote URL), server-only.
-    // Replaces the legacy POST /setup/config — one tRPC surface for every setup write.
-    connect: t.procedure
-      .input(
-        z.object({
-          mode: z.enum(['all-in-one', 'client', 'server']),
-          serverUrl: z.string().optional(),
-        }),
-      )
-      .mutation(({ input }) => {
-        try {
-          return applyMode(input)
-        } catch (e) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
-        }
-      }),
-    channel: t.procedure.query(() => getUpdateChannel()),
-    setChannel: t.procedure
-      .input(z.object({ channel: z.enum(['stable', 'edge']) }))
-      .mutation(({ input }) => setUpdateChannel(input.channel)),
-  }),
-  // Manage the human-client login password on an already-configured instance. These run
-  // under the same /trpc guard, so once a password is set you must be logged in to reach
-  // them; we ALSO require the current password for a change/disable (defends against a
-  // hijacked session). In open mode (no password) the current check is skipped — bootstrap.
-  auth: t.router({
-    status: t.procedure.query(() => ({ enabled: hasPassword() })),
-    setPassword: t.procedure
-      .input(z.object({ current: z.string().optional(), next: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        if (hasPassword() && !(input.current && (await verifyPassword(input.current)))) {
-          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-        }
-        await setPassword(input.next)
-        return { enabled: true }
-      }),
-    clearPassword: t.procedure
-      .input(z.object({ current: z.string(), acknowledgeNoPassword: z.literal(true).optional() }))
-      .mutation(async ({ input }) => {
-        if (!input.acknowledgeNoPassword) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Confirm running without a login password.',
-          })
-        }
-        if (hasPassword() && !(await verifyPassword(input.current))) {
-          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-        }
-        clearPassword()
-        return { enabled: false }
-      }),
-  }),
+  /**
+   * THE SETUP SURFACE IS DERIVED (POD-314) — first-run "make this instance
+   * reachable" (Tailscale-first). The web setup screen reaches these instead of
+   * importing @podium/runtime/setup directly, which would pull node:fs (via
+   * ./config) into the browser bundle.
+   */
+  setup: t.router(setupFamilyProcedures()),
+  /**
+   * THE AUTH SURFACE IS DERIVED (POD-314) — the human-client login password on
+   * an already-configured instance. These run under the same /trpc guard, so
+   * once a password is set you must be logged in to reach them; the CURRENT
+   * password is ALSO required for a change/disable, which defends against a
+   * hijacked session. In open mode the current check is skipped — bootstrap.
+   */
+  auth: t.router(authFamilyProcedures()),
   // The issues surface is DERIVED from the command registry (#248
   // [spec:SP-3fe2]): one definition per command (modules/issues/registry.ts)
   // carries input schema, action/scope/target authz, and the handler; the

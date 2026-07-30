@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AccountConnectInput } from '@podium/commands'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AccountConnectInput, accountViews } from './accounts'
+import { accountViews } from './accounts'
 import { applyBaselineSchema } from './migrations'
 import { AccountsRepository } from './store/accounts'
 

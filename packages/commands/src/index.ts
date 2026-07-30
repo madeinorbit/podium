@@ -22,6 +22,16 @@
  */
 
 export {
+  ACCOUNT_CONTRACT_NAMES,
+  ACCOUNT_CONTRACTS,
+  AccountConnectInput,
+  type AccountContractName,
+  accountsConnectContract,
+  accountsConnectInput,
+  accountsDisconnectContract,
+  accountsDisconnectInput,
+} from './accounts/contracts'
+export {
   APPROVAL_CONTRACT_NAMES,
   APPROVAL_CONTRACTS,
   type ApprovalContractName,
@@ -153,6 +163,33 @@ export {
   hostsMemoryBreakdownContract,
   hostsMemoryBreakdownInput,
 } from './hosts/contracts'
+export {
+  AUTH_CONTRACT_NAMES,
+  AUTH_CONTRACTS,
+  type AuthContractName,
+  authClearPasswordContract,
+  authClearPasswordInput,
+  authSetPasswordContract,
+  authSetPasswordInput,
+  SETUP_CONTRACT_NAMES,
+  SETUP_CONTRACTS,
+  type SetupContractName,
+  setupCompleteContract,
+  setupCompleteInput,
+  setupConnectContract,
+  setupConnectInput,
+  setupJoinContract,
+  setupJoinInput,
+  setupSetChannelContract,
+  setupSetChannelInput,
+  TELEMETRY_CONTRACT_NAMES,
+  TELEMETRY_CONTRACTS,
+  type TelemetryContractName,
+  telemetryResetIdContract,
+  telemetryResetIdInput,
+  telemetrySetContract,
+  telemetrySetInput,
+} from './instance/contracts'
 export {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
