@@ -102,7 +102,8 @@ export function secretTokens(paths: readonly string[] = SECRET_PATHS): readonly 
     const [group, leaf] = path.split('.') as [string, string]
     // A group whose members are ALL secret can be hunted as a group; one that
     // also holds preferences cannot, so its leaf is hunted instead.
-    const groupIsAllSecret = paths.filter((p) => p.startsWith(`${group}.`)).length > 0 && group === 'apiKeys'
+    const groupIsAllSecret =
+      paths.filter((p) => p.startsWith(`${group}.`)).length > 0 && group === 'apiKeys'
     tokens.add(groupIsAllSecret ? group : leaf)
   }
   return [...tokens].sort()
@@ -507,8 +508,7 @@ function probe(): Finding[] {
 
   const asFiles = (rel: string, text: string): SourceFile[] => [{ rel, text }]
 
-  const everyAdapter = (text: string): SourceFile[] =>
-    SCRUB_CALLERS.map((rel) => ({ rel, text }))
+  const everyAdapter = (text: string): SourceFile[] => SCRUB_CALLERS.map((rel) => ({ rel, text }))
   no(auditScrubWired(everyAdapter(CLEAN_ADAPTER)), 'wired adapter')
   yes('scrub-wired', auditScrubWired(everyAdapter(UNWIRED_ADAPTER)), 'unwired adapter')
   // …and PER ADAPTER: one wired and one not must still be a finding, or the
@@ -545,10 +545,7 @@ function probe(): Finding[] {
   }
   // …and a NAMED site with the same text must NOT fire, or the allowlist is
   // decorative.
-  no(
-    auditBlobReads(asFiles(NAMED_SITES[3]?.file as string, BLOB_CONSUMER), tokens),
-    'named site',
-  )
+  no(auditBlobReads(asFiles(NAMED_SITES[3]?.file as string, BLOB_CONSUMER), tokens), 'named site')
 
   // The ratchet's other direction.
   yes(

@@ -43,10 +43,7 @@ import {
 } from './indexeddb/schema'
 import type { IdbDatabaseLike, IdbFactoryLike } from './indexeddb/idb'
 import { IndexedDbSyncStore } from './indexeddb/store'
-import {
-  freshFactory,
-  readDurable as readDurableIdb,
-} from './indexeddb/test-support'
+import { freshFactory, readDurable as readDurableIdb } from './indexeddb/test-support'
 import {
   applySchema,
   CURSOR_KEY,
@@ -185,7 +182,7 @@ async function seedIdb(factory: IdbFactoryLike): Promise<void> {
     mutationId: 'mut-dead',
     ordinal: 2,
     record: {
-      ...outboxRecord('mut-dead', 'dead-lettered', SECRET.deadLettered),
+      ...outboxRecord('mut-dead', 'dead-letter', SECRET.deadLettered),
       deadLetteredAt: 2,
       parkedFrom: 'rejected',
     },
@@ -257,7 +254,7 @@ describe('IndexedDB: a replica written by an earlier build is scrubbed at open',
     // user's recoverable intent (ADR 6 D9).
     expect(outboxRows.map((r) => r.record.state).sort()).toEqual([
       'applied',
-      'dead-lettered',
+      'dead-letter',
       'queued',
     ])
   })
@@ -331,7 +328,12 @@ describe('mobile SQLite: a replica written by an earlier build is scrubbed at op
     const insertOutbox = seed.prepare(
       `INSERT INTO ${OUTBOX_TABLE} (principal, mutation_id, ordinal, record) VALUES (?, ?, ?, ?)`,
     )
-    insertOutbox.run(ADA, 'mut-live', 0, JSON.stringify(outboxRecord('mut-live', 'queued', SECRET.live)))
+    insertOutbox.run(
+      ADA,
+      'mut-live',
+      0,
+      JSON.stringify(outboxRecord('mut-live', 'queued', SECRET.live)),
+    )
     insertOutbox.run(
       ADA,
       'mut-applied',
@@ -342,7 +344,7 @@ describe('mobile SQLite: a replica written by an earlier build is scrubbed at op
       ADA,
       'mut-dead',
       2,
-      JSON.stringify(outboxRecord('mut-dead', 'dead-lettered', SECRET.deadLettered)),
+      JSON.stringify(outboxRecord('mut-dead', 'dead-letter', SECRET.deadLettered)),
     )
     seed.close?.()
 

@@ -63,6 +63,8 @@ function makeSecrets() {
     clear: (key: ServerSecretKey): void => {
       rows.delete(key)
     },
+    apiKeyFor: (provider: string): string | undefined =>
+      rows.get(`apiKeys.${provider}`)?.value,
     presence: (): SecretPresenceWire[] =>
       SERVER_SECRET_KEYS.map((key) => ({
         key,

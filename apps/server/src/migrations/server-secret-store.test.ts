@@ -99,7 +99,7 @@ const rawBlob = (db: Db): Record<string, unknown> => {
   const row = db.prepare(`SELECT value FROM meta WHERE key = 'settings'`).get() as
     | { value: string }
     | undefined
-    expect(row).toBeDefined()
+  expect(row).toBeDefined()
   return JSON.parse((row as { value: string }).value)
 }
 

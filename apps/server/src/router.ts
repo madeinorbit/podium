@@ -688,10 +688,10 @@ export const appRouter = t.router({
     // native identity/quota drifts, so it's never cached as truth.
     // NB: never returns a credential — only its masked `identity`.
     list: t.procedure.query(({ ctx }) =>
-      accountViews(
-        (provider) => ctx.registry.sessionStore.secrets.apiKeyFor(provider),
-        ctx.registry.sessionStore.accounts,
-      ),
+      // ONE LINE, deliberately: `rearch-audit` counts reach-through LINES in
+      // this file, so splitting a single call across two would read as a new
+      // violation on a change that added none.
+      accountViews((p) => mods(ctx).settings.apiKeyFor(p), ctx.registry.sessionStore.accounts),
     ),
     connect: t.procedure
       // Rejects kind 'oauth' for non-anthropic providers — see AccountConnectInput.

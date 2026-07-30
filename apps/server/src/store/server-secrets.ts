@@ -122,8 +122,9 @@ export class ServerSecretsRepository {
    * fills it — see `SettingsService.secretPresenceList`.
    */
   presence(): SecretPresenceWire[] {
-    const rows = this.db.prepare('SELECT key, value, updated_at FROM server_secrets').all() as
-      | SecretRow[]
+    const rows = this.db
+      .prepare('SELECT key, value, updated_at FROM server_secrets')
+      .all() as SecretRow[]
     const byKey = new Map(rows.map((r) => [r.key, r]))
     return SERVER_SECRET_KEYS.map((key) => {
       const row = byKey.get(key)

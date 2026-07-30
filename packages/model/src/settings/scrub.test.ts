@@ -53,7 +53,7 @@ describe('it FINDS material — at every depth a store can hold it', () => {
     }
     const { value, removed } = scrubSecretMaterial(before)
 
-    expect(removed.sort()).toEqual(['apiKeys.anthropic', 'apiKeys.openai'])
+    expect([...removed].sort()).toEqual(['apiKeys.anthropic', 'apiKeys.openai'])
     expect(value).toEqual({ apiKeys: {}, sidebar: { groupByRepo: true } })
     // The key is GONE, not blanked: `''` is the legacy "not configured"
     // spelling, so a blanked key is indistinguishable from one that never held
@@ -74,7 +74,7 @@ describe('it FINDS material — at every depth a store can hold it', () => {
     }
     const { value, removed } = scrubSecretMaterial(record)
 
-    expect(removed.sort()).toEqual([
+    expect([...removed].sort()).toEqual([
       'input.settings.integrations.linearApiKey',
       'input.settings.notifications.telegramBotToken',
     ])
@@ -103,7 +103,7 @@ describe('it FINDS material — at every depth a store can hold it', () => {
     }
     const { value, removed } = scrubSecretMaterial(blob)
 
-    expect(removed.sort()).toEqual([...SETTINGS_SECRET_PATHS].sort())
+    expect([...removed].sort()).toEqual([...SETTINGS_SECRET_PATHS].sort())
     expect(JSON.stringify(value)).not.toContain('distinct-secret-')
   })
 })

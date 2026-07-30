@@ -167,7 +167,7 @@ type SettingsStore = Pick<
  */
 type SecretStore = Pick<
   SessionStore['secrets'],
-  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence'
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor'
 >
 
 export interface SettingsServiceOptions {
@@ -377,6 +377,19 @@ export class SettingsService {
     return this.secrets
       .presence()
       .map((row) => secretPresence(row.key, this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt))
+  }
+
+  /**
+   * The provider API key for an LLM backend's provider, or `undefined`.
+   *
+   * A pass-through to the keyed store, and it exists so the ROUTER does not have
+   * to reach into `sessionStore.secrets` itself: `rearch-audit`'s
+   * `hand-written state reach-through in router.ts` counts exactly that, and it
+   * caught this on the first run. A router that can read the secret store
+   * directly is a router that can grow a second policy for it.
+   */
+  apiKeyFor(provider: string): string | undefined {
+    return this.secrets.apiKeyFor(provider)
   }
 
   /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
