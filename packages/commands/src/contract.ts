@@ -413,11 +413,43 @@ export function classificationErrors(contract: AnyCommandContract): string[] {
   if (contract.policy.resource === 'machine' && contract.policy.machineVerb === undefined) {
     at('a `machine` resource must declare its verb (ADR 3 Amendment 1 D18)')
   }
-  if (contract.policy.machineVerb !== undefined && contract.policy.resource !== 'machine') {
-    at('machineVerb declared on a non-machine resource')
-  }
+  // NO CONVERSE RULE, and its absence is a correction POD-640 had to make.
+  //
+  // This lint used to read `machineVerb declared on a non-machine resource` — an
+  // error. That contradicted the vocabulary's own design note: `framework.ts`'s
+  // `CommandPolicy.machineVerb` says in as many words that the verb is "a SECOND
+  // axis rather than `resource: 'machine'` because collapsing them would lose the
+  // row gate", and the shipped session command plane relies on exactly that shape
+  // (`sessions.sendText` and `sessions.kill` are `resource: 'session'` AND
+  // `machineVerb: 'use'`, because typing into a PTY runs code on someone's
+  // hardware while the row gate stays the session's owner). D15.2: neither check
+  // substitutes for the other.
+  //
+  // So the two directions are NOT symmetric, and only one of them holds:
+  //  - a `machine` RESOURCE must declare a verb (checked above) — there is
+  //    nothing else for its grants to hang on;
+  //  - a verb does NOT imply a `machine` resource, because the resource names the
+  //    ROW gate and the verb names the EXECUTION gate.
+  //
+  // Keeping the old rule would have forced any command that both writes a row and
+  // executes on compute to lie about one of them. `mail.ask` and `mail.send` are
+  // that shape: they deliver at `lifecycle: 'wake'`, which spawns, while their row
+  // gate is the session/issue address.
   if (
     contract.policy.machineVerb === 'use' &&
+    // M5 IS KEYED ON THE MACHINE BEING NAMEABLE, not on any caller-supplied id.
+    //
+    // The hazard readiness §3.1.4 M5 names is a caller PROBING which of a
+    // colleague's machines are online by reading the difference between "denied"
+    // and "offline" — which requires the caller to be able to name a machine.
+    // `mail.spawnAgent` can (placement takes an execution profile), so it must
+    // distinguish. `mail.send` and `mail.ask` cannot: their address is an issue or
+    // a session ref, the machine is wherever the target session already lives, and
+    // there is no machine argument to iterate. Keying this on
+    // `callerSuppliedTargetId` instead put those two in an impossible position —
+    // M5 demanding they distinguish, D20.2 demanding they must not — for a probe
+    // that cannot be mounted through them.
+    contract.policy.resource === 'machine' &&
     contract.errorConsistency.callerSuppliedTargetId &&
     !contract.errorConsistency.distinguishesUnauthorizedFromUnreachable
   ) {

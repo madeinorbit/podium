@@ -180,6 +180,15 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
     action: 'write',
     roleFloor: 'member',
     resource: 'none',
+    // POD-640, closing POD-1179. A send at `lifecycle: 'wake'` reaches
+    // `trySpawn` — it RESUMES a parked session, or spawns one, which is arbitrary
+    // execution on the machine that session lives on. The verb is the second axis
+    // (see `mail.ask`, where the same reasoning is written out in full): the row
+    // gate stays the resolved issue/session address, and `use` is the additional
+    // execution gate. Declared even though `lifecycle` is OPTIONAL and defaults to
+    // `wait`, because the facet classifies what the command CAN do and this
+    // package is default-closed everywhere else.
+    machineVerb: 'use',
     confirmation: 'confirm',
     rationale:
       'RATIFIED, not redesigned (ADR 3 Amendment 1 D20.1). `resource: none` records the shipped ' +
@@ -665,6 +674,32 @@ export const mailAskContract: CommandContract<typeof mailAskInput> = {
     action: 'write',
     roleFloor: 'member',
     resource: 'session',
+    // POD-1179, DECIDED HERE (POD-640) — `ask` was NOT exempt, it was inexpressible.
+    //
+    // POD-382's short-lived duplicate contract declared this verb and the
+    // resolution onto the mail table dropped it. The verb is correct and is
+    // restored: `ask` hard-codes `lifecycle: 'wake'`, so asking a parked session a
+    // question RESUMES it — a process starts on the machine that session lives on,
+    // with that machine's ssh keys, git identity and private checkouts. That is
+    // readiness §3.1.4 M2's code-execution boundary, the same one
+    // `sessions.resumeAndSend` carries the verb for.
+    //
+    // WHY IT COULD NOT SIMPLY BE ADDED BACK. `classificationErrors` rejected a
+    // `machineVerb` on any non-`machine` resource, so the only way to declare it
+    // was to relabel the row gate as the machine — which would have LOST the
+    // session gate (D15.2: neither check substitutes for the other). The lint was
+    // wrong and POD-640 corrected it; see the second-axis note in `../contract.ts`.
+    // Both gates now stand: the session-target gate decides which session may be
+    // addressed, `use` decides whether its machine may be made to run code.
+    //
+    // WHAT THIS DOES AND DOES NOT BUY, stated plainly so nobody reads more into it:
+    // the declaration makes the fact AUDITABLE and is enforced table-wide by
+    // `scripts/audit-mail-commands.ts` (every wake-capable mail command must carry
+    // it). It is not yet a runtime refusal — no mail dispatch path reads
+    // `policy.machineVerb` today, and threading a `placementDecision` for the
+    // target session's machine into the delivery path is a behaviour change on the
+    // shipped wake pipeline, filed separately rather than absorbed into a cutover.
+    machineVerb: 'use',
     confirmation: 'none',
     rationale:
       'THE SEANCE IS A MESSAGE, and classifying it as anything else is how it would acquire a second ' +
