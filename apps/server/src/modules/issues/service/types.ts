@@ -324,7 +324,6 @@ export type IssuePatch = Partial<
     | 'closedReason'
     | 'supersededBy'
     | 'duplicateOf'
-    | 'pinned'
     | 'sortKey'
     | 'color'
     | 'estimateMin'
@@ -335,4 +334,16 @@ export type IssuePatch = Partial<
     | 'humanQuestionAskedAt'
     | 'coordinatorSessionId'
   >
->
+> & {
+  /**
+   * PER-USER, and therefore NOT a `Pick` of the row (POD-1076).
+   *
+   * `pinned` is still what the API accepts — pinning is a verb the caller uses —
+   * but it is no longer a column on `IssueRow`, so `update()` intercepts it and
+   * writes the actor's `(userId, issueId)` row instead of `Object.assign`-ing it
+   * onto the shared issue. Listing it in the `Pick` would not compile, which is
+   * the point: the type refuses the shape that silently made one person's pin
+   * everybody's.
+   */
+  pinned?: boolean
+}

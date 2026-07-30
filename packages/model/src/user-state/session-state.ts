@@ -1,48 +1,63 @@
 /**
- * PER-USER STATE FAMILY — the members POD-380's presence-class writes address.
+ * PER-USER STATE FAMILY — the session half.
  *
  * ---------------------------------------------------------------------------
  * WHOSE FILE THIS IS
  * ---------------------------------------------------------------------------
- * POD-1076 owns this family and enumerates eleven members
- * (`docs/rearch-field-schema-inventory.md` §7.1). POD-1076 has NOT landed and is
- * still blocked, so POD-380 SEEDS the reserved home with the four members its own
- * acceptance criteria require, and only those. This is not a parallel keying
- * scheme: every member composes {@link perUserKey}, POD-365's ONE `(userId,
- * entityId)` fragment, and the encoding is POD-301's `userEntityKey`. POD-1076
- * EXTENDS this file with the remaining seven and adds the matrix rows; it does not
- * have to reconcile a second convention.
+ * POD-380 seeded this home with snooze, pins and tab order — the three whose
+ * state already lived in its own table — and recorded `readAt` as the one member
+ * it deliberately did not move. **POD-1076 moves it.** The issue half of the
+ * family is `./issue-state.ts`; the union of both files is
+ * {@link PER_USER_STATE_FAMILY}, which is what a totality test reads.
  *
- * Why seed rather than wait: POD-380's brief forbids the alternative in as many
- * words — *"do not land any of these as instance-wide singletons 'for now': that
- * is a later table migration plus a wire change plus a replica migration"*. A
- * facade over singleton tables IS an instance-wide singleton.
+ * This is not a parallel keying scheme: every member composes {@link perUserKey},
+ * POD-365's ONE `(userId, entityId)` fragment, and the encoding is POD-301's
+ * `userEntityKey`.
  *
  * ---------------------------------------------------------------------------
- * THE ONE MEMBER POD-380 DOES NOT MOVE, AND WHY
+ * WHY `readAt` COULD MOVE NOW, WHEN POD-380 SAID IT COULD NOT
  * ---------------------------------------------------------------------------
- * `readAt` is absent from this file. It is not an oversight and not a shortcut:
+ * POD-380's stated blocker was real and is answered rather than waived. Its
+ * argument: `readAt`'s only read path is the session wire projection, which is
+ * BROADCAST to every attached client (ADR 2 D2's unscoped feed), so a per-user
+ * row *"has nowhere correct to be delivered until POD-1077's watermarked scoped
+ * feed makes fan-out per-principal"*.
  *
- *  - Unlike snooze / pins / tab order, `readAt` has NO query surface. Its only
- *    read path is the session wire projection, which is BROADCAST to every
- *    attached client (ADR 2 D2's unscoped feed). A per-user `readAt` therefore has
- *    nowhere correct to be delivered until POD-1077's watermarked scoped feed
- *    makes fan-out per-principal — re-keying the row first would produce a value
- *    the wire actively misrepresents to every client but one.
- *  - It is a field on the canonical Session aggregate and drives the derived
- *    `unread` flag, so moving it is a Session + projection + boot-seed change,
- *    which is Phase 1 work (POD-1076's §7.1 moves the three `readAt` members
- *    together for exactly that reason).
+ * What that argument actually establishes is that the PROJECTION needs a viewer,
+ * not that the STORAGE must stay a singleton. So POD-1076 gives the projection a
+ * viewer: `Session.toMeta()` takes a {@link SessionUserOverlay} argument, and the
+ * unscoped broadcast supplies the overlay of one named user
+ * (`FIRST_ADMIN_USER_ID`) instead of reading a mirror field off the session. The
+ * wire is byte-identical, the durable row is per-user, and POD-1077's remaining
+ * work at each site is to pass the real principal instead of the named constant —
+ * a change the type system now demands an argument for, rather than one that
+ * requires finding a mirror nobody remembers is there.
  *
- * `sessions.markRead` / `markUnread` still declare `policy.scope: 'self'` on their
- * contracts, so the command layer is per-user-correct today and POD-1076's move is
- * a storage + projection change with no contract or wire change. The gap is
- * reported explicitly rather than papered over.
+ * The mirror was the actual defect. A `readAt` / `snoozedUntil` field on the live
+ * session IS an instance-wide singleton however per-user the table behind it is,
+ * which is why `per-user-singletons` counted it, and why deleting the fields —
+ * not the columns alone — is what clears the ratchet.
  */
 
 import { z } from 'zod'
 import { perUserKey } from '../fields/per-user-key'
 import { SessionIdField } from '../ids'
+
+/**
+ * SESSION READ STATE — `(userId, sessionId)` → when this person last opened it.
+ *
+ * `readAt: null` and an ABSENT ROW are the same thing ("never opened"), which is
+ * why `markUnread` deletes the row rather than writing a null: two spellings of
+ * one fact is how a per-user table acquires a second meaning nobody documented.
+ * The derived `unread` flag (`readAt == null || lastActiveAt > readAt`) is
+ * computed at PROJECTION time from this row plus the session's shared
+ * `lastActiveAt` — it is not stored, because it is a fact about a reader and a
+ * session together.
+ */
+export const SessionReadState = perUserKey(SessionIdField).extend({
+  readAt: z.string().nullable(),
+})
+export type SessionReadState = z.infer<typeof SessionReadState>
 
 /**
  * SNOOZE — `(userId, sessionId)` → when the session stops being hidden.
@@ -99,15 +114,42 @@ export function perUserKeyOfString() {
 }
 
 /**
- * The family members POD-380 landed — a list, so a totality test can assert the
- * set rather than trusting this docstring, and so POD-1076 can see at a glance
- * what is already keyed.
+ * The session-half members, as a list so a totality test can assert the SET
+ * rather than trusting a docstring. The whole family — this plus the issue
+ * half — is {@link PER_USER_STATE_FAMILY} in `./family.ts`.
  */
-export const POD380_USER_STATE_MEMBERS = [
+export const SESSION_USER_STATE_MEMBERS = [
+  { name: 'sessionReadState', schema: SessionReadState, table: 'session_user_state' },
   { name: 'sessionSnooze', schema: SessionSnoozeState, table: 'snoozes' },
   { name: 'pin', schema: PinState, table: 'pins' },
   { name: 'tabOrder', schema: TabOrderState, table: 'tab_order' },
 ] as const
+
+/**
+ * THE PER-USER VALUES A SESSION PROJECTION NEEDS FROM ONE VIEWER.
+ *
+ * The argument that replaces the mirror fields (see this file's header). It is a
+ * VIEW-time input, never a durable shape: `readAt` comes from
+ * `session_user_state` and `snoozedUntil` from `snoozes`, two different rows for
+ * the same `(userId, sessionId)` key, assembled per viewer at projection time.
+ *
+ * `snoozedUntil: undefined` means "no snooze row"; `null` means the row exists
+ * and says until-next-message. That three-valued shape is
+ * {@link SessionSnoozeState}'s semantics carried intact, not a new convention.
+ */
+export interface SessionUserOverlay {
+  readonly readAt: string | null
+  readonly snoozedUntil: string | null | undefined
+}
+
+/** The overlay of a user with no per-user rows for a session at all — never
+ *  opened, never snoozed. A named constant rather than an inline literal so a
+ *  caller cannot express "no overlay" as `readAt: undefined`, which the derived
+ *  `unread` rule would then read as "read at an unknown time". */
+export const NO_SESSION_USER_STATE: SessionUserOverlay = {
+  readAt: null,
+  snoozedUntil: undefined,
+}
 
 /**
  * THE SOLE USER, until POD-1075 mints real accounts.

@@ -21,12 +21,20 @@
  * append optional fields and the golden fixtures still pass unchanged, which is
  * exactly how §3.2's "minimum shape" is meant to be proven additive.
  *
- * PER-USER STATE (§3.3, POD-1076). `readAt`, `unread` and `snoozedUntil` are
- * declared here as SINGLETONS because that is what they are on the wire today
- * ("Global (single-operator)" says so in their own doc comments). Under
- * multi-user they become per-user rows keyed `(userId, sessionId)`. Because the
- * stored and wire values stay the strings they already are, that is a RE-KEY,
- * not a re-representation (see the model README's invariant 2).
+ * PER-USER STATE (§3.3), RE-KEYED BY POD-1076. `readAt`, `unread` and
+ * `snoozedUntil` are still declared here, and that is correct: the wire is
+ * byte-identical because it was a RE-KEY, not a re-representation (model README
+ * invariant 2). What moved is where the values come FROM — `session_user_state`
+ * and `snoozes`, both keyed `(userId, sessionId)`, joined at projection time via
+ * `SessionUserOverlay`. They are no longer a column on `sessions` nor a field on
+ * the live `Session`, and the second of those was the load-bearing half: a mirror
+ * field on a shared object is an instance-wide singleton however per-user the
+ * table behind it is.
+ *
+ * THE REMAINING GAP IS THE FEED, NOT THE SHAPE. A value that differs per reader
+ * cannot honestly be a field of a payload BROADCAST to many readers (ADR 2 D2),
+ * so today these carry one named viewer's values to every client. POD-1077's
+ * scoped feed closes that; the rows already have owners.
  *
  * ATTRIBUTION (§3.1.3 A3, and see `entities/issue.ts`). `controllerId` and
  * `spawnedBy` are actor-shaped fields carrying at most one value. A3 makes
@@ -232,8 +240,9 @@ export const SessionMetaEntity = z.object({
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
-  /** Email-style read state (issue #124). Global (single-operator) — the ISO time
-   *  the operator last opened this session, or null if never opened. */
+  /** Email-style read state (issue #124). PER-USER since POD-1076 — the ISO time
+   *  THIS READER last opened the session, or null if they never opened it. Read
+   *  from their `(userId, sessionId)` row, not from the session. */
   readAt: z.string().nullable().catch(null).default(null),
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),

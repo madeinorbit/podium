@@ -166,25 +166,38 @@ export const READ_DELIVERY: DeliveryPolicy = {
 }
 
 /**
- * PER-USER STATE IS `online-only` FOR A REASON THAT WILL EXPIRE, and the expiry is
- * written down so the next author does not have to reconstruct it.
+ * D3 for the four per-user commands — `markRead`, `markUnread`, `setTucked` and
+ * `mailInbox`'s consuming arm.
  *
- * A read marker is the archetypal offline-eligible write — it is exactly what the
- * session family enqueues (`markRead`/`markUnread` are two of POD-379's seven). The
- * issue-side twins are NOT enqueued, and the reason is the singleton defect above: a
- * queued write against an instance-wide `read_at` column replays one principal's
- * marker over everyone's. Once POD-302 re-keys the columns `(userId, entityId)` this
- * class should become `offline-eligible` and match its session twin.
+ * OFFLINE-ELIGIBLE, and this is the FLIP POD-311 wrote its tripwire to force.
+ *
+ * It was `online-only`, for one reason recorded on this cell: the rows these
+ * commands wrote were SINGLETON columns (`issues.read_at`, `issues.tucked_at`,
+ * `issues.pinned`, `issue_messages.read_at`), so a queued write replayed at drain
+ * time applied one principal's marker to EVERY reader. That is not a property of
+ * the command; it is a property of a table with no user in its key.
+ *
+ * POD-1076 put the user in the key. A drained write now lands on the actor's own
+ * `(userId, entityId)` row and cannot reach anybody else's, so the queue is safe
+ * and these four match their SESSION twins — two of POD-379's seven offline-eligible
+ * writes are exactly `markRead`/`markUnread` on a session, and having the same act
+ * queue on one entity and refuse on another was always an artefact rather than a
+ * decision.
+ *
+ * Marking read is also the ideal queued write on its own merits: idempotent, and
+ * last-write-wins against a key only its owner writes, which is `single-writer` by
+ * construction (ADR 1's per-user-state row).
  */
 export const PER_USER_DELIVERY: DeliveryPolicy = {
-  class: 'online-only',
+  class: 'offline-eligible',
   outboxReconciliation:
-    'NOT queued, and not for the reason the session twins are queued. `markRead`/`markUnread` on a ' +
-    'SESSION are two of POD-379’s seven offline-eligible writes; the issue-side twins write ' +
-    '`issues.read_at` / `issue_messages.read_at`, which ADR 1 records as SINGLETON columns pending ' +
-    'POD-302’s `(userId, entityId)` re-key. A replayed write against a singleton applies one ' +
-    'principal’s marker to every reader, so the queue must wait for the key. EXPIRES WHEN the ' +
-    '`per-user-singletons` ratchet clears these two sites: this class then becomes offline-eligible.',
+    'QUEUED. Each command writes ONE `(userId, entityId)` row that only its owner writes, so a ' +
+    'drained write is single-writer by construction and cannot apply one principal\u2019s marker to ' +
+    'another reader \u2014 the exact hazard that kept this class `online-only` while the markers were ' +
+    'singleton columns (POD-311\u2019s recorded expiry condition, cleared by POD-1076\u2019s re-key). ' +
+    'Reconciliation is last-write-wins on the drained timestamp: replaying a stale `markRead` behind ' +
+    'a newer one costs the owner a re-read marker and nothing else, and `markUnread` DELETES the row ' +
+    'rather than writing a null, so a replayed pair converges on the same state in either order.',
   applyTimeReauthorization: REAUTHORIZATION,
 }
 

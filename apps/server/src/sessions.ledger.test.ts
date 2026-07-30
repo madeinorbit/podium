@@ -91,7 +91,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
             machineId: 'm1',
             headless: false,
             issueId: null,
-            readAt: null,
           }),
         changes: () => {
           throw new Error('declaration failed')
@@ -848,8 +847,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         throw new Error('snooze append failed')
       })
 
+    // A FUTURE deadline. It was a fixed past date and still produced a change to
+    // append, because the projection read a never-lapsing `snoozedUntil` MIRROR on
+    // the live session. POD-1076 deleted the mirror; the projection reads the
+    // `snoozes` table, which prunes lapsed timed snoozes on read, so a past
+    // deadline now yields NO wire change, the ledger's byte-dedup drops it, and
+    // `appendChanges` is never reached — the append could not fail because there
+    // was nothing to append. The rollback behaviour under test is unchanged.
     expect(() =>
-      registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: '2026-07-20T12:00:00.000Z' }),
+      registry.modules.sessions.setSnooze({
+        userId: SOLE_USER_ID,
+        sessionId,
+        until: '2999-07-20T12:00:00.000Z',
+      }),
     ).toThrow('snooze append failed')
     append.mockRestore()
     expect(
@@ -870,15 +880,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       changes: [],
     })
 
+    // Same future deadline as the failed attempt, for the same reason: a lapsed
+    // timed snooze is pruned on read and would produce no change to project.
     registry.modules.sessions.setSnooze({
       userId: SOLE_USER_ID,
       sessionId,
-      until: '2026-07-20T12:00:00.000Z',
+      until: '2999-07-20T12:00:00.000Z',
     })
     expect(events).toHaveLength(1)
     expect(events[0]?.changes).toHaveLength(1)
     expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
-      '2026-07-20T12:00:00.000Z',
+      '2999-07-20T12:00:00.000Z',
     )
   })
 

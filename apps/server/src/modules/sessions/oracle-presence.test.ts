@@ -148,13 +148,17 @@ describe('oracle: setArchived', () => {
 })
 
 describe('oracle: read state', () => {
-  // STILL will-change, and deliberately so: POD-380 re-keyed snooze/pins/tab order
-  // but NOT readAt. readAt has no query surface — its only read path is the
-  // BROADCAST session projection (ADR 2 D2's unscoped feed) — so a per-user readAt
-  // has nowhere correct to be delivered until POD-1077's scoped feed. Its command
-  // contract already declares `scope: 'self'`, so the remaining move is storage +
-  // projection only. See packages/model/src/user-state/session-state.ts.
-  it(`${willChange('POD-1076', 'readAt becomes per-user once POD-1077 makes fan-out per-principal; POD-380 left the row in place')}: readAt is ONE instance-wide value every client sees`, async () => {
+  // RESOLVED by POD-1076 (was: will-change "readAt becomes per-user once POD-1077
+  // makes fan-out per-principal; POD-380 left the row in place"). The storage half
+  // is done: `sessions.read_at` is gone and the marker lives in
+  // `session_user_state` keyed (user_id, session_id).
+  //
+  // What is asserted here is now the RESIDUAL, and it is a property of the FEED,
+  // not of the storage: the broadcast is still unscoped (ADR 2 D2), so both
+  // clients — which are two DEVICES of the same person, not two people — see the
+  // same value. POD-1077 makes fan-out per-principal; nothing about this row
+  // changes when it does, because the row already has an owner.
+  it(`${MUST_NOT_CHANGE}: readAt is stored PER USER, and the unscoped feed serves one viewer to every device`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
@@ -164,13 +168,22 @@ describe('oracle: read state', () => {
 
     const readAt = o.meta(sessionId).readAt
     expect(typeof readAt).toBe('string')
-    // Both clients see the SAME readAt: there is no per-user row today.
+    // Both DEVICES of the one principal see the same readAt — the feed is unscoped.
     await waitFor(
       () =>
         lastSessions(second)?.sessions.find((s) => s.sessionId === sessionId)?.readAt === readAt,
       "the other client to observe this operator's readAt",
     )
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.readAt).toBe(readAt)
+
+    // THE FLIPPED ASSERTION. It used to read the marker off the SESSION ROW
+    // (`loadSessions().find(...).readAt`); that column no longer exists and the
+    // value is one user's row. Reading the STORAGE, not merely the wire, is what
+    // makes this a measurement of the re-key rather than of the projection that
+    // happens to sit on top of it.
+    expect(o.store.sessions.getReadAt(SOLE_USER_ID, sessionId)).toBe(readAt)
+    // A DIFFERENT user has no marker for the same session — the property the
+    // re-key exists for, and one an instance-wide column could not express.
+    expect(o.store.sessions.getReadAt('user:somebody-else', sessionId)).toBeNull()
   })
 
   it(`${MUST_NOT_CHANGE}: markRead flips derived unread to false; markUnread clears readAt and flips it back`, async () => {

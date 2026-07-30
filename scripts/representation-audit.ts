@@ -375,6 +375,28 @@ export const NOT_A_REPRESENTATION: readonly {
       'representation of an entity.',
   })),
 
+  // --- The per-user PROJECTION OVERLAYS (POD-1076). Not representations, and
+  // structurally the OPPOSITE of the defect `per-user-singletons` counts.
+  ...(
+    [
+      ['packages/model/src/user-state/issue-state.ts', 'IssueUserOverlay'],
+      ['packages/model/src/user-state/issue-state.ts', 'NO_ISSUE_USER_STATE'],
+    ] as const
+  ).map(([file, symbol]) => ({
+    file,
+    symbol,
+    reason:
+      'a per-VIEWER projection argument, not a field group on an entity (POD-1076, ADR 9 D3 rule ' +
+      '4). The item this detector enforces is "a per-user member surviving as a SINGLETON field ' +
+      'on a session or issue representation"; these two exist precisely so `readAt`, `tuckedAt` ' +
+      'and `pinned` are NOT fields of `IssueRow` or `IssueWire` — they are assembled per reader ' +
+      'from `issue_user_state` and passed to `toWire`. The detector reads key NAMES in a ' +
+      'declaration and cannot tell a shared row from a viewer-scoped argument, which is the same ' +
+      'blind spot recorded on `HANDOFF_BUNDLE_CORE` (reported to POD-368, which owns the ' +
+      'detector). The exclusion is keyed on the exact (file, symbol) pair, so re-adding any of ' +
+      'the three to `IssueRow`, `SessionRow`, `IssueWire` or the live `Session` is still counted.',
+  })),
+
   // --- The two composition BASES the provenance split created (POD-304).
   {
     file: 'packages/model/src/entities/session.ts',

@@ -1,5 +1,6 @@
 import {
   asIssueId,
+  FIRST_ADMIN_USER_ID,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -9,6 +10,8 @@ import {
   type IssueGitState,
   type IssueId,
   type IssuePanel,
+  type IssueUserOverlay,
+  issueOverlayOf,
   type SessionId,
   type IssueWire,
   type SessionMeta,
@@ -16,7 +19,7 @@ import {
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
-import type { IssueRow } from '../../../store'
+import type { IssueRow, StoredIssueUserState } from '../../../store'
 import type { IssueDeps } from './types'
 
 // Member-session fields that DON'T feed issue wire data [POD-723] — the same
@@ -47,7 +50,69 @@ export abstract class IssueServiceCore {
    *  server boot on bad data (the composition root calls init() explicitly;
    *  everything else lazily hydrates on first touch). */
   private hydrated: Map<string, IssueRow> | null = null
+  /**
+   * THE BROADCAST VIEWER'S per-user markers, `issueId → row` (POD-1076).
+   *
+   * `issues.read_at` / `tucked_at` / `pinned` used to be columns on the shared
+   * row, so the projection got them for free and every client saw one person's
+   * markers as if they were the issue's. They are now `(userId, issueId)` rows
+   * and the projection needs a VIEWER.
+   *
+   * The feed is still unscoped (ADR 2 D2), so there is exactly one viewer to
+   * serve and it is named rather than defaulted: {@link broadcastViewer}. When
+   * POD-1077 makes fan-out per-principal, this map becomes per-principal and the
+   * constant becomes the request's user — the sites are these two members and
+   * nothing else, because no other code holds a marker.
+   */
+  private viewerState: Map<string, StoredIssueUserState> | null = null
   constructor(protected readonly deps: IssueDeps) {}
+
+  /**
+   * WHOSE per-user markers the broadcast carries. `FIRST_ADMIN_USER_ID` spelled
+   * out, never a default: an unidentified principal must fail closed rather than
+   * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
+   * body with the request's principal; every caller already asks the question.
+   */
+  protected broadcastViewer(): string {
+    return FIRST_ADMIN_USER_ID
+  }
+
+  /** One issue's markers for the broadcast viewer, as the wire wants them. */
+  protected issueOverlay(issueId: string): IssueUserOverlay {
+    if (this.viewerState === null) {
+      this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
+    }
+    return issueOverlayOf(this.viewerState.get(issueId))
+  }
+
+  /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
+  protected issueUserState(issueId: string): StoredIssueUserState | undefined {
+    if (this.viewerState === null) {
+      this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
+    }
+    return this.viewerState.get(issueId)
+  }
+
+  /**
+   * Write one of the broadcast viewer's markers, through the store and the cache
+   * together. A PARTIAL patch — see the repository method — so marking an issue
+   * read cannot silently un-pin it.
+   *
+   * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
+   * POD-723's memo would otherwise serve the pre-change payload.
+   */
+  protected writeIssueUserState(issueId: string, patch: Partial<StoredIssueUserState>): void {
+    const user = this.broadcastViewer()
+    this.deps.store.issues.setIssueUserState(user, issueId, patch)
+    if (this.viewerState === null) {
+      this.viewerState = this.deps.store.issues.listIssueUserState(user)
+    } else {
+      const next = this.deps.store.issues.getIssueUserState(user, issueId)
+      if (next) this.viewerState.set(issueId, next)
+      else this.viewerState.delete(issueId)
+    }
+    this.bumpIssueInputs()
+  }
 
   // Dirty-scoped issue wire rebuild [POD-723]. One built IssueWire per issue,
   // keyed by a fingerprint of that issue's OWN toWire inputs. On a session-driven
@@ -104,6 +169,10 @@ export abstract class IssueServiceCore {
     const map = new Map<string, IssueRow>()
     for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
+    // The per-user markers are re-read on next touch for the same reason the rows
+    // are re-read: a test (or a future external mutator) that wrote them directly
+    // must not keep serving a stale overlay.
+    this.viewerState = null
     // Wholesale row replacement invalidates every cached wire, and dropping the
     // map also prunes entries for purged issues (bounds memory to live issues)
     // [POD-723].
@@ -138,15 +207,20 @@ export abstract class IssueServiceCore {
     return isIssueDeferred(row, this.nowInstant())
   }
 
-  /** Email-style unread (issue #124): there is activity the operator hasn't seen.
+  /** Email-style unread (issue #124): there is activity THIS READER hasn't seen.
    *  Activity = the latest of the issue's updatedAt and any member session's
    *  lastActiveAt (the same recency notion the sidebar uses). readAt null = never
    *  opened → unread (updatedAt always exists). Kept cheap: no event-log scan, since
-   *  every meaningful mutation already bumps updatedAt. */
+   *  every meaningful mutation already bumps updatedAt.
+   *
+   *  DERIVED, NEVER STORED (POD-1076): it joins one person's `readAt` to a shared
+   *  `lastActiveAt`, so it is a fact about a reader AND an issue and belongs to
+   *  neither row alone. */
   protected computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
     if (row.deletedAt) return false
-    if (row.readAt == null) return true
-    const readMs = Date.parse(row.readAt)
+    const readAt = this.issueOverlay(row.id).readAt
+    if (readAt == null) return true
+    const readMs = Date.parse(readAt)
     if (!Number.isFinite(readMs)) return true
     const times = [Date.parse(row.updatedAt), ...sessions.map((s) => Date.parse(s.lastActiveAt))]
     let lastActivity = Number.NEGATIVE_INFINITY
@@ -246,7 +320,7 @@ export abstract class IssueServiceCore {
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
       priority: issue.priority,
       type: issue.type,
-      pinned: row.pinned,
+      pinned: this.issueOverlay(row.id).pinned,
       ...(issue.sortKey ? { sortKey: issue.sortKey } : {}),
       // A corrupt/unknown stored slot already degraded to "no colour" in
       // `fromStorage` [spec:SP-b4d1] — one tolerant decode, not two.
@@ -269,7 +343,7 @@ export abstract class IssueServiceCore {
       ...(issue.closedAt ? { closedAt: issue.closedAt } : {}),
       // Always on the wire (like readAt, not spread-when-truthy): the client
       // reads absence as "not tucked", and an untuck must be able to say so.
-      tuckedAt: row.tuckedAt ?? null,
+      tuckedAt: this.issueOverlay(row.id).tuckedAt,
       ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
       ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
@@ -284,7 +358,7 @@ export abstract class IssueServiceCore {
       createdAt: issue.createdAt,
       updatedAt: issue.updatedAt,
       archived: issue.archived,
-      readAt: row.readAt ?? null,
+      readAt: this.issueOverlay(row.id).readAt,
       ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
       unread: this.computeUnread(row, sessions),
       sessions,

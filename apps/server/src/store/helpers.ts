@@ -34,3 +34,17 @@ export function parseJsonColumn<T>(raw: unknown, label: string): T | undefined {
     return undefined
   }
 }
+
+/**
+ * Refuse a per-user WRITE with no identity (POD-380; extended to the issue half
+ * by POD-1076, which is why it lives here rather than in one repository).
+ *
+ * The reads tolerate an unknown user (they return that user's empty slice, which
+ * is the truthful answer), but a write with no owner would create a row nobody
+ * can ever read or delete. Failing here rather than defaulting to the first admin
+ * is §3.1.6 S4's rule: an unidentified principal fails CLOSED, it does not fall
+ * back to an operator identity.
+ */
+export function requireUserId(userId: string): void {
+  if (userId.trim() === '') throw new Error('per-user state write has no user id')
+}

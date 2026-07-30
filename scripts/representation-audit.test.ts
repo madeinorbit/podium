@@ -399,7 +399,12 @@ describe('the detector’s two judgement calls are pinned', () => {
     // the alternative was a gate that punishes a migration for making an existing
     // restatement legible. (The same commit moved the session pair above to their
     // third address, in @podium/commands; that is a repoint, not a bump.)
-    expect(NOT_A_REPRESENTATION.length).toBe(36)
+    // 36 -> 38: POD-1076 added the two per-user PROJECTION OVERLAYS. That is a
+    // bump for a shape the detector structurally cannot classify (a viewer-scoped
+    // argument reads exactly like a field group), not for a new restatement — and
+    // the change it accompanies REMOVED six real sites, ratcheting
+    // `per-user-singletons` 8 -> 2.
+    expect(NOT_A_REPRESENTATION.length).toBe(38)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)

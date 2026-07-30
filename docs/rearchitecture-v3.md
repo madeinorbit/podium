@@ -948,6 +948,154 @@ count of unclassified classes is unknown and ≥ 14** (pspec, the class that sta
 exactly such a store). Wire-delta attribution (632/635 identical, 3 handoff) is POD-1162's
 measurement consumed as given per the split, not re-derived.
 
+#### LEDGER ENTRY — POD-1076 (1.9 Per-user state family): the mirror was the defect
+
+**What moved, and what the ratchet was actually counting.** Five singleton columns on
+three shared entity rows became three tables keyed `(user_id, entity_id)`:
+`sessions.read_at`, `issues.read_at`, `issues.tucked_at`, `issues.pinned` and
+`issue_messages.read_at` → `session_user_state`, `issue_user_state`,
+`issue_message_user_state`. ADR 1's matrix has classified these `per-user-state`
+since POD-304; this is the storage catching up.
+
+But re-keying the tables was only half of it, and the half that was already done for
+snooze was the instructive one. POD-380 re-keyed `snoozes` to `(user_id, session_id)`
+and left a `snoozedUntil` MIRROR field on the live `Session` for the unscoped broadcast
+to read. **That mirror is an instance-wide singleton however per-user the table behind
+it is** — which is exactly why `per-user-singletons` still counted
+`SessionDurableState.snoozedUntil` after POD-380 shipped. Deleting the mirror fields is
+what cleared the ratchet; deleting the columns alone would not have.
+
+**THE PROJECTION NEEDS A VIEWER — the fork POD-380 recorded, resolved.** POD-380 left
+`readAt` behind on a stated blocker: its only read path is the BROADCAST session
+projection (ADR 2 D2's unscoped feed), so a per-user row *"has nowhere correct to be
+delivered until POD-1077's scoped feed makes fan-out per-principal"*. That argument
+establishes that the PROJECTION needs a viewer, not that the STORAGE must stay a
+singleton. So `Session.toMeta(overlay)` and `IssueService.toWire` take a per-viewer
+overlay ARGUMENT, and the unscoped broadcast supplies one named user's overlay through
+a single method per service (`broadcastViewer()` → `FIRST_ADMIN_USER_ID`, spelled out
+rather than defaulted per readiness §3.1.6 S4). The wire is byte-identical. POD-1077's
+remaining work is two method bodies plus the `_forPrincipal` seam that already exists —
+not a hunt for mirror fields, which is the state POD-380 left and this issue removed.
+
+The overlay argument is REQUIRED, not optional-with-an-empty-default. An optional
+overlay is a mirror with extra steps, and "whoever forgot to pass it sees everything as
+unread" is precisely the failure the argument exists to make unreachable.
+
+**MIGRATION: drizzle-kit emitted a silent total data loss.** `generate` produced the
+three `CREATE TABLE`s and the five `DROP COLUMN`s **with nothing between them**. Applied
+as generated it destroys every read marker, tuck-away and pin in the database with no
+error, no constraint violation, and three correctly-shaped empty tables left behind. The
+`INSERT ... SELECT` backfill is the whole point of the migration and drizzle cannot infer
+it, because a re-key is a DATA move that happens to have DDL either side. (It did NOT hit
+POD-380's and POD-1075's `ALTER TABLE ADD <col> NOT NULL with no DEFAULT` fault — that
+fault is a property of ADD COLUMN, not of re-keying, and the absence is recorded because
+it is informative.)
+
+Continuity test copies POD-1075's instrument: rewinds a REAL pre-migration database
+(asserting `__drizzle_migrations` exists, so it cannot silently exercise FIRST BOOT —
+POD-305), asserts the pre-state, and identifies every row BY KEY AND VALUE. The fixture
+seeds markers with DISTINCT values, because an all-NULL fixture passes vacuously: "no
+markers before, no rows after" is what a correct migration and a data-destroying one both
+produce. Mutation-verified with two PRODUCT mutants, both killed, both reverted to a
+byte-identical file (hash checked): deleting the session backfill, and swapping
+`read_at`/`tucked_at` in the issue backfill SELECT — two TEXT columns of nullable ISO
+strings, invisible to every schema and count assertion.
+
+**THREE PINNED TRIPWIRES FIRED AND WERE REPLACED BY THEIR POSITIVE FORM**, not deleted:
+
+- **POD-382** measured `read_at` as a column on the session ROW and said so honestly.
+  It now measures the per-user row, and adds the assertion a column could not express:
+  a different principal has no marker for the same session.
+- **POD-311**'s `per-user-state-storage.tripwire.test.ts` is deleted, as its own header
+  instructed, and `PER_USER_DELIVERY` flips `online-only` → `offline-eligible`. The
+  recorded reason for `online-only` was that a queued write replayed against a SINGLETON
+  column applies one principal's marker to every reader — a property of a table with no
+  user in its key, not of the command. With the key in place these four match their
+  session twins, two of which are POD-379's `markRead`/`markUnread`.
+- **POD-1076 leaves the `willChange` corpus.** `oracle-presence.test.ts`'s
+  characterization becomes a pinned must-not-change about the FEED (the unscoped
+  broadcast serves one viewer to every DEVICE of one person), and POD-1076 is removed
+  from `SUPERSEDING_ISSUES` — a landed issue left in that list keeps asserting that a
+  pending change is still pending.
+
+**POD-731's `workflows.assign` PIN-shaped warning: ADJUDICATED, CLASSIFICATION STANDS.**
+A binding is `(target_kind, target_id) → revision`, one SHARED fact about a target, so it
+is `personal` and inherits the target's owner. What changed is that its warning now has a
+concrete destination: `@podium/model`'s `user-state/` family exists, so "my default
+workflow for this repo" composes the one `perUserKey` fragment instead of being invented
+beside it.
+
+**POD-385's THREE UNCLASSIFIED PER-USER-SHAPED TABLES — one adopted, two declined, none
+silently.**
+
+- `recap_watermarks` — **ADOPTED**, as a matrix row and no migration. "How far did I get
+  reading this transcript" is a fact about a reader, never shared, never grantable; D4's
+  backstop answered `personal`, which is the WRONG class rather than merely an absent one,
+  because `personal` IS shareable. It needed no re-key: the table is ALREADY keyed
+  `(reader, session_id)`. Its key half may be an AGENT session rather than a human, which
+  is deliberate and declared as a `PER_USER_WRITER_EXCEPTIONS` entry — two agents of one
+  person hold independent cursors, so collapsing the key onto `userId` would silently MERGE
+  them. The family's shape is (principal, entity); `userId` is the common case, not the
+  definition.
+- `notification_facts` — **DECLINED.** The steward's arbiter's once-until-ack claim
+  ledger, keyed `(fact_key, target)` where `target` is a notification target, written by
+  `system`. The family requires `writers: ['operator']` and `systemWriter: 'never-writes'`;
+  forcing it in would be a false declaration. It is coordination state and belongs to
+  POD-1194's adjudication.
+- `message_wake_cooldowns` — **DECLINED.** One opaque `key` and an `attempted_at`; no
+  principal in the key at all, and it is system-written rate-limit suppression rather than
+  per-user view state. POD-1194's.
+
+**Two behaviour changes, both strictly more correct, both recorded rather than absorbed.**
+(1) A LAPSED timed snooze is no longer projected. The mirror never expired, so an expired
+snooze surfaced until the next restart; the projection now reads `snoozes`, which prunes
+lapsed timed snoozes on read exactly as it always documented. Three test fixtures used
+fixed PAST deadlines that only round-tripped because of the mirror, and are now future
+dates with the counterfactual pinned beside them. (2) A per-user write rides the write-seam
+ledger, so the change reaches the replica rather than only the broadcast — which forced the
+ordering rule below.
+
+**THE ORDERING RULE, paid for twice.** `persist` builds its change payload from
+`sessionWire`, which reads the overlay CACHE. The cache must be invalidated BEFORE
+`changes` is built (inside `write`, after the row lands) or the change carries the
+PRE-change value, the ledger's byte-dedup drops it as unchanged, and a durable write
+silently stops being transactional with its own change record. It must ALSO be invalidated
+in a `finally`, because that first re-read happens INSIDE the span and caches a value the
+append can still roll back — without it, a failed append leaves the projection serving a
+snooze that is not in the database, reintroducing one layer up the divergence the rollback
+exists to prevent. Both were found by existing tests, not by inspection.
+
+**Ratchet: `per-user-singletons` 8 → 2, baseline ratcheted DOWN; total sites 186 → 180.**
+The two survivors are `IssueAutoArchiveObservation.readAt` and
+`SessionAutoArchiveObservation.readAt` in `packages/protocol/src/maintenance.ts`, which are
+NOT this issue's: they are a declared-legitimate validation gate over untrusted steward
+input, and the open question they carry — "archived because WHO read it?" — is POD-1136's.
+That question is now ASKABLE rather than unanswerable, because the value finally has an
+owner.
+
+`NOT_A_REPRESENTATION` 36 → 38, and the bump is reported as what it is rather than
+buried: `IssueUserOverlay` and `NO_ISSUE_USER_STATE` are per-VIEWER projection arguments,
+structurally the OPPOSITE of the defect the item counts, and the detector reads key NAMES
+in a declaration so it cannot tell a shared row from a viewer-scoped argument (the same
+blind spot recorded on `HANDOFF_BUNDLE_CORE`; reported to POD-368, which owns the
+detector). The exclusion is keyed on the exact `(file, symbol)` pair, so re-adding any of
+the three markers to `IssueRow`, `SessionRow`, `IssueWire` or the live `Session` is still
+counted. **The audit is VANISHED, not MOVED, for the six cleared sites**: no declaration
+anywhere in the repo carries `readAt`/`tuckedAt`/`pinned` on a session or issue row type —
+grepped at the destinations, not inferred from the delta.
+
+**Wire golden fixtures: PURELY ADDITIVE, zero deletions** — 82 added lines, six new family
+schemas, nothing removed. That is what POD-1075 and POD-1076 are required to be.
+
+**Left for others.** The COLLAPSE of the two pin mechanisms (inventory §7.1's "POD-1076
+should collapse the two") is **POD-1200**, filed with a `discovered-from` edge. Both
+mechanisms are now correctly keyed per user and both carry a `pinned_at` timestamp, so
+their values are compatible; merging them is a wire and UI change across `PinState`'s kind
+enum and every `issues.pinned` consumer, and POD-1076 closes without it. Personal
+PREFERENCE keys stay POD-352's (Phase 3): splitting personal from instance keys is that
+issue's surface, and re-keying half a settings blob here would leave the other half to a
+second migration — the exact cost this family exists to avoid.
+
 ### Phase 2 — One sync kernel (POD-289) · exit gate POD-310 (HUMAN)
 
 **Scope:** Authority (POD-305), Replica + Outbox + conformance (POD-306 → 369–373),

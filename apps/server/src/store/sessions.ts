@@ -22,21 +22,9 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
+import { requireUserId } from './helpers'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
-
-/**
- * Refuse a per-user WRITE with no identity (POD-380).
- *
- * The reads tolerate an unknown user (they return that user's empty slice, which
- * is the truthful answer), but a write with no owner would create a row nobody
- * can ever read or delete. Failing here rather than defaulting to SOLE_USER_ID is
- * §3.1.6 S4's rule: an unidentified principal fails CLOSED, it does not fall back
- * to an operator identity.
- */
-function requireUserId(userId: string): void {
-  if (userId.trim() === '') throw new Error('per-user state write has no user id')
-}
 
 export class SessionsRepository {
   constructor(
@@ -70,7 +58,7 @@ export class SessionsRepository {
                 resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
+                spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
                 ref_issue_id, ref_letter, ref_draft
          FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
@@ -135,7 +123,6 @@ export class SessionsRepository {
       refIssueId: (r.ref_issue_id as IssueId | null) ?? null,
       refLetter: (r.ref_letter as string | null) ?? null,
       refDraft: (r.ref_draft as number | null) ?? null,
-      readAt: (r.read_at as string | null) ?? null,
       stoppedAt: (r.stopped_at as string | null) ?? null,
       stopReason:
         r.stop_reason === 'self' ||
@@ -170,10 +157,10 @@ export class SessionsRepository {
             resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
+            spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
@@ -205,7 +192,6 @@ export class SessionsRepository {
            last_resumed_at = excluded.last_resumed_at,
            spawned_by = excluded.spawned_by,
            issue_id = excluded.issue_id,
-           read_at = excluded.read_at,
            stopped_at = excluded.stopped_at,
            stop_reason = excluded.stop_reason,
            deleted_at = excluded.deleted_at,
@@ -256,7 +242,6 @@ export class SessionsRepository {
         row.spawnedBy ?? null,
         row.headless ? 1 : 0,
         row.issueId ?? null,
-        row.readAt ?? null,
         row.stoppedAt ?? null,
         row.stopReason ?? null,
         row.deletedAt ?? null,
@@ -309,6 +294,7 @@ export class SessionsRepository {
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
     this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
+    this.db.prepare('DELETE FROM session_user_state WHERE session_id = ?').run(id)
     this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(id) // [spec:SP-c7f1]
     this.scrubTabOrders(id)
   }
@@ -358,6 +344,68 @@ export class SessionsRepository {
         .prepare('DELETE FROM pins WHERE user_id = ? AND kind = ? AND id = ?')
         .run(userId, kind, cleanId)
     }
+  }
+
+  // ---- per-user session read state (POD-1076) ----
+  /**
+   * One user's read markers, `sessionId → readAt`. PER-USER STATE keyed
+   * `(user_id, session_id)`: `sessions.read_at` was one column for the whole
+   * instance until POD-1076, which asserted that exactly one person exists.
+   *
+   * Returns only sessions this user has opened. An absent key is "never opened",
+   * which is the ONLY spelling — see {@link markSessionUnread}.
+   */
+  listReadAt(userId: string): Record<string, string | null> {
+    requireUserId(userId)
+    const rows = this.db
+      .prepare('SELECT session_id, read_at FROM session_user_state WHERE user_id = ?')
+      .all(userId) as { session_id: string; read_at: string | null }[]
+    const out: Record<string, string | null> = {}
+    for (const r of rows) out[r.session_id] = r.read_at
+    return out
+  }
+
+  getReadAt(userId: string, sessionId: SessionId): string | null {
+    requireUserId(userId)
+    const row = this.db
+      .prepare('SELECT read_at FROM session_user_state WHERE user_id = ? AND session_id = ?')
+      .get(userId, sessionId.trim()) as { read_at: string | null } | undefined
+    return row?.read_at ?? null
+  }
+
+  markSessionRead(userId: string, sessionId: SessionId, readAt: string): void {
+    requireUserId(userId)
+    const id = sessionId.trim()
+    if (!id) throw new Error('read-state session id is empty')
+    this.db
+      .prepare(
+        `INSERT INTO session_user_state (user_id, session_id, read_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id, session_id) DO UPDATE SET read_at = excluded.read_at`,
+      )
+      .run(userId, id, readAt)
+  }
+
+  /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
+   *  would be two spellings of "never opened", and a table with two spellings of
+   *  one fact acquires a second meaning nobody documented. */
+  markSessionUnread(userId: string, sessionId: SessionId): void {
+    requireUserId(userId)
+    this.db
+      .prepare('DELETE FROM session_user_state WHERE user_id = ? AND session_id = ?')
+      .run(userId, sessionId.trim())
+  }
+
+  /**
+   * Delete EVERY user's read marker for a session — "re-arm unread for all
+   * readers", the terminal-transition rule (POD-1076).
+   *
+   * Takes no `userId` on purpose, and that is the one place in this family where
+   * a write legitimately crosses owners: the session became something new, which
+   * is true for everybody. It is not a widening — it removes rows, so no reader
+   * ever sees another reader's state.
+   */
+  clearAllReadAt(sessionId: SessionId): void {
+    this.db.prepare('DELETE FROM session_user_state WHERE session_id = ?').run(sessionId.trim())
   }
 
   // ---- snoozes ----

@@ -129,7 +129,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       row.duplicateOf = null
       // …including the tuck-away dismissal (POD-333), same as update()'s reopen:
       // work picked back up must not carry a stale fold into its next close.
-      row.tuckedAt = null
+      // PER-USER (POD-1076): clears the broadcast viewer's fold, which is what
+      // this cleared when the stamp was a column.
+      this.writeIssueUserState(row.id, { tuckedAt: null })
     }
     row.branch = branch
     row.worktreePath = path

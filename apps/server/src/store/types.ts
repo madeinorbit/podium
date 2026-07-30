@@ -181,9 +181,6 @@ export interface SessionRow {
   refLetter?: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
   refDraft?: number | null
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
-  readAt?: string | null
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt?: string | null
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
@@ -256,9 +253,11 @@ export interface MachineRecord {
  * inline) and `IssueService.create` (which builds R1 and encodes once).
  *
  * WHAT THIS ROW STILL IS THAT R1 IS NOT, and who owns closing it:
- *   - `readAt` / `tuckedAt` / `pinned` are PER-USER state. POD-1076 moves them to
- *     `(userId, issueId)` rows; the aggregate's `registry.test.ts` fails if one
- *     reappears on R1, so they cannot simply be added there.
+ *   - `readAt` / `tuckedAt` / `pinned` are GONE (POD-1076). They are per-user
+ *     state and now live in `issue_user_state` keyed `(userId, issueId)`, read
+ *     back as {@link StoredIssueUserState}. The aggregate's `registry.test.ts`
+ *     fails if one reappears on R1, and `per-user-singletons` counts it if one
+ *     reappears here.
  *   - `repoPath` is DERIVED (inventory D-1) and lives on `IssueDerived`.
  *   - there is no column for `owner`, `visibility`, `createdBy`,
  *     `lastLifecycleActor` or the `attribution` half of the needs-human `asked`
@@ -330,14 +329,8 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
-  /** Tuck-away (POD-333): ISO time the operator dismissed this finished issue into
-   *  the sidebar's Closed fold; null/absent = not tucked. Global like readAt, and
-   *  cleared whenever the closed predicate flips back open. Optional so
-   *  pre-existing row literals stay valid. */
-  tuckedAt?: string | null
   supersededBy: IssueId | null
   duplicateOf: IssueId | null
-  pinned: boolean
   /** Manual order (POD-168): fractional sort key, ascending = top of the row's
    *  sibling scope. Optional so pre-existing row literals stay valid; null/
    *  absent = legacy row (sorts after keyed siblings). */
@@ -372,9 +365,6 @@ export interface IssueRow {
   /** Placeholder-titled draft vessel (issue-as-workspace); retitling clears it.
    *  Optional so pre-existing row literals stay valid; absent = false. */
   draft?: boolean
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  issue; null/absent = never opened. Optional so pre-existing row literals stay valid. */
-  readAt?: string | null
   /** Designated coordinator session (bare session id) — actionable issue-addressed
    *  mail prefers this when live. Claimable/changeable; dangling-tolerant (no FK).
    *  Optional so pre-existing row literals stay valid; null/absent = unset. */
@@ -393,6 +383,23 @@ export interface IssueCommentRow {
   createdAt: string
 }
 
+/**
+ * One user's per-issue markers, as stored (POD-1076).
+ *
+ * The storage twin of `@podium/model`'s `IssueUserState` minus the key, because
+ * the repository already has the key in hand. `pinnedAt` is a TIMESTAMP where
+ * `issues.pinned` was a 0/1 flag — the wire keeps its boolean, derived once by
+ * the model's `issueOverlayOf`.
+ *
+ * All three null is not a representable STORED state: such a row is deleted, so
+ * "absent" is the only spelling of "this person has done nothing here".
+ */
+export interface StoredIssueUserState {
+  readAt: string | null
+  tuckedAt: string | null
+  pinnedAt: string | null
+}
+
 /** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:
  *  unread → read (inbox listing) → claimed (an agent committing to act on it). */
 export interface IssueMessageRow {
@@ -403,7 +410,6 @@ export interface IssueMessageRow {
   createdAt: string
   status: 'unread' | 'read' | 'claimed'
   claimedBy: string | null
-  readAt: string | null
   claimedAt: string | null
 }
 

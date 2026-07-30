@@ -456,6 +456,14 @@ export const workflowAssignContract = {
    * of the same trap (a per-user "preferred profile" is not the shared library
    * entry it would be copied from); its admin role floor makes the copy less
    * likely, not less wrong.
+   *
+   * ADJUDICATED BY POD-1076, and the classification STANDS: a binding is not a
+   * family member. What POD-1076 changes is that the warning above now has a
+   * concrete destination instead of a description — `@podium/model`'s
+   * `user-state/` family is built, keyed over the one `perUserKey` fragment, so
+   * "my default workflow for this repo" composes that rather than being invented
+   * beside it. The copy trap is unchanged; the correct alternative is no longer
+   * hypothetical.
    */
   exposure: SERVED_ON,
   delivery: LIBRARY_DELIVERY,

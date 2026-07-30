@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **37 of 58 classes have mutable visibility.** This is the majority of
+1. **37 of 59 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -116,6 +116,7 @@ disappearance a scoped feed must be able to signal.
 | `account-credential` | Account credential material | secret | — | Never replicated and excluded from every wire projection, so no principal’s view of it can change. What multi-user changes is WHO MAY RESET it — an admin-grade action (D15). |
 | `per-user-client-session` | Per-user `client_session` (a device that resolves to a user) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `telegram-chat-binding` | Telegram chat binding (`chatId → UserId`) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
+| `recap-watermark` | Recap watermark (`recap_watermarks`) — per-READER transcript cursor | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 | `per-user-state-family` | Per-user state family (generic) | per-user-state | — | Non-grantable by construction, so no verb can change who sees it. The only lifecycle event is the owner’s account being removed. |
 
 ## What is deliberately NOT decided here

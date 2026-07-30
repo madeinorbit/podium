@@ -61,10 +61,23 @@
  *    and the golden fixtures still pass unchanged. Multi-user is not
  *    multi-tenancy (ADR 1 D5) — nothing here carries an instance partition.
  *
- * 4. PER-USER STATE (§3.3, POD-1076): `readAt`, `unread`, `tuckedAt` and
- *    `deferUntil` are singletons here because that is what they are on the wire
- *    today (their own doc comments say "Global (single-operator)"). They become
- *    rows keyed `(userId, issueId)` — a RE-KEY, not a re-representation.
+ * 4. PER-USER STATE (§3.3), RE-KEYED BY POD-1076 — and note what did NOT change.
+ *    `readAt`, `unread`, `tuckedAt` and `pinned` are still fields HERE, because
+ *    this is the wire and the wire is byte-identical: it was a RE-KEY, not a
+ *    re-representation. What moved is where the values come FROM — one
+ *    `(userId, issueId)` row in `issue_user_state` per reader, joined at
+ *    projection time via `IssueUserOverlay` — and they are no longer columns on
+ *    `issues` or fields on `IssueRow` for anyone.
+ *
+ *    THE REMAINING GAP IS THE FEED, NOT THE SHAPE. A value that differs per
+ *    reader cannot honestly be a field of a payload BROADCAST to many readers
+ *    (ADR 2 D2's unscoped feed), so today these four carry one named viewer's
+ *    values to every client. POD-1077's scoped feed closes that; the rows
+ *    already have owners, so nothing here changes when it does.
+ *
+ *    `deferUntil` is deliberately NOT in this list: it is a claim about the WORK
+ *    ("this cannot start before Tuesday"), identical for every viewer, and the
+ *    defer/snooze split is settled in `../predicates/issue-stage.ts`.
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
@@ -170,12 +183,15 @@ const IssueWireCore = z.object({
   /** When the closed-predicate last flipped true — the stable completion-decay
    *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
   closedAt: IssueLifecycle.shape.closedAt,
-  /** Tuck-away (POD-293/POD-333): ISO time the operator dismissed this finished
-   *  issue into the sidebar's Closed fold, or null while it has not been tucked.
-   *  SERVER-side and GLOBAL (single-operator, like `readAt`) — the state used to
-   *  live in each client's local ui-state, so it did not survive a different
-   *  browser and two clients disagreed. Cleared server-side when the issue
-   *  reopens, so a later close offers Tuck away again. Optional + tolerant so a
+  /** Tuck-away (POD-293/POD-333): ISO time THIS READER dismissed the finished
+   *  issue into the sidebar's Closed fold, or null while they have not tucked it.
+   *  SERVER-side and PER-USER since POD-1076, keyed `(userId, issueId)` — it was
+   *  GLOBAL (single-operator) before that, and before THAT it lived in each
+   *  client's local ui-state, so it did not survive a different browser and two
+   *  clients disagreed. Server-side storage fixed the durability; the re-key
+   *  fixed the part that only looked fixed, because one operator's fold was
+   *  everyone's. Cleared when the issue reopens, so a later close offers Tuck
+   *  away again. Optional + tolerant so a
    *  pre-field cached payload (or a malformed value from a newer peer) parses as
    *  "not tucked" rather than failing the whole issue; a current server always
    *  sends it, explicitly null when untucked. */
@@ -232,8 +248,9 @@ const IssueWireCore = z.object({
   archived: IssueLifecycle.shape.archived,
   /** Soft-delete tombstone. Present means hidden from active work but recoverable. */
   deletedAt: IssueLifecycle.shape.deletedAt,
-  /** Email-style read state (issue #124). Global (single-operator) — the ISO time
-   *  the operator last opened this issue, or null if never opened. */
+  /** Email-style read state (issue #124). PER-USER since POD-1076 — the ISO time
+   *  THIS READER last opened the issue, or null if they never opened it. Read
+   *  from their `(userId, issueId)` row, not from the issue. */
   readAt: z.string().nullable().catch(null).default(null),
   /** Server-DERIVED: there is activity newer than `readAt` — the issue's most
    *  recent activity (latest of updatedAt / member-session lastActiveAt) postdates

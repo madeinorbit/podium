@@ -8,6 +8,7 @@ import {
   type SessionId,
   type ResumeRef,
   type SessionMeta,
+  type SessionUserOverlay,
   type SessionOffer,
   type SessionOrigin,
   type TranscriptItem,
@@ -112,14 +113,21 @@ export interface SessionInit {
   workflowRunId?: string
   workflowStepId?: string
   executionProfileId?: string
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  session. Absent/null = never opened (unread). */
-  readAt?: string | null
   stoppedAt?: string | null
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
+  /**
+   * Called on a TERMINAL transition so the registry can re-arm unread (POD-1076).
+   *
+   * `readAt` used to be a field here, and an exit simply nulled it — which
+   * re-armed unread for the whole instance, because there was only one marker.
+   * Per-user it is a store write against EVERY reader's row, which a Session has
+   * no business doing, so the session reports the event and the registry performs
+   * it. Behaviour is identical; the authority moved to where the rows are.
+   */
+  onUnreadRearm?: () => void
 }
 
 // Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
@@ -171,7 +179,6 @@ export interface SessionDurableState {
   name: string
   nameSource: 'user' | 'agent' | undefined
   archived: boolean
-  readAt: string | null
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
   workState: WorkState | undefined
@@ -185,7 +192,6 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
-  snoozedUntil: string | null | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
   conversationPodiumId: ConversationId | undefined
@@ -256,9 +262,8 @@ export class Session {
    *  named itself and may re-title itself. undefined = nobody named it yet. */
   nameSource: 'user' | 'agent' | undefined = undefined
   archived = false
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  session; null = never opened. Persisted via toRow() (read_at column). */
-  readAt: string | null = null
+  /** Terminal-transition hook that re-arms unread; see {@link SessionInit.onUnreadRearm}. */
+  private onUnreadRearm: (() => void) | undefined
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
@@ -282,10 +287,6 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
-  /** Snooze deadline — orthogonal to agentState. undefined = not snoozed; null =
-   *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
-   *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
-  snoozedUntil: string | null | undefined = undefined
   /** Count of durable queued messages awaiting delivery (queued_messages table).
    *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
    *  table is the truth; this exists so toMeta() stays synchronous. */
@@ -400,11 +401,11 @@ export class Session {
     if (init.name) this.name = init.name
     if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
-    if (init.readAt != null) this.readAt = init.readAt
     this.stoppedAt = init.stoppedAt ?? undefined
     this.stopReason = init.stopReason ?? undefined
     if (init.workState) this.workState = init.workState
     this.onActivity = init.onActivity
+    this.onUnreadRearm = init.onUnreadRearm
   }
 
   get clientCount(): number {
@@ -803,7 +804,8 @@ export class Session {
     // [spec:SP-6144]
     this.stoppedAt ??= new Date().toISOString()
     this.stopReason ??= 'exited'
-    this.readAt = null
+    // Re-arm unread for every reader (POD-1076): the registry owns the rows.
+    this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while
     // the causal checkpoint remains inspectable [spec:SP-cdb2].
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
@@ -818,7 +820,8 @@ export class Session {
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
     this.stoppedAt ??= new Date().toISOString()
     this.stopReason ??= 'exited'
-    this.readAt = null
+    // Re-arm unread for every reader (POD-1076): the registry owns the rows.
+    this.onUnreadRearm?.()
     console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
@@ -874,14 +877,6 @@ export class Session {
     const next = Session.NO_COLOR.has(lower) ? undefined : lower
     if (next === this.agentColor) return false
     this.agentColor = next
-    return true
-  }
-
-  /** Un-snooze. Returns true if it actually changed (lets the caller skip a
-   *  redundant broadcast). */
-  clearSnooze(): boolean {
-    if (this.snoozedUntil === undefined) return false
-    this.snoozedUntil = undefined
     return true
   }
 
@@ -966,7 +961,6 @@ export class Session {
       name: this.name,
       nameSource: this.nameSource,
       archived: this.archived,
-      readAt: this.readAt,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
       workState: this.workState,
@@ -980,7 +974,6 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
-      snoozedUntil: this.snoozedUntil,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
       conversationPodiumId: this.conversationPodiumId,
@@ -1017,7 +1010,6 @@ export class Session {
     this.name = state.name
     this.nameSource = state.nameSource
     this.archived = state.archived
-    this.readAt = state.readAt
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
     this.workState = state.workState
@@ -1031,7 +1023,6 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
-    this.snoozedUntil = state.snoozedUntil
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
     this.conversationPodiumId = state.conversationPodiumId
@@ -1088,7 +1079,6 @@ export class Session {
       refIssueId: this.refIssueId,
       refLetter: this.refLetter,
       refDraft: this.refDraft,
-      readAt: this.readAt,
       stoppedAt: this.stoppedAt ?? null,
       stopReason: this.stopReason ?? null,
       workflowRunId: this.workflowRunId ?? null,
@@ -1110,7 +1100,21 @@ export class Session {
     return ms > 0 ? new Date(ms).toISOString() : null
   }
 
-  toMeta(): SessionMeta {
+  /**
+   * Project this session for ONE READER (POD-1076).
+   *
+   * `overlay` carries the caller's per-user markers — `readAt` from
+   * `session_user_state`, `snoozedUntil` from `snoozes` — because both are facts
+   * about a reader and neither is a field of the session. It is REQUIRED, not
+   * optional with an empty default: an optional overlay is a mirror field with
+   * extra steps, and "whoever forgot to pass it sees everything as unread" is the
+   * failure mode this argument exists to make unreachable silently.
+   *
+   * The feed is still unscoped (ADR 2 D2), so today every caller passes the
+   * broadcast viewer's overlay. POD-1077 passes the request's principal; the
+   * signature does not change.
+   */
+  toMeta(overlay: SessionUserOverlay): SessionMeta {
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
@@ -1139,10 +1143,10 @@ export class Session {
       // Email-style read state (issue #124). unread = there is activity the operator
       // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
       // Both are ISO-8601, so the lexical compare is chronological.
-      readAt: this.readAt,
+      readAt: overlay.readAt,
       ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
       ...(this.stopReason ? { stopReason: this.stopReason } : {}),
-      unread: this.readAt == null || this.lastActiveAt > this.readAt,
+      unread: overlay.readAt == null || this.lastActiveAt > overlay.readAt,
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that
       // read it directly (e.g. tests on a Session in isolation).
@@ -1155,7 +1159,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
-      ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
+      ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
