@@ -27,6 +27,8 @@ it. Reserved directories are intentionally empty and carry a README naming their
 | `annotations/` | The ownership matrix as data: one annotated row per replicated class, the closed column vocabulary, the Authority-only arbitration reads, and the totality test (see its README) | live — POD-304 |
 | `provenance/` | `ReplicatedEnvelope<T>` — how a row reached THIS replica. Deliberately not the home for owner / visibility / attribution | live — POD-304 |
 | `user-state/` | The per-user state family keyed `(userId, entityId)`: `readAt`, snooze, pins, tab order, preferences | **reserved** — POD-1076 |
+| `fields/` | The **shared field schemas**: `Ownership`, `Attribution`, `PerUserKey`, `OpStreamDocument`, and the 15 session + 13 issue field groups every representation composes (see its README) | live — POD-365 |
+| `aggregates/` | The **canonical R1 aggregates** — `SessionAggregate`, `IssueAggregate` — and the registry that fails a canonical class with no declared visibility | live — POD-365 |
 
 Nothing outside this package imports a subpath — the `exports` map publishes only `.` — so this
 layout can be rearranged without touching a consumer.
@@ -66,6 +68,32 @@ package rather than replacing it, per `docs/multi-user-readiness.md` (human deci
    (ADR 9 D4), and a default that fails open is the failure mode that rule exists to
    prevent. The arbitration reads deliberately do the OPPOSITE and throw: visibility has a
    safe default, a merge policy does not.
+
+5. **Room is left for principal-dependent projection; none of it is built** (POD-365). Under the
+   scoped feed (POD-1077 / ADR 2 Amendment 1) a wire projection may legitimately differ per
+   principal: a field suppressed because the reader may not see it, or a graph edge crossing a
+   visibility boundary shown as an opaque reference (ADR 9 §3 O2). Phase 1 owes that future only
+   that it does not make it **inexpressible**, and three properties deliver it:
+
+   - Every field group is a plain `z.object`, so a scoped projection composes it with `.pick()`,
+     `.omit()` or `.partial()`. No group is sealed or positional.
+   - **Requiredness is declared at R1, where the fact is unconditionally true — it is not
+     inherited as a constraint on every projection.** `Ownership.owner` is required on the
+     canonical aggregate because an owned row has an owner; that says nothing about whether a
+     scoped R4 shape must carry it.
+   - `ActorRef` is a discriminated union, so "an actor you may not resolve" is later an added
+     member rather than a third overload of `null` — which already means "no on-behalf-of" on
+     the other half of the attribution pair.
+
+   The projection functions are POD-366's and POD-367's; the policy is Phase 3's. `fields/README.md`
+   carries the long form.
+
+6. **No serializable effective capability exists anywhere in the schema set** (POD-365). Effective
+   rights are an agent's own scope intersected with its human's **current** rights, resolved live
+   at every apply (ADR 9 D5 A1, on ADR 3 D8's existing re-authorization path). A snapshotted
+   capability survives the revocation of the person it was derived from with no reaper to trigger
+   — the privilege leak D5 A1 rejects by name. `Attribution` records who *caused* a write; it never
+   records what they were *allowed* to do.
 
 ## Build orchestration
 

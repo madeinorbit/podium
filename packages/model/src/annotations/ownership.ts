@@ -116,14 +116,25 @@ export type SecretClass =
 // Amendment 1 D8's three further columns
 // ---------------------------------------------------------------------------
 
-/** ADR 9 D3's five classes. Exactly one per class; there is no sixth, and no
- *  "unset" — an absent declaration resolves to `personal` (D4). */
-export type VisibilityClass =
-  | 'personal'
-  | 'per-user-state'
-  | 'owned-compute'
-  | 'deployment-substrate'
-  | 'secret'
+/**
+ * ADR 9 D3's five classes, as DATA. Exactly one per class; there is no sixth,
+ * and no "unset" — an absent declaration resolves to `personal` (D4).
+ *
+ * A `const` array rather than a bare union because POD-365 needs the same five
+ * members as a zod enum for the `Ownership` FIELD schema entities carry
+ * (`fields/ownership.ts`). Deriving both from this one list is what makes
+ * "exactly one visibility-class vocabulary" a structural fact rather than a
+ * convention two files agree to follow.
+ */
+export const VISIBILITY_CLASSES = [
+  'personal',
+  'per-user-state',
+  'owned-compute',
+  'deployment-substrate',
+  'secret',
+] as const
+
+export type VisibilityClass = (typeof VISIBILITY_CLASSES)[number]
 
 /** ADR 9 D2 / D6's closed verb set: `read`/`write` for personal classes,
  *  `see`/`use`/`manage` for owned compute. `use` is a CODE-EXECUTION boundary
