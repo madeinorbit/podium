@@ -20,8 +20,18 @@
  * An unknown proc returns `undefined`, which is what the relay's dispatcher
  * reads as "not my router" — unchanged, and the reason the return type is not
  * simply `Promise<unknown>`.
+ *
+ * THE TRANSPORT IS A PARAMETER, not a literal in the body, and that is a
+ * testability decision taken deliberately. Every workflow declaration currently
+ * names `relay`, so a hard-coded `'relay'` would make the refusal branch
+ * unreachable from any test — a guard that is PRESENT but that no test can prove
+ * FIRES, which is the shape that lets a default-closed rule quietly stop being
+ * one. With the tag passed in, a test asks about a transport nothing declares
+ * and the branch is exercised for real. (Measured: with the literal in place,
+ * deleting the whole check left the suite green.)
  */
 
+import type { TransportTag } from '@podium/commands'
 import {
   isWorkflowQuery,
   isWorkflowQueryExposedOn,
@@ -36,6 +46,7 @@ export function dispatchWorkflowRpc(
   caller: WorkflowCaller,
   proc: string,
   raw: unknown,
+  transport: TransportTag = 'relay',
 ): Promise<unknown> | undefined {
   if (isWorkflowCommand(proc)) {
     // NOT `undefined`. A proc that exists but is not served here is a REFUSAL,
@@ -43,14 +54,14 @@ export function dispatchWorkflowRpc(
     // the next router and report "unknown proc", which tells a caller that a
     // command it may not reach does not exist — and then stops telling them the
     // day someone adds `relay` to its exposure.
-    if (!isWorkflowProcExposedOn(proc, 'relay')) {
-      throw new Error(`workflows.${proc} is not available over this transport`)
+    if (!isWorkflowProcExposedOn(proc, transport)) {
+      throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
     }
     return Promise.resolve(service.execute(caller, proc, raw ?? {}))
   }
   if (isWorkflowQuery(proc)) {
-    if (!isWorkflowQueryExposedOn(proc, 'relay')) {
-      throw new Error(`workflows.${proc} is not available over this transport`)
+    if (!isWorkflowQueryExposedOn(proc, transport)) {
+      throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
     }
     const query = WORKFLOW_QUERIES[proc as WorkflowQueryName]
     const input = query.input.parse(raw ?? {})

@@ -55,7 +55,6 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
-import type { WorkflowRunRow } from '../../../store/workflows'
 import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../service'
 
 // ---------------------------------------------------------------------------
@@ -315,12 +314,27 @@ export class WorkflowAccess {
     )
   }
 
-  /** The WRITE arm of the scope check. Narrower than {@link inScope} for task
-   *  workflows — it does not accept the capability's subtree root — which
-   *  POD-730 §3 pinned as an ARTEFACT of the two arms being written twice. It
-   *  stays narrower here: a read that is wider than a write is the safe
-   *  direction, and converging them belongs to whoever can re-derive both from
-   *  one rule rather than to a migration. */
+  /**
+   * The WRITE arm of the scope check. Narrower than {@link inScope} for task
+   * workflows — it does not accept the capability's subtree root — which
+   * POD-730 §3 pinned as an ARTEFACT of the two arms being written twice.
+   *
+   * IT STAYS NARROWER, AND POD-732 LOOKED AT IT AND DECLINED. POD-731 left the
+   * asymmetry documented because a read wider than a write is the SAFE
+   * direction, and said converging the two belongs to whoever can re-derive both
+   * from one rule. That is not this issue, and the reason is nameable rather
+   * than a shrug: the one rule would have to answer whether a capability's
+   * SUBTREE ROOT is a write reach or only a read reach, and that is ADR 9 D2's
+   * grant model — an explicit edge with a verb — which POD-1079 lands and which
+   * does not exist to be re-derived from yet. Deciding it here would mean
+   * choosing between widening every subtree agent's write reach (readiness
+   * §3.1.3 A2 inverted, from inside a migration) and narrowing a read POD-730
+   * pinned, neither of which any criterion on this issue asks for.
+   *
+   * WHAT THE CUTOVER DID CHANGE is that there is now exactly one site per arm to
+   * converge, reachable from one class, instead of two arms spread across
+   * sixteen guards. When POD-1079 has the rule, the change is these two methods.
+   */
   private inWriteScope(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
     if (!this.hasAgentScope(caller) || caller.overrideScope) return true
     const session = this.sessionFor(caller)
@@ -553,12 +567,5 @@ export class WorkflowAccess {
   /** The machine a session sits on, for the assign-time placement check. */
   machineForSession(sessionId: string | null): string | undefined {
     return sessionId ? this.deps.session(sessionId)?.machineId : undefined
-  }
-
-  /** Exposed for the run helpers on the engine, which resolve rows before the
-   *  visibility decision can be taken. */
-  toRunVisible(caller: WorkflowCaller, row: WorkflowRunRow | null): WorkflowRunRow {
-    if (!row) throw new Error(NO_RUN)
-    return row
   }
 }

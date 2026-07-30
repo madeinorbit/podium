@@ -3214,6 +3214,95 @@ describe('POD-730 workflow mutation characterization', () => {
      * declares `relay`, so asking about a transport NO workflow contract
      * declares proves the branch is reached rather than vacuously skipped.
      */
+    /**
+     * THE REFUSAL ITSELF, not the predicate behind it.
+     *
+     * The pin below checks `isWorkflowProcExposedOn`. That is mechanism
+     * presence: deleting the check from `dispatchWorkflowRpc` entirely left it
+     * green (measured with a mutant). This one drives the DISPATCHER against a
+     * transport no workflow declares, so the branch that refuses is the branch
+     * under test — and the `relay` arm beside it is the counterfactual that
+     * stops the assertion passing against a dispatcher that refuses everything.
+     */
+    it('POD-732 a proc that exists but does not declare the transport is REFUSED, not absent', () => {
+      const created = h.service.create(
+        {
+          name: `Exposure ${Math.random()}`,
+          description: '',
+          scope: 'task',
+          scopeRef: 'issue-1',
+          instructions: '',
+          steps: [],
+        },
+        operator,
+      )
+      expect(() =>
+        dispatchWorkflowRpc(
+          h.service,
+          operator,
+          'publish',
+          { revisionId: created.revision.id },
+          'outbox',
+        ),
+      ).toThrow('workflows.publish is not available over the outbox transport')
+      expect(() =>
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'outbox'),
+      ).toThrow('workflows.get is not available over the outbox transport')
+      // The counterfactual: the SAME calls on a declared transport go through,
+      // so the refusal above is about the transport and not about the call.
+      expect(
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'relay'),
+      ).toBeDefined()
+    })
+
+    /**
+     * ADOPT'S RECORDED DUPLICATE, closed for an IDENTIFIED delivery (POD-732).
+     *
+     * The contract's `advance` note records the hazard: a second adopt supersedes
+     * the run the FIRST one created and starts a third. POD-731 refused to close
+     * it by REFUSING unidentified adopts — that would break six behaviours
+     * POD-730 pinned — and left the ledger as the only close. This proves the
+     * ledger actually closes it, which the contract note alone does not.
+     *
+     * THE COUNTERFACTUAL IS THE POINT: the same second delivery with a DIFFERENT
+     * mutation id must still supersede, or this test would pass against an adopt
+     * that had simply stopped working.
+     */
+    it('POD-732 a replayed adopt is a ledger no-op; a differently-identified one still supersedes', () => {
+      const { run } = twoStepRun(h)
+      const next = h.service.create(
+        {
+          name: `Adopted ${Math.random()}`,
+          description: '',
+          scope: 'task',
+          scopeRef: 'issue-1',
+          instructions: 'v2',
+          steps: [{ id: 'a', title: 'A', instructions: '', completionGuidance: '' }],
+        },
+        operator,
+      )
+      const first = h.service.adopt(
+        { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
+        agent('s1'),
+      )
+      const replay = h.service.adopt(
+        { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
+        agent('s1'),
+      )
+      // Same delivery ⇒ the FIRST result, verbatim. No third run.
+      expect(replay.id).toBe(first.id)
+      expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(1)
+
+      // Different delivery ⇒ a real second adopt, which is the behaviour POD-730
+      // pinned and which this close must not have taken away.
+      const second = h.service.adopt(
+        { revisionId: next.revision.id, runId: first.id, mutationId: 'delivery-2' },
+        agent('s1'),
+      )
+      expect(second.id).not.toBe(first.id)
+      expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(2)
+    })
+
     it('PIN exposure is default-closed per declaration, not per table membership', () => {
       expect(isWorkflowProcExposedOn('checkpoint', 'relay')).toBe(true)
       expect(isWorkflowProcExposedOn('checkpoint', 'outbox')).toBe(false)
