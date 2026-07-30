@@ -686,6 +686,28 @@ describe('rule 9 — the Replica role is direction-locked (POD-369)', () => {
     }
   })
 
+  it('allows the ONE neutral unit-of-work port, in either spelling (POD-1146)', () => {
+    expect(checkFile(REPLICA, `import type { SyncSpan } from '../span'`)).toEqual([])
+    expect(checkFile(REPLICA, `import { SyncCommitConflict } from '../span.ts'`)).toEqual([])
+    // The exception is granted to the replica role, not to the file name: the
+    // same specifier from a sibling role must still be an ordinary import.
+    expect(
+      checkFile('packages/sync/src/replica/ports.ts', `import type { SyncSpan } from '../span'`),
+    ).toEqual([])
+  })
+
+  it('is an EXACT path, so a neighbour of the span port is still rejected', () => {
+    // The counterfactual the previous test cannot supply: if the waiver were a
+    // directory prefix (or a basename match), each of these would pass too — and a
+    // merge policy or a concrete adapter would ride in beside the span.
+    for (const specifier of ['../spans', '../span-extra', '../replica-span', '../ports/span']) {
+      expect(
+        checkFile(REPLICA, `import type { X } from '${specifier}'`).map((e) => e.rule),
+        specifier,
+      ).toContain('replica-direction')
+    }
+  })
+
   it('rejects visibility, authorization and conflict EVALUATION in replica source', () => {
     for (const snippet of [
       'const ok = canSee(principal, row)',
