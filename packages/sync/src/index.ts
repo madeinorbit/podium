@@ -8,7 +8,7 @@
  * (./change-log.ts) are private to the package.
  */
 /**
- * TWO `SyncSpan` DEFINITIONS EXIST AND THEY ARE NOT THE SAME TYPE (POD-1143).
+ * TWO `SyncSpan` DEFINITIONS EXIST AND THEY ARE NOT THE SAME TYPE (POD-1146).
  *
  * POD-369 (`./replica/ports`) declares `SyncSpan.join(participant)` with an
  * `OwnedSyncSpan` that commits or aborts and participants that
@@ -18,7 +18,7 @@
  * precisely the parallel-definition drift POD-302 exists to end, arriving inside
  * the sync kernel itself.
  *
- * Until POD-1143 unifies them, the bare name is bound EXPLICITLY to the replica's
+ * Until POD-1146 unifies them, the bare name is bound EXPLICITLY to the replica's
  * definition and the outbox's participant-side seam is exported only as
  * `OutboxSyncSpan`. Two reasons, and the second is the load-bearing one:
  *
