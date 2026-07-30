@@ -204,6 +204,27 @@ export {
   WRITE_POLICY,
 } from './issues/cells'
 export {
+  SUPERAGENT_COMMAND_NAMES,
+  SUPERAGENT_CONTRACTS,
+  type SuperagentContractName,
+  type SuperagentUserFocus,
+  superagentClearContract,
+  superagentClearInput,
+  superagentConciergeContract,
+  superagentConciergeInput,
+  superagentInterruptTurnContract,
+  superagentInterruptTurnInput,
+  superagentOpenInTerminalContract,
+  superagentOpenInTerminalInput,
+  superagentRestartContract,
+  superagentRestartInput,
+  superagentSendTurnContract,
+  superagentSendTurnInput,
+  superagentStartBtwContract,
+  superagentStartBtwInput,
+  superagentUserFocus,
+} from './superagent/contracts'
+export {
   MUTATION_RESULT_KINDS,
   MutationEnvelope,
   MutationResult,
