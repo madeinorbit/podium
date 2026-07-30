@@ -171,6 +171,28 @@ export interface EntityShapedDecl {
 }
 
 /**
+ * Refuse to run on an empty vocabulary.
+ *
+ * A broken import would otherwise make every count fall to zero and the ratchet
+ * would print "counts went DOWN — nice, lock the win in" (`docs/
+ * rearch-deletion-audit.md`: "a detector that stops matching is not a
+ * deletion"). Extracted and exported so a test can watch it REFUSE — an
+ * unexercised guard is indistinguishable from an absent one.
+ */
+export function assertVocabularyLoaded(
+  session: ReadonlySet<string>,
+  issue: ReadonlySet<string>,
+): void {
+  if (session.size === 0 || issue.size === 0) {
+    throw new Error(
+      'representation-audit: the entity vocabulary loaded EMPTY from @podium/model. Every count ' +
+        'would be zero and the ratchet would read it as a deletion. Fix the import; do not ' +
+        'rebaseline.',
+    )
+  }
+}
+
+/**
  * Every top-level declaration under `apps/` + `packages/` that hand-declares at
  * least {@link ENTITY_SHAPE_THRESHOLD} distinct non-generic session or issue keys.
  *
@@ -180,13 +202,7 @@ export interface EntityShapedDecl {
  * deletion").
  */
 export function entityShapedDeclarations(ctx: AuditContext): EntityShapedDecl[] {
-  if (SESSION_VOCABULARY.size === 0 || ISSUE_VOCABULARY.size === 0) {
-    throw new Error(
-      'representation-audit: the entity vocabulary loaded EMPTY from @podium/model. Every count ' +
-        'would be zero and the ratchet would read it as a deletion. Fix the import; do not ' +
-        'rebaseline.',
-    )
-  }
+  assertVocabularyLoaded(SESSION_VOCABULARY, ISSUE_VOCABULARY)
 
   const out: EntityShapedDecl[] = []
   for (const f of ctx.files) {
@@ -522,9 +538,13 @@ export function unregisteredRestatements(
  * retired names while every other check reports green — the same shape as a
  * detector that stops matching.
  */
-export function danglingRegistryEntries(repoRoot: string): AuditSite[] {
+export function danglingRegistryEntries(
+  repoRoot: string,
+  representations: readonly { readonly symbol: string; readonly site: string }[] =
+    RETAINED_REPRESENTATIONS,
+): AuditSite[] {
   const sites: AuditSite[] = []
-  for (const rep of RETAINED_REPRESENTATIONS) {
+  for (const rep of representations) {
     const abs = join(repoRoot, rep.site)
     if (!existsSync(abs)) {
       sites.push({

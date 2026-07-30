@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { AuditContext, SourceFile } from './rearch-audit'
 import { stripComments } from './rearch-audit'
 import {
+  assertVocabularyLoaded,
   capabilitySnapshots,
+  danglingRegistryEntries,
   ENTITY_SHAPE_THRESHOLD,
   entityShapedDeclarations,
   GENERIC_KEYS,
@@ -184,6 +186,49 @@ describe('the forbidden key classes fire on planted keys', () => {
         `WhateverWeCallIt.${key}`,
       ])
     }
+  })
+})
+
+describe('the two checks whose live answer is ZERO can say non-zero', () => {
+  /**
+   * `representation-registry-rot` reports 0, and a zero from a check nobody has
+   * seen fire is indistinguishable from a broken one. These plant the failure.
+   */
+  it('fires on a registry entry whose FILE does not exist', () => {
+    const planted = [{ symbol: 'Ghost', site: 'apps/server/src/does-not-exist.ts' }]
+    const sites = danglingRegistryEntries(process.cwd(), planted)
+    expect(sites.map((s) => s.text)).toEqual(['Ghost: registered site does not exist'])
+  })
+
+  it('fires on a registry entry whose file exists but no longer DECLARES the symbol', () => {
+    // A real file that certainly does not declare this symbol. The check anchors
+    // on the declaration keyword, so a mere mention would not satisfy it either.
+    const planted = [{ symbol: 'NeverDeclaredAnywhere', site: 'package.json' }]
+    const sites = danglingRegistryEntries(process.cwd(), planted)
+    expect(sites.map((s) => s.text)).toEqual([
+      'NeverDeclaredAnywhere: registered but no longer declared at this site',
+    ])
+  })
+
+  it('is silent on a registry entry that is genuinely declared where it says', () => {
+    // The YES case for the check above: it must be able to pass, or the two cases
+    // above would be satisfied by a function that always reports a violation.
+    const planted = [
+      { symbol: 'RETAINED_REPRESENTATIONS', site: 'packages/model/src/representations/registry.ts' },
+    ]
+    expect(danglingRegistryEntries(process.cwd(), planted)).toEqual([])
+  })
+
+  it('REFUSES to run on an empty vocabulary rather than reporting zero', () => {
+    // The guard that stops a broken import from reading as a deletion. An
+    // unexercised guard is indistinguishable from an absent one.
+    expect(() => assertVocabularyLoaded(new Set(), new Set(['issueId']))).toThrow(/loaded EMPTY/)
+    expect(() => assertVocabularyLoaded(new Set(['sessionId']), new Set())).toThrow(/loaded EMPTY/)
+    // And it permits the loaded case, so the throw is about emptiness and not
+    // about being called.
+    expect(() =>
+      assertVocabularyLoaded(new Set(['sessionId']), new Set(['issueId'])),
+    ).not.toThrow()
   })
 })
 

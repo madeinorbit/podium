@@ -419,8 +419,8 @@ Every lane run in this worktree at `25854151`, uncached where it matters.
 | Lane | Result |
 |---|---|
 | `bunx tsgo --noEmit` in `packages/model` | exit 0, uncached. `grep -c TS1[0-9][0-9][0-9]` = **0**, so the count is not a checker that quit early |
-| `vitest packages/model/src` | 21 files, **239 passed** (21 of them this registry's) |
-| `vitest scripts/representation-audit.test.ts` | **15 passed** |
+| `vitest packages/model/src` + both audit test files | 23 files, **310 passed** |
+| `vitest scripts/representation-audit.test.ts` | **19 passed** |
 | `vitest scripts/rearch-audit.test.ts` | **52 passed** |
 | `bun scripts/rearch-audit.ts` | exit 0 — "25 items, 252 sites remaining (baseline exact)" |
 | `bun scripts/rearch-audit.ts --phase POD-302` | exit 0 — "all 5 deletion-audit items are at zero — clear to close" |
@@ -437,6 +437,72 @@ baseline; it changes no product behaviour and no wire shape.
 config file, so a lane launched from this worktree root reads this worktree. The conclusive evidence
 is not the config but the three instrument defects in §1.1: each was found by a test in THIS worktree
 failing against source in THIS worktree, and fixed here.
+
+### 8.1 Mutation evidence — eleven mutants, two survivors, both explained
+
+Every mutant applied, run and reverted as ONE unit in a `trap`, under the full protocol: the pattern
+asserted to match **exactly once** (an at-least-once pattern that hits a second site reads as a
+survivor), the file **hash** asserted to change, the mutant text **grepped back out** of the file
+after writing, the test expected to die **named in advance**, and the revert verified against a
+**backup copy** rather than `git diff --quiet` — with other work in the tree, dirty means nothing.
+
+| # | Mutant | Named test | Result |
+|---|---|---|---|
+| 1 | key regex back to LINE-anchored | `survives reformatting` | **killed** |
+| 2 | drop `DECL_BREAK` from the window | `…parameter object to a brace-less alias` | **survived** — see below |
+| 3 | add `owner` to the authority pattern | `does NOT fire on the attribution pair` | **killed** |
+| 4 | drop the statement-end window break | `…parameter object to a brace-less alias` | **survived** — see below |
+| 5 | `no-matrix-row` → `undocumented` | `fires when a representation is UNCLASSIFIED` | **killed** |
+| 6 | `MIN_JUSTIFICATION` 24 → 0 | `cannot justify itself` (3 tests) | **killed** |
+| 7 | capability scan returns `[]` | `fires on a serialized effective-capability snapshot` | **killed** |
+| 8 | instance-partition pattern never matches | `fires on an instance/tenant partition` | **killed** |
+| 9 | per-user key loop `.slice(4)` | `fires on a per-user singleton` | **killed** |
+| 10 | `IssueRefHead.pick` → a fresh `z.string()` for `id` | see §8.2 | **killed, by exactly one instrument** |
+| 11 | rename a registry entry's symbol | see §8.3 | **killed, by the script and not the suite** |
+
+**The two survivors are one finding, and it is a REDUNDANT PAIR rather than a gap.** Mutants 2 and 4
+each remove one of two window guards, and each survives because the OTHER one still catches the case:
+with `DECL_BREAK` gone the statement-end rule stops the window at the alias, and with the
+statement-end rule gone `DECL_BREAK` stops it at the function. The **compound** mutant — both removed
+— kills the test (`1 failed | 18 passed`), which is what proves the test is not vacuous.
+
+So the honest statement is *"two guards, each sufficient, so no single mutant can kill"* — not "two
+survivors". It is also an instance of the rule that two instruments of the same class **corroborate
+rather than complement**: both are here because they cover different shapes (a statement that
+legitimately continues across lines and then meets a function), and neither is removed on the strength
+of the other's coverage.
+
+### 8.2 Mutant 10 — the run's central claim, reproduced on this surface
+
+`IssueRefHead = IssueWireCore.pick({ id, seq, title })` was replaced by a fresh `z.string()` for
+`id`, cast so the brand still satisfies the compiler. The result:
+
+| Instrument | Verdict |
+|---|---|
+| `wire-golden.test.ts` — 90 fixtures over the encoded bytes | **90 passed.** Completely blind. |
+| the instance-identity assertion (`toBe`, not `toEqual`) | **1 failed** — the only thing that saw it |
+
+That is the drift this epic exists to close, byte-identical and golden-green, and it is why
+`composition` in the registry is declared DATA with a named owner rather than a verdict a gate
+produced. **A ledger claiming "composed" on the strength of the wire gate is claiming something its
+instrument cannot measure.**
+
+### 8.3 Mutant 11 — which instrument catches registry rot
+
+Renaming a registry entry's `symbol` leaves the model suite **21/21 green**: the pinned count is still
+43, uniqueness still holds, and `SessionCardModel` carries no schema for the schema-pin to catch. The
+`representation-registry-rot` check catches it instead, and names the site:
+
+```
+representation-registry-rot (POD-302) — Registry entries whose declaration is gone
+    baseline 0 → now 1
+    packages/client-core/src/viewmodels/session-card.ts:1  SessionCardModelRENAMED: registered but no longer declared at this site
+```
+
+Worth recording precisely rather than as "the registry is guarded": the guard is in the **script**,
+because only the script reads the tree. A vitest run over `packages/model` alone would have said
+nothing.
+
 
 ---
 
