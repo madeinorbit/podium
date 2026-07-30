@@ -242,6 +242,13 @@ const OWNED_BY_HUMAN = (creates: readonly string[], note: string) =>
  * rather than quietly disagreeing with the row they are supposed to mirror. That
  * check is the reason this is a constant and not a comment.
  *
+ * IT IS A CLASSIFICATION, NOT A TEMPLATE. `personal` here says the state these
+ * eleven write is one shared fact owned by one person — it is not a default to
+ * copy onto the next workflow-adjacent command. A facet whose value DIFFERS PER
+ * READER is `per-user-state` and a different row family entirely; see the
+ * warning on `workflowAssignContract`, which is the one of the eleven a future
+ * per-user preference would most plausibly be copied from.
+ *
  * NOTE what is deliberately NOT here. `execution_profiles` carries ADR 1 D6's
  * `secret: 'secret-presence'` on its matrix row, which is a different column
  * answering a different question — the row holds credential and machine
@@ -424,6 +431,32 @@ export const workflowAssignContract = {
       'global/repository arms are substrate and stay admin-grade — the shipped `protectedWrite` check, ' +
       'kept, plus the published-revision precondition it is checked BEFORE (POD-730 pins that order).',
   },
+  /**
+   * DO NOT COPY THIS CONTRACT FOR A PER-USER PREFERENCE (POD-311, POD-1076).
+   *
+   * This is the one of the eleven with POD-351's rename-contract trap, and it is
+   * flagged here because the trap is invisible from the classification: a
+   * binding is `(target_kind, target_id) → revision`, which is structurally a
+   * PIN, and `pins` / `snoozes` / `tab_order` are exactly the family POD-380 had
+   * to re-key `(userId, entity)` after they shipped instance-wide.
+   *
+   * A binding is `personal` because it is ONE SHARED FACT about a target —
+   * "this issue runs that workflow" is true for everyone who can see the issue,
+   * which is why it inherits the target's owner and grants rather than the
+   * binder's. A future "my default workflow for this repo" is a DIFFERENT fact:
+   * it differs per reader, so it is `per-user-state`, keyed `(userId, target)`,
+   * writable by the owning user ONLY — not admins, not `system`, not agents
+   * acting on behalf — and it must not ride the binding's wire projection,
+   * because a value that differs per reader cannot be a field of a shape
+   * broadcast to many readers.
+   *
+   * Copying this contract for that feature would key a personal preference as a
+   * shared instance-wide row: visible to everyone who can see the target, and
+   * silently overwritable by any of them. `profileSave` carries a weaker version
+   * of the same trap (a per-user "preferred profile" is not the shared library
+   * entry it would be copied from); its admin role floor makes the copy less
+   * likely, not less wrong.
+   */
   exposure: SERVED_ON,
   delivery: LIBRARY_DELIVERY,
   redaction: LIBRARY_REDACTION,
