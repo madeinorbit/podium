@@ -1,4 +1,20 @@
-/** Pure machine-affinity and handoff target selection. */
+/**
+ * Pure machine-affinity and handoff target selection — the PER-MACHINE
+ * AVAILABILITY PROJECTION, and the other half of the POD-303 split.
+ *
+ * `AgentManifest` (@podium/harness) is the STATIC declaration: in-repo code keyed
+ * by `BuiltinHarnessKind`, identical for every tenant, principal-free, and
+ * totality-checked by the compiler. Everything in THIS file answers a different
+ * question — "can *this* harness run on *that* machine, for *this* principal,
+ * right now?" — and that is a per-machine fact. Per
+ * `docs/multi-user-readiness.md` §3.1.1/§3.1.4 and ADR 1 Amendment 1 D13.5, every
+ * fact about a machine is **owned compute**: it INHERITS its machine's scoping
+ * (owner-private, grantable per `see` / `use` / `manage`) rather than carrying its
+ * own owner or visibility class, and it is explicitly NOT tenant-visible
+ * infrastructure. The functions here therefore take the machine (and, from Phase
+ * 4, its `use` decision) as INPUT and stay pure; they never resolve a principal,
+ * and no type in this file grows an owner field.
+ */
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 
 export interface RepoMachines {
@@ -65,25 +81,92 @@ export interface HandoffRepo extends RepoMachines {
   originUrl?: string
   worktrees: HandoffWorktree[]
 }
+/**
+ * One principal's `use` verdict on one machine (readiness §3.1.4 M1: `use` =
+ * spawn, reattach, attach a PTY, run harness commands, read/write files, take a
+ * worktree). Owner-only until explicitly granted; POD-1079 resolves it.
+ *
+ * There is no `'unknown'` member ON PURPOSE. A third state would be read at every
+ * call site as "probably fine" and the gate would fail OPEN. The un-evaluated case
+ * is instead the ABSENCE of the field (see {@link HandoffMachine.use}), which is
+ * visible in a diff and greppable, whereas a permissive enum member is neither.
+ */
+export type MachineUseDecision = 'granted' | 'denied'
+
 export interface HandoffMachine extends SelectableMachine {
   inventory?: {
     agents: { kind: string; installed: boolean; login: { state: 'in' | 'out' | 'unknown' } }[]
   }
+  /**
+   * The calling principal's `use` decision for this machine, when someone has
+   * resolved it. ABSENT means NOT EVALUATED — today's single-operator world, where
+   * one `OPERATOR` owns every machine and there is no grant to consult. It does
+   * NOT mean granted, and a caller must not synthesize `'granted'` to silence a
+   * type error; that is how a permission check becomes decorative.
+   *
+   * Phase 4 (POD-1079) supplies this at the server projection boundary, which is
+   * where the principal lives — this package stays principal-free (readiness
+   * §3.1.6 S5: the daemon-side layers run as a system principal that may read
+   * across owners but never acts as a person).
+   */
+  use?: MachineUseDecision
 }
 
-/** Why one machine cannot run a requested agent right now. */
-export type AgentCapabilityRejection = 'offline' | 'harness-missing' | 'logged-out'
+/**
+ * Why one machine cannot run a requested agent right now.
+ *
+ * UNREACHABLE AND UNAUTHORIZED ARE DIFFERENT ANSWERS, and this union is where that
+ * distinction is kept. Readiness §3.1.4 M5 is explicit: spawn UI must not offer
+ * machines the principal lacks `use` on, *and* "an unreachable-vs-unauthorized
+ * distinction must be visible, since 'denied' and 'offline' produce the same empty
+ * list otherwise". Those two failures need opposite responses from a user — wake
+ * the machine up, versus ask its owner for access — so a projection that
+ * flattens them to "not available" is lying by omission.
+ *
+ *  - `unauthorized` — we KNOW, and the answer is no: the principal has no `use`
+ *    grant on this machine. Not a temporary condition and not fixable by waiting.
+ *  - `offline` — we DON'T know: the daemon is unreachable, so nothing about the
+ *    harness there is currently knowable. `harness-missing` and `logged-out` are
+ *    PROBED facts and therefore only meaningful while reachable.
+ *  - `harness-missing` — reachable, and this harness is not installed there. Also
+ *    the answer for a `HarnessId` this build has never heard of: an unknown
+ *    harness is simply absent from the machine's inventory, which degrades to
+ *    "cannot run it here" rather than throwing or guessing another CLI.
+ *  - `logged-out` — reachable and installed, but the CLI has no credentials.
+ */
+export type AgentCapabilityRejection =
+  | 'unauthorized'
+  | 'offline'
+  | 'harness-missing'
+  | 'logged-out'
 
 /**
  * One authoritative capability rule for new sessions and handoff. Shells need
  * only an online daemon; harnesses must be installed and must not be explicitly
  * logged out. An unknown login state remains usable (some adapters cannot prove
  * login without actually starting the CLI).
+ *
+ * `agentKind` is an OPEN identifier (a `HarnessId`, an `AgentKind`, or a name from
+ * a newer peer) and is compared against the machine's inventory by value — never
+ * dispatched through a closed `switch`. An unrecognized name therefore degrades to
+ * `'harness-missing'`; it does not throw, and it does not fall through to
+ * whichever harness happens to be first.
+ *
+ * ORDER: the `use` denial is checked FIRST, before liveness and before any
+ * inventory read. Two reasons, and the fork is resolved from readiness §3.1.4
+ * M2 + §3.1.5 rather than by taste. (1) Fail closed: a denied machine must not
+ * answer questions about its inventory or its owner's login state — that is
+ * `use`-gated detail per the `see`/`use` partition in `../entities/machine.ts`,
+ * and `use` is a code-execution boundary, not a privacy toggle. (2) Consistent
+ * error: §3.1.5's rule is that an unauthorized answer must not vary with the
+ * hidden state, or the rejection reason becomes an oracle for it. Liveness itself
+ * is inside `see`, so nothing is lost by reporting the denial instead.
  */
 export function agentCapabilityRejection<M extends HandoffMachine>(
   machine: M,
   agentKind: string,
 ): AgentCapabilityRejection | undefined {
+  if (machine.use === 'denied') return 'unauthorized'
   if (!machine.online) return 'offline'
   if (agentKind === 'shell') return undefined
   const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)

@@ -102,6 +102,11 @@ export function issueHandoffBlockerText(blocker: 'no-agent-session' | 'multiple-
 /** Why one machine can't take this session — shown beside its (disabled) row. */
 export function handoffRejectionText(rejection: HandoffRejection, agentKind: AgentKind): string {
   switch (rejection) {
+    // Distinct from 'offline' on purpose (readiness §3.1.4 M5): handing off to a
+    // machine you may not use is DENIED, not merely unavailable, and a user who
+    // reads "offline" waits for a wake-up that will never help.
+    case 'unauthorized':
+      return 'no access'
     case 'offline':
       return 'offline'
     case 'harness-missing':
