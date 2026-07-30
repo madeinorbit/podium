@@ -191,6 +191,7 @@ const ownerFor = (
   correlation: boolean,
   isSchemaFile: boolean,
   entityBearing: boolean,
+  role?: 'construct' | 'reconstruct',
 ): { owner: Owner; reason: string } => {
   for (const marker of DELETE_MARKERS) {
     // Word-ish match so `OPERATOR` does not catch `OPERATOR_LIKE_THING`.
@@ -241,7 +242,10 @@ const ownerFor = (
       }
       return {
         owner: 'B-helper-adoption',
-        reason: 'tag+id in one string; the tag is a closed vocabulary living unparsed',
+        reason:
+          role === 'reconstruct'
+            ? 'RE-builds the tag inline to COMPARE — needs the shared PARSER; five such sites gate authz, so a format change fails silently'
+            : 'CONSTRUCTS a tag+id string — needs the shared CONSTRUCTOR; the tag is a closed vocabulary living unparsed',
       }
     case 'zod-field':
       return { owner: 'A-schema-flip', reason: 'zod declaration; becomes a branded schema' }
@@ -346,6 +350,62 @@ const isZodExpression = (node: ts.Node): boolean => {
 const IDENTITY_PARTS = new Set(['resume', 'nativeId'])
 
 /**
+ * EXTERNAL routing identifiers. They match the `*Id` shape but are **not Podium
+ * entities**, so they are never branded and a key over them is owner C.
+ *
+ * A reviewer stated the principle better than the code did: *name shape alone
+ * cannot distinguish a Podium entity id from an external routing id.*
+ * `${botToken}\n${chatId}` is a Telegram delivery-target cache key — §0.3 named it
+ * as the owner-C example while `mentionsIdentity` was simultaneously marking it B
+ * off the `chatId` suffix, so the document contradicted its own ledger.
+ *
+ * `threadId` is deliberately ABSENT: a superagent thread IS a Podium entity.
+ */
+const EXTERNAL_IDS = new Set([
+  'chatId',
+  'chat_id',
+  'botToken',
+  'bot_token',
+  'messageThreadId',
+  'message_thread_id',
+  'telegramChatId',
+  'telegram_chat_id',
+])
+/**
+ * Bare tags that name a Podium ENTITY, so `tag:${value}` is a tagged identity
+ * whatever the value happens to be called.
+ *
+ * Needed because the value's NAME is not always identity-shaped:
+ * `session:${m.fromSession}` (`messages/spawn.ts:40`) and `issue:${m.fromIssue}`
+ * (`:41`) are current `spawnedBy` producer sites, but `fromSession`/`fromIssue`
+ * do not match `*Id`. **The tag is the type declaration** — `session:` says the
+ * value is a session id more reliably than the variable name does.
+ *
+ * Enumerated rather than "any bare tag", because dropping the identity test
+ * altogether admitted 31 sites that are not entity keys at all: `native:${kind}`,
+ * `repo:${repoPath}`, `stage:${s}`, `bootstrap:${offset}`, `ASSET:${s}`,
+ * `w:${root}`. Measured, not assumed — those tags name a category, not an entity.
+ */
+const ENTITY_TAGS = new Set([
+  'session',
+  'issue',
+  'automation',
+  'superagent',
+  'conversation',
+  'subscription',
+  'machine',
+  'artifact',
+  'account',
+  'workflow',
+])
+
+// `providerId` is deliberately NOT here, though it names an external provider:
+// `(providerId, path)` at discovery/scanner.ts:335 IS the native conversation
+// identity — the same thing `nativeId` denotes elsewhere — so excluding it would
+// drop a real key. A name is only safe to exclude when it is external in EVERY
+// key it appears in, and this one is not.
+
+/**
  * Does any identifier or property name inside this expression name an identity?
  *
  * This is the B-vs-C discriminator for keys, and it is the fix for a review
@@ -359,24 +419,91 @@ const mentionsIdentity = (node: ts.Node): boolean => {
   let found = false
   const walk = (current: ts.Node): void => {
     if (found) return
-    if (
-      ts.isIdentifier(current) &&
-      (ID_NAME.test(current.text) || IDENTITY_PARTS.has(current.text))
-    ) {
-      found = true
-      return
-    }
-    if (
-      ts.isPropertyAccessExpression(current) &&
-      (ID_NAME.test(current.name.text) || IDENTITY_PARTS.has(current.name.text))
-    ) {
-      found = true
-      return
+    // EXTERNAL_IDS is consulted FIRST: an external routing id matches `*Id` but is
+    // not a Podium entity, so it must not make a key look migration-worthy.
+    const named = ts.isIdentifier(current)
+      ? current.text
+      : ts.isPropertyAccessExpression(current)
+        ? current.name.text
+        : undefined
+    if (named !== undefined && !EXTERNAL_IDS.has(named)) {
+      if (ID_NAME.test(named) || IDENTITY_PARTS.has(named)) {
+        found = true
+        return
+      }
     }
     ts.forEachChild(current, walk)
   }
   walk(node)
   return found
+}
+
+/**
+ * Where a tagged identity (`session:${id}`) sits, or undefined if it is just text.
+ *
+ * FOUR contexts, not two. The first revision recognised only "used as a key" and
+ * "assigned to a property", which silently dropped the two that matter most for
+ * `spawnedBy` — a reviewer found production sites absent from the ledger entirely
+ * because of it, while the prose described them:
+ *
+ * - **RETURNED** — `return \`session:${m.fromSession}\`` (`messages/spawn.ts:40`,
+ *   `:41`; `issues/registry.ts:280`, `:284`). The `usedAsKey` return test requires
+ *   the enclosing function to be named `*Key`, and `spawnedByForMessage` /
+ *   `spawnProvenance` are not, so every arm CONSTRUCTED by a plain factory was
+ *   invisible. These are the producer sites POD-365 must replace.
+ * - **COMPARED** — `target.spawnedBy === \`session:${actorSessionId}\``
+ *   (`relay.ts:783`, `gate.ts:577`). A RE-construction, and the
+ *   authorization-sensitive half: five such sites gate parent-session authz on a
+ *   string match, so a tag-format change makes the check answer "not the parent"
+ *   SILENTLY. A ledger that omits them cannot be used to find them.
+ *
+ * The role is carried through to the owner reason, because the two need different
+ * fixes: a constructor for the producers, a parser for the comparators.
+ */
+const taggedContext = (
+  node: ts.Node,
+): { label: string; role: 'construct' | 'reconstruct' } | undefined => {
+  // Unwrap the expression wrappers a tagged identity is routinely written behind,
+  // exactly as `usedAsKey` does. `spawnedBy: opts?.spawnedBy ?? `issue:${row.id}``
+  // (workflow.ts:166, :788) and `threadId ? `superagent:${threadId}` : 'superagent'`
+  // (superagent/tools.ts:94) are both construction sites whose direct parent is a
+  // `??` or `?:` — stopping at the direct parent misses them.
+  let current: ts.Node = node
+  while (
+    current.parent !== undefined &&
+    (ts.isConditionalExpression(current.parent) ||
+      ts.isParenthesizedExpression(current.parent) ||
+      (ts.isBinaryExpression(current.parent) &&
+        current.parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken))
+  ) {
+    current = current.parent
+  }
+  const parent = current.parent
+  if (parent === undefined) return undefined
+  node = current
+  if (ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name)) {
+    return { label: parent.name.text, role: 'construct' }
+  }
+  // `return \`tag:${id}\`` and `() => \`tag:${id}\`` — construction by a factory
+  // whose name carries no `Key` hint.
+  if (ts.isReturnStatement(parent) || ts.isArrowFunction(parent)) {
+    return { label: 'return', role: 'construct' }
+  }
+  // `const spawnedBy = threadId ? \`superagent:${threadId}\` : 'superagent'`
+  // (superagent/tools.ts:94). Binding a tagged identity to a named local is a
+  // construction site; `usedAsKey` only accepts it when the name ends in `Key`.
+  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    return { label: parent.name.text, role: 'construct' }
+  }
+  if (
+    ts.isBinaryExpression(parent) &&
+    (parent.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      parent.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)
+  ) {
+    return { label: 'compare', role: 'reconstruct' }
+  }
+  if (usedAsKey(node)) return { label: 'key', role: 'construct' }
+  return undefined
 }
 
 /** Map/Set methods whose first argument IS a key. */
@@ -463,6 +590,8 @@ const sweepFile = (file: string, sites: Site[]): void => {
     name: string,
     /** For key kinds: does the key carry an entity identity? Decides B vs C. */
     entityBearing = true,
+    /** For tagged identities: is this site BUILDING the tag, or RE-building it to compare? */
+    role?: 'construct' | 'reconstruct',
   ): void => {
     const { line } = source.getLineAndCharacterOfPosition(node.getStart(source))
     const text = snippet(source, node)
@@ -475,6 +604,7 @@ const sweepFile = (file: string, sites: Site[]): void => {
       correlation,
       isSchemaFile,
       entityBearing,
+      role,
     )
     sites.push({
       file: rel,
@@ -598,18 +728,16 @@ const sweepFile = (file: string, sites: Site[]): void => {
             : ts.isPropertyAccessExpression(span.expression)
               ? span.expression.name.text
               : ''
-      const assignedToField =
-        node.parent !== undefined &&
-        ts.isPropertyAssignment(node.parent) &&
-        ts.isIdentifier(node.parent.name)
-      if (looksTagged && ID_NAME.test(substituted) && (usedAsKey(node) || assignedToField)) {
-        const field =
-          node.parent !== undefined &&
-          ts.isPropertyAssignment(node.parent) &&
-          ts.isIdentifier(node.parent.name)
-            ? node.parent.name.text
-            : 'key'
-        record(node, 'tagged-identity', `${field}=${tag}`, true)
+      // Identity-bearing if the VALUE is id-named, OR the TAG names an entity —
+      // the tag is a type declaration, and `session:${fromSession}` is a producer
+      // site whose value name gives no hint.
+      const tagName = tag.replace(/[:@#|]$/, '').toLowerCase()
+      const taggedIdentity = ID_NAME.test(substituted) || ENTITY_TAGS.has(tagName)
+      if (looksTagged && taggedIdentity && substituted !== '') {
+        const context = taggedContext(node)
+        if (context !== undefined) {
+          record(node, 'tagged-identity', `${context.label}=${tag}`, true, context.role)
+        }
       }
     }
 
