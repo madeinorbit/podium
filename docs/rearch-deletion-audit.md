@@ -214,6 +214,58 @@ total (31 at this commit, down from 34). Unlike `router-triple-access` it names
 every remaining key and its owning issue, so a decrease has to say WHICH key
 vanished — the check that makes a shrinking number mean something.
 
+### 2026-07-31 — POD-314 derives the tRPC router, and widens the detector POD-386 deferred
+
+Two effects, deliberately in **two commits**, because they must be measurable
+separately: the product reduction first, the detector widening second with no
+product code in it.
+
+**The product commits.** Twenty-three hand-written `.mutation(` left `router.ts`
+across eleven families (approvals, conversations, perf, models, files, hosts,
+accounts, cloud, setup, auth, telemetry), and ~30 reads moved into per-module
+query tables beside them. `router.ts` went 1210 → 390 lines.
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `router-triple-access` | 54 → 6 | **Under the OLD scope.** Measured before the widening below so the two effects stay separable. |
+| `machine-id-unbranded-fields` | 38 → 36 | **2 vanished** with the dead cloud input schemas deleted from `router.ts`. |
+| `session-shapes` | 0 → 1 → 0 | **Fixed, not rebaselined.** `cloudSourceSessionInput` did not change; its ADDRESS did, from an inline `router.ts` procedure input the detector does not scan to a contract at L1 where it does. POD-1180's phenomenon pointing the other way — debt moving INTO view. Recorded as a `(file, symbol)` exclusion citing inventory §2.3/§6.5 rule 2 (a cloud-egress source address, the category the L1 transport frames already occupy), because "new debt" and "debt that became visible" must not look alike. |
+
+**The widening commit** (`router-triple-access`, 6 → 20). No product code changed
+in it. The code did not move; the **detector's scope** did, and the count rose
+because debt became measurable — the POD-305 pattern (`isFrozenFile`, 7 → 18) and
+POD-301's (25 items/186 sites → 28/237). "Never rebaseline upward" forbids
+absorbing a **regression**; it has never meant a detector may not learn to see.
+
+All three candidate boundaries, measured **by the instrument** (which strips
+comments first — a raw grep reports one more for the middle figure):
+
+| Scope | Sites |
+| --- | --- |
+| `router.ts` alone (the old scope) | 6 |
+| `+ modules/**/trpc.ts` — **chosen** | 20 |
+| all of `apps/server/src/modules` | 37 |
+
+The middle boundary was chosen on what the item **means**, not on what it counts:
+its subject is *a transport reaching past the seam*, so the honest scope is the
+files that BUILD procedures. The widest measures something different — reach-
+through by anything a transport *derives* — and folding it in would change the
+referent while keeping the name, the same defect as a restatement passing a
+golden fixture. Both numbers are recorded so the scope **not** picked is
+reviewable rather than merely asserted.
+
+**The 20 → 37 gap is itself a finding**, and it belongs to POD-1180's successor:
+it says the derived arms reach past the seam *more* than the transports ever did,
+which is the opposite of what the cutovers were meant to buy.
+
+**Item zero was not reached, and the six that remain are named** rather than
+rounded away: three settings-guard writes (POD-352's, which this issue must not
+touch in either direction), the allowlisted `discovery.scan`, `machines.list`
+(`visibleMachinesFor` is an authorization projection needing the capability the
+derived state bundle withholds by design), and the mail dispatch. Each is
+documented at its site.
+
+
 ### 2026-07-30 — POD-368 redefines the two vocabulary items and adds four (closing POD-302)
 
 `session-shapes` and `issue-shapes` were `^export (interface|type|class) X` over
