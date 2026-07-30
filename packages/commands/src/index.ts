@@ -48,6 +48,34 @@ export {
   type VisibilityClass,
 } from './contract'
 export {
+  AUTOMATION_CONTRACT_NAMES,
+  AUTOMATION_CONTRACTS,
+  AUTOMATION_QUERY_NAMES,
+  type AutomationCommandContract,
+  type AutomationContractName,
+  automationCreateContract,
+  automationCreateInput,
+  automationPatchInput,
+  automationRemoveContract,
+  automationRemoveInput,
+  automationSetEnabledContract,
+  automationSetEnabledInput,
+  automationUpdateContract,
+  automationUpdateInput,
+} from './automations/contracts'
+export {
+  assertScheduleFloor,
+  type CronSpec,
+  isValidCron,
+  MIN_SCHEDULE_INTERVAL_MS,
+  minIntervalMs,
+  nextAfter,
+  nextRunAfter,
+  parseCron,
+  respectsScheduleFloor,
+  SCHEDULE_FLOOR_MESSAGE,
+} from './automations/cron'
+export {
   discoveryRefreshReposContract,
   discoveryRefreshReposInput,
   discoveryScanFolderContract,
