@@ -38,6 +38,7 @@
  */
 
 import { z } from 'zod'
+import { MutationIdField } from '../ids'
 
 /**
  * Position in the ONE global sequence (ADR 2 D2, Amendment 1 D12: never
@@ -129,7 +130,7 @@ export const ChangeProvenanceFields = z.object({
   /** Which command caused it — resolves to an outbox entry's `mutationId`. */
   causationId: z.string().optional(),
   /** The client-minted idempotency key of that command. */
-  mutationId: z.string().optional(),
+  mutationId: MutationIdField.optional(),
 })
 export type ChangeProvenanceFields = z.infer<typeof ChangeProvenanceFields>
 

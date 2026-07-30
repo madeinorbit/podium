@@ -2,12 +2,15 @@ import { presenceCommand, sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
   ArtifactIdField,
+  AutomationIdField,
   AutomationScheduleKind,
   AutomationSessionMode,
+  asThreadId,
   IssueIdField,
   isAgentKind,
   ResumeRef,
   SessionIdField,
+  ThreadIdField,
   WorkState,
 } from '@podium/model'
 import {
@@ -520,7 +523,7 @@ export const appRouter = t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
     listThreads: t.procedure.query(({ ctx }) => ctx.superagent.listThreads()),
     history: t.procedure
-      .input(z.object({ threadId: z.string().default('global') }))
+      .input(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }))
       .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
     ...superagentFamily,
   }),
@@ -1129,7 +1132,12 @@ export const appRouter = t.router({
   automations: t.router({
     list: t.procedure.query(({ ctx }) => mods(ctx).automations.list()),
     runs: t.procedure
-      .input(z.object({ automationId: z.string().min(1), limit: z.number().int().optional() }))
+      .input(
+        z.object({
+          automationId: z.string().min(1).pipe(AutomationIdField),
+          limit: z.number().int().optional(),
+        }),
+      )
       .query(({ ctx, input }) => mods(ctx).automations.runs(input.automationId, input.limit)),
     ...automationProcedures(),
   }),

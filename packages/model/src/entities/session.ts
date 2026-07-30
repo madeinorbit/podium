@@ -41,7 +41,6 @@
  * can see the session may learn these two.
  */
 
-import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { z } from 'zod'
 import {
   AccountIdField,
@@ -50,6 +49,7 @@ import {
   machineIdBlockedOnPOD318,
   SessionIdField,
 } from '../ids'
+import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
 import { AgentKind } from './agent'
 
 // ---------------------------------------------------------------------------
@@ -153,7 +153,11 @@ export const SessionOrigin = z.discriminatedUnion('kind', [
    *  fills it from `session.resume.value` — the native resume ref — on the
    *  handoff path, and elsewhere from `r.conversationId ?? ''`. A native id has
    *  no brand by decision (see `ids/brands.ts`), and the empty-string default is
-   *  why a `.min(1)` schema could not go here either. */
+   *  why a `.min(1)` schema could not go here either.
+   *
+   *  UNBRANDED BY DECISION — the token is what `scripts/entity-id-audit.ts`
+   *  reads, so this long-standing carve-out is counted as an excuse rather than
+   *  as unmeasured debt. */
   z.object({ kind: z.literal('resume'), conversationId: z.string() }),
 ])
 export type SessionOrigin = z.infer<typeof SessionOrigin>

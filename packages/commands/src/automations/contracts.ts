@@ -106,7 +106,7 @@
  * for one that refuses this.
  */
 
-import { AgentKind, AutomationScheduleKind, AutomationSessionMode } from '@podium/model'
+import { AgentKind, AutomationScheduleKind, AutomationSessionMode, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -147,10 +147,12 @@ export interface AutomationCommandContract<In extends z.ZodTypeAny = z.ZodTypeAn
  * byte-for-byte.
  *
  * `repoPath: null` (or absent) = a GLOBAL automation: it runs in the home
- * directory, for cross-repo chores. `targetSessionId` is an unbranded string here
- * exactly as it shipped — the service re-brands it with `asSessionId` after
- * trimming — and widening it to `SessionIdField` would be a re-specification this
- * issue is not allowed to make.
+ * directory, for cross-repo chores. `targetSessionId` is BRANDED here by POD-301, which owns the
+ * entity-id flip: POD-735 relocated this block byte-for-byte and correctly
+ * declined to re-specify it, but the field was branded in `router.ts` before the
+ * relocation and the two issues crossed. Validation is preserved exactly
+ * (`.min(1)` then `.pipe`), so the service's `asSessionId` after trimming is now
+ * redundant rather than load-bearing.
  */
 const automationFields = z.object({
   name: z.string().min(1),
@@ -158,7 +160,7 @@ const automationFields = z.object({
   scheduleKind: AutomationScheduleKind.optional(),
   cron: z.string().nullable().optional(),
   runAt: z.string().datetime({ offset: true }).nullable().optional(),
-  targetSessionId: z.string().min(1).nullable().optional(),
+  targetSessionId: z.string().min(1).pipe(SessionIdField).nullable().optional(),
   agentKind: AgentKind,
   model: z.string().optional(),
   effort: z.string().optional(),

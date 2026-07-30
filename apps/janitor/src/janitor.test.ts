@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -343,7 +344,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       planMaintenanceCommandsPrune: async () => [],
       readAutoArchiveCandidates: async () => [
         {
-          issueId: 'iss_1',
+          issueId: asIssueId('iss_1'),
           stage: 'done',
           closedReason: null,
           readAt: '2026-07-01T00:00:00.000Z',
@@ -353,7 +354,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       ],
       readSessionAutoArchiveCandidates: async () => [
         {
-          sessionId: 'ses_1',
+          sessionId: asSessionId('ses_1'),
           issueId: null,
           stoppedAt: '2026-07-01T00:00:00.000Z',
           readAt: '2026-07-02T00:00:00.000Z',

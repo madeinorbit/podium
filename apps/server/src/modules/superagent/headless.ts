@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import type {
+  AgentKind,
+  Geometry,
+  HarnessAgent,
+  ResumeRef,
+  SessionId,
+  ThreadId,
+} from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { AgentKind, Geometry, HarnessAgent, ResumeRef, SessionId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -119,7 +126,7 @@ export class HeadlessService {
     input: {
       turnId: string
       sessionId: SessionId
-      threadId: string
+      threadId: ThreadId
       agent: HarnessAgent
       model?: string
       effort?: string

@@ -1,3 +1,4 @@
+import type { ThreadId } from '@podium/model'
 import type { Hono } from 'hono'
 
 /**
@@ -10,11 +11,11 @@ export interface McpToolProvider {
    *  tools for concierge/thread-blind callers, so harness clients that validate
    *  args against the advertised schema can actually pass the flag. */
   mcpToolSpecs(
-    threadId?: string,
+    threadId?: ThreadId,
   ): Array<{ name: string; description: string; inputSchema: unknown }>
   /** `threadId` (when the transport resolved one) scopes the call to the
    *  superagent thread it runs for — gate + session provenance (issue #67). */
-  callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string>
+  callMcpTool(name: string, args: Record<string, unknown>, threadId?: ThreadId): Promise<string>
 }
 
 const PROTOCOL_VERSION = '2024-11-05'
@@ -43,7 +44,7 @@ export function registerMcpRoute(
   app: Hono,
   provider: McpToolProvider,
   token: string,
-  opts?: { resolveThread?: (threadToken: string) => string | undefined },
+  opts?: { resolveThread?: (threadToken: string) => ThreadId | undefined },
 ): void {
   const tokenOf = (header: string | undefined): string | undefined =>
     header?.replace(/^Bearer\s+/i, '')

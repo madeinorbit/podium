@@ -1,4 +1,12 @@
-import { AgentKind, HandoffManifest, HandoffRefusalReason, ResumeRef, SessionIdField } from '@podium/model'
+import {
+  AgentKind,
+  HandoffManifest,
+  HandoffRefusalReason,
+  IssueIdField,
+  RepoIdField,
+  ResumeRef,
+  SessionIdField,
+} from '@podium/model'
 import { z } from 'zod'
 
 // HandoffManifest — the entity-shaped member of this family — lives in
@@ -27,9 +35,9 @@ export const HandoffExportRequestMessage = z.object({
   resume: ResumeRef,
   branch: z.string(),
   baseShas: z.array(z.string()),
-  repoId: z.string(),
+  repoId: RepoIdField,
   title: z.string().optional(),
-  issueId: z.string().optional(),
+  issueId: IssueIdField.optional(),
   sourceMachineId: z.string(),
 })
 export const HandoffExportResultMessage = z.object({

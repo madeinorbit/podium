@@ -40,6 +40,11 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { changeRowRestatements } from './change-row-audit'
 import {
+  machineIdUnbrandedFields,
+  rawStringEntityIds,
+  unbrandedByDecisionFields,
+} from './entity-id-audit'
+import {
   capabilitySnapshots,
   danglingRegistryEntries,
   instancePartitions,
@@ -61,6 +66,11 @@ export interface SourceFile {
   file: string
   /** Comment-stripped, line-structure preserving (see stripComments). */
   stripped: string
+  /** The source AS WRITTEN, comments intact. A detector whose subject is a
+   *  marker comment (`entity-id-audit.ts`'s `UNBRANDED` excuse) cannot read
+   *  `stripped`, and re-reading the file from disk makes a synthetic context
+   *  untestable. Optional so an in-memory context may omit it. */
+  raw?: string
   isTest: boolean
 }
 
@@ -309,11 +319,8 @@ export function loadContext(repoRoot: string, roots = ['apps', 'packages']): Aud
   for (const rootDir of roots) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
-      files.push({
-        file,
-        stripped: stripComments(readFileSync(abs, 'utf8')),
-        isTest: isTestFile(file),
-      })
+      const raw = readFileSync(abs, 'utf8')
+      files.push({ file, stripped: stripComments(raw), raw, isTest: isTestFile(file) })
     }
   }
   files.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
@@ -533,7 +540,7 @@ export const CHECKS: AuditCheck[] = [
     // it is. See `scripts/change-row-audit.ts` for the two spellings it covers
     // and `change-row-audit.test.ts` for the planted violation of each.
     phase: 'POD-308',
-    unit: 'a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model\'s change field schemas',
+    unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },
   {
@@ -816,6 +823,53 @@ export const CHECKS: AuditCheck[] = [
     phase: 'POD-321',
     unit: 'definite-assignment forward ref (`let x!: T`) broken by a thunk',
     collect: (ctx) => grep(ctx, { roots: ['apps/server/src/server.ts'], pattern: /^\s*let \w+!:/ }),
+  },
+  // ADDED at POD-301. POD-363's AC and POD-301's fourth AC both name a
+  // "raw-string entity ids" item that reached zero; there was NO SUCH KEY and no
+  // detector, so the zero being reported was the POD-361-EDGE-CAST marker count
+  // — a different, genuinely-zero thing. POD-423 held Phase 1 open for exactly
+  // this and its formulation is the one adopted here: an audit item named in an
+  // acceptance criterion but absent from the baseline is not a passing check, it
+  // is an unmeasured claim.
+  //
+  // Adding these three keys is a RATCHET EXTENSION, not a rebaseline: they
+  // measure debt that was always present and never counted, so the item total
+  // rises on the commit that introduces them and may only fall afterwards. See
+  // `scripts/entity-id-audit.ts` for what the detector can and cannot see, and
+  // `entity-id-audit.test.ts` for the planted violation of every spelling.
+  {
+    id: 'raw-string-entity-ids',
+    title: 'Entity id declared as a bare zod string while its brand exists',
+    phase: 'POD-301',
+    unit: 'one zod field whose key names a branded entity id and whose schema is an unbranded string',
+    collect: (ctx) => rawStringEntityIds(ctx),
+  },
+  {
+    // SPLIT OUT DELIBERATELY, and mapped to POD-318 rather than POD-301: ADR 1
+    // Amendment 2 D16.2 is normative that `MachineId` must NOT be adopted at any
+    // field until `local` / `__local__` are retired, because branding a sentinel
+    // LAUNDERS it instead of flagging it. D16.2 asks for "a narrower, VISIBLE
+    // debt" — a carve-out nobody counts is not visible — so these are counted
+    // here instead of being silently excluded from the item above. POD-301 must
+    // not be able to close by laundering them, and POD-318 must not be able to
+    // close while any remain.
+    id: 'machine-id-unbranded-fields',
+    title: 'Machine-id field still an unbranded string (the D16.2 carve-out)',
+    phase: 'POD-318',
+    unit: 'one machine-id zod field, in either spelling — bare z.string() or the machineIdBlockedOnPOD318 marker',
+    collect: (ctx) => machineIdUnbrandedFields(ctx),
+  },
+  {
+    // The escape hatch, counted so it cannot be used quietly. Without this key
+    // the item above is zeroable by writing the word UNBRANDED above every
+    // field. With it, an excuse RAISES a committed number and the audit fails
+    // until someone records the reason — the same discipline the deletion audit
+    // applies to itself.
+    id: 'unbranded-by-decision-ids',
+    title: 'Entity id fields excused from branding by an UNBRANDED doc comment',
+    phase: 'POD-301',
+    unit: 'one zod id field carrying the UNBRANDED excuse marker',
+    collect: (ctx) => unbrandedByDecisionFields(ctx),
   },
 ]
 

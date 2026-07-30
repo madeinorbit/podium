@@ -2,12 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
-import {
-  entityShapedDeclarations,
-  ISSUE_VOCABULARY,
-  physicalTableColumns,
-  SESSION_VOCABULARY,
-} from './representation-audit'
+import { entityIdSites, MIN_ID_FIELD_SITES } from './entity-id-audit'
 import {
   type AuditContext,
   type AuditResult,
@@ -23,6 +18,12 @@ import {
   type SourceFile,
   stripComments,
 } from './rearch-audit'
+import {
+  entityShapedDeclarations,
+  ISSUE_VOCABULARY,
+  physicalTableColumns,
+  SESSION_VOCABULARY,
+} from './representation-audit'
 
 /** A context over in-memory sources, so the rule tests never touch the repo. */
 function ctxOf(files: Record<string, string>, dirs: Record<string, string[]> = {}): AuditContext {
@@ -393,8 +394,7 @@ describe('inventory checks', () => {
     // The counterfactual that keeps the ratchet closable: a caller BUILDING a
     // change spec is a use of the shared type, and there are supposed to be many.
     const ctx = ctxOf({
-      'apps/server/src/modules/issues/service/crud.ts':
-        `const spec = { entity: 'issue', id: row.id, op: 'upsert', value: wire }`,
+      'apps/server/src/modules/issues/service/crud.ts': `const spec = { entity: 'issue', id: row.id, op: 'upsert', value: wire }`,
     })
     expect(countOf(ctx, 'change-row-typings')).toBe(0)
   })
@@ -587,6 +587,14 @@ describe('against the live repo', () => {
       // matching'), so detector drift reds loudly instead of reading as a
       // deletion. An item without that guard must not be added to this list.
       'send-turn-duplicate',
+      // POD-301 drove it to zero. Exempt here on the SAME condition
+      // `send-turn-duplicate` is: this detector carries its own anchor guard —
+      // `entityIdSites` THROWS when the population it parses falls below
+      // MIN_ID_FIELD_SITES, so a scan that stopped matching reds loudly instead
+      // of reading as a deletion. The anchor is asserted directly in
+      // 'the entity-id detector still binds to the live tree' below, against
+      // the population rather than the subset it reports.
+      'raw-string-entity-ids',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
@@ -595,6 +603,21 @@ describe('against the live repo', () => {
         `${r.id} matched nothing — detector drift, or genuinely deleted?`,
       ).toBeGreaterThan(0)
     }
+  })
+
+  it('the entity-id detector still binds to the live tree', () => {
+    // `raw-string-entity-ids` is 0 by design, so its COUNT is the wrong anchor —
+    // the same argument POD-368's six items make. Anchor on the population the
+    // detector parses instead: a scan that stopped matching cannot produce these
+    // numbers, and a zero that means "the regex broke" is this audit's own worst
+    // failure mode.
+    const sites = entityIdSites(loadContext(repoRoot))
+    expect(sites.length).toBeGreaterThan(MIN_ID_FIELD_SITES)
+    // The raw class reaching zero must not take the BRANDED class with it: every
+    // site POD-301 flipped is still here, counted as branded. If both went quiet
+    // together, the walk broke rather than the debt being paid.
+    expect(sites.filter((s) => s.form === 'zod-branded').length).toBeGreaterThan(100)
+    expect(sites.filter((s) => s.form === 'db-column').length).toBeGreaterThan(20)
   })
 
   it('the redefined vocabulary detector still binds to the live tree', () => {

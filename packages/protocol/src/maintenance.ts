@@ -1,4 +1,10 @@
-import { asAutomationRunId, type AutomationRunId } from '@podium/model'
+import {
+  AutomationIdField,
+  type AutomationRunId,
+  asAutomationRunId,
+  IssueIdField,
+  SessionIdField,
+} from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -133,7 +139,7 @@ export type MaintenanceCommandsPruneObservation = z.infer<
  * because it was read" needs a "read by whom?" answer — POD-1136.
  */
 export const IssueAutoArchiveObservation = z.object({
-  issueId: z.string().min(1).max(256),
+  issueId: z.string().min(1).max(256).pipe(IssueIdField),
   stage: z.string().min(1).max(64),
   closedReason: z.string().nullable(),
   readAt: z.string().datetime(),
@@ -143,8 +149,8 @@ export const IssueAutoArchiveObservation = z.object({
 export type IssueAutoArchiveObservation = z.infer<typeof IssueAutoArchiveObservation>
 
 export const SessionAutoArchiveObservation = z.object({
-  sessionId: z.string().min(1).max(256),
-  issueId: z.string().min(1).max(256).nullable(),
+  sessionId: z.string().min(1).max(256).pipe(SessionIdField),
+  issueId: z.string().min(1).max(256).pipe(IssueIdField).nullable(),
   stoppedAt: z.string().datetime(),
   readAt: z.string().datetime(),
   archived: z.literal(false),
@@ -153,12 +159,12 @@ export type SessionAutoArchiveObservation = z.infer<typeof SessionAutoArchiveObs
 
 /** One due automation occurrence. firedAt is the scheduled nextRunAt, not wall clock. */
 export const AutomationFireObservation = z.object({
-  automationId: z.string().min(1).max(256),
+  automationId: z.string().min(1).max(256).pipe(AutomationIdField),
   enabled: z.literal(true),
   nextRunAt: z.string().datetime(),
   scheduleKind: z.enum(['cron', 'once']),
   cron: z.string().nullable(),
-  lastSessionId: z.string().nullable(),
+  lastSessionId: SessionIdField.nullable(),
 })
 export type AutomationFireObservation = z.infer<typeof AutomationFireObservation>
 

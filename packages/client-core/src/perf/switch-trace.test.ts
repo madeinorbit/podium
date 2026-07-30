@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -34,7 +34,7 @@ describe('switch-trace collector [POD-701]', () => {
   })
 
   it('quiesces a chat switch at chat:first-paint and reports mode/meta/marks', () => {
-    beginSwitch({ sessionId: asSessionId('s1'), issueId: 'i1' })
+    beginSwitch({ sessionId: asSessionId('s1'), issueId: asIssueId('i1') })
     expect(isSwitchTraced(asSessionId('s1'))).toBe(true)
     expect(isSwitchTraced(asSessionId('other'))).toBe(false)
 

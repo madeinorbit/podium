@@ -47,7 +47,13 @@
  * as a brief error rather than resolved silently in either direction.
  */
 
-import { AgentKind, IssueIdField, ResumeRef, SessionIdField } from '@podium/model'
+import {
+  AgentKind,
+  ConversationIdField,
+  IssueIdField,
+  ResumeRef,
+  SessionIdField,
+} from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
@@ -170,7 +176,7 @@ const resumeInput = z.object({
   agentKind,
   cwd: z.string(),
   resume: resumeRef,
-  conversationId: z.string(),
+  conversationId: ConversationIdField,
   title: z.string().optional(),
   machineId: z.string().optional(),
 })
@@ -307,7 +313,7 @@ const continueSession: CommandDef = {
  * visible as a residue the session-surface audit counts and names, rather than as
  * an exposure this contract silently claims to cover.
  */
-const stopInput = z.object({ sessionId: z.string(), force: z.boolean().optional() })
+const stopInput = z.object({ sessionId: SessionIdField, force: z.boolean().optional() })
 
 const stop: CommandDef = {
   input: stopInput,
@@ -333,7 +339,7 @@ const stop: CommandDef = {
  * see a session on a machine it may not use must not be able to put files there.
  */
 const uploadImageInput = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   filename: z.string().max(255),
   mimeType: z.string().max(100),
   /** ~7.5 MB decoded — the router's shipped bound, kept exactly. */

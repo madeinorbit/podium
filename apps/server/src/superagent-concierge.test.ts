@@ -1,4 +1,10 @@
-import { asSessionId, type IssueWire, type IssueWireInput, type SessionId } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionId,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -214,7 +220,7 @@ describe('concierge threads (issue #64)', () => {
   it('does not gate start tools on non-concierge threads', async () => {
     const { registry, sa } = await harness()
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
+      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: SessionId }
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId),
@@ -329,7 +335,7 @@ describe('concierge threads (issue #64)', () => {
       const blind = await list()
       expect(props('issue_start', blind)).toContain('confirmed')
       // Non-concierge threads stay ungated — no confirmed param advertised.
-      const global = await list(sa.mcpThreadToken('btw_s1'))
+      const global = await list(sa.mcpThreadToken(asThreadId('btw_s1')))
       expect(props('issue_start', global)).not.toContain('confirmed')
     })
 

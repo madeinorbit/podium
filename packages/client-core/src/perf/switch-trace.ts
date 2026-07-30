@@ -13,7 +13,7 @@
  * `term:<event>` marks.
  */
 
-import type { SessionId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import type { ClientSwitchTrace, SwitchMark } from '@podium/protocol'
 
 type MarkMeta = Record<string, number | string | boolean>
@@ -22,7 +22,7 @@ interface ActiveTrace {
   switchId: string
   startedAt: number
   sessionId: SessionId
-  issueId: string | null
+  issueId: IssueId | null
   t0: number
   marks: SwitchMark[]
   meta: MarkMeta
@@ -174,7 +174,7 @@ function finalize(t: ActiveTrace, timedOut: boolean): void {
  * any in-flight trace: the old one is finalized first, flagged `timedOut` if
  * it hadn't quiesced. Callers should skip no-op switches (already-active pane).
  */
-export function beginSwitch(input: { sessionId: SessionId; issueId?: string | null }): void {
+export function beginSwitch(input: { sessionId: SessionId; issueId?: IssueId | null }): void {
   if (active) finalize(active, true)
   ensureTerminalTap()
   const t: ActiveTrace = {

@@ -1,3 +1,4 @@
+import { RepoIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -16,7 +17,7 @@ export const WORKSPACE_PEEK_DIR = '.worktrees/.peek'
 export const WorkspaceManifest = z.object({
   format: z.literal(1),
   fetchId: z.string(),
-  repoId: z.string(),
+  repoId: RepoIdField,
   branch: z.string(),
   headSha: z.string(),
   snapshotSha: z.string().nullable(),
@@ -33,7 +34,7 @@ export const WorkspaceExportRequestMessage = z.object({
   fetchId: z.string(),
   cwd: z.string(),
   baseShas: z.array(z.string()),
-  repoId: z.string(),
+  repoId: RepoIdField,
   sourceMachineId: z.string(),
 })
 export const WorkspaceExportResultMessage = z.object({

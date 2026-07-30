@@ -42,7 +42,7 @@
  * statement about what is wired. Conflating them is how a surface opens itself.
  */
 
-import { AgentKind, SessionIdField } from '@podium/model'
+import { AccountIdField, AgentKind, SessionIdField } from '@podium/model'
 import {
   WorkflowBindingTarget,
   WorkflowGitObservation,
@@ -474,7 +474,7 @@ export const workflowAssignContract = {
 export const workflowProfileSaveInput = z.object({
   id: z.string().optional(),
   name: z.string().trim().min(1).max(120),
-  accountId: z.string().min(1),
+  accountId: z.string().min(1).pipe(AccountIdField),
   machineId: z.string().min(1).nullable().optional(),
   harness: AgentKind,
   model: z.string().default('auto'),

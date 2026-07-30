@@ -10,6 +10,7 @@
  * connection's position from advancing.
  */
 
+import { asMutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { DeltaFrame, ServerFrame } from '../replica/types'
@@ -268,14 +269,14 @@ describe('provenance rides the envelope (ADR 2 D8)', () => {
     const feed = publisher()
     const connection = feed.connect('c1', 0, ALICE)
     emit(feed, [
-      { ...change(1, 'a'), causationId: 'cmd-1', mutationId: 'mut-1', originId: 'peer-1' },
+      { ...change(1, 'a'), causationId: 'cmd-1', mutationId: asMutationId('mut-1'), originId: 'peer-1' },
       change(2, 'b'),
     ])
 
     const [withProvenance, without] = deltas(connection.drain())[0]?.changes ?? []
     expect(withProvenance).toMatchObject({
       causationId: 'cmd-1',
-      mutationId: 'mut-1',
+      mutationId: asMutationId('mut-1'),
       originId: 'peer-1',
     })
     // Absent, not `undefined`-valued: a fabricated provenance would let a replica

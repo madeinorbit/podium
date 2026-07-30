@@ -72,7 +72,7 @@
  * permitted it, and no client outbox path exists for the superagent.
  */
 
-import { SessionIdField } from '@podium/model'
+import { asThreadId, IssueIdField, SessionIdField, ThreadIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -109,7 +109,7 @@ export const superagentUserFocus = z.object({
   /** Selected worktree/repo path in the sidebar. */
   worktreePath: z.string().max(1024).optional(),
   /** Selected issue (issue-as-workspace), by id. */
-  issueId: z.string().max(128).optional(),
+  issueId: z.string().max(128).pipe(IssueIdField).optional(),
   /** The session in the focused pane, and any other on-screen ones. */
   focusedSessionId: z.string().max(128).pipe(SessionIdField).optional(),
   visibleSessionIds: z.array(z.string().max(128).pipe(SessionIdField)).max(4).optional(),
@@ -283,7 +283,7 @@ const MACHINE_ERRORS = {
 // ---------------------------------------------------------------------------
 
 export const superagentSendTurnInput = z.object({
-  threadId: z.string().default('global'),
+  threadId: ThreadIdField.default(asThreadId('global')),
   text: turnText,
   focus: superagentUserFocus.optional(),
 })
@@ -380,7 +380,7 @@ export const superagentConciergeContract = {
   cli: { summary: 'Send a concierge intake message for a repo' },
 } as const satisfies CommandContract<typeof superagentConciergeInput>
 
-export const superagentOpenInTerminalInput = z.object({ threadId: z.string() })
+export const superagentOpenInTerminalInput = z.object({ threadId: ThreadIdField })
 
 /**
  * The escape hatch: open the thread's harness session as a NORMAL PTY session
@@ -427,7 +427,7 @@ export const superagentOpenInTerminalContract = {
 // THREAD CONTROL — live decisions that place no new work
 // ---------------------------------------------------------------------------
 
-export const superagentInterruptTurnInput = z.object({ threadId: z.string() })
+export const superagentInterruptTurnInput = z.object({ threadId: ThreadIdField })
 
 /**
  * Stop the thread's running headless turn.
@@ -469,7 +469,9 @@ export const superagentInterruptTurnContract = {
   cli: { summary: 'Interrupt a superagent thread’s running turn' },
 } as const satisfies CommandContract<typeof superagentInterruptTurnInput>
 
-export const superagentRestartInput = z.object({ threadId: z.string().default('global') })
+export const superagentRestartInput = z.object({
+  threadId: ThreadIdField.default(asThreadId('global')),
+})
 
 /**
  * Reset the thread's harness session — the next turn mints a fresh one (#199).
@@ -508,7 +510,9 @@ export const superagentRestartContract = {
   cli: { summary: 'Reset a superagent thread’s harness session' },
 } as const satisfies CommandContract<typeof superagentRestartInput>
 
-export const superagentClearInput = z.object({ threadId: z.string().default('global') })
+export const superagentClearInput = z.object({
+  threadId: ThreadIdField.default(asThreadId('global')),
+})
 
 /**
  * Reset a thread's context (#225). The harness owns the conversation, so this

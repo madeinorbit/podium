@@ -410,7 +410,10 @@ export const SpawnMessage = z.object({
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),
   /** Exact provider identity owned by the observation lease. Explicit null is
-   * a fresh unbound lease; omission is reserved for older servers. */
+   * a fresh unbound lease; omission is reserved for older servers.
+   * UNBRANDED BY DECISION: this is the PROVIDER's session id, not Podium's —
+   * harness-native, and `ids/brands.ts` records that such an id has no brand
+   * because it is evidence rather than identity. */
   observationProviderSessionId: z.string().min(1).nullable().optional(),
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
@@ -443,7 +446,10 @@ export const ReattachMessage = z.object({
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),
   /** Exact provider identity owned by the observation lease. Explicit null is
-   * a fresh unbound lease; omission is reserved for older servers. */
+   * a fresh unbound lease; omission is reserved for older servers.
+   * UNBRANDED BY DECISION: this is the PROVIDER's session id, not Podium's —
+   * harness-native, and `ids/brands.ts` records that such an id has no brand
+   * because it is evidence rather than identity. */
   observationProviderSessionId: z.string().min(1).nullable().optional(),
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */

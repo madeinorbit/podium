@@ -11,6 +11,7 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  ThreadId,
   UserId,
 } from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
@@ -587,7 +588,7 @@ export interface SuperagentThreadRow {
  * the restart-stable portion of a headlessTurnRequest. */
 export interface PendingSuperagentTurnRow {
   turnId: string
-  threadId: string
+  threadId: ThreadId
   podiumSessionId: SessionId
   payload: {
     agent: string
@@ -611,12 +612,12 @@ export interface PendingSuperagentTurnRow {
 /** Raw user input persisted synchronously before context/session preparation. */
 export interface QueuedSuperagentInputRow {
   inputId: string
-  threadId: string
+  threadId: ThreadId
   text: string
   focus?: {
     view?: string
     worktreePath?: string
-    issueId?: string
+    issueId?: IssueId
     focusedSessionId?: SessionId
     visibleSessionIds?: SessionId[]
     filePath?: string

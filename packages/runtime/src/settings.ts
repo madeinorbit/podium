@@ -1,5 +1,6 @@
 import {
   type AccountId,
+  AccountIdField,
   ApiKeySecrets,
   AutoContinuePreferences,
   asAccountId,
@@ -225,7 +226,7 @@ export type AccountProvider = z.infer<typeof AccountProvider>
  *  quota observed at use-time, never cached). Managed = Podium holds+injects;
  *  `kind` decides how. Enterprise/plan is descriptive `identity`, not a kind. */
 export const Account = z.object({
-  id: z.string(),
+  id: AccountIdField,
   provider: AccountProvider,
   source: AccountSource,
   // native: which login on which machine.

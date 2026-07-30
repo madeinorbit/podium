@@ -4,7 +4,7 @@
  * 'concierge' intake threads).
  */
 
-import type { SessionId } from '@podium/model'
+import { asThreadId, type SessionId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -195,7 +195,8 @@ export class SuperagentRepository {
       .all() as Record<string, unknown>[]
     return rows.map((row) => ({
       inputId: row.input_id as string,
-      threadId: row.thread_id as string,
+      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
+      threadId: asThreadId(row.thread_id as string),
       text: row.text as string,
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
         row.focus_json,
@@ -252,7 +253,8 @@ export class SuperagentRepository {
       if (!payload) throw new Error(`invalid persisted superagent turn payload: ${turnId}`)
       return {
         turnId,
-        threadId: row.thread_id as string,
+        // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
+        threadId: asThreadId(row.thread_id as string),
         podiumSessionId: row.podium_session_id as SessionId,
         payload,
         firstTurn: Boolean(row.first_turn),

@@ -1,3 +1,4 @@
+import type { ThreadId } from '@podium/model'
 import type { z } from 'zod'
 import type { IssueTrpc } from './issue-client'
 import { ISSUE_COMMANDS, type IssueCommand } from './issue-commands'
@@ -74,7 +75,7 @@ export class CompositeMcpProvider implements McpToolProvider {
   async callMcpTool(
     name: string,
     args: Record<string, unknown>,
-    threadId?: string,
+    threadId?: ThreadId,
   ): Promise<string> {
     const owner = this.providers.find((p) => p.mcpToolSpecs().some((s) => s.name === name))
     if (!owner) throw new Error(`unknown tool: ${name}`)

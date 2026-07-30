@@ -1,4 +1,4 @@
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import { asThreadId, type GitRepositoryWire, type SessionMeta, type ThreadId } from '@podium/model'
 import { reposToViews } from '@/lib/derive'
 
 /**
@@ -7,12 +7,12 @@ import { reposToViews } from '@/lib/derive'
  * reversible, so the web can bind the panel to a repo's thread BEFORE the thread
  * exists server-side (the first `superagent.concierge` send creates + seeds it).
  */
-export function conciergeThreadId(repoPath: string): string {
+export function conciergeThreadId(repoPath: string): ThreadId {
   const bytes = new TextEncoder().encode(repoPath)
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   const b64url = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-  return `concierge_${b64url}`
+  return asThreadId(`concierge_${b64url}`)
 }
 
 /** Reverse of {@link conciergeThreadId}; undefined for non-concierge ids or

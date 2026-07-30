@@ -1,4 +1,4 @@
-import { AgentKind, SessionIdField } from '@podium/model'
+import { AgentKind, IssueIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -62,7 +62,7 @@ export const ApprovalWire = z.object({
   machineName: z.string().optional(),
   sessionId: SessionIdField,
   /** The issue the requesting session was attached to (navigation target). */
-  issueId: z.string().nullable(),
+  issueId: IssueIdField.nullable(),
   issueSeq: z.number().nullable(),
   /** Human-facing nice id of the issue (#474), e.g. `POD-13`. Absent on rows
    *  from a server that predates it or when the repo has no prefix. */
