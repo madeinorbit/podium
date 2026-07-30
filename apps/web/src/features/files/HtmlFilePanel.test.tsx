@@ -154,7 +154,7 @@ describe('HtmlFilePanel', () => {
     })
 
     it.each([
-      ['session', { kind: 'session', sessionId: 's1' }],
+      ['session', { kind: 'session', sessionId: asSessionId('s1') }],
       ['worktree', { kind: 'worktree', root: '/repo' }],
     ] as const)('keeps a %s file fully sandboxed and script-free', (_label, scope) => {
       const iframe = renderScope(scope)

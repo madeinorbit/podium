@@ -1,7 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, test } from 'vitest'
 import { formatElapsed, workingSinceMs } from './time-indicators'
 
@@ -26,7 +23,7 @@ describe('formatElapsed', () => {
 
 function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -62,11 +59,11 @@ describe('workingSinceMs', () => {
   test('earliest working session wins across a set', () => {
     const a = session({ agentState: agentState('working', '2026-07-12T10:10:00Z') })
     const b = session({
-      sessionId: 's2',
+      sessionId: asSessionId('s2'),
       agentState: agentState('working', '2026-07-12T09:50:00Z'),
     })
     const idle = session({
-      sessionId: 's3',
+      sessionId: asSessionId('s3'),
       agentState: agentState('idle', '2026-07-12T08:00:00Z'),
     })
     expect(workingSinceMs([a, b, idle])).toBe(Date.parse('2026-07-12T09:50:00Z'))

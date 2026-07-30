@@ -49,7 +49,7 @@ const fakeTrpc = {
     listThreads: { query: vi.fn(async () => superagentThreads) },
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
-    openInTerminal: { mutate: vi.fn(async () => ({ sessionId: 'pty-1' })) },
+    openInTerminal: { mutate: vi.fn(async () => ({ sessionId: asSessionId('pty-1') })) },
   },
   issues: {
     events: { query: vi.fn(async () => []) },
@@ -238,7 +238,7 @@ describe('tray filtering (human-actionable only)', () => {
         title: 'Offer host',
         sessions: [
           {
-            sessionId: 'agent-1',
+            sessionId: asSessionId('agent-1'),
             agentKind: 'claude-code',
             status: 'live',
             cwd: '/r/wt',
@@ -265,7 +265,7 @@ describe('tray filtering (human-actionable only)', () => {
       await Promise.resolve()
     })
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'agent-1', text: 'Merge the PR and close out.' }),
+      expect.objectContaining({ sessionId: asSessionId('agent-1'), text: 'Merge the PR and close out.' }),
     )
     // An action click never ALSO navigates (stopPropagation on the buttons).
     expect(setPane).not.toHaveBeenCalled()
@@ -280,7 +280,7 @@ describe('tray filtering (human-actionable only)', () => {
         seq: 6,
         sessions: [
           {
-            sessionId: 'agent-1',
+            sessionId: asSessionId('agent-1'),
             agentKind: 'claude-code',
             status: 'live',
             cwd: '/r/wt',
@@ -316,7 +316,7 @@ describe('tray filtering (human-actionable only)', () => {
         title: 'Offer host',
         sessions: [
           {
-            sessionId: 'agent-1',
+            sessionId: asSessionId('agent-1'),
             agentKind: 'claude-code',
             status: 'live',
             cwd: '/r/wt',
@@ -358,7 +358,7 @@ describe('tray filtering (human-actionable only)', () => {
     })
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: 'agent-1',
+        sessionId: asSessionId('agent-1'),
         text: 'Revise per this feedback:\n\nDock icon still dead.',
       }),
     )
@@ -426,7 +426,7 @@ describe('tray filtering (human-actionable only)', () => {
         seq: 6,
         sessions: [
           {
-            sessionId: 'agent-1',
+            sessionId: asSessionId('agent-1'),
             agentKind: 'claude-code',
             status: 'live',
             cwd: '/r/wt',

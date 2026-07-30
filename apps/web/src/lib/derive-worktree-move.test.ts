@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { planWorktreeMoves } from './derive'
@@ -29,7 +30,7 @@ describe('planWorktreeMoves', () => {
     })
     expect(plan.follow).toBeNull()
     expect(plan.moved).toEqual([
-      { sessionId: 's1', from: '/repo', to: '/repo/.worktrees/feat' },
+      { sessionId: asSessionId('s1'), from: '/repo', to: '/repo/.worktrees/feat' },
     ])
   })
 
@@ -67,7 +68,7 @@ describe('planWorktreeMoves', () => {
       visiblePanes: ['s1'],
     })
     expect(plan.follow).toBeNull()
-    expect(plan.moved).toEqual([{ sessionId: 's1', from: '/repo/.worktrees/feat', to: '/repo' }])
+    expect(plan.moved).toEqual([{ sessionId: asSessionId('s1'), from: '/repo/.worktrees/feat', to: '/repo' }])
   })
 
   it('a move to an unknown (unscanned) directory reports to=null and never follows', () => {
@@ -79,6 +80,6 @@ describe('planWorktreeMoves', () => {
       visiblePanes: ['s1'],
     })
     expect(plan.follow).toBeNull()
-    expect(plan.moved).toEqual([{ sessionId: 's1', from: '/repo', to: null }])
+    expect(plan.moved).toEqual([{ sessionId: asSessionId('s1'), from: '/repo', to: null }])
   })
 })

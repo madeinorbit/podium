@@ -56,8 +56,8 @@ describe('outbox', () => {
     const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     await ob.drain()
     expect(calls.map((c) => c.kind)).toEqual(['rename', 'snoozeClear'])
-    expect(calls[0]?.input).toEqual({ sessionId: 's1', name: 'one', mutationId: a.mutationId })
-    expect(calls[1]?.input).toEqual({ sessionId: 's2', mutationId: b.mutationId })
+    expect(calls[0]?.input).toEqual({ sessionId: asSessionId('s1'), name: 'one', mutationId: a.mutationId })
+    expect(calls[1]?.input).toEqual({ sessionId: asSessionId('s2'), mutationId: b.mutationId })
     expect(ob.size()).toBe(0)
   })
 

@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -20,7 +17,7 @@ afterEach(cleanup)
 
 function sess(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 'sess',
+    sessionId: asSessionId('sess'),
     agentKind: 'claude-code',
     cwd: '/repo',
     title: 'POD-81-A',

@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import {
   asIssueId,
   type IssueWire,
@@ -26,7 +28,7 @@ const T0 = Date.now()
 const min = (n: number) => new Date(T0 - n * 60_000).toISOString()
 
 function session(
-  partial: Partial<SessionMetaInput> & { sessionId: string; title: string },
+  partial: Partial<SessionMetaInput> & { sessionId: SessionId; title: string },
 ): SessionMeta {
   return {
     agentKind: 'claude-code',
@@ -48,7 +50,7 @@ function session(
 
 export const DEMO_SESSIONS: SessionMeta[] = [
   session({
-    sessionId: 'demo-auth',
+    sessionId: asSessionId('demo-auth'),
     title: 'Fix OAuth token refresh',
     name: 'Fix OAuth token refresh',
     agentColor: 'orange',
@@ -65,7 +67,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     },
   }),
   session({
-    sessionId: 'demo-perf',
+    sessionId: asSessionId('demo-perf'),
     title: 'Profile slow dashboard query',
     agentColor: 'cyan',
     issueId: 'demo-issue-header',
@@ -91,14 +93,14 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     },
   }),
   session({
-    sessionId: 'demo-flaky',
+    sessionId: asSessionId('demo-flaky'),
     title: 'Deflake payments e2e suite',
     agentColor: 'purple',
     lastActiveAt: min(26),
     agentState: { phase: 'working', since: min(26), nativeSubagentCount: 3 },
   }),
   session({
-    sessionId: 'demo-docs',
+    sessionId: asSessionId('demo-docs'),
     title: 'API reference overhaul',
     agentColor: 'green',
     lastActiveAt: min(95),
@@ -107,7 +109,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     agentState: { phase: 'idle', since: min(95), nativeSubagentCount: 0, idle: { kind: 'done' } },
   }),
   session({
-    sessionId: 'demo-migrate',
+    sessionId: asSessionId('demo-migrate'),
     title: 'Migrate CI to blacksmith runners',
     agentColor: 'blue',
     lastActiveAt: min(41),

@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
 import { Mic } from 'lucide-react-native'
 import { Text, View } from 'react-native'
@@ -33,7 +34,7 @@ const MOBILE_APPEARANCE = {
   lineHeight: 1.12,
 } as const
 
-export function TerminalPane({ sessionId }: { sessionId: string }) {
+export function TerminalPane({ sessionId }: { sessionId: SessionId }) {
   const client = useMobileClient()
   const { containerRef, toolbarRef, mountedRef, ready } = useTerminalSession({
     hub: client.hub,

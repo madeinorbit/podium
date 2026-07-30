@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -49,20 +50,20 @@ describe('shared focus selectors', () => {
   it('classifies attention, working, and idle sessions', () => {
     expect(
       attentionGroup(
-        meta({ sessionId: 'need', agentState: needsUser('2026-07-01T01:00:00.000Z') }),
+        meta({ sessionId: asSessionId('need'), agentState: needsUser('2026-07-01T01:00:00.000Z') }),
       ),
     ).toBe('needsYou')
     expect(
-      attentionGroup(meta({ sessionId: 'work', agentState: working('2026-07-01T01:00:00.000Z') })),
+      attentionGroup(meta({ sessionId: asSessionId('work'), agentState: working('2026-07-01T01:00:00.000Z') })),
     ).toBe('working')
-    expect(attentionGroup(meta({ sessionId: 'idle', status: 'exited' }))).toBe('idle')
+    expect(attentionGroup(meta({ sessionId: asSessionId('idle'), status: 'exited' }))).toBe('idle')
   })
 
   it('keeps a pending offer in needs-you after unread is cleared', () => {
     expect(
       attentionGroup(
         meta({
-          sessionId: 'offer',
+          sessionId: asSessionId('offer'),
           unread: false,
           offer: {
             message: 'Ready to merge',
@@ -79,17 +80,17 @@ describe('shared focus selectors', () => {
     // mid-turn) leaves its last live phase at 'working'. A gone process is not
     // doing work — the transported status overrides the stale phase verdict.
     const w = working('2026-07-01T01:00:00.000Z')
-    expect(attentionGroup(meta({ sessionId: 'exited', status: 'exited', agentState: w }))).toBe(
+    expect(attentionGroup(meta({ sessionId: asSessionId('exited'), status: 'exited', agentState: w }))).toBe(
       'idle',
     )
-    expect(attentionGroup(meta({ sessionId: 'hib', status: 'hibernated', agentState: w }))).toBe(
+    expect(attentionGroup(meta({ sessionId: asSessionId('hib'), status: 'hibernated', agentState: w }))).toBe(
       'idle',
     )
   })
 
   it('uses the captured need summary on attention cards', () => {
     const s = meta({
-      sessionId: 'need',
+      sessionId: asSessionId('need'),
       agentState: needsUser('2026-07-01T01:00:00.000Z'),
     })
     expect(attentionSummary(s)).toBe('Need a decision')
@@ -97,12 +98,12 @@ describe('shared focus selectors', () => {
 
   it('orders each focus group by effective recency', () => {
     const old = meta({
-      sessionId: 'old',
+      sessionId: asSessionId('old'),
       lastActiveAt: '2026-07-01T01:00:00.000Z',
       agentState: needsUser('2026-07-01T01:00:00.000Z'),
     })
     const draft = meta({
-      sessionId: 'draft',
+      sessionId: asSessionId('draft'),
       lastActiveAt: '2026-07-01T00:00:00.000Z',
       draftUpdatedAt: '2026-07-01T02:00:00.000Z',
       agentState: needsUser('2026-07-01T00:00:00.000Z'),
@@ -112,9 +113,9 @@ describe('shared focus selectors', () => {
   })
 
   it('drops shells and headless sessions from command-center lists', () => {
-    const agent = meta({ sessionId: 'agent' })
-    const shell = meta({ sessionId: 'shell', agentKind: 'shell' })
-    const headless = meta({ sessionId: 'headless', headless: true })
+    const agent = meta({ sessionId: asSessionId('agent') })
+    const shell = meta({ sessionId: asSessionId('shell'), agentKind: 'shell' })
+    const headless = meta({ sessionId: asSessionId('headless'), headless: true })
     expect(withoutShells([agent, shell, headless]).map((s) => s.sessionId)).toEqual(['agent'])
   })
 })

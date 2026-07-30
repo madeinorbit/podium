@@ -143,22 +143,22 @@ const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; labe
  * to have. It stays available for the API-backed background role below.
  */
 export const MANAGED_CODING_ACCOUNTS: {
-  id: string
+  id: AccountId
   label: string
   harnesses: HarnessAgent[]
 }[] = [
   {
-    id: 'managed:claude-oauth',
+    id: asAccountId('managed:claude-oauth'),
     label: 'Claude subscription (managed)',
     harnesses: ['claude-code'],
   },
-  { id: 'managed:anthropic', label: 'Anthropic API key (managed)', harnesses: ['claude-code'] },
-  { id: 'managed:openai', label: 'OpenAI API key (managed)', harnesses: ['codex'] },
+  { id: asAccountId('managed:anthropic'), label: 'Anthropic API key (managed)', harnesses: ['claude-code'] },
+  { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)', harnesses: ['codex'] },
 ]
 
 /** The harnesses a managed account can drive for the coding role; [] when it can
  *  drive none (so it is never offered). */
-export function managedCodingHarnesses(accountId: string): HarnessAgent[] {
+export function managedCodingHarnesses(accountId: AccountId): HarnessAgent[] {
   return MANAGED_CODING_ACCOUNTS.find((a) => a.id === accountId)?.harnesses ?? []
 }
 
@@ -168,15 +168,20 @@ export function managedCodingHarnesses(accountId: string): HarnessAgent[] {
  *  managed provider keys plus Codex's local-login Responses API. */
 export function accountOptions(
   role: 'coding' | 'superagent' | 'background',
-): { id: string; label: string }[] {
-  const native = NATIVE_HARNESSES.map((o) => ({ id: `native:${o.harness}`, label: o.label }))
+): { id: AccountId; label: string }[] {
+  // MINT-ADJACENT: the synthetic `native:<harness>` id is composed here, matching
+  // packages/runtime's nativeAccountId() (POD-362).
+  const native = NATIVE_HARNESSES.map((o) => ({
+    id: asAccountId(`native:${o.harness}`),
+    label: o.label,
+  }))
   if (role === 'coding') {
     return [...native, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
   }
   if (role === 'superagent') return native
   return [
-    { id: 'native:codex', label: 'Codex (ChatGPT)' },
-    ...MANAGED_PROVIDERS.map((o) => ({ id: `managed:${o.provider}`, label: o.label })),
+    { id: asAccountId('native:codex'), label: 'Codex (ChatGPT)' },
+    ...MANAGED_PROVIDERS.map((o) => ({ id: asAccountId(`managed:${o.provider}`), label: o.label })),
   ]
 }
 
@@ -199,7 +204,7 @@ export function RoleBackendEditor({
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
   const options = accountOptions(role)
-  const accountId = backend.accountId || options[0]?.id || 'native:claude-code'
+  const accountId = backend.accountId || options[0]?.id || asAccountId('native:claude-code')
   const selectedOption = options.find((option) => option.id === accountId)
   const selectedAccount = accounts.find((account) => account.id === accountId)
   const selectedStatus =

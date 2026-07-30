@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { UiState } from '../replica/replica'
@@ -104,32 +105,32 @@ function harness(over: { visible?: string[]; focused?: boolean } = {}): Harness 
 
 describe('audibleCondition', () => {
   it('maps runtime states to cues', () => {
-    expect(audibleCondition(meta({ sessionId: 's', agentState: idleDone() }))).toBe('done')
-    expect(audibleCondition(meta({ sessionId: 's', agentState: needsUser('question') }))).toBe(
+    expect(audibleCondition(meta({ sessionId: asSessionId('s'), agentState: idleDone() }))).toBe('done')
+    expect(audibleCondition(meta({ sessionId: asSessionId('s'), agentState: needsUser('question') }))).toBe(
       'question',
     )
-    expect(audibleCondition(meta({ sessionId: 's', agentState: needsUser('permission') }))).toBe(
+    expect(audibleCondition(meta({ sessionId: asSessionId('s'), agentState: needsUser('permission') }))).toBe(
       'approval',
     )
-    expect(audibleCondition(meta({ sessionId: 's', agentState: errored() }))).toBe('error')
-    expect(audibleCondition(meta({ sessionId: 's', agentState: working() }))).toBeNull()
-    expect(audibleCondition(meta({ sessionId: 's' }))).toBeNull()
+    expect(audibleCondition(meta({ sessionId: asSessionId('s'), agentState: errored() }))).toBe('error')
+    expect(audibleCondition(meta({ sessionId: asSessionId('s'), agentState: working() }))).toBeNull()
+    expect(audibleCondition(meta({ sessionId: asSessionId('s') }))).toBeNull()
   })
 
   it('stays silent for shells, headless sessions, archived rows, and interruptions', () => {
     expect(
-      audibleCondition(meta({ sessionId: 's', agentKind: 'shell', agentState: idleDone() })),
+      audibleCondition(meta({ sessionId: asSessionId('s'), agentKind: 'shell', agentState: idleDone() })),
     ).toBeNull()
     expect(
-      audibleCondition(meta({ sessionId: 's', headless: true, agentState: idleDone() })),
+      audibleCondition(meta({ sessionId: asSessionId('s'), headless: true, agentState: idleDone() })),
     ).toBeNull()
     expect(
-      audibleCondition(meta({ sessionId: 's', archived: true, agentState: idleDone() })),
+      audibleCondition(meta({ sessionId: asSessionId('s'), archived: true, agentState: idleDone() })),
     ).toBeNull()
     expect(
       audibleCondition(
         meta({
-          sessionId: 's',
+          sessionId: asSessionId('s'),
           agentState: {
             phase: 'idle',
             since: SINCE,
@@ -146,62 +147,62 @@ describe('NotificationSounder', () => {
   it('plays only on a live transition, not on first sight or re-broadcast', () => {
     const h = harness()
     // First sight of an already-done session: silence (reload must not chorus).
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual([])
     // Working → done is a real transition.
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: working() })])
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: working() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual(['done'])
     // Same state again: no repeat.
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual(['done'])
   })
 
   it('suppresses the session being watched in a focused window, but not others', () => {
     const h = harness({ visible: ['a'], focused: true })
     h.sounder.onSessions([
-      meta({ sessionId: 'a', agentState: working() }),
-      meta({ sessionId: 'b', agentState: working() }),
+      meta({ sessionId: asSessionId('a'), agentState: working() }),
+      meta({ sessionId: asSessionId('b'), agentState: working() }),
     ])
     h.sounder.onSessions([
-      meta({ sessionId: 'a', agentState: idleDone() }),
-      meta({ sessionId: 'b', agentState: needsUser('permission') }),
+      meta({ sessionId: asSessionId('a'), agentState: idleDone() }),
+      meta({ sessionId: asSessionId('b'), agentState: needsUser('permission') }),
     ])
     expect(h.played).toEqual(['approval'])
     // Unfocused window: the watched session audibly finishes too.
     const h2 = harness({ visible: ['a'], focused: false })
-    h2.sounder.onSessions([meta({ sessionId: 'a', agentState: working() })])
-    h2.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h2.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: working() })])
+    h2.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h2.played).toEqual(['done'])
   })
 
   it('honors the device-local kill switch', () => {
     const h = harness()
     h.ui.set(SOUNDS_ENABLED_KEY, 'false')
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: working() })])
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: working() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual([])
   })
 
   it('yields to a more recently focused same-origin window', () => {
     const h = harness()
     h.owner.value = 'some-other-window'
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: working() })])
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: working() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual([])
   })
 
   it('throttles a burst and coalesces to the highest-priority cue', async () => {
     const h = harness()
     h.sounder.onSessions([
-      meta({ sessionId: 'a', agentState: working() }),
-      meta({ sessionId: 'b', agentState: working() }),
-      meta({ sessionId: 'c', agentState: working() }),
+      meta({ sessionId: asSessionId('a'), agentState: working() }),
+      meta({ sessionId: asSessionId('b'), agentState: working() }),
+      meta({ sessionId: asSessionId('c'), agentState: working() }),
     ])
     h.sounder.onSessions([
-      meta({ sessionId: 'a', agentState: idleDone() }),
-      meta({ sessionId: 'b', agentState: idleDone() }),
-      meta({ sessionId: 'c', agentState: errored() }),
+      meta({ sessionId: asSessionId('a'), agentState: idleDone() }),
+      meta({ sessionId: asSessionId('b'), agentState: idleDone() }),
+      meta({ sessionId: asSessionId('c'), agentState: errored() }),
     ])
     // First cue immediate; the other two coalesce to the error cue.
     expect(h.played).toEqual(['done'])
@@ -211,10 +212,10 @@ describe('NotificationSounder', () => {
 
   it('re-arms a session that left the list and returned', () => {
     const h = harness()
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: working() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: working() })])
     h.sounder.onSessions([])
     // Back, already done: that's first sight again, so silence.
-    h.sounder.onSessions([meta({ sessionId: 'a', agentState: idleDone() })])
+    h.sounder.onSessions([meta({ sessionId: asSessionId('a'), agentState: idleDone() })])
     expect(h.played).toEqual([])
   })
 })

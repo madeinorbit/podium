@@ -10,6 +10,8 @@
  * ride on the store's hub/trpc). Demo mode (`?demo=1`) stays a static fixture.
  */
 
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { SpawnTarget } from '@podium/client-core'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
@@ -71,28 +73,28 @@ export interface MobileClientValue {
   trpc: MobileTrpc
   /** The same optimistic draft-issue launch used by desktop's New Agent control. */
   spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
-    sessionId: string
+    sessionId: SessionId
     issueId: string
   }
-  sessionById(sessionId: string): SessionMeta | undefined
+  sessionById(sessionId: SessionId): SessionMeta | undefined
   issueById(issueId: string): IssueWire | undefined
-  readTranscript(sessionId: string, anchor?: string): Promise<TranscriptPage>
+  readTranscript(sessionId: SessionId, anchor?: string): Promise<TranscriptPage>
   subscribeTranscript(
-    sessionId: string,
+    sessionId: SessionId,
     since: string | undefined,
     cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
   ): () => void
-  subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void
+  subscribeHeadless(sessionId: SessionId, cb: (e: HeadlessActivityEvent) => void): () => void
   /** Queue a chat message (offline-safe, idempotent; wakes a parked session). */
-  sendMessage(sessionId: string, text: string): Promise<void>
-  answerQuestion(sessionId: string, choices: { optionIndices: number[] }[]): Promise<void>
-  setArchived(sessionId: string, archived: boolean): Promise<void>
-  setWorkState(sessionId: string, workState: WorkState | null): Promise<void>
-  killSession(sessionId: string): Promise<void>
-  continueSession(sessionId: string): Promise<void>
-  renameSession(sessionId: string, name: string): Promise<void>
-  snooze(sessionId: string, until: string | null): Promise<void>
-  clearSnooze(sessionId: string): Promise<void>
+  sendMessage(sessionId: SessionId, text: string): Promise<void>
+  answerQuestion(sessionId: SessionId, choices: { optionIndices: number[] }[]): Promise<void>
+  setArchived(sessionId: SessionId, archived: boolean): Promise<void>
+  setWorkState(sessionId: SessionId, workState: WorkState | null): Promise<void>
+  killSession(sessionId: SessionId): Promise<void>
+  continueSession(sessionId: SessionId): Promise<void>
+  renameSession(sessionId: SessionId, name: string): Promise<void>
+  snooze(sessionId: SessionId, until: string | null): Promise<void>
+  clearSnooze(sessionId: SessionId): Promise<void>
   /** Tuck a finished issue into the Work list's Closed fold, or bring it back
    *  (POD-333): server state, so the fold agrees across every client. */
   setIssueTucked(id: string, tucked: boolean): Promise<void>
@@ -155,7 +157,7 @@ function demoValue(config: ServerConfig): MobileClientValue {
         archive: { mutate: noop },
       },
     } as unknown as MobileTrpc,
-    spawnDraftAgent: () => ({ sessionId: 'demo-session', issueId: 'demo-issue' }),
+    spawnDraftAgent: () => ({ sessionId: asSessionId('demo-session'), issueId: 'demo-issue' }),
     sessionById: (id) => sessions.find((s) => s.sessionId === id),
     issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
     readTranscript: async (sessionId) => ({
@@ -253,7 +255,7 @@ function LiveBridge({
   }, [sessions])
 
   const readTranscript = useCallback(
-    (sessionId: string, anchor?: string) =>
+    (sessionId: SessionId, anchor?: string) =>
       trpc.sessions.transcriptRead.query({
         sessionId,
         ...(anchor ? { anchor } : {}),
@@ -264,19 +266,19 @@ function LiveBridge({
   )
   const subscribeTranscript = useCallback(
     (
-      sessionId: string,
+      sessionId: SessionId,
       since: string | undefined,
       cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
     ) => hub.subscribeTranscript(sessionId, since, cb),
     [hub],
   )
   const subscribeHeadless = useCallback(
-    (sessionId: string, cb: (e: HeadlessActivityEvent) => void) =>
+    (sessionId: SessionId, cb: (e: HeadlessActivityEvent) => void) =>
       hub.subscribeHeadless(sessionId, cb),
     [hub],
   )
   const sendMessage = useCallback(
-    async (sessionId: string, text: string) => {
+    async (sessionId: SessionId, text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
       // Optimistic + outboxed via the shared store (survives offline reloads).
@@ -285,7 +287,7 @@ function LiveBridge({
     [store.resumeAndSend],
   )
   const answerQuestion = useCallback(
-    async (sessionId: string, choices: { optionIndices: number[] }[]) => {
+    async (sessionId: SessionId, choices: { optionIndices: number[] }[]) => {
       await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
     },
     [trpc],

@@ -952,7 +952,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       beginSwitch({ sessionId: asSessionId(target), issueId })
     }
   }
-  const selectIssue = (issue: IssueWire, paneSession?: string) => {
+  const selectIssue = (issue: IssueWire, paneSession?: SessionId) => {
     setSelectedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until

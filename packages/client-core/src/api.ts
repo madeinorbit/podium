@@ -125,7 +125,7 @@ export interface PodiumClientApi {
     startBtw: ApiMutation<{ sessionId: SessionId }>
     sendTurn: ApiMutation<
       { threadId: string; text: string },
-      { threadId: string; podiumSessionId?: string }
+      { threadId: string; podiumSessionId?: SessionId }
     >
   }
 }

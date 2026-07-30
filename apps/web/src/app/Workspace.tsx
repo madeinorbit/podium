@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import {
   closestCenter,
   DndContext,
@@ -195,7 +195,7 @@ export function Workspace(): JSX.Element {
     sessions.filter((s) => !s.archived && !dockShellIds.has(s.sessionId)).map((s) => s.sessionId),
   )
   const warmUniverse = [...knownSessionIds].sort()
-  const activeIds = [paneA, visibleSplit ? paneB : null].filter((x): x is string => x != null)
+  const activeIds = [paneA, visibleSplit ? paneB : null].filter((x): x is SessionId => x != null)
   const warm = useWarmSet(warmUniverse, activeIds)
 
   // Keep pane A pointed at a valid tab.
@@ -292,7 +292,8 @@ export function Workspace(): JSX.Element {
     if (!over || active.id === over.id) return
     const ids = allTabs.map((t) => t.id)
     const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
-    if (orderKey) void setTabOrder(orderKey, next)
+    // Tab order is a SESSION order; file tabs are filtered out upstream.
+    if (orderKey) void setTabOrder(orderKey, next.map(asSessionId))
   }
 
   return (

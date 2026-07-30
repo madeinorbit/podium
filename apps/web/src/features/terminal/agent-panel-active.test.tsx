@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -116,7 +113,7 @@ const { AgentPanel } = await import('./AgentPanel')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -169,7 +166,7 @@ describe('AgentPanel active wiring', () => {
     storeSessions = [meta({ status: 'hibernated', controllerId: null })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     const button = [...container.querySelectorAll('button')].find(
@@ -189,7 +186,7 @@ describe('AgentPanel active wiring', () => {
 
   it('keeps Take control reachable (via the header overflow menu) and requests terminal control', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     // Take control lives in the header's ⋯ overflow menu [POD-121] — open it first.
@@ -210,7 +207,7 @@ describe('AgentPanel active wiring', () => {
     // silently never appears. This pins the with-resume-ref branch open.
     storeSessions = [meta({ resume: { kind: 'claude-session', value: 'abc-123' } })]
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     const trigger = container.querySelector<HTMLButtonElement>('[data-testid="header-menu"]')
@@ -224,7 +221,7 @@ describe('AgentPanel active wiring', () => {
 
   it('passes initial active to mountSession for a live native panel', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalled()
@@ -234,7 +231,7 @@ describe('AgentPanel active wiring', () => {
 
   it('passes active:false to mountSession when the panel mounts inactive', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active={false} />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     const opts = mountSessionMock.mock.calls[0]?.[1] as { active?: boolean } | undefined
@@ -243,12 +240,12 @@ describe('AgentPanel active wiring', () => {
 
   it('calls setActive(false) when the panel is backgrounded (active -> false)', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     setActive.mockClear()
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active={false} />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(false)
@@ -258,12 +255,12 @@ describe('AgentPanel active wiring', () => {
 
   it('calls setActive(true) again when an inactive panel becomes active', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active={false} />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     setActive.mockClear()
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(true)
@@ -272,7 +269,7 @@ describe('AgentPanel active wiring', () => {
   it('the initial active reflects chat mode: a panel that starts in chat mounts an INACTIVE terminal', async () => {
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     // Task 6 keeps the terminal mounted (hidden under the chat overlay) in BOTH
@@ -290,7 +287,7 @@ describe('AgentPanel active wiring', () => {
     // flips setActive(false) on hide and setActive(true) on re-show so the hidden
     // terminal stops/starts driving the PTY size.
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
@@ -299,7 +296,7 @@ describe('AgentPanel active wiring', () => {
     setActive.mockClear()
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(false)
@@ -308,7 +305,7 @@ describe('AgentPanel active wiring', () => {
     setActive.mockClear()
     storePanelMode = { s1: 'native' }
     await act(async () => {
-      root.render(<AgentPanel sessionId="s1" active />)
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(true)

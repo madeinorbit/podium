@@ -66,7 +66,7 @@ const fakeReplica = {
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -94,7 +94,7 @@ let captured: UseTranscriptWindowResult | null = null
 function Probe({ active }: { active: boolean }): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     hub: fakeHub,
     trpc: fakeTrpc,
     replica: fakeReplica,

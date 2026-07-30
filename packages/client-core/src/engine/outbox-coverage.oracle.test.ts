@@ -21,6 +21,7 @@
  * rows live, not whether the write queues offline.
  */
 
+import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -155,7 +156,7 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: each replay carries the entry's STABLE mutationId, which is what the server dedupes on`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    const entry = outbox.enqueue('rename', { sessionId: 's1', name: 'queued offline' })
+    const entry = outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'queued offline' })
     await outbox.drain()
 
     expect(calls).toEqual([
@@ -220,7 +221,7 @@ describe('oracle: the offline-queued write set', () => {
       onPoison: (entry) => dropped.push(entry.kind),
     })
 
-    withExecutor.enqueue('ask', { sessionId: 's1' })
+    withExecutor.enqueue('ask', { sessionId: asSessionId('s1') })
     await drainFully(withExecutor)
 
     expect(sent).toHaveLength(1)
@@ -231,8 +232,8 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: queued writes drain in FIFO order, so two edits to one row compose in the order they were made`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    outbox.enqueue('rename', { sessionId: 's1', name: 'first' })
-    outbox.enqueue('setArchived', { sessionId: 's1', archived: true })
+    outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'first' })
+    outbox.enqueue('setArchived', { sessionId: asSessionId('s1'), archived: true })
     await outbox.drain()
 
     expect(calls.map((c) => c.path)).toEqual(['sessions.rename', 'sessions.setArchived'])

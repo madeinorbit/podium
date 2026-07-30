@@ -1,4 +1,4 @@
-import { type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
+import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -88,7 +88,7 @@ const { ChatView } = await import('./ChatView')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 'h1',
+    sessionId: asSessionId('h1'),
     agentKind: 'claude-code',
     title: 't',
     cwd: '/w',
@@ -142,7 +142,7 @@ function push(event: HeadlessActivityEvent): void {
 
 function mount(superThread = { threadId: 'global', kind: 'global' as const }): void {
   act(() => {
-    root.render(<ChatView sessionId="h1" superThread={superThread} compact />)
+    root.render(<ChatView sessionId={asSessionId('h1')} superThread={superThread} compact />)
   })
 }
 
@@ -195,7 +195,7 @@ describe('ChatView headless mode', () => {
     act(() => {
       root.render(
         <ChatView
-          sessionId="h1"
+          sessionId={asSessionId('h1')}
           superThread={{ threadId: 'global', kind: 'global' }}
           compact
           initialTurnRunning
@@ -213,7 +213,7 @@ describe('ChatView headless mode', () => {
     act(() => {
       root.render(
         <ChatView
-          sessionId="h1"
+          sessionId={asSessionId('h1')}
           superThread={{ threadId: 'global', kind: 'global' }}
           compact
           initialTurnRunning

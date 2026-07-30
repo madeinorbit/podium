@@ -30,7 +30,7 @@ vi.mock('./store', () => ({
   useStoreSelector: (selector: (store: unknown) => unknown) =>
     selector({
       hub: h.hub,
-      sessions: [{ sessionId: 's1', name: 'Remote Codex', title: '', agentKind: 'codex' }],
+      sessions: [{ sessionId: asSessionId('s1'), name: 'Remote Codex', title: '', agentKind: 'codex' }],
     }),
 }))
 
