@@ -1244,3 +1244,47 @@ POD-1161 and POD-1163 are both FIXED AND MERGED, and both sit in `proposed`, whi
 neither promote nor close. Resolution recorded in each issue's state so a human can close on sight. This is
 the third distinct way POD-1154 has cost something: it blocked scheduling earlier, and now it blocks
 closing work that is demonstrably done.
+
+### The probe gate found three guardrails that did not work
+
+POD-1162 planted **13 deliberate-violation mutants against the real gates: 10 caught, 3 not.** The human
+had asked whether that gate was "actually worth anything"; this is the measured answer.
+
+**P4 was the worst, and its diagnosis was only HALF the cause.** An `instance_id` column on the `sessions`
+table was green across the audit, the model suite, tsgo, the migration suites and `store.test.ts` — so
+ADR 1 D5 ("multi-user is NOT multi-tenancy") had no enforcement where a tenant partition would actually be
+introduced. Two independent causes:
+
+1. `isFrozenFile` skipped anything under `/migrations/`. Right for the immutable SQL history in
+   `migrations/drizzle/`; wrong for `schema.ts`, which declares all 57 physical tables and is live source.
+   **The tell was already in the tree**: POD-368's registry lists `sessions` AT `migrations/schema.ts`, so
+   the registry named a file the audit could not read. *A path-scoped skip whose REASON does not apply to
+   everything the path matches.* Narrowed — and the unfreeze immediately found **three real hidden sites**
+   (`__local__` as a column DEFAULT at schema.ts:43/162/208), so the POD-318 ratchet had been counting 13
+   while the live schema carried three more.
+2. `instancePartitions` enumerates entity-shaped declarations and tests their KEYS, but
+   `sqliteTable("sessions", { instanceId: text("instance_id") })` is a CALL EXPRESSION. **I re-ran the
+   plant after fixing (1) and it STILL passed.** Dispatched as POD-1168.
+
+> Landing half a guardrail fix leaves the probe passing and LOOKS like a fix. Re-run the original probe
+> after fixing what you believe was the cause — the cause you found may not be the only one.
+
+**A baseline raise that is not laundering.** 13 → 16 because the detector's SCOPE widened, not because the
+code regressed. Refusing to raise it would have meant refusing to look. That is a different act from
+hiding a regression, and it needs the distinction stated at the site or the next reader reads it as the
+thing the never-rebaseline rule forbids.
+
+**Method worth copying from that gate:** P1's key probe pointed the REAL `Session` aggregate at a
+nonexistent matrix row so its declared class EQUALLED the default-closed value, making the missing-row
+check the only thing that could see it — and it established DIRECTION by *flipping* the fallback rather
+than asserting it. P2 planted in EVERY arm of the union. And it **re-derived POD-365's regeneration claim
+independently rather than citing it**, "since a regeneration is precisely how a wire change hides" — the
+one citation in the gate that should not have been trusted.
+
+### Ruling: an unmet criterion can be narrowed rather than left unmet
+
+POD-1162 refused to sign off "raw-string ids at zero" because POD-363 is blocked behind POD-362. I ruled
+that item **rides with POD-363 and gates the POD-308 wire cutover**, where id ENCODING actually matters —
+POD-351's walking skeleton needs the vocabulary and the command contracts, both landed, not a completed
+branded-id sweep. Recorded as a deliberate narrowing rather than left sitting as an unmet criterion, on
+the same reasoning that split POD-423: gate the thing that depends on it, not everything downstream.
