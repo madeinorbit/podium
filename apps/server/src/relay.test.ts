@@ -1701,6 +1701,11 @@ describe('agent state', () => {
 
   it('sends every configured external push target only when no client is visible', () => {
     const store = new SessionStore(':memory:')
+    // POD-419: the bot token is a server-owned secret and lives in the keyed
+    // store, not the blob. Written through the repository here for the same
+    // reason the preferences below are: this fixture is arranging state, not
+    // exercising the command surface (`service.commands.test.ts` does that).
+    store.secrets.set('notifications.telegramBotToken', '123456:secret', '2026-07-30T00:00:00.000Z')
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
@@ -1709,7 +1714,6 @@ describe('agent state', () => {
         ...settings.notifications,
         web: true,
         ntfyTopic: 'podium-topic',
-        telegramBotToken: '123456:secret',
         telegramChatId: '-100123',
       },
     })
@@ -1782,6 +1786,11 @@ describe('agent state', () => {
     // The subscription "Notify" switch is an explicit standing request — unlike the
     // attention path it must NOT be suppressed by an open browser tab [spec:SP-17db].
     const store = new SessionStore(':memory:')
+    // POD-419: the bot token is a server-owned secret and lives in the keyed
+    // store, not the blob. Written through the repository here for the same
+    // reason the preferences below are: this fixture is arranging state, not
+    // exercising the command surface (`service.commands.test.ts` does that).
+    store.secrets.set('notifications.telegramBotToken', '123456:secret', '2026-07-30T00:00:00.000Z')
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
@@ -1789,7 +1798,6 @@ describe('agent state', () => {
       notifications: {
         ...settings.notifications,
         ntfyTopic: 'podium-topic',
-        telegramBotToken: '123456:secret',
         telegramChatId: '-100123',
       },
     })
@@ -1816,13 +1824,17 @@ describe('agent state', () => {
 
   it('suppresses configured notification delivery while the feature is disabled', () => {
     const store = new SessionStore(':memory:')
+    // POD-419: the bot token is a server-owned secret and lives in the keyed
+    // store, not the blob. Written through the repository here for the same
+    // reason the preferences below are: this fixture is arranging state, not
+    // exercising the command surface (`service.commands.test.ts` does that).
+    store.secrets.set('notifications.telegramBotToken', '123456:secret', '2026-07-30T00:00:00.000Z')
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
       notifications: {
         ...settings.notifications,
         ntfyTopic: 'podium-topic',
-        telegramBotToken: '123456:secret',
         telegramChatId: '-100123',
       },
     })
@@ -1839,12 +1851,16 @@ describe('agent state', () => {
   })
   it('connects Telegram from a start-code update', async () => {
     const store = new SessionStore(':memory:')
+    // POD-419: the bot token is a server-owned secret and lives in the keyed
+    // store, not the blob. Written through the repository here for the same
+    // reason the preferences below are: this fixture is arranging state, not
+    // exercising the command surface (`service.commands.test.ts` does that).
+    store.secrets.set('notifications.telegramBotToken', '123456:secret', '2026-07-30T00:00:00.000Z')
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
       notifications: {
         ...settings.notifications,
-        telegramBotToken: '123456:secret',
       },
     })
     const getMe = vi.fn().mockResolvedValue({ username: 'mwpodium_bot' })
