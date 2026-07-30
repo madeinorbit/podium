@@ -1,3 +1,4 @@
+import { sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
   AutomationScheduleKind,
@@ -12,7 +13,6 @@ import {
   type FileReadResultMessage,
   presenceCommand,
 } from '@podium/protocol'
-import { sessionHandoffInput } from '@podium/commands'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
@@ -68,14 +68,14 @@ import { searchAll } from './search'
 // without a runtime cycle. Re-exported for existing import sites.
 export { type Context, mods } from './trpc'
 
-import { type Context, mods, t } from './trpc'
 import { sessionCommandPlaneInputs } from '@podium/protocol'
+import { sessionCommandCtx, visibleMachinesFor } from './modules/sessions/command-ctx'
 import {
   dispatchSessionCommand,
   type SessionCommandKey,
   type SessionCommandResult,
 } from './modules/sessions/command-plane'
-import { sessionCommandCtx, visibleMachinesFor } from './modules/sessions/command-ctx'
+import { type Context, mods, t } from './trpc'
 
 /**
  * Dispatch a migrated session command (POD-381). The tRPC procedure is now pure
@@ -88,13 +88,94 @@ function sessionCommand<K extends SessionCommandKey>(
   input: unknown,
 ): SessionCommandResult<K> {
   return dispatchSessionCommand(
-    sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+    sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope, 'trpc'),
     key,
     input,
   )
 }
 
+import type { AnyCommandContract } from '@podium/commands'
+import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
+
+/**
+ * AGENT-MAIL DERIVATION (POD-729, the same join POD-380 applied to the presence
+ * class).
+ *
+ * `mailMutation('send')` builds the tRPC procedure for a mail contract OUT OF
+ * THE CONTRACT: its input schema is the contract's own instance — not a
+ * restatement beside it and no longer `z.unknown()` — and its body is the
+ * framework envelope: the exposure check, then dispatch into the one authz path.
+ *
+ * `z.unknown()` was not a small thing to remove. It meant the tRPC arm typed
+ * nothing at all and shipped the payload to the gate for a second, private
+ * parse; the CLIENT saw `unknown` at every call site, and a client sending a
+ * malformed body learned about it from a thrown string rather than from a
+ * validation error. One schema instance, read by both transports, is what ADR 3
+ * D1 asks for.
+ *
+ * WHY TWO FUNCTIONS AND NOT ONE THAT BRANCHES. A single `mailProc` returning
+ * `action === 'read' ? proc.query(run) : proc.mutation(run)` is what this was
+ * first, and it typechecks perfectly in this package while DESTROYING the
+ * client: `policy.action` is a union at the type level, so every procedure
+ * inferred as `query | mutation` and `apps/web` lost `.query`/`.mutate` on all
+ * nine. Splitting the verb into the function NAME is what keeps the inferred
+ * router honest — and the derivation is not lost, because each helper CHECKS the
+ * contract's action and refuses at module load if they disagree. The wire verb
+ * and the authz action still cannot drift; the check just runs at boot instead
+ * of in the type system.
+ *
+ * That distinction matters most for `messages.inbox`, which looks like a read
+ * and is a `write` because it CONSUMES. A hand-written router is exactly where
+ * that gets quietly "corrected" by someone who trusts the name.
+ *
+ * Deliberately NOT the full transport derivation POD-382 owns: the procedures
+ * are still listed by name below, so the SHAPE of the router stays reviewable in
+ * this diff. What is gone is every hand-written body.
+ */
+function mailContractFor(name: MailProcName, expected: 'read' | 'write'): AnyCommandContract {
+  const { contract } = MAIL_COMMANDS[name]
+  // A command this router serves must SAY it serves tRPC. Failing at module load
+  // rather than at call time: a procedure that refuses everything at runtime is
+  // the "green gate that stopped looking" failure mode, and it looks identical
+  // to a procedure nobody happened to call.
+  if (!contract.exposure.includes('trpc')) {
+    throw new Error(`mailProc: ${contract.name} is not exposed on trpc`)
+  }
+  // THE DERIVATION, as a boot-time check. `mailQuery('inbox')` is a compile-time
+  // no-op and a runtime crash, which is the right way round: a consuming read
+  // served as a query would widen it to viewer-grade principals.
+  if (contract.policy.action !== expected) {
+    throw new Error(
+      `mailProc: ${contract.name} declares action '${contract.policy.action}' but is served as a ${expected === 'read' ? 'query' : 'mutation'}`,
+    )
+  }
+  return contract
+}
+
+function mailRun<Out>(name: MailProcName) {
+  return ({ ctx, input }: { ctx: Context; input: unknown }): Promise<Out> =>
+    // Non-null asserted because the exposure check already proved the dispatcher
+    // will not answer `undefined` for this name on this transport.
+    mods(ctx).messageGate.dispatch(
+      ctx.capability,
+      ctx.overrideScope,
+      name,
+      input,
+      'trpc',
+    )! as Promise<Out>
+}
+
+/** A mail contract whose policy action is `write`, served as a tRPC mutation. */
+function mailMutation<Out = unknown>(name: MailProcName) {
+  return t.procedure.input(mailContractFor(name, 'write').input).mutation(mailRun<Out>(name))
+}
+
+/** A mail contract whose policy action is `read`, served as a tRPC query. */
+function mailQuery<Out = unknown>(name: MailProcName) {
+  return t.procedure.input(mailContractFor(name, 'read').input).query(mailRun<Out>(name))
+}
+
 import type { PinState, SnoozeMap } from './store/types'
 
 /**
@@ -516,12 +597,7 @@ export const appRouter = t.router({
     // Read toolkit tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance — a
     // question message (next-turn + wake, ack expected) + a bounded ack wait.
     // Authz/clamps live in the MessageGate, shared verbatim with the relay arm.
-    ask: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ask', input)!,
-      ),
+    ask: mailMutation('ask'),
     hibernate: t.procedure
       .input(sessionCommandPlaneInputs.hibernate)
       .mutation(({ ctx, input }) => sessionCommand(ctx, 'hibernate', input)),
@@ -1231,69 +1307,38 @@ export const appRouter = t.router({
   // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
   // Input validation + authz live in the MessageGate (shared verbatim with the
   // daemon relay arm); the gate stamps the sender from ctx.capability.
+  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  //
+  // DERIVED (POD-729). Every procedure below is built from its contract in
+  // `@podium/commands` — input schema, wire verb and authz all come from the one
+  // table, and the hand-written bodies that used to sit here (nine `z.unknown()`
+  // procedures wrapping a stringly-typed dispatch) are DELETED. Input validation
+  // and authz live in the MessageGate, shared VERBATIM with the daemon relay arm;
+  // the gate stamps the sender from ctx.capability, never from payload.
+  //
+  // ZERO hand-written `.mutation(` in this router is the POD-424 gate criterion,
+  // and `router.mail-derivation.test.ts` asserts it against this file's TEXT —
+  // an audit that reads the source is the only kind that notices the tenth
+  // procedure someone adds by hand next year.
   messages: t.router({
-    send: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'send', input)!,
-      ),
-    // A mutation on the wire: the recipient's own inbox read consumes queued status.
-    inbox: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'inbox', input)!,
-      ),
-    dismiss: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'dismiss', input)!,
-      ),
-    show: t.procedure
-      .input(z.unknown())
-      .query(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'show', input)!,
-      ),
+    send: mailMutation('send'),
+    // A mutation on the wire, because the recipient's own inbox read CONSUMES
+    // queued status. The contract says `write`; the verb follows the contract.
+    inbox: mailMutation('inbox'),
+    dismiss: mailMutation('dismiss'),
+    show: mailQuery('show'),
     // Sender-queryable message lifecycle (#834) [POD-834 §04d]: "what happened to
-    // msg X" — mayView-gated in the gate (sender/recipient/operator), a pure read.
-    status: t.procedure
-      .input(z.unknown())
-      .query(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'status', input)!,
-      ),
+    // msg X" — mayView-gated in the gate (sender/recipient/admin), a pure read.
+    status: mailQuery('status'),
     // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
-    // delivery ledger — pure read, operator-only (enforced in the gate).
-    ledger: t.procedure
-      .input(z.unknown())
-      .query(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ledger', input)!,
-      ),
-    reply: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'reply', input)!,
-      ),
+    // delivery ledger. Own traffic for a member, cross-user at admin grade.
+    ledger: mailQuery('ledger'),
+    reply: mailMutation('reply'),
     // Cross-harness subagents (#237) [spec:SP-34d7 cross-harness]: `podium
-    // agent spawn/await`. The gate owns validation + authz; the child is a
-    // full Podium session; await is BOUNDED (returns a snapshot, never hangs).
-    spawnAgent: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'spawnAgent', input)!,
-      ),
-    awaitAgent: t.procedure
-      .input(z.unknown())
-      .mutation(
-        ({ ctx, input }) =>
-          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'awaitAgent', input)!,
-      ),
+    // agent spawn/await`. The child is a full Podium session; await is BOUNDED
+    // (returns a snapshot, never hangs).
+    spawnAgent: mailMutation('spawnAgent'),
+    awaitAgent: mailMutation('awaitAgent'),
   }),
   // Git dock panel [POD-114] — read-only checkout inspection for the web
   // RightDock: working-tree status, recent commits, one file's diff. Same
@@ -1317,9 +1362,7 @@ export const appRouter = t.router({
         return mods(ctx).rpc.repoOp('logPanel', input.root, undefined, input.machineId)
       }),
     diffFile: t.procedure
-      .input(
-        z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
-      )
+      .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }))
       .query(({ ctx, input }) => {
         if (!isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })

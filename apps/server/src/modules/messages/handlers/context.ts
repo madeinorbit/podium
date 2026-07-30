@@ -87,18 +87,85 @@ export const SINGLE_USER_MACHINE_ACCESS: MachineAccess = {
  * produces, so the queue cannot be read as an existence oracle one step removed
  * (ADR 3 Amendment 1 D20.2).
  */
-export const applyAuthFromCeiling =
-  (ceiling: HumanCeiling): NonNullable<MessageDeliveryDeps['authorizeAtApply']> =>
-  (message) => {
-    if (message.toKind !== 'issue' || !message.toId) return { ok: true }
-    if (ceiling.canSee({ kind: 'issue', id: message.toId })) return { ok: true }
-    return { ok: false, reason: 'issue no longer exists' }
+export type ApplyCeilingPort = NonNullable<MessageDeliveryDeps['authorizeAtApply']> & {
+  /** The object this port was built from. Read by {@link MessageGate}'s boot
+   *  check — the reason the port is tagged rather than anonymous. */
+  readonly ceiling: HumanCeiling
+}
+
+export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
+  Object.assign(
+    (message: Parameters<NonNullable<MessageDeliveryDeps['authorizeAtApply']>>[0]) => {
+      if (message.toKind !== 'issue' || !message.toId) return { ok: true } as const
+      if (ceiling.canSee({ kind: 'issue', id: message.toId })) return { ok: true } as const
+      return { ok: false, reason: 'issue no longer exists' } as const
+    },
+    { ceiling },
+  )
+
+/**
+ * BOTH HALVES OF THE CEILING, FROM ONE OBJECT — POD-728's review request, made
+ * structural by POD-729 rather than left as a comment at the site.
+ *
+ * A composition root calls this ONCE and hands `gateOptions` to `MessageGate`
+ * and `authorizeAtApply` to `MessageDeliveryService`. It cannot hand out two
+ * different ceilings by accident, because there is only one object to hand out;
+ * and `MessageGate`'s constructor refuses at BOOT if what the delivery service
+ * carries is not the very object it was given (see its ceiling check). That is
+ * the difference between "documented" and "enforced": the failure mode this
+ * closes — a gate that refuses an address while the delivery path still accepts
+ * it — is silent, so it had to fail loudly somewhere, and boot is the only place
+ * where failing loudly costs nobody a message.
+ */
+export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAccess }): {
+  ceiling: HumanCeiling
+  machines: MachineAccess
+  authorizeAtApply: ApplyCeilingPort
+  gateOptions: { ceiling: HumanCeiling; machines: MachineAccess }
+} {
+  const ceiling = opts?.ceiling ?? SINGLE_USER_CEILING
+  const machines = opts?.machines ?? SINGLE_USER_MACHINE_ACCESS
+  return {
+    ceiling,
+    machines,
+    authorizeAtApply: applyAuthFromCeiling(ceiling),
+    gateOptions: { ceiling, machines },
   }
+}
+
+/**
+ * Whether a send WAITS for its outcome — and the reason this is a property of
+ * the calling surface rather than of the contract.
+ *
+ * `confirm` is the urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the
+ * agent/CLI `podium mail send` surface waits until the row leaves `queued`, so a
+ * sender is never handed a bare "queued" that provably vanished. `immediate`
+ * returns the synchronous result.
+ *
+ * WHAT THIS IS NOT: it is not a policy switch. Resolution under the human
+ * ceiling, the session-target and issue-scope gates, the attribution pair and
+ * apply-time re-authorization all run identically either way — the mode chooses
+ * only whether the caller blocks afterwards. `MessageDeliveryService` already
+ * draws exactly this line ("Only THIS surface blocks; internal sends use
+ * send()"); what changed in POD-729 is that the internal path now goes through
+ * the contract to reach the non-blocking mode instead of going around it.
+ *
+ * It comes from the COMPOSITION ROOT, never from payload: `mailSendInput` has no
+ * field for it, so a caller cannot ask a send not to be confirmed.
+ *
+ * Why the session chat path needs `immediate`, concretely: POD-379's oracle pins
+ * `sessions.sendText` to an unreachable machine as `{ok:true, queued:true,
+ * disposition:'queued'}`. Blocking would turn that into `accepted` — a pinned
+ * shape changed by a delivery-mode default nobody chose.
+ */
+export type MailDeliveryMode = 'confirm' | 'immediate'
 
 export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
+  /** Absent = `confirm`, the shipped agent/CLI behaviour. */
+  deliveryMode?: MailDeliveryMode
 }
 
 /**
