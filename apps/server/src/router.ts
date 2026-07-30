@@ -56,7 +56,6 @@ import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
 import { UserFocus } from './modules/superagent'
-import { type WorkflowCaller, workflowInputs } from './modules/workflows/service'
 import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -92,6 +91,7 @@ import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presenc
  * among them by being called a query.
  */
 import { presencePrincipal, sessionFamilyProcedures } from './modules/sessions/trpc'
+import { workflowFamilyProcedures } from './modules/workflows/trpc'
 import { type Context, mods, t } from './trpc'
 
 /**
@@ -347,16 +347,6 @@ function cloudError(error: unknown): never {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
   }
   throw error
-}
-function workflowCaller(ctx: Context): WorkflowCaller {
-  const sessionId = ctx.capability.actorSessionId
-  return sessionId
-    ? {
-        actor: { kind: 'session', id: sessionId },
-        capability: ctx.capability,
-        ...(ctx.overrideScope ? { overrideScope: true } : {}),
-      }
-    : { actor: { kind: 'operator', id: null }, protectedWrite: true }
 }
 
 export const appRouter = t.router({
@@ -1299,62 +1289,16 @@ export const appRouter = t.router({
   // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
   // (reads/writes on the server host). The repo-root allowlist gate lives in
   // the SpecsService so the daemon-relay path enforces the identical check.
-  workflows: t.router({
-    list: t.procedure
-      .input(workflowInputs.list)
-      .query(({ ctx, input }) => mods(ctx).workflows.list(input, workflowCaller(ctx))),
-    get: t.procedure
-      .input(workflowInputs.get)
-      .query(({ ctx, input }) => mods(ctx).workflows.get(input, workflowCaller(ctx))),
-    create: t.procedure
-      .input(workflowInputs.create)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.create(input, workflowCaller(ctx))),
-    revise: t.procedure
-      .input(workflowInputs.revise)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.revise(input, workflowCaller(ctx))),
-    fork: t.procedure
-      .input(workflowInputs.fork)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.fork(input, workflowCaller(ctx))),
-    publish: t.procedure
-      .input(workflowInputs.publish)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.publish(input, workflowCaller(ctx))),
-    bindings: t.procedure
-      .input(workflowInputs.bindings)
-      .query(({ ctx, input }) => mods(ctx).workflows.bindings(input, workflowCaller(ctx))),
-    assign: t.procedure
-      .input(workflowInputs.assign)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.assign(input, workflowCaller(ctx))),
-    profiles: t.procedure
-      .input(workflowInputs.profiles)
-      .query(({ ctx, input }) => mods(ctx).workflows.profiles(input, workflowCaller(ctx))),
-    profileSave: t.procedure
-      .input(workflowInputs.profileSave)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.profileSave(input, workflowCaller(ctx))),
-    runs: t.procedure
-      .input(workflowInputs.runs)
-      .query(({ ctx, input }) => mods(ctx).workflows.runs(input, workflowCaller(ctx))),
-    prime: t.procedure
-      .input(workflowInputs.prime)
-      .query(({ ctx, input }) => mods(ctx).workflows.prime(input, workflowCaller(ctx))),
-    status: t.procedure
-      .input(workflowInputs.status)
-      .query(({ ctx, input }) => mods(ctx).workflows.status(input, workflowCaller(ctx))),
-    checkpoint: t.procedure
-      .input(workflowInputs.checkpoint)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.checkpoint(input, workflowCaller(ctx))),
-    assignStep: t.procedure
-      .input(workflowInputs.assignStep)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.assignStep(input, workflowCaller(ctx))),
-    skip: t.procedure
-      .input(workflowInputs.skip)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.skip(input, workflowCaller(ctx))),
-    retry: t.procedure
-      .input(workflowInputs.retry)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.retry(input, workflowCaller(ctx))),
-    adopt: t.procedure
-      .input(workflowInputs.adopt)
-      .mutation(({ ctx, input }) => mods(ctx).workflows.adopt(input, workflowCaller(ctx))),
-  }),
+  /**
+   * THE WORKFLOW SURFACE IS DERIVED (POD-732, the 3.10 cutover).
+   *
+   * Eighteen hand-written procedures — eleven of them `.mutation(` — are gone.
+   * `workflowFamilyProcedures()` builds all of them from `WORKFLOW_CONTRACTS`
+   * and `WORKFLOW_QUERIES`, so there is deliberately no procedure written out
+   * here, and `scripts/audit-workflow-commands.ts` fails the build if one
+   * appears.
+   */
+  workflows: t.router(workflowFamilyProcedures()),
   // Scheduled automations (#470) [spec:SP-17db]: the cron half of the Automations
   // tab. Operator-only, like the rest of this router — an automation spawns agent
   // sessions, so it is not an agent-reachable surface.

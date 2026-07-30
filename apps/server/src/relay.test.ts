@@ -1,10 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  asSessionId,
-  type AgentPhase,
-  type AgentRuntimeState, SOLE_USER_ID } from '@podium/model'
+import { type AgentPhase, type AgentRuntimeState, asSessionId, SOLE_USER_ID } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -361,28 +358,27 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (message) => daemon.push(message))
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
-    const created = reg.modules.workflows.create(
-      {
-        name: 'Research, plan, implement',
-        description: '',
-        scope: 'global',
-        instructions: 'Research before changing code.',
-        steps: [
-          {
-            id: 'research',
-            title: 'Research',
-            instructions: 'Inspect the system.',
-            completionGuidance: 'Unknowns resolved.',
-          },
-        ],
-      },
-      operator,
-    )
-    reg.modules.workflows.publish({ revisionId: created.revision.id }, operator)
-    reg.modules.workflows.assign(
-      { targetKind: 'global', targetId: '', revisionId: created.revision.id },
-      operator,
-    )
+    // POD-732: the eleven shims are deleted; every caller enters at `execute`.
+    const created = reg.modules.workflows.execute(operator, 'create', {
+      name: 'Research, plan, implement',
+      description: '',
+      scope: 'global',
+      instructions: 'Research before changing code.',
+      steps: [
+        {
+          id: 'research',
+          title: 'Research',
+          instructions: 'Inspect the system.',
+          completionGuidance: 'Unknowns resolved.',
+        },
+      ],
+    })
+    reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
+    reg.modules.workflows.execute(operator, 'assign', {
+      targetKind: 'global',
+      targetId: '',
+      revisionId: created.revision.id,
+    })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -456,23 +452,20 @@ describe('SessionRegistry', () => {
       cwd: '/w',
     }).sessionId
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
-    const created = reg.modules.workflows.create(
-      {
-        name: 'Delegated review',
-        description: '',
-        scope: 'global',
-        instructions: 'Use a separate reviewer.',
-        steps: [
-          {
-            id: 'review',
-            title: 'Review',
-            instructions: 'Review the change.',
-            completionGuidance: 'Report findings.',
-          },
-        ],
-      },
-      operator,
-    )
+    const created = reg.modules.workflows.execute(operator, 'create', {
+      name: 'Delegated review',
+      description: '',
+      scope: 'global',
+      instructions: 'Use a separate reviewer.',
+      steps: [
+        {
+          id: 'review',
+          title: 'Review',
+          instructions: 'Review the change.',
+          completionGuidance: 'Report findings.',
+        },
+      ],
+    })
     const run = reg.modules.workflows.startRun({
       sessionId: coordinator,
       cwd: '/w',
@@ -482,21 +475,23 @@ describe('SessionRegistry', () => {
       actor: { kind: 'session' as const, id: coordinator },
       capability: reg.modules.sessions.capabilityForSession(coordinator),
     }
-    reg.modules.workflows.assignStep(
-      { runId: run.id, stepId: 'review', sessionId: worker },
-      coordinatorCaller,
-    )
-    reg.modules.workflows.checkpoint(
+    reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
+      runId: run.id,
+      stepId: 'review',
+      sessionId: worker,
+    })
+    reg.modules.workflows.execute(
+      {
+        actor: { kind: 'session', id: worker },
+        capability: reg.modules.sessions.capabilityForSession(worker),
+      },
+      'checkpoint',
       {
         runId: run.id,
         stepId: 'review',
         status: 'complete',
         summary: 'No findings.',
         evidence: { summary: '', tests: [], artifacts: [] },
-      },
-      {
-        actor: { kind: 'session', id: worker },
-        capability: reg.modules.sessions.capabilityForSession(worker),
       },
     )
 

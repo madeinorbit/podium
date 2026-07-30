@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
-import { DaemonMux } from './gateway/daemon-mux'
 import {
   formatIssueRef,
   isExposedOn,
@@ -12,6 +11,7 @@ import {
 } from '@podium/protocol'
 import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
+import { DaemonMux } from './gateway/daemon-mux'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
@@ -62,6 +62,7 @@ import { SettingsService, type TelegramSetupClient } from './modules/settings/se
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import { HeadlessService } from './modules/superagent/headless'
+import { dispatchWorkflowRpc } from './modules/workflows/rpc'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { StewardService } from './steward'
@@ -464,18 +465,21 @@ export class SessionRegistry {
           protectedWrite: true,
         }
         if (op.kind === 'workflow-publish') {
-          const revision = workflows.publish({ revisionId: op.revisionId }, caller)
+          // The approval broker's server-side ops enter by the SAME door every
+          // transport uses (POD-732) — the deleted `publish`/`assign` shims were
+          // its only other way in, and a server op that skipped the contract's
+          // parse would be the one caller whose input nobody validated.
+          const revision = workflows.execute(caller, 'publish', {
+            revisionId: op.revisionId,
+          })
           return `published workflow revision ${revision.id}`
         }
         if (op.kind === 'workflow-set-default') {
-          const binding = workflows.assign(
-            {
-              targetKind: op.targetKind,
-              targetId: op.targetId,
-              revisionId: op.revisionId,
-            },
-            caller,
-          )
+          const binding = workflows.execute(caller, 'assign', {
+            targetKind: op.targetKind,
+            targetId: op.targetId,
+            revisionId: op.revisionId,
+          })
           return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
         }
         if (op.kind === 'automation-schedule') {
@@ -674,8 +678,14 @@ export class SessionRegistry {
         if (router === 'messages') {
           return messageGate.dispatch(capability, overrideScope, proc, input)
         }
+        // The workflow surface, derived from the contract + query tables
+        // (POD-732). `WorkflowService.dispatch` — a reflective call over the
+        // deleted `workflowInputs` that served any proc with a schema — is gone;
+        // exposure is asked per declaration and both transports enter through
+        // the same `execute` door.
         if (router === 'workflows') {
-          return workflows.dispatch(
+          return dispatchWorkflowRpc(
+            workflows,
             {
               actor: { kind: 'session', id: capability.actorSessionId ?? null },
               capability,
@@ -962,7 +972,7 @@ export class SessionRegistry {
         if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
           return Promise.resolve(result).then((issuePrime) => {
             const workflowPrime = featureEnabled('workflows')
-              ? workflows.prime({}, { actor: { kind: 'session', id: actorSessionId }, capability })
+              ? workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
               : ''
             // Name-your-own-session (#490): asked for only while the session HAS no
             // name — a named session (by the user or by an earlier turn of this agent)
