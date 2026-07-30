@@ -116,6 +116,81 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
 })
 
 // ---------------------------------------------------------------------------
+// 1b. A command that WAKES declares that it executes (POD-1179)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE RUNNING-OBJECT HALF of `scripts/audit-mail-commands.ts`'s `wake-needs-use`
+ * check, and the pairing is the point: that script reads source TEXT and resolves
+ * no modules, so it would be satisfied by a contract table that no longer loads.
+ * This reads the CONTRACT OBJECTS the server actually dispatches through.
+ *
+ * The claim: a mail command that can deliver at `lifecycle: 'wake'` reaches
+ * `MessageDeliveryService.trySpawn` — it resumes or spawns a session, which is
+ * code execution on that session's machine (readiness §3.1.4 M2) — and must
+ * declare `machineVerb: 'use'`. POD-1179 is here because `mail.ask`'s declaration
+ * was dropped resolving a duplicate contract and nothing noticed.
+ */
+describe('POD-1179: every wake-capable mail command declares machineVerb `use`', () => {
+  /**
+   * Contracts whose INPUT SCHEMA admits a caller-chosen `lifecycle: 'wake'`.
+   *
+   * Keyed on the PARSED OUTPUT, not on `success`. Zod strips unknown keys and
+   * succeeds, so a `success`-only probe called every contract wake-capable —
+   * including `mail.reply`, which has no lifecycle field at all. The counterfactual
+   * below is what surfaced that; a probe with no failing arm would have shipped it.
+   */
+  const admitsWake = (contract: {
+    input: { safeParse: (v: unknown) => { success: boolean; data?: unknown } }
+  }): boolean => {
+    const parsed = contract.input.safeParse({
+      to: '#1',
+      sessionId: asSessionId('s1'),
+      question: 'q',
+      body: 'b',
+      id: 'm1',
+      prompt: 'p',
+      lifecycle: 'wake',
+    })
+    return (
+      parsed.success &&
+      (parsed.data as { lifecycle?: string } | undefined)?.lifecycle === 'wake'
+    )
+  }
+
+  it('declares the verb on both wake-capable commands, and on nothing that cannot wake', () => {
+    // Derived from the RUNNING contracts, not from a list restated here: a list
+    // would keep agreeing with itself after the table changed underneath it.
+    const declaring = Object.values(MAIL_COMMANDS)
+      .filter((c) => c.contract.policy.machineVerb === 'use')
+      .map((c) => c.contract.name)
+      .sort()
+    // `mail.send` admits a caller lifecycle; `mail.ask` hard-codes wake;
+    // `mail.spawnAgent` places a new process by definition.
+    expect(declaring).toEqual(['mail.ask', 'mail.send', 'mail.spawnAgent'])
+
+    // The counterfactual that makes the list mean something: `mail.reply` is
+    // wake-INCAPABLE, and the schema is what says so. If a lifecycle field were
+    // ever added to the reply contract, this fails and the verb question has to
+    // be answered again rather than inherited.
+    const reply = MAIL_COMMANDS.reply.contract
+    expect(reply.policy.machineVerb).toBeUndefined()
+    expect(admitsWake(reply as never)).toBe(false)
+    // …and the instrument can say YES: the same probe accepts `mail.send`, so a
+    // `safeParse` that rejected everything could not produce the `false` above.
+    expect(admitsWake(MAIL_COMMANDS.send.contract as never)).toBe(true)
+  })
+
+  it('keeps `use` out of the offline class — D18.3, over the objects rather than the text', () => {
+    for (const { contract } of Object.values(MAIL_COMMANDS)) {
+      if (contract.policy.machineVerb !== 'use') continue
+      expect(contract.delivery.class).not.toBe('offline-eligible')
+      expect(contract.exposure).not.toContain('outbox')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 2. No un-governed path to delivery
 // ---------------------------------------------------------------------------
 
