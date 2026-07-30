@@ -7,7 +7,14 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import { isIssueColorSlot, IssueStage } from '@podium/model'
+import {
+  isIssueColorSlot,
+  type IssueId,
+  IssueStage,
+  type RepoId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'
@@ -146,11 +153,18 @@ export class IssuesRepository {
       )
   }
 
+  /**
+   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
+   * an `IssueRow`. Every cast below is a decode of an untyped column, brands
+   * included: sqlite has no type to carry a brand, so this is where a stored
+   * string re-enters the branded id space. Casts here are NOT POD-361 adapter
+   * casts; above this function every issue id is branded.
+   */
   private mapIssueRow(r: Record<string, unknown>): IssueRow {
     return {
-      id: r.id as string,
+      id: r.id as IssueId,
       repoPath: r.repo_path as string,
-      repoId: (r.repo_id as string | null) ?? null,
+      repoId: (r.repo_id as RepoId | null) ?? null,
       seq: r.seq as number,
       title: r.title as string,
       description: (r.description as string) ?? '',
@@ -175,8 +189,8 @@ export class IssuesRepository {
       prUrl: (r.pr_url as string | null) ?? null,
       priority: (r.priority as number) ?? 2,
       type: (r.type as string) ?? 'task',
-      assignee: (r.assignee as string | null) ?? null,
-      parentId: (r.parent_id as string | null) ?? null,
+      assignee: (r.assignee as UserId | null) ?? null,
+      parentId: (r.parent_id as IssueId | null) ?? null,
       design: (r.design as string | null) ?? null,
       acceptance: (r.acceptance as string | null) ?? null,
       notes: (r.notes as string | null) ?? null,
@@ -185,8 +199,8 @@ export class IssuesRepository {
       closedReason: (r.closed_reason as string | null) ?? null,
       closedAt: (r.closed_at as string | null) ?? null,
       tuckedAt: (r.tucked_at as string | null) ?? null,
-      supersededBy: (r.superseded_by as string | null) ?? null,
-      duplicateOf: (r.duplicate_of as string | null) ?? null,
+      supersededBy: (r.superseded_by as IssueId | null) ?? null,
+      duplicateOf: (r.duplicate_of as IssueId | null) ?? null,
       pinned: r.pinned === 1,
       sortKey: (r.sort_key as string | null) ?? null,
       color: isIssueColorSlot(r.color) ? r.color : null,
@@ -204,7 +218,7 @@ export class IssuesRepository {
             return v.length > 0 ? v : null
           })()
         : null,
-      humanQuestionAskedBy: (r.human_question_asked_by as string | null) ?? null,
+      humanQuestionAskedBy: (r.human_question_asked_by as SessionId | null) ?? null,
       humanQuestionAskedAt: (r.human_question_asked_at as string | null) ?? null,
       panel: (r.panel as string | null) ?? null,
       createdAt: r.created_at as string,
@@ -215,8 +229,8 @@ export class IssuesRepository {
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,
       readAt: (r.read_at as string | null) ?? null,
-      coordinatorSessionId: (r.coordinator_session_id as string | null) ?? null,
-      startedBySession: (r.started_by_session as string | null) ?? null,
+      coordinatorSessionId: (r.coordinator_session_id as SessionId | null) ?? null,
+      startedBySession: (r.started_by_session as SessionId | null) ?? null,
     }
   }
 

@@ -22,7 +22,7 @@
  */
 
 import type { Principal } from '@podium/protocol'
-import type { Capability, IssueRole, IssueScope } from '@podium/model'
+import { asSessionId, type Capability, type IssueRole, type IssueScope } from '@podium/model'
 
 export interface CapabilityRequest {
   /** The role floor the policy layer minted for this principal (ADR 3 Am.1 D15). */
@@ -49,9 +49,18 @@ export const capabilityFromPrincipal = (
     case 'agent':
       // The actor is the agent session (the existing `actorSessionId` seam); the
       // on-behalf-of is the human resolved from the delegation, never a payload.
+      //
+      // ID-SPACE CONVERSION, NOT AN ADAPTER CAST — POD-1164. `Capability.
+      // actorSessionId` is a `SessionId` (POD-362 branded it to match its one live
+      // producer, `sessions/service.ts#capabilityForSession`, and every consumer:
+      // the delegation walk, the `started_by_session` column, the `session:` keys).
+      // `Principal.agentIdentity` is an `AgentIdentityId` — a DIFFERENT brand.
+      // This function has no caller outside its own test, so nothing in production
+      // crosses the two yet; the conversion is written out here, named, so wiring
+      // this seam is a decision someone makes rather than a coercion they inherit.
       return {
         ...base,
-        actorSessionId: principal.agentIdentity,
+        actorSessionId: asSessionId(principal.agentIdentity),
         onBehalfOf: principal.onBehalfOf,
       }
     case 'machine':

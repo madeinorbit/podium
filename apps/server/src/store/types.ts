@@ -3,7 +3,15 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { Geometry, IssueColorSlot, PinKind as ModelPinKind } from '@podium/model'
+import type {
+  Geometry,
+  IssueColorSlot,
+  IssueId,
+  PinKind as ModelPinKind,
+  RepoId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
@@ -258,13 +266,13 @@ export interface MachineRecord {
  * pattern from the current file before re-running it.
  */
 export interface IssueRow {
-  id: string
+  id: IssueId
   repoPath: string
   /** Stable repo identity (#74/#164) — the issue's repo KEY: repo-scoped reads
    *  and seq allocation key on it (UNIQUE(repo_id, seq)). repoPath remains the
    *  display/lookup attribute maintained by the repo registry. Nullable only as
    *  defense in depth (the boot heal re-fills NULLs; every write resolves it). */
-  repoId?: string | null
+  repoId?: RepoId | null
   seq: number
   title: string
   description: string
@@ -302,8 +310,8 @@ export interface IssueRow {
   deletedAt?: string | null
   priority: number
   type: string
-  assignee: string | null
-  parentId: string | null
+  assignee: UserId | null
+  parentId: IssueId | null
   design: string | null
   acceptance: string | null
   notes: string | null
@@ -317,8 +325,8 @@ export interface IssueRow {
    *  cleared whenever the closed predicate flips back open. Optional so
    *  pre-existing row literals stay valid. */
   tuckedAt?: string | null
-  supersededBy: string | null
-  duplicateOf: string | null
+  supersededBy: IssueId | null
+  duplicateOf: IssueId | null
   pinned: boolean
   /** Manual order (POD-168): fractional sort key, ascending = top of the row's
    *  sibling scope. Optional so pre-existing row literals stay valid; null/
@@ -337,7 +345,7 @@ export interface IssueRow {
   humanQuestionOptions?: string[] | null
   /** sessionId of the agent session that asked (issue #53); null/absent =
    *  unattributed (legacy flag or non-session caller). */
-  humanQuestionAskedBy?: string | null
+  humanQuestionAskedBy?: SessionId | null
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt?: string | null
   /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
@@ -360,16 +368,16 @@ export interface IssueRow {
   /** Designated coordinator session (bare session id) — actionable issue-addressed
    *  mail prefers this when live. Claimable/changeable; dangling-tolerant (no FK).
    *  Optional so pre-existing row literals stay valid; null/absent = unset. */
-  coordinatorSessionId?: string | null
+  coordinatorSessionId?: SessionId | null
   /** Bare session id of the agent that created this issue (started-by provenance).
    *  Null for operator/human creates. Dangling-tolerant. Optional so pre-existing
    *  row literals stay valid. */
-  startedBySession?: string | null
+  startedBySession?: SessionId | null
 }
 
 export interface IssueCommentRow {
   id: string
-  issueId: string
+  issueId: IssueId
   author: string
   body: string
   createdAt: string
@@ -379,7 +387,7 @@ export interface IssueCommentRow {
  *  unread → read (inbox listing) → claimed (an agent committing to act on it). */
 export interface IssueMessageRow {
   id: string
-  issueId: string
+  issueId: IssueId
   fromAuthor: string
   body: string
   createdAt: string
