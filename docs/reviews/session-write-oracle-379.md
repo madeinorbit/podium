@@ -1,6 +1,6 @@
 # The session-write oracle (POD-379)
 
-**What it is:** 122 characterization tests that pin TODAY's observable behaviour of every session
+**What it is:** 143 characterization tests that pin TODAY's observable behaviour of every session
 write, so the 3.2 migration onto command contracts (POD-380 presence class, POD-381 command plane,
 POD-642 handoff, POD-382 the cutover that deletes the hand-written router mutations) can be proven
 behaviour-preserving instead of merely compiling.
@@ -11,13 +11,13 @@ behaviour-preserving instead of merely compiling.
 |---|---|
 | `apps/server/src/modules/sessions/oracle-support.ts` | Fixtures, the two tag helpers, predicate waiting |
 | `…/oracle-presence.test.ts` | rename · archive · read/unread · workState · issue attachment · snoozes · pins · tab order · drafts |
-| `…/oracle-commands.test.ts` | create · resume · hibernate · resurrect · kill · sendText · resumeAndSend · answerAskUserQuestion |
-| `…/oracle-authz.test.ts` | the agent-capability path: relay allowlist, scope gate, issueless targets, payload-identity inertness |
-| `…/oracle-errors.test.ts` | not-found shape per write; unreachable-machine shape for create/resume/handoff |
+| `…/oracle-commands.test.ts` | create · resume · hibernate · resurrect · kill · stop · continue · sendText · resumeAndSend · answerAskUserQuestion |
+| `…/oracle-authz.test.ts` | the agent-capability path: relay allowlist (and the two session writes that ARE relay-allowed, `continue` and `stop`), scope gate, issueless targets, payload-identity inertness |
+| `…/oracle-errors.test.ts` | not-found shape per write; unreachable-machine shape for create, resume, both send paths and handoff |
 | `…/oracle-attribution.test.ts` | spawnedBy · nameSource · deletion_source · stopReason · inputOrigin · humanQuestionAskedBy · (handoff: none) |
-| `…/oracle-idempotency.test.ts` | mutationId dedup — what makes an outbox replay safe — and the writes with no replay protection |
+| `…/oracle-idempotency.test.ts` | mutationId dedup, ONE test per mutation-bearing route, and the writes with no replay protection |
 | `…/oracle-handoff.test.ts` | two machines: success + ordering, bundle base, mid-transfer crash, duplicate dispatch, worktree reuse |
-| `…/oracle-tags.test.ts` | the ratchet: every characterization carries a tag, every will-change tag names a real issue |
+| `…/oracle-tags.test.ts` | the ratchet over EVERY oracle file (including the client-core one): every characterization carries a tag, every will-change tag names a real issue |
 | `packages/client-core/src/engine/outbox-coverage.oracle.test.ts` | which writes are offline-queued, and which deliberately are not |
 
 ## The two tags
@@ -38,7 +38,7 @@ The will-change classes, all four represented and enforced by the ratchet:
 | POD-1073 | human-vs-human authorization; consistent-error rule (§3.1.5) |
 | POD-1079 | machines become owned compute — `use` defaults to the owner only |
 
-## Three things the oracle found that the brief did not predict
+## Five things the oracle found that the brief did not predict
 
 1. **Offline queueing is NOT issue-writes-only.** `createEngineOutbox` covers eight SESSION writes
    (rename, setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread, resumeAndSend)
@@ -50,6 +50,13 @@ The will-change classes, all four represented and enforced by the ratchet:
 3. **An operator chat send is stamped `inputOrigin: 'mail'`, not `'human'`.** Only the direct
    keystroke path (`answerAskUserQuestion`) stamps `'human'`. The field records the PATH, not the
    person — one more attribution field that has to grow a second half.
+4. **A send to a session whose machine has gone away reports success.** Both send paths return
+   `{ ok: true, queued: true, disposition: 'queued' }` — indistinguishable from a busy-agent queue.
+   §3.1.4 M5 requires unreachable and unauthorized to be distinguishable; today unreachable is not
+   even distinguishable from *reachable*, and unauthorized has no shape at all.
+5. **Concurrent handoff is not serialized.** Two simultaneous `handoffSession` calls both run end to
+   end — two exports, two imports, two spawns on the target, one kill on the source — and still
+   converge on a single row. POD-642 inherits that, pinned as exact counts.
 
 Also worth stating plainly: **the presence writes have no agent path at all.** They are operator-only
 by ABSENCE from `RELAY_ALLOWED`, not by a check. A uniform command plane must reproduce that absence
@@ -57,7 +64,7 @@ deliberately.
 
 ## Proof the net catches things
 
-Ten mutants were applied to the product, run, and reverted; every one turned the intended test red:
+Nineteen mutants were applied to the product, run, and reverted; every one turned the intended test red:
 
 | Mutant | Test that caught it |
 |---|---|
@@ -65,12 +72,25 @@ Ten mutants were applied to the product, run, and reverted; every one turned the
 | Archive stops parking the process | presence · "archiving … parks a running session" |
 | Cleared draft no longer flushes immediately | presence · "persistence is DEBOUNCED …" |
 | `withMutation` stops reading the applied-mutation row | idempotency · "a replayed rename does NOT re-apply" |
+| `withMutation` removed from `sessions.setIssueId` | idempotency · "sessions.setIssueId dedupes its replay" |
+| `withMutation` removed from `sessions.markUnread` | idempotency · "sessions.markUnread dedupes its replay" |
+| `withMutation` removed from `snoozes.clear` | idempotency · "snoozes.clear dedupes its replay" |
+| `withMutation` removed from `sessions.resumeAndSend` | idempotency · "sessions.resumeAndSend dedupes its replay" |
+| A CR appended inside the bracketed paste | commands · "reaches the PTY stamped 'mail'" AND idempotency · "does not double-type" |
 | `rename` added to the relay allowlist | authz · "sessions.rename is refused via the relay" |
 | `askedBy` spoof guard removed | attribution · "humanQuestionAskedBy is stamped from the transport principal" |
 | Bundle-base guard removed | handoff · "no verified common bundle base ⇒ refuse" |
 | Handoff rollback removed | handoff · "an export failure rolls the session back onto the SOURCE" |
-| An untagged characterization added | tags · "every characterization opens with a tag helper" |
+| Source killed BEFORE the target's bundle-base probe | handoff · "the whole two-machine step sequence, in order" |
+| An in-flight guard added (handoff serialized) | handoff · "CONCURRENT duplicate dispatch is NOT serialized" |
+| An untagged characterization added in apps/server | tags · "every characterization opens with a tag helper" |
+| An untagged `test(` added in packages/client-core | tags · same, for the client-core oracle |
+| The client-core tag literal drifted | tags · "a file that re-declares the tag locally must use the canonical literal" |
 | A will-change tag naming an unknown issue | tags · "every will-change tag names a superseding issue" |
+
+Nineteen mutants, nineteen caught. The one mutation that did NOT red a test — appending a CR in
+`packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
+`SessionsService.typeText`, and mutating THAT is the row above.
 
 ## Deliberate deviations
 
@@ -80,5 +100,8 @@ Ten mutants were applied to the product, run, and reverted; every one turned the
   characterized (ordering, refusals, rollback, occupancy guard) lives in `SessionsService`, which is
   what these tests exercise. The real-hardware transfer path — bundle apply, `git worktree add`,
   credential install — remains the iso harness's job and is filed as deferred.
-- **No test asserts on UI copy or a bare substring.** Error messages are pinned with exact equality
-  (POD-743). No test uses a fixed sleep; waiting is always on a predicate (POD-757).
+- **No test asserts on UI copy or on a substring of a string.** Error messages are pinned with exact
+  equality and PTY traffic is asserted as the exact decoded frame sequence, so an added wrapper or a
+  second frame fails (POD-743). The remaining `toContainEqual` / `toContain` calls are array
+  membership by whole structured value, not substring matching. No test uses a fixed sleep; waiting
+  is always on a predicate (POD-757).

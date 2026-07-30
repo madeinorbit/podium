@@ -34,7 +34,7 @@ const inputs = (daemon: ControlMessage[]) =>
 function goLive(
   o: ReturnType<typeof makeOracle>,
   sessionId: string,
-  phase: 'idle' | 'working' = 'idle',
+  phase: 'idle' | 'working' | 'errored' = 'idle',
 ): void {
   o.reg.modules.sessions.onDaemonMessageFrom('local', {
     type: 'bind',
