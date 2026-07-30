@@ -7,6 +7,19 @@ import { wireDaemonSocket } from './wsServer'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
+/**
+ * The gateway is handed a MACHINE PRINCIPAL, not a machine id (POD-389). Asserting
+ * the shape — not just the id — is what keeps a future change from quietly
+ * substituting a payload-derived value or an ambient operator identity on the
+ * daemon path.
+ */
+const machinePrincipal = (machine: string) =>
+  expect.objectContaining({
+    kind: 'machine',
+    machine,
+    device: expect.stringMatching(/^daemon-\d+$/),
+  })
+
 /** Minimal `ws` socket double: records sent frames, lets tests drive `message`/`close`. */
 function fakeWs() {
   const sent: string[] = []
@@ -34,7 +47,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
     })
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -49,7 +62,7 @@ describe('daemon socket auth', () => {
         JSON.stringify({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
       ),
     )
-    expect(attach).toHaveBeenCalledWith('m1', expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
   })
 
@@ -65,8 +78,8 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('sekret'),
     })
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
-    const onMsg = vi.spyOn(reg.modules.sessions, 'onDaemonMessageFrom')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
+    const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -81,10 +94,11 @@ describe('daemon socket auth', () => {
         }),
       ),
     )
-    expect(attach).toHaveBeenCalledWith('local', expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(machinePrincipal('local'), expect.any(Function))
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
-    // A subsequent (post-auth) frame routes through onDaemonMessageFrom under that id.
+    // A subsequent (post-auth) frame routes through the gateway mux under the
+    // principal the TRANSPORT resolved — the frame body never names a machine.
     ws.emit(
       'message',
       Buffer.from(
@@ -99,15 +113,39 @@ describe('daemon socket auth', () => {
       ),
     )
     expect(onMsg).toHaveBeenCalledWith(
-      'local',
+      machinePrincipal('local'),
       expect.objectContaining({ type: 'bind', sessionId: 's1' }),
     )
+
+    // PAYLOAD IDENTITY IS INERT (ADR 3 D7). The same frame carrying a hostile
+    // `machineId` routes under the SAME transport principal: the claim is not
+    // read, not merged, and not even representable in the routed argument.
+    onMsg.mockClear()
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'bind',
+          sessionId: 's2',
+          cmd: 'claude',
+          cwd: '/tmp',
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+          machineId: 'attacker',
+        }),
+      ),
+    )
+    expect(onMsg).toHaveBeenCalledWith(
+      machinePrincipal('local'),
+      expect.objectContaining({ type: 'bind', sessionId: 's2' }),
+    )
+    expect(onMsg.mock.calls[0]?.[0]).not.toBe('attacker')
   })
 
   it('rejects an unknown hello with helloRejected and does not attach', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -125,7 +163,7 @@ describe('daemon socket auth', () => {
     const store = new SessionStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
-    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const code = reg.modules.machines.mintPairingCode()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -147,14 +185,14 @@ describe('daemon socket auth', () => {
     expect(typeof paired.token).toBe('string')
     expect(paired.token.length).toBeGreaterThan(0)
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(false)
-    expect(attach).toHaveBeenCalledWith('mNew', expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(machinePrincipal('mNew'), expect.any(Function))
   })
 
   it('detaches the machine on close', () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
     const reg = new SessionRegistry(store)
-    const detach = vi.spyOn(reg.modules.sessions, 'detachDaemon')
+    const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(
@@ -164,14 +202,14 @@ describe('daemon socket auth', () => {
     ws.emit('close')
     // Close detaches against THIS socket's send fn, so a superseded socket's late
     // close can't evict a daemon that has already reconnected.
-    expect(detach).toHaveBeenCalledWith('m1', expect.any(Function))
+    expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
   })
 
   it('does not detach when the socket closes before it ever attached', () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
     const reg = new SessionRegistry(store)
-    const detach = vi.spyOn(reg.modules.sessions, 'detachDaemon')
+    const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // A failed handshake (bad token) never attaches — closing must not detach the

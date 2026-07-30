@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { DaemonMux } from './gateway/daemon-mux'
 import {
   formatIssueRef,
   isExposedOn,
@@ -214,6 +215,13 @@ export class SessionRegistry {
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
+   * `routeDaemonFrame` live here, not on the sessions service: a daemon
+   * connection is a MACHINE principal whose frames belong to many features, and
+   * the sessions service is one of them.
+   */
+  readonly gateway: DaemonMux
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
   /** In-process issue command surface (≡ modules.issueCommands) — the registry
@@ -995,9 +1003,7 @@ export class SessionRegistry {
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.currentIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
-      runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
       onWorktreesChanged: broadcastWorktreesChanged,
-      onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
@@ -1355,6 +1361,24 @@ export class SessionRegistry {
       automations,
       perf,
     }
+    // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
+    // over the feature ports, so no feature module owns another feature's
+    // traffic. `agentRelay` is its own port and receives exactly the two relay
+    // frames — the host-edge separation of ADR 7 D2 / ADR 5 D7 survives the fact
+    // that both surfaces arrive on the same socket.
+    this.gateway = new DaemonMux({
+      bus: this.bus,
+      ports: {
+        sessions: sessionsSvc,
+        machines,
+        hosts,
+        conversations: () => conversations,
+        rpc,
+        headless,
+        approvals: { onExecResult: (msg) => approvals.onExecResult(msg) },
+        agentRelay: { run: (machineId, msg) => void agentRelayGate.run(machineId, msg) },
+      },
+    })
   }
 
   /**

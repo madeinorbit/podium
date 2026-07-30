@@ -14,10 +14,10 @@ describe('POD-722 session broadcast skips issue republish when no issue field ch
 
   function setup() {
     const reg = new SessionRegistry()
-    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.gateway.attachDaemon('local', () => {})
     reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/w' }).sessionId
-    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
+    reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = reg.modules.sessions.attachClient((m) => inbox.push(m))

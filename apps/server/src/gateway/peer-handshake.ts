@@ -23,6 +23,7 @@ import {
   isLegacyDaemonFrame,
   legacyReplyFor,
   type MachineId,
+  type MachinePrincipal,
   type PeerHelloReply,
   type UserId,
 } from '@podium/protocol'
@@ -86,6 +87,14 @@ export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }
   | {
       readonly kind: 'established'
+      /**
+       * THE TRANSPORT PRINCIPAL. Handed straight to the gateway mux so every
+       * routed frame carries it (ADR 3 D7 / ADR 5 D5): the machine is what the
+       * DIRECTORY verified, never anything a frame body claims. `machineId` is
+       * kept as a convenience projection of `principal.machine` and is the same
+       * value by construction.
+       */
+      readonly principal: MachinePrincipal
       readonly machineId: string
       readonly name: string
       /** The legacy reply to send BEFORE attaching (see `wireDaemonSocket`). */
@@ -127,6 +136,7 @@ export const receiveDaemonFrame = (
         }
       return {
         kind: 'established',
+        principal,
         machineId: principal.machine,
         name: step.peer.name ?? principal.machine,
         reply: reply(step.reply),

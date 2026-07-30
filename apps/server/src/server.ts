@@ -532,7 +532,7 @@ export async function startServer(
             },
           })
         // In-process daemon link [POD-196]: the local-machine equivalent of
-        // wireDaemonSocket's post-handshake wiring (attachDaemon / inventory
+        // wireDaemonSocket's post-handshake wiring (gateway attach / frame
         // routing / detach on close), minus the socket. Handshake auth is
         // skipped on purpose: only the composition root can reach this object,
         // which is the same trust as holding the in-memory bootstrapToken.
@@ -543,18 +543,15 @@ export async function startServer(
             // ensureLocalMachine already registered the local machine at startup.
             const machineId = LOCAL_MACHINE_ID
             const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-            registry.modules.sessions.attachDaemon(machineId, send)
+            registry.gateway.attachDaemon(machineId, send)
             return {
               machineId,
+              // `inventoryReport` used to be special-cased at both socket call
+              // sites; it is a row in the gateway's routing table now, so this
+              // link routes the WHOLE daemon union through one seam.
               deliver: (msg) =>
-                queueMicrotask(() => {
-                  if (msg.type === 'inventoryReport') {
-                    registry.modules.machines.recordInventory(machineId, msg.inventory)
-                  } else {
-                    registry.modules.sessions.onDaemonMessageFrom(machineId, msg)
-                  }
-                }),
-              close: () => registry.modules.sessions.detachDaemon(machineId, send),
+                queueMicrotask(() => registry.gateway.routeDaemonFrame(machineId, msg)),
+              close: () => registry.gateway.detachDaemon(machineId, send),
             }
           },
         }

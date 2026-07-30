@@ -44,7 +44,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       removed?: string[]
     } = {},
   ): void {
-    registry.modules.sessions.onDaemonMessageFrom('m1', {
+    registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations,
       diagnostics: opts.diagnostics ?? [],
@@ -134,7 +134,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('(a2) a discovery push with `removed` commits the remove durably with the row delete', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1'), conv('c2')])
     const cursor = cursorOf(registry)
     push(registry, [conv('c1')], { removed: ['c2'] })
@@ -147,7 +147,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     push(registry, [
       conv('c1', {
         title: 't',
@@ -190,7 +190,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('(c) setConversationMeta reaches the change log AND the snapshot fan-out (the silent-write fix)', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' })])
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
@@ -244,7 +244,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', () => {
     const store = new SessionStore(':memory:')
     const first = new SessionRegistry(store)
-    first.modules.sessions.attachDaemon('m1', () => {})
+    first.gateway.attachDaemon('m1', () => {})
     push(first, [conv('c1', { title: 't' }), conv('c2')])
     first.dispose()
     const cursor = first.modules.sessions.syncChangesSince(null).cursor
@@ -252,7 +252,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     // reconcile them (an empty list means "not scanned yet", not "all gone").
     const second = makeRegistry(store)
     expect(conversationChangesSince(second, cursor)).toEqual([])
-    second.modules.sessions.attachDaemon('m1', () => {})
+    second.gateway.attachDaemon('m1', () => {})
     // First post-restart scan re-reports the same conversations: the folded
     // baseline dedups it — no spurious full re-append.
     push(second, [conv('c1', { title: 't' }), conv('c2')])
@@ -265,7 +265,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('(e) diagnostics ride snapshots ONLY — never the delta stream', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     const delta = client(registry, ['metadataDelta'])
     // Diagnostics changed → cap clients get the snapshot too (their only path
     // to scan-level diagnostics).
@@ -291,7 +291,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('upstream mirror paths reconcile the local ∪ upstream UNION (removes included)', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1')])
     const cursor = cursorOf(registry)
     registry.modules.conversations.setUpstreamConversations([conv('hub-1')])
@@ -306,7 +306,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   it('replaying the whole durable log folds to the live conversation list', () => {
     const registry = makeRegistry()
-    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.gateway.attachDaemon('m1', () => {})
     push(registry, [conv('c1', { title: 't' }), conv('c2')])
     registry.modules.conversations.setConversationMeta({ id: 'c1', name: 'kept' })
     push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })

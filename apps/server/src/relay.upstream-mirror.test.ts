@@ -44,7 +44,7 @@ function hubConversation(id: string): ConversationSummaryWire {
 function makeNode() {
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store)
-  registry.modules.sessions.attachDaemon('local', () => {})
+  registry.gateway.attachDaemon('local', () => {})
   return { store, registry }
 }
 

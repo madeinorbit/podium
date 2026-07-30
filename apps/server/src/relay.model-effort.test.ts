@@ -26,7 +26,7 @@ function captureSpawn(over: {
   )
   const registry = new SessionRegistry(store)
   const sent: ControlMessage[] = []
-  registry.modules.sessions.attachDaemon('m1', (m) => sent.push(m))
+  registry.gateway.attachDaemon('m1', (m) => sent.push(m))
   registry.modules.sessions.createSession({ cwd: '/wt', machineId: 'm1', ...over })
   const spawn = sent.find((m) => m.type === 'spawn')
   registry.dispose()

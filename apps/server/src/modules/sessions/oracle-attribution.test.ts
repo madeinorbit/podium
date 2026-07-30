@@ -116,7 +116,7 @@ describe('oracle: who ended this session', () => {
   it(`${NO_PERSON}: archive's park records stopReason 'parent' — again a cause, not an actor`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'bash',
@@ -137,7 +137,7 @@ describe('oracle: who typed into this session', () => {
   it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for a direct keystroke path, 'mail' for a substrate send`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -145,7 +145,7 @@ describe('oracle: who typed into this session', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+    o.reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
