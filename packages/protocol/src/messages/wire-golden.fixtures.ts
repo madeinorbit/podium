@@ -509,6 +509,43 @@ const HANDOFF_MANIFEST_FULL = {
   exportedAt: '2026-07-30T10:00:00.000Z',
 }
 
+/**
+ * A `format: 2` manifest (POD-1153) — the attribution pair and the owner.
+ *
+ * Beside the two v1 fixtures rather than replacing them, and that is the whole
+ * point: v1's two cases are the PERMANENT proof that a bundle already on disk
+ * still opens, and `wire-golden.test.ts` asserts their continued presence so
+ * deleting them cannot pass as a tidy-up.
+ */
+const HANDOFF_MANIFEST_V2 = {
+  format: 2,
+  sessionId: 'sess-3',
+  agentKind: 'claude-code',
+  resume: { kind: 'claude-session', value: 'uuid-2' },
+  transcriptFilename: 'uuid-2.jsonl',
+  transcriptRelativeDir: '2026/07/30',
+  repoId: 'repo-1',
+  branch: 'issue/1153-attribution',
+  headSha: 'a'.repeat(40),
+  snapshotSha: null,
+  snapshotFlattened: true,
+  worktreeName: 'issue-1153',
+  worktreeRelativePath: '.worktrees/issue-1153',
+  cwdSubpath: 'packages/model',
+  bundleBase: ['c'.repeat(40)],
+  title: 'Handoff manifest attribution pair',
+  issueId: '1153',
+  sourceMachineId: 'machine-1',
+  // WHEN and WHO, inseparably: the actor is the minting AGENT and the
+  // on-behalf-of (and owner) is the human it acted for — ADR 9 D5 A4.
+  exported: {
+    at: '2026-07-30T10:00:00.000Z',
+    by: { actor: { kind: 'agent', id: 'agent-7' }, onBehalfOf: 'user-1' },
+  },
+  owner: 'user-1',
+  visibility: 'personal',
+}
+
 const HANDOFF_MANIFEST_MINIMAL = {
   format: 1,
   sessionId: 'sess-2',
@@ -811,6 +848,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
   // ---- handoff manifest (handoff.ts) ----
   { name: 'handoffManifest.full', schema: HandoffManifest, value: HANDOFF_MANIFEST_FULL },
   { name: 'handoffManifest.minimal', schema: HandoffManifest, value: HANDOFF_MANIFEST_MINIMAL },
+  { name: 'handoffManifest.v2', schema: HandoffManifest, value: HANDOFF_MANIFEST_V2 },
 
   // ---- frames that CARRY the relocated entities (must stay in protocol) ----
   {

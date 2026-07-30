@@ -38,6 +38,26 @@ describe('golden wire fixtures', () => {
     })
   }
 
+  // POD-1153's compatibility acceptance, made EXECUTABLE rather than documented.
+  // "keep a v1 fixture in the corpus permanently" is enforced by nothing if the
+  // only thing holding it there is a comment: deleting both v1 cases and keeping
+  // the v2 one leaves every other test in this file green, and the corpus would
+  // then pin only the format nobody has on disk. So the presence of a
+  // `format: 1` manifest fixture is itself asserted.
+  it('still carries a format 1 manifest fixture, which is the proof old bundles open', () => {
+    const v1 = WIRE_FIXTURES.filter(
+      (f) => (f.value as { format?: unknown } | null)?.format === 1 && f.name.startsWith('handoffManifest'),
+    )
+    expect(v1.map((f) => f.name)).toEqual(['handoffManifest.full', 'handoffManifest.minimal'])
+    // And their bytes are in the golden — a fixture present but unpinned proves
+    // nothing about the encoding.
+    for (const f of v1) expect(golden[f.name as keyof typeof golden]).toContain('"format":1')
+    // The counterfactual: the corpus also carries the NEW format, so "v1 is
+    // present" is not merely "nothing has changed here yet".
+    expect(Object.keys(golden)).toContain('handoffManifest.v2')
+    expect(golden['handoffManifest.v2' as keyof typeof golden]).toContain('"format":2')
+  })
+
   // Refinements are wire behaviour too: the manifest's containment check must
   // survive the move to @podium/model, not just its field list.
   it('still rejects worktree locations that escape the repository', () => {

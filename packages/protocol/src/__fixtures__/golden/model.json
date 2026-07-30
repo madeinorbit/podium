@@ -1112,6 +1112,194 @@
     },
     {
       "schema": "HandoffManifest",
+      "variant": "full/arm0",
+      "wire": {
+        "format": 1,
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exportedAt": "exportedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
+    },
+    {
+      "schema": "HandoffManifest",
+      "variant": "full/arm1",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "agent",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "per-user-state"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"per-user-state\"}"
+    },
+    {
+      "schema": "HandoffManifest",
+      "variant": "full/arm2",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "machine",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "owned-compute"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"owned-compute\"}"
+    },
+    {
+      "schema": "HandoffManifest",
+      "variant": "full/arm3",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "exported.by.actor.job"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "deployment-substrate"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"exported.by.actor.job\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\"}"
+    },
+    {
+      "schema": "HandoffManifestV1",
+      "variant": "minimal",
+      "wire": {
+        "format": 1,
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": null,
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "bundleBase": [],
+        "sourceMachineId": "sourceMachineId",
+        "exportedAt": "exportedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":null,\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"bundleBase\":[],\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
+    },
+    {
+      "schema": "HandoffManifestV1",
       "variant": "full",
       "wire": {
         "format": 1,
@@ -1141,6 +1329,216 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
+    },
+    {
+      "schema": "HandoffManifestV2",
+      "variant": "minimal",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": null,
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "bundleBase": [],
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "user",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": null
+          }
+        },
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":null,\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"bundleBase\":[],\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":null}},\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "HandoffManifestV2",
+      "variant": "full/arm0",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "user",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "HandoffManifestV2",
+      "variant": "full/arm1",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "agent",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "per-user-state"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"per-user-state\"}"
+    },
+    {
+      "schema": "HandoffManifestV2",
+      "variant": "full/arm2",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "machine",
+              "id": "exported.by.actor.id"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "owned-compute"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"exported.by.actor.id\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"owned-compute\"}"
+    },
+    {
+      "schema": "HandoffManifestV2",
+      "variant": "full/arm3",
+      "wire": {
+        "format": 2,
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptFilename": "transcriptFilename",
+        "transcriptRelativeDir": "transcriptRelativeDir",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "snapshotFlattened": true,
+        "worktreeName": "worktreeName",
+        "worktreeRelativePath": "worktreeRelativePath",
+        "cwdSubpath": "cwdSubpath",
+        "bundleBase": ["bundleBase[0]"],
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "exported": {
+          "at": "exported.at",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "exported.by.actor.job"
+            },
+            "onBehalfOf": "exported.by.onBehalfOf"
+          }
+        },
+        "owner": "owner",
+        "visibility": "deployment-substrate"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":2,\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exported\":{\"at\":\"exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"exported.by.actor.job\"},\"onBehalfOf\":\"exported.by.onBehalfOf\"}},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\"}"
     },
     {
       "schema": "HandoffRefusalReason",

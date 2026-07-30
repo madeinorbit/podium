@@ -126,7 +126,7 @@
     },
     {
       "schema": "HandoffExportResultMessage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "type": "handoffExportResult",
         "requestId": "requestId",
@@ -164,6 +164,162 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unauthorized\"}"
+    },
+    {
+      "schema": "HandoffExportResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "handoffExportResult",
+        "requestId": "requestId",
+        "ok": false,
+        "manifest": {
+          "format": 2,
+          "sessionId": "manifest.sessionId",
+          "agentKind": "codex",
+          "resume": {
+            "kind": "manifest.resume.kind",
+            "value": "manifest.resume.value"
+          },
+          "transcriptFilename": "manifest.transcriptFilename",
+          "transcriptRelativeDir": "manifest.transcriptRelativeDir",
+          "repoId": "manifest.repoId",
+          "branch": "manifest.branch",
+          "headSha": "manifest.headSha",
+          "snapshotSha": "manifest.snapshotSha",
+          "snapshotFlattened": true,
+          "worktreeName": "manifest.worktreeName",
+          "worktreeRelativePath": "manifest.worktreeRelativePath",
+          "cwdSubpath": "manifest.cwdSubpath",
+          "bundleBase": ["manifest.bundleBase[0]"],
+          "title": "manifest.title",
+          "issueId": "manifest.issueId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "exported": {
+            "at": "manifest.exported.at",
+            "by": {
+              "actor": {
+                "kind": "agent",
+                "id": "manifest.exported.by.actor.id"
+              },
+              "onBehalfOf": "manifest.exported.by.onBehalfOf"
+            }
+          },
+          "owner": "manifest.owner",
+          "visibility": "per-user-state"
+        },
+        "sizeBytes": 2,
+        "stagePath": "stagePath",
+        "error": "error",
+        "refusal": "unreachable"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"per-user-state\"},\"sizeBytes\":2,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unreachable\"}"
+    },
+    {
+      "schema": "HandoffExportResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "handoffExportResult",
+        "requestId": "requestId",
+        "ok": true,
+        "manifest": {
+          "format": 2,
+          "sessionId": "manifest.sessionId",
+          "agentKind": "codex",
+          "resume": {
+            "kind": "manifest.resume.kind",
+            "value": "manifest.resume.value"
+          },
+          "transcriptFilename": "manifest.transcriptFilename",
+          "transcriptRelativeDir": "manifest.transcriptRelativeDir",
+          "repoId": "manifest.repoId",
+          "branch": "manifest.branch",
+          "headSha": "manifest.headSha",
+          "snapshotSha": "manifest.snapshotSha",
+          "snapshotFlattened": true,
+          "worktreeName": "manifest.worktreeName",
+          "worktreeRelativePath": "manifest.worktreeRelativePath",
+          "cwdSubpath": "manifest.cwdSubpath",
+          "bundleBase": ["manifest.bundleBase[0]"],
+          "title": "manifest.title",
+          "issueId": "manifest.issueId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "exported": {
+            "at": "manifest.exported.at",
+            "by": {
+              "actor": {
+                "kind": "machine",
+                "id": "manifest.exported.by.actor.id"
+              },
+              "onBehalfOf": "manifest.exported.by.onBehalfOf"
+            }
+          },
+          "owner": "manifest.owner",
+          "visibility": "owned-compute"
+        },
+        "sizeBytes": 3,
+        "stagePath": "stagePath",
+        "error": "error",
+        "refusal": "unknown-target"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"owned-compute\"},\"sizeBytes\":3,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+    },
+    {
+      "schema": "HandoffExportResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "handoffExportResult",
+        "requestId": "requestId",
+        "ok": false,
+        "manifest": {
+          "format": 2,
+          "sessionId": "manifest.sessionId",
+          "agentKind": "codex",
+          "resume": {
+            "kind": "manifest.resume.kind",
+            "value": "manifest.resume.value"
+          },
+          "transcriptFilename": "manifest.transcriptFilename",
+          "transcriptRelativeDir": "manifest.transcriptRelativeDir",
+          "repoId": "manifest.repoId",
+          "branch": "manifest.branch",
+          "headSha": "manifest.headSha",
+          "snapshotSha": "manifest.snapshotSha",
+          "snapshotFlattened": true,
+          "worktreeName": "manifest.worktreeName",
+          "worktreeRelativePath": "manifest.worktreeRelativePath",
+          "cwdSubpath": "manifest.cwdSubpath",
+          "bundleBase": ["manifest.bundleBase[0]"],
+          "title": "manifest.title",
+          "issueId": "manifest.issueId",
+          "sourceMachineId": "manifest.sourceMachineId",
+          "exported": {
+            "at": "manifest.exported.at",
+            "by": {
+              "actor": {
+                "kind": "system",
+                "job": "manifest.exported.by.actor.job"
+              },
+              "onBehalfOf": "manifest.exported.by.onBehalfOf"
+            }
+          },
+          "owner": "manifest.owner",
+          "visibility": "deployment-substrate"
+        },
+        "sizeBytes": 4,
+        "stagePath": "stagePath",
+        "error": "error",
+        "refusal": "unknown-target"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"deployment-substrate\"},\"sizeBytes\":4,\"stagePath\":\"stagePath\",\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffImportChunkMessage",
