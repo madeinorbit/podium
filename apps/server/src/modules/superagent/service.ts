@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
+import type { SuperagentUserFocus } from '@podium/commands'
 import { HarnessAgent, type IssueWire, type SessionId } from '@podium/model'
 import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
@@ -42,7 +43,6 @@ import {
   type FocusSessionInfo,
   type GlobalQuestion,
   type GlobalRepoDigest,
-  type UserFocusInput,
 } from './global'
 import { classifyHarnessError } from './harness-error'
 import {
@@ -371,7 +371,7 @@ export class SuperagentService {
     threadId: string
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
-    focus?: UserFocusInput
+    focus?: SuperagentUserFocus
   }): Promise<{ threadId: string; podiumSessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
@@ -714,7 +714,7 @@ export class SuperagentService {
   }: {
     repoPath: string
     text: string
-    focus?: UserFocusInput
+    focus?: SuperagentUserFocus
   }): Promise<{ threadId: string; podiumSessionId: SessionId; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
@@ -981,7 +981,7 @@ export class SuperagentService {
   /** The [USER VIEW] block for a turn: client-reported ids, resolved server-side
    *  to names/titles/status. Undefined when the client reported nothing (an
    *  MCP-driven or automation turn). */
-  private focusBlock(focus: UserFocusInput | undefined): string | undefined {
+  private focusBlock(focus: SuperagentUserFocus | undefined): string | undefined {
     if (!focus) return undefined
     const issue = focus.issueId ? this.issueById(focus.issueId) : undefined
     const focused = focus.focusedSessionId ? this.sessionInfo(focus.focusedSessionId) : undefined

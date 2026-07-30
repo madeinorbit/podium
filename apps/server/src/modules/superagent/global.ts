@@ -4,8 +4,6 @@
  * client-reported "what's on screen" block prepended to every turn.
  */
 import type { IssueWire } from '@podium/model'
-import { SessionIdField } from '@podium/model'
-import { z } from 'zod'
 import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------
@@ -86,24 +84,18 @@ export function buildGlobalSeed(opts: {
 
 // ---- per-turn user focus ---------------------------------------------------------
 
-/** What the client says the user is looking at, sent with every turn. Ids only —
- *  the server resolves them to names/titles so the client can't dress them up. */
-export const UserFocus = z.object({
-  /** The web's top-level surface: 'workspace' | 'issues' | 'settings' | … */
-  view: z.string().max(40).optional(),
-  /** Selected worktree/repo path in the sidebar. */
-  worktreePath: z.string().max(1024).optional(),
-  /** Selected issue (issue-as-workspace), by id. */
-  issueId: z.string().max(128).optional(),
-  /** The session in the focused pane, and any other on-screen ones. */
-  // `.max(128)` KEPT and the shared brand piped in after it (POD-362) — a local
-  // `.brand()` here would be byte-identical and invisible to every fixture.
-  focusedSessionId: z.string().max(128).pipe(SessionIdField).optional(),
-  visibleSessionIds: z.array(z.string().max(128).pipe(SessionIdField)).max(4).optional(),
-  /** An open file tab in the focused pane. */
-  filePath: z.string().max(1024).optional(),
-})
-export type UserFocusInput = z.infer<typeof UserFocus>
+/**
+ * MOVED TO L1 (POD-383): the schema now lives on the contract that validates
+ * it, `superagentUserFocus` in `@podium/commands`. It is imported here rather
+ * than re-declared — a second `z.object({…})` with the same keys is
+ * byte-identical on the wire and therefore invisible to the golden fixtures
+ * (POD-305), so the only defence is that exactly one instance exists.
+ *
+ * NO RE-EXPORT SHIM. A `export { superagentUserFocus as UserFocus }` here would
+ * make the move invisible to every call site and would add to the
+ * `reexport-shims` ratchet the deletion audit counts; the three import sites
+ * were repointed instead, which is the rule POD-311 set.
+ */
 
 export interface FocusSessionInfo extends ConciergeSessionInfo {
   status?: string

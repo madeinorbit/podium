@@ -54,7 +54,7 @@ import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
-import { UserFocus } from './modules/superagent'
+import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -179,6 +179,12 @@ function mailQuery<Out = unknown>(name: MailProcName) {
  * serve, while the CONTRACT TABLES decide the membership.
  */
 const sessionFamily = sessionFamilyProcedures()
+
+/** The seven superagent thread mutations, built from their contracts at module
+ *  load (POD-383). Built once here for the same reason as `sessionFamily`: the
+ *  spread stays readable at the router while the CONTRACT TABLE decides the
+ *  membership — including that there are seven and not eight. */
+const superagentFamily = superagentFamilyProcedures()
 
 import type { PinState, SnoozeMap } from './store/types'
 
@@ -538,67 +544,24 @@ export const appRouter = t.router({
     ...sessionFamily.snoozes,
   }),
   superagent: t.router({
+    // THE TWO READS. Everything else on this router is DERIVED from the seven
+    // superagent contracts (POD-383) by `superagentFamilyProcedures()` — these
+    // stay hand-written because a `visibility` class describes what a command
+    // WRITES and a read writes nothing, the same line modules/workflows/queries.ts
+    // draws. The audit checks procedure TYPE, so a read cannot hide a write here.
+    //
+    // `superagent.send` USED TO LIVE HERE, a byte-identical alias of `sendTurn`
+    // forwarding to the same service method. It is deleted: eleven callers name
+    // `sendTurn` (web, mobile, the client engine, the browser e2e) and none has
+    // ever named `send`, so POD-1075's rule — persistence decides between two
+    // names for one thing — retires the alias rather than the entry.
+    //
     // The global orchestrator thread plus per-session 'btw' threads.
     listThreads: t.procedure.query(({ ctx }) => ctx.superagent.listThreads()),
     history: t.procedure
       .input(z.object({ threadId: z.string().default('global') }))
       .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
-    // One headless harness turn on an existing thread (concierge unification):
-    // acks {threadId, podiumSessionId} as soon as the turn is dispatched — output
-    // arrives via the session's transcript stream + headlessActivity frames.
-    sendTurn: t.procedure
-      .input(
-        z.object({
-          threadId: z.string().default('global'),
-          text: z.string().min(1).max(32_768),
-          focus: UserFocus.optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
-    // `send` is the same turn path (kept as the generic entry the panel uses).
-    send: t.procedure
-      .input(
-        z.object({
-          threadId: z.string().default('global'),
-          text: z.string().min(1).max(32_768),
-          focus: UserFocus.optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
-    // Stop the thread's running headless turn.
-    interruptTurn: t.procedure
-      .input(z.object({ threadId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.superagent.interruptTurn(input)),
-    // Escape hatch: open the thread's harness session as a normal PTY session
-    // (resume argv) and lock the thread — one writer at a time.
-    openInTerminal: t.procedure
-      .input(z.object({ threadId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.superagent.openInTerminal(input)),
-    clear: t.procedure
-      .input(z.object({ threadId: z.string().default('global') }))
-      .mutation(({ ctx, input }) => ctx.superagent.clear(input.threadId)),
-    // Reset the thread's harness session — the next turn starts a fresh one
-    // (recovery for a wedged/stale harness; keeps the thread + history).
-    restart: t.procedure
-      .input(z.object({ threadId: z.string().default('global') }))
-      .mutation(({ ctx, input }) => ctx.superagent.restartThread(input)),
-    // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
-    // re-open delta is prepended to the thread's next sendTurn.
-    startBtw: t.procedure
-      .input(z.object({ sessionId: SessionIdField }))
-      .mutation(({ ctx, input }) => ctx.superagent.startBtwTurn(input)),
-    // Per-repo concierge intake (issue #64): ensure the repo's thread, then run
-    // the message as a headless harness turn (digest seed on the first turn,
-    // issue-event delta on re-entry). Returns the sendTurn ack + isNew.
-    concierge: t.procedure
-      .input(
-        z.object({
-          repoPath: z.string().min(1),
-          text: z.string().min(1).max(32_768),
-          focus: UserFocus.optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => ctx.superagent.conciergeTurn(input)),
+    ...superagentFamily,
   }),
   conversations: t.router({
     // Keyword search over the durable index (FTS5 where available). Empty query

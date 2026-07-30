@@ -297,9 +297,11 @@ describe('inventory checks', () => {
   it('send-turn-duplicate ERRORS when its anchor stops matching', () => {
     // `[].slice(1)` is `[]` — a broken detector would otherwise report 0 and
     // `--phase POD-313` would print "clear to close" with both procedures live.
+    // POD-383: BOTH homes must miss before it throws — the router (where the
+    // procedure was) and the joined table (where the surviving call now lives).
     const broken = ctxOf({ 'apps/server/src/router.ts': 'nothing resembling the anchor' })
     const check = CHECKS.find((c) => c.id === 'send-turn-duplicate')
-    expect(() => check?.collect(broken)).toThrow(/matched nothing/)
+    expect(() => check?.collect(broken)).toThrow(/neither anchor matched/)
   })
 
   it('capability-tables counts a module-private table but not the web icon map', () => {
@@ -346,6 +348,29 @@ describe('inventory checks', () => {
       ].join('\n'),
     })
     expect(countOf(two, 'send-turn-duplicate')).toBe(1)
+  })
+
+  /**
+   * POD-383 moved the surviving call into the joined table when the router
+   * became derived. The detector must count an alias in its NEW home too —
+   * otherwise re-adding `send:` as a second table key would read as zero, which
+   * is the exact shape of failure POD-1180 records.
+   */
+  it('send-turn-duplicate counts an alias re-added to the joined table', () => {
+    const derived = ctxOf({
+      'apps/server/src/modules/superagent/registry.ts': [
+        `  sendTurn: { contract: C.sendTurn, handler: (s: S, input: I) => s.sendTurn(input) },`,
+      ].join('\n'),
+    })
+    expect(countOf(derived, 'send-turn-duplicate')).toBe(0)
+
+    const aliased = ctxOf({
+      'apps/server/src/modules/superagent/registry.ts': [
+        `  sendTurn: { contract: C.sendTurn, handler: (s: S, input: I) => s.sendTurn(input) },`,
+        `  send: { contract: C.send, handler: (s: S, input: I) => s.sendTurn(input) },`,
+      ].join('\n'),
+    })
+    expect(countOf(aliased, 'send-turn-duplicate')).toBe(1)
   })
 
   // REDEFINED at POD-305: the item counts hand-restated change-row FIELD LISTS,
@@ -554,6 +579,14 @@ describe('against the live repo', () => {
       'representation-registry-rot',
       'capability-snapshots',
       'instance-partitions',
+      // POD-383 deleted `superagent.send`, so ONE procedure now forwards to
+      // `sendTurn` and N-1 is zero — the item's target state. It is safe to
+      // exempt here, and only here, because this detector carries its OWN
+      // anchor guard: `collect` THROWS when neither of its two homes matches
+      // (asserted above, 'send-turn-duplicate ERRORS when its anchor stops
+      // matching'), so detector drift reds loudly instead of reading as a
+      // deletion. An item without that guard must not be added to this list.
+      'send-turn-duplicate',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
