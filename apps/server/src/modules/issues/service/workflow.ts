@@ -1,5 +1,7 @@
 import {
+  asUserId,
   DEFER_NEXT_MESSAGE,
+  type IssueId,
   type IssueWire,
   type OrphanIssue,
   type SessionMeta,
@@ -139,7 +141,11 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     row.branch = branch
     row.worktreePath = path
     row.stage = 'in_progress'
-    row.assignee = `agent:${row.defaultAgent}`
+    // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
+    // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
+    // named rather than hidden: adjudicating whether the column holds a UserId or
+    // an actor TAG is POD-1075's (accounts) call, not this sweep's.
+    row.assignee = asUserId(`agent:${row.defaultAgent}`)
     const wire = this.persistRow(row)
     if (wasClosed) {
       this.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
@@ -699,7 +705,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   private topoOrderChildren<T extends IssueRow>(children: T[]): T[] {
     const inSet = new Map(children.map((c) => [c.id, c]))
     const indeg = new Map(children.map((c) => [c.id, 0]))
-    const dependents = new Map<string, string[]>() // blocker id -> ids it unblocks
+    const dependents = new Map<IssueId, IssueId[]>() // blocker id -> ids it unblocks
     for (const c of children) {
       for (const d of this.d.store.issues.listIssueDeps(c.id)) {
         if (d.type !== 'blocks' || !inSet.has(d.toId)) continue

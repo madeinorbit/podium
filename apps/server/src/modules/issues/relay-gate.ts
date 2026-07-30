@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import type { Capability } from '../../issue-authz'
 
@@ -77,7 +78,7 @@ export interface AgentRelayGateDeps {
     proc: string,
     input: unknown,
   ): Promise<unknown> | undefined
-  capabilityForSession(sessionId: string): Capability
+  capabilityForSession(sessionId: SessionId): Capability
   toMachine(machineId: string, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop

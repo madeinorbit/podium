@@ -446,6 +446,11 @@ export interface MessageRow {
   /** Sender's issue at send time (agent senders). */
   fromIssue: string | null
   toKind: MessageToKind
+  /** DELIBERATELY UNBRANDED (POD-362): which id space this holds is decided by
+   *  `toKind` — an IssueId for 'issue', a SessionId for 'session', neither for
+   *  'operator'. A single brand here would be a lie in two of the three cases,
+   *  and a union would not narrow on the discriminant without restructuring the
+   *  row. Consumers narrow at the `toKind` branch; see `messages/service.ts`. */
   toId: string | null
   kind: MessageKind
   urgency: MessageUrgency

@@ -1,6 +1,8 @@
 import {
   IssueColor,
   IssueIdField,
+  type SessionId,
+  SessionIdField,
   IssueStage,
   IssueType,
   isSortKey,
@@ -878,7 +880,7 @@ const defs = {
   attachSession: def({
     kind: 'mutation',
     input: z.object({
-      sessionId: z.string(),
+      sessionId: SessionIdField,
       targetId: z.string().optional(),
       confirmRehome: z.boolean().optional(),
       // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
@@ -1193,7 +1195,7 @@ const defs = {
       // Structured question metadata (issue #53): suggested answers rendered as
       // Tray chips + the asking session (defaults to the caller's own session).
       options: z.array(z.string().min(1)).max(20).optional(),
-      askedBy: z.string().optional(),
+      askedBy: SessionIdField.optional(),
     }),
     action: 'write',
     scope: 'issue',
@@ -1303,7 +1305,7 @@ const defs = {
   }),
   claim: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), assignee: z.string() }),
+    input: z.object({ id: z.string(), assignee: UserIdField }),
     action: 'write',
     scope: 'issue',
     target: targetId,
@@ -1321,7 +1323,7 @@ const defs = {
     input: z.object({
       id: z.string(),
       /** Explicit session id to set; null clears. Mutually exclusive with claim. */
-      sessionId: z.string().nullable().optional(),
+      sessionId: SessionIdField.nullable().optional(),
       /** When true, set coordinator to the calling session (actorSessionId). */
       claim: z.boolean().optional(),
     }),
@@ -1330,7 +1332,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
-        let sessionId: string | null
+        let sessionId: SessionId | null
         if (input.claim) {
           const actor = ctx.caller.capability.actorSessionId
           if (!actor) {

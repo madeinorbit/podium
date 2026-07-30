@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, IssueWire, TranscriptItem } from '@podium/model'
+import type { AgentRuntimeState, IssueId, IssueWire, SessionId, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
@@ -69,7 +69,7 @@ export interface MessagingDeps {
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
-  sessionIssueId?: (sessionId: string) => string | null
+  sessionIssueId?: (sessionId: SessionId) => IssueId | null
   /** Bound-thread transcript for entry recaps [spec:SP-62c3]. */
   topicRecap?: TopicRecapPort
   /** Clock for inactivity gating (tests inject a fixed/advanceable now). */
@@ -265,7 +265,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   /** Resolve the forum topic for an outbound notice. */
-  private noticeThreadRef(chatId: string, sessionId?: string): string | undefined {
+  private noticeThreadRef(chatId: string, sessionId?: SessionId): string | undefined {
     if (sessionId) {
       const issueId = this.deps.sessionIssueId?.(sessionId)
       if (!issueId) return undefined

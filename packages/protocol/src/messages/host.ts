@@ -1,12 +1,4 @@
-import {
-  AgentMemoryWire,
-  AgentQuotaWire,
-  HostMemoryWire,
-  HostMetricsWire,
-  MachineWire,
-  ProjectMemoryWire,
-  UsageBucketWire,
-} from '@podium/model'
+import { AgentMemoryWire, AgentQuotaWire, HostMemoryWire, HostMetricsWire, MachineWire, ProjectMemoryWire, SessionIdField, UsageBucketWire } from '@podium/model'
 import { z } from 'zod'
 
 // MachineWire, host metrics + memory, usage buckets and agent/machine quota all
@@ -45,7 +37,7 @@ export const HostMetricsChangedMessage = z.object({
 // error, plan approval). Clients surface it as a web notification when hidden.
 export const AttentionEventMessage = z.object({
   type: z.literal('attentionEvent'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   title: z.string(),
   body: z.string(),
 })

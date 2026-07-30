@@ -1,3 +1,4 @@
+import type { IssueId, SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   ApprovalOp,
@@ -27,7 +28,7 @@ export interface ApprovalServiceDeps {
   toMachine(machineId: string, msg: ControlMessage): void
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
-  sessionIssueId(sessionId: string): string | null
+  sessionIssueId(sessionId: SessionId): IssueId | null
   issueInfo(issueId: string): { seq: number; title: string; displayRef?: string } | null
   machineName(machineId: string): string | undefined
   /** Append to the durable event log (renders in the issue activity feed). */
@@ -37,7 +38,7 @@ export interface ApprovalServiceDeps {
   notifyIssue(issueId: string, body: string): void
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
-  executeServerOp?(op: ApprovalOp, sessionId: string): string | null
+  executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null
 }
 
 export class ApprovalService {

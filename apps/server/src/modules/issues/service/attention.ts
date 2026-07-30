@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import { IssueServiceCrud } from './crud'
@@ -22,7 +22,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
    *  no children) is deleted. */
   attachSession(opts: {
-    sessionId: string
+    sessionId: SessionId
     targetId?: string
     newSubissue?: { title: string; origin: 'human' | 'agent' }
     newSpinoff?: { title: string; origin: 'human' | 'agent' }
@@ -148,7 +148,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
-  createDraftFor(repoPath: string, agentKind?: string, id?: string): IssueWire {
+  createDraftFor(repoPath: string, agentKind?: string, id?: IssueId): IssueWire {
     return this.create({
       repoPath,
       title: 'Draft',

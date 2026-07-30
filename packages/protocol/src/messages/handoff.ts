@@ -1,4 +1,4 @@
-import { AgentKind, HandoffManifest, HandoffRefusalReason, ResumeRef } from '@podium/model'
+import { AgentKind, HandoffManifest, HandoffRefusalReason, ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // HandoffManifest — the entity-shaped member of this family — lives in
@@ -16,7 +16,7 @@ import { z } from 'zod'
 export const HandoffExportRequestMessage = z.object({
   type: z.literal('handoffExportRequest'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** The session's stamped cwd — momentary, and it drifts (the daemon follows the
    *  shell). The exporter moves the worktree CONTAINING it ([spec:SP-3f7a]). */
   cwd: z.string(),
@@ -67,7 +67,7 @@ export const HandoffChunkReadResultMessage = z.object({
 export const HandoffImportChunkMessage = z.object({
   type: z.literal('handoffImportChunk'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   offset: z.number().int().nonnegative(),
   data: z.string().max(12 * 1024 * 1024),
 })
@@ -81,7 +81,7 @@ export const HandoffImportChunkResultMessage = z.object({
 export const HandoffImportRequestMessage = z.object({
   type: z.literal('handoffImportRequest'),
   requestId: z.string(),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   repoPath: z.string(),
   worktreeName: z.string(),
   /** Other resumable sessions on the target machine. Import must not reset a

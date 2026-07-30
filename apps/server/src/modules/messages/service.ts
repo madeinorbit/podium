@@ -32,7 +32,7 @@ import {
   type MailSenderPrincipal,
   senderBrakeKey,
 } from '@podium/commands'
-import type { AgentPhase, SessionMeta } from '@podium/model'
+import { asIssueId, type AgentPhase, type SessionMeta } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -950,7 +950,10 @@ export class MessageDeliveryService {
     if (message.toKind === 'issue' && toId && issues.has(toId) && this.applyAuth(message).ok) {
       legacy = {
         id,
-        issueId: toId,
+        // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so
+        // the brand is recovered HERE, inside the branch that decides the id
+        // space — and only after `issues.has(toId)` confirms the row exists.
+        issueId: asIssueId(toId),
         fromAuthor: this.legacyAuthor(from),
         body: input.body,
         createdAt: message.createdAt,

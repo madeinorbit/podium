@@ -490,7 +490,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  A registered repo MAIN checkout is shared workspace, never an issue's own
    *  worktree — an issue claiming it must not swallow every session spawned
    *  there ([spec:SP-595b] #582). */
-  soleOwnerForCwd(cwd: string): string | null {
+  soleOwnerForCwd(cwd: string): IssueId | null {
     const repoRoots = new Set(this.deps.store.repos.listRepoPaths())
     const owners = [...this.rows.values()].filter(
       (r) =>

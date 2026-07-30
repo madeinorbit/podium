@@ -1,3 +1,4 @@
+import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
@@ -34,13 +35,13 @@ import { TranscriptDeltaMessage } from './transcript'
 // emit these at spinner frame-rate (~10 Hz) and the payload is tiny.
 export const SessionTitleChangedMessage = z.object({
   type: z.literal('sessionTitleChanged'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   title: z.string(),
 })
 
 export const SessionDraftChangedMessage = z.object({
   type: z.literal('sessionDraftChanged'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   text: z.string(),
   // Versioned-draft metadata (Draft Sync v2, POD-859). All optional + additive so
   // older clients ignore them and older servers that never set them still produce a

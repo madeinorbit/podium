@@ -622,7 +622,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const seen = new Set<string>()
     const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
     while (pending.length) {
-      const current = pending.shift() as { id: string; path: string[] }
+      const current = pending.shift() as { id: IssueId; path: IssueId[] }
       if (current.id === targetId) return current.path
       if (seen.has(current.id)) continue
       seen.add(current.id)
@@ -649,13 +649,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return null
   }
 
-  addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
+  addDep(fromRef: string, toRef: string, type = 'blocks'): IssueWire {
     // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it.
     // Reject the type here so an arbitrary-type caller can't reintroduce
     // parent-child rows into issue_deps.
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
-    fromId = this.resolveRef(fromId)
-    toId = this.resolveRef(toId)
+    const fromId = this.resolveRef(fromRef)
+    const toId = this.resolveRef(toRef)
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
@@ -672,13 +672,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  removeDep(fromId: string, toId: string, type?: string): IssueWire {
+  removeDep(fromRef: string, toRef: string, type?: string): IssueWire {
     // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it,
     // and no parent-child rows exist in issue_deps for the bulk path to guard.
     if (type === 'parent-child')
       throw new Error('parent-child is managed by reparent, not removeDep')
-    fromId = this.resolveRef(fromId)
-    toId = this.resolveRef(toId)
+    const fromId = this.resolveRef(fromRef)
+    const toId = this.resolveRef(toRef)
     const row = this.rowOrThrow(fromId)
     const wire = this.persistWith(row, () =>
       this.deps.store.issues.removeIssueDep(fromId, toId, type),

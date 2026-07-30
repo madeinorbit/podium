@@ -21,8 +21,10 @@ export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire
 export type AutomationRunRow = AutomationRunWire
 
-// POD-361-EDGE-CAST (POD-362 owns the removal): a sqlite row is untyped, so the
-// brands are applied at this read boundary. The real fix is a typed store row.
+// SERIALIZATION EDGE (POD-362): sqlite hands back `Record<string, unknown>`, so
+// this is where a stored string re-enters its branded id space. The row type IS
+// the wire type here (`AutomationRow = AutomationWire`), which is exactly why the
+// brand has to be applied at the decode rather than carried in.
 function rowToAutomation(r: Record<string, unknown>): AutomationRow {
   return {
     id: r.id as AutomationId,
@@ -44,7 +46,7 @@ function rowToAutomation(r: Record<string, unknown>): AutomationRow {
   }
 }
 
-// POD-361-EDGE-CAST: as above.
+// SERIALIZATION EDGE: as above.
 function rowToRun(r: Record<string, unknown>): AutomationRunRow {
   return {
     id: r.id as AutomationRunId,
@@ -190,7 +192,7 @@ export class AutomationsRepository {
    *  spawned are absent from the map. Latest = highest rowid (insertion order), not
    *  MAX(fired_at): two fires can share a timestamp, and insertion order is the
    *  truth about which ran last. */
-  lastSpawnedSessions(): Map<string, string> {
+  lastSpawnedSessions(): Map<AutomationId, SessionId> {
     const rows = this.db
       .prepare(
         `SELECT automation_id, session_id FROM automation_runs r

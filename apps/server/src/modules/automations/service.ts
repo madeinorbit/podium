@@ -11,6 +11,7 @@
  * dispatcher changes.
  */
 
+import type { IssueId, SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import {
@@ -47,8 +48,8 @@ export interface AutomationsDeps {
     effort?: string
     spawnedBy?: string
     title?: string
-    issueId?: string
-  }): { sessionId: string }
+    issueId?: IssueId
+  }): { sessionId: SessionId }
   /** SessionsService.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
@@ -61,7 +62,7 @@ export interface AutomationsDeps {
     reason?: string
   }
   /** Wake and deliver to the previous run's session in resume mode. */
-  resumeAndSend(input: { sessionId: string; text: string; mutationId?: string }): {
+  resumeAndSend(input: { sessionId: SessionId; text: string; mutationId?: string }): {
     ok: boolean
     reason?: string
   }
@@ -74,9 +75,9 @@ export interface AutomationsDeps {
     defaultModel: string
     defaultEffort: string
     type: 'automation'
-  }): { id: string }
+  }): { id: IssueId }
   /** Sessions currently running — the overlap check's input. */
-  liveSessionIds(): Set<string>
+  liveSessionIds(): Set<SessionId>
   now(): Date
   /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
   homeDir?(): string

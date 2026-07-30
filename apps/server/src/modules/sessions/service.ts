@@ -294,14 +294,14 @@ interface SessionsServiceDeps {
  * public delegates.
  */
 export interface SessionSpawnResult {
-  sessionId: string
+  sessionId: SessionId
   agentId: string
   harness: AgentKind
   model: string | null
   effort: string | null
   machine: string
   machineId: string
-  accountId: string | null
+  accountId: AccountId | null
 }
 
 export class SessionsService {
@@ -1502,7 +1502,7 @@ export class SessionsService {
     model?: string
     effort?: string
     /** Resolved account selection from an execution profile; never credential material. */
-    accountId?: string
+    accountId?: AccountId
     /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
      *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
      *  takes effect. */

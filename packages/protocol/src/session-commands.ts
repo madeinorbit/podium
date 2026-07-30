@@ -34,7 +34,7 @@
  * widening the set is a product behaviour change, not a migration.
  */
 
-import { PinKind, WorkState } from '@podium/model'
+import { IssueIdField, PinKind, SessionIdField, WorkState } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from './commands'
 import { defineCommands } from './commands'
@@ -73,7 +73,7 @@ const pinKind = PinKind
  * human-sourced one.
  */
 const rename: CommandDef = {
-  input: z.object({ sessionId: z.string(), name: z.string().max(120), mutationId }),
+  input: z.object({ sessionId: SessionIdField, name: z.string().max(120), mutationId }),
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
   exposure: ['trpc'],
@@ -85,7 +85,7 @@ const rename: CommandDef = {
 }
 
 const setArchived: CommandDef = {
-  input: z.object({ sessionId: z.string(), archived: z.boolean(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, archived: z.boolean(), mutationId }),
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
   exposure: ['trpc'],
@@ -95,7 +95,7 @@ const setArchived: CommandDef = {
 }
 
 const setWorkState: CommandDef = {
-  input: z.object({ sessionId: z.string(), workState: workState.nullable(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, workState: workState.nullable(), mutationId }),
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
   exposure: ['trpc'],
@@ -114,7 +114,7 @@ const setWorkState: CommandDef = {
  * different row, a different owner, and no issue command covers it.
  */
 const setIssueId: CommandDef = {
-  input: z.object({ sessionId: z.string(), issueId: z.string().nullable(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, issueId: IssueIdField.nullable(), mutationId }),
   action: 'write',
   policy: { resource: 'session', scope: 'owner-or-grant', action: 'write' },
   exposure: ['trpc'],
@@ -132,7 +132,7 @@ const setIssueId: CommandDef = {
 /** Per-user read state. `policy.scope: 'self'` is what makes "one user setting
  *  another user's readAt" unrepresentable rather than merely unimplemented. */
 const markRead: CommandDef = {
-  input: z.object({ sessionId: z.string(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, mutationId }),
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
   exposure: ['trpc'],
@@ -144,7 +144,7 @@ const markRead: CommandDef = {
 const markUnread: CommandDef = { ...markRead }
 
 const snoozeSet: CommandDef = {
-  input: z.object({ sessionId: z.string(), until: z.string().nullable(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, until: z.string().nullable(), mutationId }),
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
   exposure: ['trpc'],
@@ -154,7 +154,7 @@ const snoozeSet: CommandDef = {
 }
 
 const snoozeClear: CommandDef = {
-  input: z.object({ sessionId: z.string(), mutationId }),
+  input: z.object({ sessionId: SessionIdField, mutationId }),
   action: 'write',
   policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
   exposure: ['trpc'],
@@ -244,7 +244,7 @@ const tabsSetOrder: CommandDef = {
  */
 const sessionDraft: CommandDef = {
   input: z.object({
-    sessionId: z.string(),
+    sessionId: SessionIdField,
     /** The `OpStreamDocument.revision` this edit was composed against. Absent ⇒
      *  unconditional (today's behaviour); present ⇒ the Authority may reject. */
     baseRevision: z.number().int().nonnegative().optional(),

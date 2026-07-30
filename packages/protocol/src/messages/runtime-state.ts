@@ -1,4 +1,4 @@
-import { AgentPhase, AgentRuntimeState, SessionMeta } from '@podium/model'
+import { AgentPhase, AgentRuntimeState, SessionIdField, SessionMeta } from '@podium/model'
 import { z } from 'zod'
 
 // The session aggregate and the agent-runtime-state family it embeds live in
@@ -161,7 +161,7 @@ export type AgentObservationMessage = z.infer<typeof AgentObservationMessage>
 /** Provider-neutral proof of a later unchanged live observer poll. [spec:SP-cdb2] */
 export const AgentObserverLiveConfirmationMessage = z.object({
   type: z.literal('agentObserverLiveConfirmation'),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().positive(),
@@ -177,7 +177,7 @@ export type AgentObserverLiveConfirmationMessage = z.infer<
 // server -> daemon. The durable commit precedes an accepted ack.
 export const AgentObservationAckMessage = z.object({
   type: z.literal('agentObservationAck'),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   observerGeneration: z.number().int().positive(),
   /** Exact binding fence. Optional only so an older server ack remains parseable. */
   bindingVersion: z.number().int().positive().optional(),
@@ -201,7 +201,7 @@ export type AgentObservationAckMessage = z.infer<typeof AgentObservationAckMessa
  */
 export const AgentObservationRebindMessage = z.object({
   type: z.literal('agentObservationRebind'),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
   providerSessionId: z.string().min(1).nullable(),
   observerGeneration: z.number().int().positive(),
@@ -214,7 +214,7 @@ export type AgentObservationRebindMessage = z.infer<typeof AgentObservationRebin
 
 export const AgentObservationRebindAckMessage = z.object({
   type: z.literal('agentObservationRebindAck'),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
   rebindId: z.string().min(1),
   priorObserverGeneration: z.number().int().positive(),
@@ -248,7 +248,7 @@ export const SessionViewDeltaMessage = z.object({
 // whole list per event is O(sessions × clients) several times a second.
 export const SessionAgentStateChangedMessage = z.object({
   type: z.literal('sessionAgentStateChanged'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   state: AgentRuntimeState,
 })
 
@@ -256,6 +256,6 @@ export const SessionAgentStateChangedMessage = z.object({
 // transitions only, never per-frame. daemon -> server.
 export const AgentStateMessage = z.object({
   type: z.literal('agentState'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   state: AgentRuntimeState,
 })

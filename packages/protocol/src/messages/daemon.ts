@@ -1,4 +1,4 @@
-import { ResumeRef } from '@podium/model'
+import { ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
@@ -69,7 +69,7 @@ import {
 // uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
 export const SessionResumeRefMessage = z.object({
   type: z.literal('sessionResumeRef'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   resume: ResumeRef,
   // Exact = native hook, known resume, or a legacy embedded Podium launch marker.
   // Heuristic/absent = cwd/time inference from an older daemon. Optional keeps
@@ -85,7 +85,7 @@ export const SessionResumeRefMessage = z.object({
 // the worktree it actually moved into, instead of pinning it to the launch dir.
 export const SessionCwdMessage = z.object({
   type: z.literal('sessionCwd'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   cwd: z.string(),
   // True when the agent DECLARED this worktree (`podium worktree`), as opposed to
   // hook-observed cd wandering. Its weight is on the DAEMON side: a declaration
@@ -119,7 +119,7 @@ export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 // git-state probes leave disclosed fallback mode.
 export const SessionGitActivityMessage = z.object({
   type: z.literal('sessionGitActivity'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   commits: z.array(z.string()).optional(),
   touched: z.array(z.string()).optional(),
 })
@@ -131,7 +131,7 @@ export type SessionGitActivityMessage = z.infer<typeof SessionGitActivityMessage
 // with zero browsers attached.
 export const NativeDraftMessage = z.object({
   type: z.literal('nativeDraft'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   text: z.string(),
 })
 export type NativeDraftMessage = z.infer<typeof NativeDraftMessage>

@@ -1,4 +1,4 @@
-import { AgentKind, Geometry, ResumeRef } from '@podium/model'
+import { AgentKind, Geometry, ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 const positiveInt = z.number().int().positive()
@@ -199,7 +199,7 @@ export function agentSupportsHandoff(kind: AgentKind | (string & {})): boolean {
 /** Server confirms that an exact native resume binding is durably stored. */
 export const SessionResumeRefAckMessage = z.object({
   type: z.literal('sessionResumeRefAck'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   resume: ResumeRef,
 })
 
@@ -218,7 +218,7 @@ export const HelloMessage = z.object({
 })
 export const AttachMessage = z.object({
   type: z.literal('attach'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   // Resume cursor: the last outputFrame seq this client already rendered. Sent on a
   // reconnect, where the terminal view survived the socket drop — the server then
   // replays only the frames after this point and marks the attach `resumed` so the
@@ -226,10 +226,10 @@ export const AttachMessage = z.object({
   // or when the client has rendered nothing yet → full replay + clear.
   sinceSeq: z.number().int().nonnegative().optional(),
 })
-export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: z.string() })
+export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: SessionIdField })
 export const InputMessage = z.object({
   type: z.literal('input'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   data: z.string(),
   /** Intended causal source of a provider-confirmed prompt. Optional for mixed
    * deployments; the daemon never treats intent alone as a turn edge. */
@@ -249,16 +249,16 @@ export const InputMessage = z.object({
 // Client's requested terminal grid; controller-authoritative. Geometry shape + sessionId.
 export const ResizeMessage = z.object({
   type: z.literal('resize'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   ...Geometry.shape,
 })
 export const RequestControlMessage = z.object({
   type: z.literal('requestControl'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
 })
 export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
 })
 // Liveness probe. The browser pings periodically so a half-open connection (laptop
 // sleep, dead proxy hop) is detected client-side, and idle-timeout proxies see
@@ -291,7 +291,7 @@ export const ViewStateMessage = z.object({
 // (issue #34) — real user work is never lost.
 export const SetSessionDraftMessage = z.object({
   type: z.literal('setSessionDraft'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   text: z.string(),
 })
 export type SetSessionDraftMessage = z.infer<typeof SetSessionDraftMessage>
@@ -303,7 +303,7 @@ export type SetSessionDraftMessage = z.infer<typeof SetSessionDraftMessage>
 // sending `setSessionDraft`; the server treats that as an unconditional edit.
 export const DraftEditMessage = z.object({
   type: z.literal('draftEdit'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   /** The rev the sender believed it was editing from (0 = from-empty). */
   baseRev: z.number().int().nonnegative(),
   text: z.string(),
@@ -315,7 +315,7 @@ export type DraftEditMessage = z.infer<typeof DraftEditMessage>
 // catchup), so the daemon's injection state machine mirrors chat → native.
 export const DraftTargetMessage = z.object({
   type: z.literal('draftTarget'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   text: z.string(),
 })
 export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
@@ -324,7 +324,7 @@ export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 export const WelcomeMessage = z.object({ type: z.literal('welcome'), clientId: z.string() })
 export const AttachedMessage = z.object({
   type: z.literal('attached'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   controllerId: z.string().nullable(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),
@@ -336,27 +336,27 @@ export const AttachedMessage = z.object({
 })
 export const OutputFrameMessage = z.object({
   type: z.literal('outputFrame'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   seq: z.number().int().nonnegative(),
   epoch: z.number().int().nonnegative(),
   data: z.string(),
 })
 export const ControllerChangedMessage = z.object({
   type: z.literal('controllerChanged'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   controllerId: z.string().nullable(),
   geometry: Geometry,
 })
 // Server's authoritative PTY size, per session — lets spectators letterbox.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   ...Geometry.shape,
 })
 // Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const AgentExitMessage = z.object({
   type: z.literal('agentExit'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   code: z.number().int(),
 })
 
@@ -373,7 +373,7 @@ export type AgentInstruction = z.infer<typeof AgentInstruction>
 
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   durableLabel: z.string().optional(),
   agentKind: AgentKind,
   cwd: z.string(),
@@ -418,7 +418,7 @@ export const SpawnMessage = z.object({
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
@@ -451,22 +451,22 @@ export const ReattachMessage = z.object({
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   durableLabel: z.string().optional(),
 })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
 // 3=unwatched). Drives the daemon's output scheduler.
 export const SessionPriorityMessage = z.object({
   type: z.literal('sessionPriority'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   priority: z.number().int().min(0).max(3),
 })
-export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
+export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
 
 // daemon -> server
 export const BindMessage = z.object({
   type: z.literal('bind'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   cmd: z.string(),
   cwd: z.string(),
   agentKind: AgentKind,
@@ -478,37 +478,37 @@ export const BindMessage = z.object({
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   seq: z.number().int().nonnegative(),
   data: z.string(),
 })
 export const AgentFrameBatchMessage = z.object({
   type: z.literal('agentFrameBatch'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   // Coalesced PTY frames (base64 data only — the server assigns its own seq).
   frames: z.array(z.string()),
 })
 export const SpawnErrorMessage = z.object({
   type: z.literal('spawnError'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   message: z.string(),
 })
 export const ReattachFailedMessage = z.object({
   type: z.literal('reattachFailed'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   reason: z.string(),
 })
 // Live terminal title sniffed from the agent's PTY (OSC 0/1/2). The daemon
 // detects it in the byte stream and forwards it so the server can label the panel.
 export const TitleMessage = z.object({
   type: z.literal('title'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   title: z.string(),
 })
 // Daemon → server: the agent's `/color` accent, parsed from the transcript tail.
 export const AgentColorMessage = z.object({
   type: z.literal('agentColor'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   color: z.string(),
 })
 // Daemon → server: the model observed producing assistant turns (`message.model`
@@ -516,7 +516,7 @@ export const AgentColorMessage = z.object({
 // mid-session `/model` switches; rides the same transcript tail as agentColor.
 export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   model: z.string(),
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
