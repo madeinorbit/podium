@@ -792,3 +792,53 @@ Still open and handed on, with the measurement: `IssueAggregate` cannot become t
 in-memory type until **POD-1075** (owner/visibility/attribution columns) and **POD-1076** (per-user
 rows) land — `Map<string, IssueRow>` reads three field classes R1 excludes by construction. That is
 structural, not effort.
+
+---
+
+## Wave 6: two coordinator errors corrected, and the parallelism I had wrongly written off
+
+Merged POD-1153 (handoff manifest format 2 + a v1-upgrading reader) and POD-1151 (the one
+`toStorage`/`fromStorage` pair — inventory §3 #2, the last of POD-367's remainder). **24/100 closed.**
+
+### I told the whole fleet to run uncached typechecks, and it was wrong
+
+Measured: a turbo cache **hit is ~0.5s against ~36–65s forced**, and it is a genuine hit — turbo
+content-hashes inputs and `typecheck` declares `dependsOn: ["^typecheck"]`, so an upstream change
+invalidates dependents. Every agent has been paying that, many times each, for nothing.
+
+What ADR 8 D3 *actually* says is that a cache hit does not prove `@podium/*` resolved **inside this
+checkout** — a statement about worktree isolation, not about the typecheck's validity as a type check.
+I turned the narrow claim into a blanket rule. **Same error class as my POD-1138 broadcast**: a true,
+narrow finding restated one scope too wide and then handed to N agents as an instruction.
+
+The rule that does matter is POD-1146's, and it now leads the section: **run it so the program actually
+covers your package.** Two agents reported `exit 0` from the repo root where no program covered the
+package they were changing — it would have returned 0 for any input, and in-package it immediately
+surfaced a real error one of them had shipped into its own test file.
+
+Worktree caveat recorded so agents can judge for themselves: these worktrees carry a `node_modules`
+with **no `@podium` scope**, so cross-package resolution runs through source conditions rather than a
+local install.
+
+### The ramp-up was the real cost, and the ledger was part of it
+
+Commit cadence for the three streams that finished this morning: **29–40 minutes before the first
+commit**, then one every 4–6 minutes. Tool time per verification round is 1–2 min, so **~80–85% of a
+stream's wall time is reading, reasoning and writing** — no tool call is the bottleneck.
+
+A large part of that ramp-up is reading I mandated: a 117-line protocol, a **764-line** ledger, and a
+preamble that had grown to 46 dense lines of 12 rules. The wave-6 preamble is cut to **7 rules that
+actually bite** (32 lines), and briefs now say explicitly: **do NOT read the whole ledger** — grep it
+for your issue number. This file is run history, not required reading.
+
+### "Everything is serialized behind POD-362" was wrong
+
+I read the gate chain (363 → 423 → 288 → 351 → 305) and concluded parallelism was unavailable, then
+ran three streams and told the user the bottleneck was queue mechanics. In fact **six leaf issues were
+`ready=true, blocked=false` the whole time** — 371, 372, 380, 381, 642, 728. The gate chain blocks the
+GATES; it does not block the leaves underneath them.
+
+> Check `ready`/`blocked` on the leaves before concluding a chain has starved the fan-out. A milestone
+> being blocked says nothing about its children.
+
+Wave 6 runs POD-371, POD-372, POD-380, POD-381 alongside POD-362, taking the fleet to five.
