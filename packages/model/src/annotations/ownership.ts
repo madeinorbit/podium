@@ -136,10 +136,20 @@ export const VISIBILITY_CLASSES = [
 
 export type VisibilityClass = (typeof VISIBILITY_CLASSES)[number]
 
-/** ADR 9 D2 / D6's closed verb set: `read`/`write` for personal classes,
- *  `see`/`use`/`manage` for owned compute. `use` is a CODE-EXECUTION boundary
- *  (D6 M2) and must never be annotated as if it were a personal `read`. */
-export type GrantVerb = 'read' | 'write' | 'see' | 'use' | 'manage'
+/**
+ * ADR 9 D2 / D6's closed verb set: `read`/`write` for personal classes,
+ * `see`/`use`/`manage` for owned compute. `use` is a CODE-EXECUTION boundary
+ * (D6 M2) and must never be annotated as if it were a personal `read`.
+ *
+ * A `const` array rather than a bare union for the same reason
+ * {@link VISIBILITY_CLASSES} is one: POD-1075's grant-edge aggregate
+ * (`identity/grant.ts`) needs the same five members as a zod enum, and deriving
+ * both from this one list makes "there is exactly one verb vocabulary" a
+ * structural fact rather than two files agreeing to stay in step.
+ */
+export const GRANT_VERBS = ['read', 'write', 'see', 'use', 'manage'] as const
+
+export type GrantVerb = (typeof GRANT_VERBS)[number]
 
 /**
  * How the owner of a row is determined. Amendment 1 D8: the value is a `UserId`

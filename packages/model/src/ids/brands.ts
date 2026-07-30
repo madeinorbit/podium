@@ -48,6 +48,11 @@
  * ADR 4 Amendment 1 D9.1 adds `UserId`): `SessionId`, `IssueId`, `MachineId`,
  * `RepoId`, `ConversationId`, `MutationId`, `ThreadId`, `UserId`.
  *
+ * PRINCIPAL-FAMILY — `AgentIdentityId` (POD-365) and `DeviceId` (POD-1075), the
+ * actor and device halves of ADR 9 D1's `(user, device, capability)`. They are
+ * in the same file because a brand has one home, and documented apart because
+ * they name a principal rather than a durable Podium row.
+ *
  * TIER 2 — added by POD-361 because a `packages/model` entity field names one
  * and leaving it raw is what ADR 4 D3.5 calls an audit failure; recorded for
  * ratification rather than assumed: `AutomationId`, `AutomationRunId`,
@@ -206,6 +211,39 @@ export const AgentIdentityId = z.string().min(1).brand<'AgentIdentityId'>()
 export type AgentIdentityId = z.infer<typeof AgentIdentityId>
 export const AgentIdentityIdField = idField<'AgentIdentityId'>()
 export const asAgentIdentityId = (s: string): AgentIdentityId => s as AgentIdentityId
+
+/**
+ * A DEVICE — the authenticated client session or daemon binding a call arrived
+ * on, and the half of ADR 9 D1's `(user, device, capability)` principal that
+ * names *which connection* rather than *which person*.
+ *
+ * Re-homed from `@podium/protocol`'s `planes/principal.ts` by POD-1075,
+ * following the {@link UserId} (POD-361) and {@link AgentIdentityId} (POD-365)
+ * precedents and that module's own instruction: `DeviceId` *"stays here on
+ * purpose … `packages/model` gains them with that aggregate or not at all"*.
+ * The aggregate is here now (`identity/user.ts`, `identity/client-session.ts`),
+ * so the brand comes with it. Protocol re-exports from here, so `Principal`,
+ * the delegation chain and the plane ports are untouched.
+ *
+ * NOT AN ENTITY ID IN THE POD-301 SENSE, and the distinction is why it is
+ * documented separately rather than slipped into Tier 1: it names a transport
+ * BINDING with a login-scoped lifetime, not a durable Podium row. Its
+ * counterpart `CapabilityRef` and `DelegationRef` deliberately stay in
+ * `@podium/protocol` — they are opaque server-minted references the plane ports
+ * carry and must never inspect, and giving L0 a name for them would invite a
+ * consumer to look inside one.
+ *
+ * WHAT IT MAKES SAYABLE. Until now a client session was a device *or* a person
+ * and the system had one word for both. `SessionMeta.controllerId` holds a
+ * websocket `client.id` and `brands.ts` already recorded that its brand belongs
+ * to "ADR 9's `DeviceId` family, which POD-1075 owns"; adopting it AT that field
+ * is a separate sweep (POD-362/POD-363) and is deliberately not done here — the
+ * brand exists so there is something to brand towards.
+ */
+export const DeviceId = z.string().min(1).brand<'DeviceId'>()
+export type DeviceId = z.infer<typeof DeviceId>
+export const DeviceIdField = idField<'DeviceId'>()
+export const asDeviceId = (s: string): DeviceId => s as DeviceId
 
 // ---------------------------------------------------------------------------
 // Tier 2 — added by POD-361, recorded for ratification (see the header)

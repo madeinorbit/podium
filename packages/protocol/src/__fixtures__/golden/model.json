@@ -99,6 +99,111 @@
       "encoded": "{\"kind\":\"system\",\"job\":\"job\"}"
     },
     {
+      "schema": "AgentDelegation",
+      "variant": "minimal",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "all"
+        },
+        "parentAgentIdentity": null,
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"all\"},\"parentAgentIdentity\":null,\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "AgentDelegation",
+      "variant": "full/arm0",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "all"
+        },
+        "parentAgentIdentity": "parentAgentIdentity",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"all\"},\"parentAgentIdentity\":\"parentAgentIdentity\",\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "AgentDelegation",
+      "variant": "full/arm1",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "none"
+        },
+        "parentAgentIdentity": "parentAgentIdentity",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"none\"},\"parentAgentIdentity\":\"parentAgentIdentity\",\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "AgentDelegation",
+      "variant": "full/arm2",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "subtree",
+          "rootId": "scope.rootId"
+        },
+        "parentAgentIdentity": "parentAgentIdentity",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"subtree\",\"rootId\":\"scope.rootId\"},\"parentAgentIdentity\":\"parentAgentIdentity\",\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "AgentDelegation",
+      "variant": "full/arm3",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "owned",
+          "userId": "scope.userId"
+        },
+        "parentAgentIdentity": "parentAgentIdentity",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"owned\",\"userId\":\"scope.userId\"},\"parentAgentIdentity\":\"parentAgentIdentity\",\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "AgentDelegation",
+      "variant": "full/arm4",
+      "wire": {
+        "agentIdentity": "agentIdentity",
+        "onBehalfOf": "onBehalfOf",
+        "scope": {
+          "kind": "self",
+          "userId": "scope.userId"
+        },
+        "parentAgentIdentity": "parentAgentIdentity",
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"agentIdentity\":\"agentIdentity\",\"onBehalfOf\":\"onBehalfOf\",\"scope\":{\"kind\":\"self\",\"userId\":\"scope.userId\"},\"parentAgentIdentity\":\"parentAgentIdentity\",\"createdAt\":\"createdAt\"}"
+    },
+    {
       "schema": "AgentError",
       "variant": "minimal",
       "wire": {
@@ -686,6 +791,34 @@
       "encoded": "{\"id\":\"id\",\"name\":\"name\",\"enabled\":true,\"repoPath\":\"repoPath\",\"scheduleKind\":\"cron\",\"cron\":\"cron\",\"runAt\":\"runAt\",\"targetSessionId\":\"targetSessionId\",\"agentKind\":\"agentKind\",\"model\":\"model\",\"effort\":\"effort\",\"prompt\":\"prompt\",\"sessionMode\":\"fresh\",\"nextRunAt\":\"nextRunAt\",\"lastRunAt\":\"lastRunAt\",\"createdAt\":\"createdAt\"}"
     },
     {
+      "schema": "ClientSessionAggregate",
+      "variant": "minimal",
+      "wire": {
+        "device": "device",
+        "user": "user",
+        "createdAt": "createdAt",
+        "expiresAt": "expiresAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"device\":\"device\",\"user\":\"user\",\"createdAt\":\"createdAt\",\"expiresAt\":\"expiresAt\"}"
+    },
+    {
+      "schema": "ClientSessionAggregate",
+      "variant": "full",
+      "wire": {
+        "device": "device",
+        "user": "user",
+        "createdAt": "createdAt",
+        "expiresAt": "expiresAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"device\":\"device\",\"user\":\"user\",\"createdAt\":\"createdAt\",\"expiresAt\":\"expiresAt\"}"
+    },
+    {
       "schema": "ConversationDiagnosticWire",
       "variant": "minimal",
       "wire": {
@@ -816,6 +949,129 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"path\":\"path\",\"podiumId\":\"podiumId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"summary\":\"summary\",\"projectPath\":\"projectPath\",\"parentConversationId\":\"parentConversationId\",\"statusHint\":\"statusHint\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"git.branch\",\"sha\":\"git.sha\",\"originUrl\":\"git.originUrl\"},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"providerId\":\"providerId\"}"
+    },
+    {
+      "schema": "CredentialSource",
+      "variant": "minimal",
+      "wire": "instance-password",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"instance-password\""
+    },
+    {
+      "schema": "CredentialSource",
+      "variant": "full",
+      "wire": "instance-password",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"instance-password\""
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "minimal",
+      "wire": {
+        "kind": "all"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"all\"}"
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "all"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"all\"}"
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "none"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"none\"}"
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "subtree",
+        "rootId": "rootId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"subtree\",\"rootId\":\"rootId\"}"
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "owned",
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"owned\",\"userId\":\"userId\"}"
+    },
+    {
+      "schema": "DelegationScope",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "self",
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"self\",\"userId\":\"userId\"}"
+    },
+    {
+      "schema": "DeviceId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "DeviceId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "DeviceIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "DeviceIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "DirectoryEntryWire",
@@ -1082,6 +1338,168 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"path\":\"path\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"locked\":true,\"prunable\":true}"
+    },
+    {
+      "schema": "GrantEdge",
+      "variant": "minimal",
+      "wire": {
+        "resourceKind": "session",
+        "resourceId": "resourceId",
+        "owner": "owner",
+        "visibility": "personal",
+        "grantee": "grantee",
+        "verb": "read",
+        "createdAt": "createdAt",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"session\",\"resourceId\":\"resourceId\",\"owner\":\"owner\",\"visibility\":\"personal\",\"grantee\":\"grantee\",\"verb\":\"read\",\"createdAt\":\"createdAt\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "GrantEdge",
+      "variant": "full/arm0",
+      "wire": {
+        "resourceKind": "session",
+        "resourceId": "resourceId",
+        "owner": "owner",
+        "visibility": "personal",
+        "grantee": "grantee",
+        "verb": "read",
+        "createdAt": "createdAt",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"session\",\"resourceId\":\"resourceId\",\"owner\":\"owner\",\"visibility\":\"personal\",\"grantee\":\"grantee\",\"verb\":\"read\",\"createdAt\":\"createdAt\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "GrantEdge",
+      "variant": "full/arm1",
+      "wire": {
+        "resourceKind": "issue",
+        "resourceId": "resourceId",
+        "owner": "owner",
+        "visibility": "per-user-state",
+        "grantee": "grantee",
+        "verb": "write",
+        "createdAt": "createdAt",
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"issue\",\"resourceId\":\"resourceId\",\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"grantee\":\"grantee\",\"verb\":\"write\",\"createdAt\":\"createdAt\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "GrantEdge",
+      "variant": "full/arm2",
+      "wire": {
+        "resourceKind": "conversation",
+        "resourceId": "resourceId",
+        "owner": "owner",
+        "visibility": "owned-compute",
+        "grantee": "grantee",
+        "verb": "see",
+        "createdAt": "createdAt",
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"conversation\",\"resourceId\":\"resourceId\",\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"grantee\":\"grantee\",\"verb\":\"see\",\"createdAt\":\"createdAt\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "GrantEdge",
+      "variant": "full/arm3",
+      "wire": {
+        "resourceKind": "repo",
+        "resourceId": "resourceId",
+        "owner": "owner",
+        "visibility": "deployment-substrate",
+        "grantee": "grantee",
+        "verb": "use",
+        "createdAt": "createdAt",
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"repo\",\"resourceId\":\"resourceId\",\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"grantee\":\"grantee\",\"verb\":\"use\",\"createdAt\":\"createdAt\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "GrantResource",
+      "variant": "minimal",
+      "wire": {
+        "resourceKind": "session",
+        "resourceId": "resourceId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"session\",\"resourceId\":\"resourceId\"}"
+    },
+    {
+      "schema": "GrantResource",
+      "variant": "full",
+      "wire": {
+        "resourceKind": "session",
+        "resourceId": "resourceId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resourceKind\":\"session\",\"resourceId\":\"resourceId\"}"
+    },
+    {
+      "schema": "GrantVerbField",
+      "variant": "minimal",
+      "wire": "read",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"read\""
+    },
+    {
+      "schema": "GrantVerbField",
+      "variant": "full",
+      "wire": "read",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"read\""
     },
     {
       "schema": "HandoffManifest",
@@ -7493,6 +7911,154 @@
       "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"messages\":1}"
     },
     {
+      "schema": "UserAccount",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "admin",
+        "createdAt": "createdAt",
+        "disabledAt": null,
+        "owner": "owner",
+        "visibility": "personal",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"admin\",\"createdAt\":\"createdAt\",\"disabledAt\":null,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "UserAccount",
+      "variant": "full/arm0",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "admin",
+        "createdAt": "createdAt",
+        "disabledAt": "disabledAt",
+        "owner": "owner",
+        "visibility": "personal",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"admin\",\"createdAt\":\"createdAt\",\"disabledAt\":\"disabledAt\",\"owner\":\"owner\",\"visibility\":\"personal\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "UserAccount",
+      "variant": "full/arm1",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "member",
+        "createdAt": "createdAt",
+        "disabledAt": "disabledAt",
+        "owner": "owner",
+        "visibility": "per-user-state",
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"member\",\"createdAt\":\"createdAt\",\"disabledAt\":\"disabledAt\",\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "UserAccount",
+      "variant": "full/arm2",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "member",
+        "createdAt": "createdAt",
+        "disabledAt": "disabledAt",
+        "owner": "owner",
+        "visibility": "owned-compute",
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"member\",\"createdAt\":\"createdAt\",\"disabledAt\":\"disabledAt\",\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "UserAccount",
+      "variant": "full/arm3",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "member",
+        "createdAt": "createdAt",
+        "disabledAt": "disabledAt",
+        "owner": "owner",
+        "visibility": "deployment-substrate",
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"member\",\"createdAt\":\"createdAt\",\"disabledAt\":\"disabledAt\",\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "UserCredential",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "source": "instance-password",
+        "passwordHash": null,
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"source\":\"instance-password\",\"passwordHash\":null,\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "UserCredential",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "source": "instance-password",
+        "passwordHash": "passwordHash",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"source\":\"instance-password\",\"passwordHash\":\"passwordHash\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
       "schema": "UserId",
       "variant": "minimal",
       "wire": "x",
@@ -7511,6 +8077,30 @@
       "encoded": "\"x\""
     },
     {
+      "schema": "UserIdentity",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\"}"
+    },
+    {
+      "schema": "UserIdentity",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\"}"
+    },
+    {
       "schema": "UserIdField",
       "variant": "minimal",
       "wire": "",
@@ -7527,6 +8117,98 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "UserLifecycle",
+      "variant": "minimal",
+      "wire": {
+        "createdAt": "createdAt",
+        "disabledAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"createdAt\":\"createdAt\",\"disabledAt\":null}"
+    },
+    {
+      "schema": "UserLifecycle",
+      "variant": "full",
+      "wire": {
+        "createdAt": "createdAt",
+        "disabledAt": "disabledAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"createdAt\":\"createdAt\",\"disabledAt\":\"disabledAt\"}"
+    },
+    {
+      "schema": "UserRole",
+      "variant": "minimal",
+      "wire": "admin",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"admin\""
+    },
+    {
+      "schema": "UserRole",
+      "variant": "full",
+      "wire": "admin",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"admin\""
+    },
+    {
+      "schema": "UserRoleGroup",
+      "variant": "minimal",
+      "wire": {
+        "role": "admin"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"admin\"}"
+    },
+    {
+      "schema": "UserRoleGroup",
+      "variant": "full",
+      "wire": {
+        "role": "admin"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"role\":\"admin\"}"
+    },
+    {
+      "schema": "UserWire",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "admin",
+        "disabledAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"admin\",\"disabledAt\":null}"
+    },
+    {
+      "schema": "UserWire",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "role": "admin",
+        "disabledAt": "disabledAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"role\":\"admin\",\"disabledAt\":\"disabledAt\"}"
     },
     {
       "schema": "VisibilityClassField",

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { asMatrixRowId } from '../annotations/ownership'
+import { asMatrixRowId, visibilityClassOf } from '../annotations/ownership'
 import { ROW } from '../annotations/matrix'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
+import { ClientSessionAggregate } from '../identity/client-session'
+import { UserAccount } from '../identity/user'
 import { IssueAggregate } from './issue'
 import { SESSION_IMMUTABLE_AFTER_CREATE, SessionAggregate } from './session'
 import {
@@ -84,8 +86,15 @@ describe('default-closed classification: an unclassified aggregate FAILS', () =>
    * quietly iterated one fewer case. Coverage evaporating without a red is the
    * worse half of that finding.
    */
-  it('actually REGISTERS both aggregates — not merely resolves them by default', () => {
-    expect(CANONICAL_AGGREGATES.map((a) => a.name).sort()).toEqual(['Issue', 'Session'])
+  it('actually REGISTERS every aggregate — not merely resolves them by default', () => {
+    expect(CANONICAL_AGGREGATES.map((a) => a.name).sort()).toEqual([
+      'ClientSession',
+      'Grant',
+      'Issue',
+      'Session',
+      'User',
+      'UserCredential',
+    ])
   })
 
   it('reads the DECLARED class, not the default — shown with a non-personal one', () => {
@@ -101,12 +110,59 @@ describe('default-closed classification: an unclassified aggregate FAILS', () =>
     expect(aggregateVisibilityOf('Session', declaredSubstrate)).toBe('personal')
   })
 
-  it('classifies both canonical aggregates as personal, not substrate', () => {
+  it('classifies each canonical aggregate as the matrix does, and none as substrate', () => {
     // Meaningful only alongside the two tests above: the membership pin proves
     // they are registered, and the counterfactual proves the function reads the
     // declaration rather than returning the default regardless.
+    //
+    // Three DIFFERENT answers, which is the point of asserting them one by one
+    // rather than looping "is it personal": if the resolver ignored the registry
+    // and returned the default, `UserCredential` and `ClientSession` would come
+    // back `personal` and this would fail. A suite in which every expected value
+    // equals the default cannot tell a declaration from an absence.
     expect(aggregateVisibilityOf('Session')).toBe('personal')
     expect(aggregateVisibilityOf('Issue')).toBe('personal')
+    expect(aggregateVisibilityOf('User')).toBe('personal')
+    expect(aggregateVisibilityOf('Grant')).toBe('personal')
+    expect(aggregateVisibilityOf('UserCredential')).toBe('secret')
+    expect(aggregateVisibilityOf('ClientSession')).toBe('per-user-state')
+
+    // The tenant-visible floor is deliberately small (readiness §3.1.1): nothing
+    // this package declares canonical is substrate.
+    for (const agg of CANONICAL_AGGREGATES) {
+      expect(agg.visibility).not.toBe('deployment-substrate')
+    }
+  })
+
+  /**
+   * THE POD-731 REFINEMENT, applied here.
+   *
+   * `visibilityClassOf` is TOTAL and default-closed, so a MISTYPED matrix row id
+   * also resolves `personal` — which means an aggregate that declares `personal`
+   * against a row that does not exist passes the agreement check and is caught
+   * only by the separate missing-row check. Asserting that every registered
+   * aggregate's row is really ON the matrix is therefore a distinct obligation,
+   * and this demonstrates the backstop firing on one that is not.
+   */
+  it('every registered row id is really on the matrix — with the backstop shown firing', () => {
+    expect(classificationViolations(CANONICAL_AGGREGATES).filter((v) => v.kind === 'no-matrix-row'))
+      .toEqual([])
+
+    // The demonstration: a typo in the row id, with a declaration that AGREES
+    // with what the default-closed resolver answers for it. The agreement check
+    // is silent — proved below — and only the membership check catches it.
+    const typo: CanonicalAggregate = {
+      name: 'UserWithTypoRow',
+      schema: UserAccount,
+      matrixRow: asMatrixRowId('user-acount'),
+      visibility: 'personal',
+    }
+    const violations = classificationViolations([typo])
+
+    expect(violations.map((v) => v.kind)).toEqual(['no-matrix-row'])
+    // …and this is why it is a separate obligation: the resolver is perfectly
+    // happy, because default-closed means "never heard of it" answers `personal`.
+    expect(visibilityClassOf('user-acount')).toBe('personal')
   })
 })
 
@@ -135,15 +191,93 @@ describe('per-user state is absent from the canonical aggregates', () => {
 })
 
 describe('the aggregates carry ownership and attribution, and not their alternatives', () => {
-  it.each(CANONICAL_AGGREGATES)('$name composes the Ownership group', ({ schema }) => {
-    for (const key of Object.keys(Ownership.shape)) {
-      expect(schema.shape).toHaveProperty(key)
+  /**
+   * WHICH CLASSES CARRY `Ownership`, AND WHY IT IS NOT ALL OF THEM.
+   *
+   * "Every canonical aggregate composes Ownership" was true while the only two
+   * were `personal`, and it stops being true the moment the identity classes
+   * arrive — not because they were skipped, but because ADR 1's matrix declares
+   * that they have no owner column to carry:
+   *
+   *   - `secret` (`UserCredential`): the matrix row's owner rule is literally
+   *     `{ kind: 'none', reason: 'secret' }`, with the reasoning spelled out —
+   *     credential material AUTHENTICATES a person but is not theirs to grant or
+   *     transfer, and giving it an owner would imply transfer semantics for
+   *     credentials. An `owner` key here would be the wrong claim, not a missing
+   *     one.
+   *   - `per-user-state` (`ClientSession`): the owner resolves
+   *     `the-user-in-the-key`, so the row's `user` IS its owner. A second owner
+   *     column that could differ from it would make a non-grantable class
+   *     shareable by accident (ADR 9 D3 rule 4).
+   *
+   * So the expectation is keyed on the DECLARED CLASS, and the negative half is
+   * asserted as loudly as the positive one — a test that only checked "personal
+   * classes have an owner" would pass just as happily if the credential grew
+   * one.
+   */
+  it.each(CANONICAL_AGGREGATES)('$name composes Ownership iff its class has an owner', ({
+    schema,
+    visibility,
+  }) => {
+    const ownershipKeys = Object.keys(Ownership.shape)
+    const carried = ownershipKeys.filter((k) => k in schema.shape)
+
+    switch (visibility) {
+      case 'personal':
+      case 'owned-compute':
+        expect(carried.sort()).toEqual(ownershipKeys.sort())
+        break
+      case 'secret':
+      case 'per-user-state':
+      case 'deployment-substrate':
+        expect(carried).toEqual([])
+        break
     }
   })
 
-  it.each(CANONICAL_AGGREGATES)('$name carries the attribution PAIR, unsplit', ({ schema }) => {
-    const createdBy = (schema.shape as Record<string, unknown>).createdBy
-    expect(createdBy).toBeDefined()
+  it('the per-user-state class carries its user in the key instead of an owner', () => {
+    // The other half of the negative above: `ClientSession` has no `owner`, and
+    // that is only correct because it has a `user`. Without this, "no owner" and
+    // "no idea whose it is" would be indistinguishable.
+    expect(ClientSessionAggregate.shape).toHaveProperty('user')
+    expect(ClientSessionAggregate.shape).not.toHaveProperty('owner')
+  })
+
+  it.each(CANONICAL_AGGREGATES)('$name carries the attribution PAIR, unsplit', ({
+    name,
+    schema,
+  }) => {
+    // WHICH KEY holds the pair differs by class, and the list is exhaustive over
+    // the registry so a new aggregate cannot join without declaring one. A
+    // `.filter()` over "the ones that have createdBy" would have let the two
+    // classes that lack it pass by not being looked at.
+    const PAIR_KEY: Record<string, string | null> = {
+      Session: 'createdBy',
+      Issue: 'createdBy',
+      User: 'createdBy',
+      Grant: 'createdBy',
+      // Written by the login path and by the migration, never by a person or an
+      // agent acting for one: a device row's attribution is the `user` it
+      // resolves to, and a `createdBy` beside it would be a second, weaker
+      // answer to the same question.
+      ClientSession: null,
+      // `secret`, `replication: 'none'`: it never leaves the server and never
+      // enters the outbox, so there is no replicated write to attribute.
+      UserCredential: null,
+    }
+    const expected = PAIR_KEY[name]
+    // `undefined` means this aggregate is not in the table at all — a new
+    // registry member that never declared where its pair lives. Failing here is
+    // the point: the table is exhaustive over the registry by assertion, not by
+    // a `.filter()` that would let an undeclared class pass by not being looked
+    // at.
+    expect(expected === undefined).toBe(false)
+
+    if (expected === null || expected === undefined) {
+      expect(schema.shape).not.toHaveProperty('createdBy')
+      return
+    }
+    expect((schema.shape as Record<string, unknown>)[expected]).toBeDefined()
 
     // The pair is a pair: both halves, on one object. A shape carrying only an
     // actor would satisfy "has attribution" and violate ADR 9 D5 A3.
