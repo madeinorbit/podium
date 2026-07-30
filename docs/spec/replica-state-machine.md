@@ -214,12 +214,33 @@ what D4's lenient-parsing rule buys.
 |---|---|
 | `ReplicaCacheStore` — entities + cursor, atomic batches, atomic install | ADR 6 D3; POD-374 (IndexedDB) / POD-375 (mobile SQLite) supply durable adapters |
 | `AuthorityReadPort` — `changesSince`, chunked `bootstrap` | POD-305 (Authority), POD-1077 (scoping), POD-373 (wiring) |
-| `OptimisticOverlayPort` — `pending` / `reduce` / `retire` | **Declared only.** POD-372 derives overlays from contract reducers; POD-351 ships the first real contract |
+| `OptimisticOverlayPort` — `pending` / `reduce` / `retire` | Declared here; **consumed** by POD-372's projection. POD-351 ships the first real reducer through it, POD-311 populates the rest |
 | `KnownKindValidatorPort` — `knows` / `validate` | **Declared only.** POD-308's wire adapter / POD-351's contracts know the schemas; the kernel must not |
 
 The overlay is **derived, never stored twice** (ADR 4 D7): it is a function of (authoritative
-base, pending commands). Nothing persists an overlay row, which is also why a re-bootstrap
-cannot lose one — the outbox survives, so the overlay simply recomputes. Retirement is exact,
+base, pending commands), and it is literally that — `computeOverlay` in
+`replica/overlay-projection.ts` is a pure function with no store handle and no `this`. Nothing
+persists an overlay row, which is also why a re-bootstrap cannot lose one — the outbox
+survives, so the overlay simply recomputes.
+
+Three rules the projection holds, and where each one is closed (POD-372):
+
+- **A pending write never makes an entity visible.** An entity that has left the view takes its
+  overlay with it, and the exit branch returns *before* any reducer runs — so for an `evict` (a
+  revoked share, readiness §3.1) there is no reducer output that could re-expose revoked
+  content. `remove` is the same branch: a pending edit must not un-delete a tombstone.
+- **A command with no reducer renders as pending and changes nothing.** The reducer answers with
+  a closed `OptimisticEffect` (`value` / `absent` / `no-reducer`) rather than a bare value,
+  because `undefined` cannot distinguish "this command deletes the row" from "I have no reducer"
+  — and a command whose effect depends on server-side authorization has no client-derivable
+  effect to guess at.
+- **A provisional row's owner is copied, never chosen.** For a create the overlay materialises,
+  owner is the command's recorded `onBehalfOf` human and actor is the agent (readiness §3.1.3
+  A4), so the row does not flicker owners when the authoritative row lands. `OverlayRow` has no
+  `visibility` field and no `grants` field at all — under default-closed (§3.1.1) there must be
+  nowhere for "optimistically tenant-visible" to appear.
+
+Retirement is exact,
 via envelope provenance (`causationId`/`mutationId`, ADR 2 D8), never by value comparison;
 comparing values would be arbitration. It fires for **every** provenance-carrying op —
 `upsert`, `remove` and `evict` alike — through **one** post-commit emission path shared by
