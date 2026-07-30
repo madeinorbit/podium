@@ -35,7 +35,7 @@
 
 import { commandVisibility, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane } from '@podium/commands'
 import { sessionHandoffContract } from '@podium/commands'
-import { asSessionId, asUserId, type UserId } from '@podium/model'
+import { asSessionId, asUserId, SOLE_USER_ID, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -526,16 +526,18 @@ describe('AC4 · the per-user split actually happened', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.markRead({ sessionId })
 
-    // MEASURED, not asserted: `read_at` is a column on the SESSION row, so one
-    // user's read state is still the instance's. When POD-1076 moves it to a
-    // (userId, entityId) row this goes red, and the claim above gets updated rather
-    // than quietly outliving its truth.
-    const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
-    expect(row?.readAt).not.toBeNull()
+    // THE TRIPWIRE FIRED AND IS REPLACED BY ITS POSITIVE FORM (POD-1076).
+    // It used to measure `read_at` as a column on the SESSION row and say so
+    // honestly. The column is gone; the marker is one user's `(userId, sessionId)`
+    // row. Measured the same way — against STORAGE, not the wire — so this stays
+    // a statement about the shape rather than about the projection.
+    expect(o.store.sessions.getReadAt(SOLE_USER_ID, sessionId)).not.toBeNull()
+    // The property a column could not express: a different principal has no marker.
+    expect(o.store.sessions.getReadAt('user:somebody-else', sessionId)).toBeNull()
 
-    // And the part POD-382 can close: the COMMAND is already self-scoped and
-    // per-user-classified, so the remaining move is storage-only — no contract
-    // change, no wire change, no replica migration.
+    // And the part POD-382 closed, unchanged: the COMMAND was already self-scoped
+    // and per-user-classified, which is why POD-1076's move needed no contract
+    // change, no wire change and no replica migration.
     expect(presenceCommand('sessions.markRead')?.policy?.scope).toBe('self')
     expect(presenceCommand('sessions.markRead')?.visibility).toBe('per-user-state')
   })

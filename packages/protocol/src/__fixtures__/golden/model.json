@@ -3614,6 +3614,32 @@
       "encoded": "{\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\"}"
     },
     {
+      "schema": "IssueMessageReadState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null}"
+    },
+    {
+      "schema": "IssueMessageReadState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": "readAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\"}"
+    },
+    {
       "schema": "IssuePanel",
       "variant": "minimal",
       "wire": {},
@@ -3973,6 +3999,36 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"task\""
+    },
+    {
+      "schema": "IssueUserState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": null,
+        "tuckedAt": null,
+        "pinnedAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null,\"pinnedAt\":null}"
+    },
+    {
+      "schema": "IssueUserState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": "readAt",
+        "tuckedAt": "tuckedAt",
+        "pinnedAt": "pinnedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"pinnedAt\":\"pinnedAt\"}"
     },
     {
       "schema": "IssueWire",
@@ -7571,6 +7627,32 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"spawnedBy\":{\"kind\":\"automation\",\"id\":\"spawnedBy.id\"}}"
+    },
+    {
+      "schema": "SessionReadState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null}"
+    },
+    {
+      "schema": "SessionReadState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "readAt": "readAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\"}"
     },
     {
       "schema": "SessionRef",

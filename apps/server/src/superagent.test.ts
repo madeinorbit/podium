@@ -548,11 +548,40 @@ describe('session-steering tool belt (issue #62)', () => {
       JSON.stringify({ snoozedUntil: null }),
     )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
-    const iso = '2026-07-03T05:00:00.000Z'
+    // A FUTURE deadline. It used to be a fixed past date and still round-tripped,
+    // because the projection read a `snoozedUntil` MIRROR on the live session that
+    // never lapsed. POD-1076 deleted the mirror, so the projection reads the
+    // `snoozes` table — which prunes lapsed timed snoozes on read, as it always
+    // documented. The behaviour is strictly more correct (a client already ignores
+    // lapsed snoozes at render time) and the assertion now needs a real deadline.
+    const iso = '2999-07-03T05:00:00.000Z'
     await h.sa.callMcpTool('snooze_session', { sessionId, until: iso })
     expect(h.metaOf(sessionId)?.snoozedUntil).toBe(iso)
     expect(await h.sa.callMcpTool('clear_snooze', { sessionId })).toBe('snooze cleared')
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
+  })
+
+  it('a LAPSED timed snooze is not projected — the pruning read is now the only source', () => {
+    // The counterfactual for the date change above, pinned so the two cannot drift:
+    // an expired deadline must not surface. Before POD-1076 this could not be
+    // asserted, because the mirror held the stale value until the next restart.
+    const h = harness()
+    const sessionId = h.spawn()
+    // Through the SERVICE, not the store: a direct store write is invisible to the
+    // projection's overlay cache, which is the same rule `IssueService.rows` has
+    // always had. Driving the real entry point is also what makes this a test of
+    // the shipped path rather than of the repository.
+    h.registry.modules.sessions.setSnooze({
+      userId: SOLE_USER_ID,
+      sessionId,
+      until: '2020-01-01T00:00:00.000Z',
+    })
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
+    // …while an open-ended snooze (null) never lapses by time. The counterfactual
+    // that keeps the assertion above from passing for the wrong reason: if the
+    // projection had simply stopped carrying snoozes, this would fail too.
+    h.registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
   })
 
   it('snooze_session rejects garbage untils and unknown sessions', async () => {

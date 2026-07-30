@@ -1,5 +1,5 @@
-import { asSessionId } from '@podium/model'
-import type { AgentRuntimeState, Geometry } from '@podium/model'
+import { asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
+import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -43,20 +43,41 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   }
 }
 
-describe('Session unread (#124)', () => {
-  it('toMeta surfaces readAt (null when never opened) and derives unread', () => {
+describe('Session unread (#124), per VIEWER (POD-1076)', () => {
+  /** The overlay a caller assembles from that user's two per-user tables. */
+  const viewer = (readAt: string | null): SessionUserOverlay => ({
+    readAt,
+    snoozedUntil: undefined,
+  })
+
+  it('toMeta surfaces the VIEWER’s readAt and derives unread against it', () => {
     const s = makeSession()
     // Never opened: readAt null, and lastActiveAt (defaults to createdAt) counts as
     // unseen activity → unread.
-    expect(s.toMeta().readAt).toBeNull()
-    expect(s.toMeta().unread).toBe(true)
+    expect(s.toMeta(NO_SESSION_USER_STATE).readAt).toBeNull()
+    expect(s.toMeta(NO_SESSION_USER_STATE).unread).toBe(true)
     // Opened AFTER the last activity → read.
-    s.readAt = '2026-06-03T01:00:00.000Z'
-    expect(s.toMeta().readAt).toBe('2026-06-03T01:00:00.000Z')
-    expect(s.toMeta().unread).toBe(false)
+    expect(s.toMeta(viewer('2026-06-03T01:00:00.000Z')).readAt).toBe('2026-06-03T01:00:00.000Z')
+    expect(s.toMeta(viewer('2026-06-03T01:00:00.000Z')).unread).toBe(false)
     // Opened BEFORE the last activity → unread again.
-    s.readAt = '2026-06-02T00:00:00.000Z'
-    expect(s.toMeta().unread).toBe(true)
+    expect(s.toMeta(viewer('2026-06-02T00:00:00.000Z')).unread).toBe(true)
+  })
+
+  it('TWO viewers of ONE session get their OWN read state from the SAME session object', () => {
+    // The property the whole re-key exists for, at the projection. Before
+    // POD-1076 `readAt` was a field on the session, so this was not expressible:
+    // there was one value and every client got it. The session is deliberately
+    // shared between the two calls — a test that built two sessions would pass
+    // against a design that still stored the marker on the session.
+    const s = makeSession()
+    const mine = s.toMeta(viewer('2026-06-03T01:00:00.000Z'))
+    const yours = s.toMeta(NO_SESSION_USER_STATE)
+    expect(mine.unread).toBe(false)
+    expect(yours.unread).toBe(true)
+    expect(mine.readAt).not.toBe(yours.readAt)
+    // …and everything that is genuinely the SESSION's is identical for both.
+    expect(mine.title).toBe(yours.title)
+    expect(mine.lastActiveAt).toBe(yours.lastActiveAt)
   })
 })
 
@@ -119,16 +140,16 @@ describe('Session', () => {
     s.attachClient(a) // becomes controller
     // The shell drawing its prompt (output with no command submitted) is idle.
     s.onFrame('cHJvbXB0') // "prompt"
-    expect(s.toMeta().busy).toBeUndefined()
+    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
     // A keystroke that isn't Enter (and its echo) also stays idle.
     s.handleInput('a', Buffer.from('l').toString('base64'))
     s.onFrame('bA==') // echoed "l"
-    expect(s.toMeta().busy).toBeUndefined()
+    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
     // Submitting a line (Enter) starts a command → busy, even before output.
     s.handleInput('a', Buffer.from('s\r').toString('base64'))
-    expect(s.toMeta().busy).toBe(true)
+    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
     s.onFrame('b3V0cHV0') // command output keeps it busy
-    expect(s.toMeta().busy).toBe(true)
+    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
   })
 
   it('controller resize updates geometry + resizes agent; spectator resize is stored only', () => {
@@ -456,7 +477,7 @@ describe('Session', () => {
     s.onExit(0)
     expect(s.status).toBe('exited')
     expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 })
-    expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
+    expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({ status: 'exited', exitCode: 0 })
   })
 
   it('keeps the daemon spawn diagnosis in wire and durable state until retry', () => {
@@ -464,7 +485,7 @@ describe('Session', () => {
     const s = makeSession()
     s.markSpawnError('codex executable was not found')
 
-    expect(s.toMeta()).toMatchObject({
+    expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({
       status: 'exited',
       exitCode: -1,
       spawnFailure: 'codex executable was not found',
@@ -472,7 +493,7 @@ describe('Session', () => {
     expect(s.toRow()).toMatchObject({ spawnFailure: 'codex executable was not found' })
 
     s.markResumed()
-    expect(s.toMeta().spawnFailure).toBeUndefined()
+    expect(s.toMeta(NO_SESSION_USER_STATE).spawnFailure).toBeUndefined()
     expect(s.toRow().spawnFailure).toBeNull()
     warn.mockRestore()
   })
@@ -489,9 +510,9 @@ describe('Session', () => {
       toDaemon: vi.fn(),
       status: 'reconnecting',
     })
-    expect(s.toMeta().status).toBe('reconnecting')
+    expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('reconnecting')
     s.markLive('claude', geo)
-    expect(s.toMeta().status).toBe('live')
+    expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('live')
   })
 
   it('serializes to a persistable row, defaulting durableLabel/lastActiveAt', () => {
@@ -609,25 +630,24 @@ describe('Session', () => {
     expect(s.lastActiveAt > CREATED).toBe(true)
   })
 
-  it('toMeta surfaces snoozedUntil only when set; clearSnooze reports change', () => {
+  it('toMeta surfaces the VIEWER’s snoozedUntil, and absent ≠ null', () => {
+    // POD-1076 deleted the `snoozedUntil` mirror field; the value arrives in the
+    // overlay. The three-valued distinction is what matters and is asserted here
+    // because collapsing it un-snoozes every open-ended snooze:
+    //   undefined = no snooze row · null = until-next-message · ISO = timed.
     const s = makeSession()
-    expect('snoozedUntil' in s.toMeta()).toBe(false)
-    expect(s.clearSnooze()).toBe(false)
+    const snoozed = (until: string | null | undefined) => s.toMeta({ readAt: null, snoozedUntil: until })
 
-    s.snoozedUntil = null
-    expect(s.toMeta().snoozedUntil).toBeNull()
-
-    s.snoozedUntil = '2999-01-01T05:00:00.000Z'
-    expect(s.toMeta().snoozedUntil).toBe('2999-01-01T05:00:00.000Z')
-
-    expect(s.clearSnooze()).toBe(true)
-    expect('snoozedUntil' in s.toMeta()).toBe(false)
+    expect('snoozedUntil' in snoozed(undefined)).toBe(false)
+    expect(snoozed(null).snoozedUntil).toBeNull()
+    expect('snoozedUntil' in snoozed(null)).toBe(true)
+    expect(snoozed('2999-01-01T05:00:00.000Z').snoozedUntil).toBe('2999-01-01T05:00:00.000Z')
   })
 
   // Agent action offer [spec:SP-c7f1].
   it('toMeta surfaces offer only when set; clearOffer reports change', () => {
     const s = makeSession()
-    expect('offer' in s.toMeta()).toBe(false)
+    expect('offer' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
     expect(s.clearOffer()).toBe(false)
 
     const offer = {
@@ -636,21 +656,21 @@ describe('Session', () => {
       createdAt: '2026-07-16T00:00:00.000Z',
     }
     s.offer = offer
-    expect(s.toMeta().offer).toEqual(offer)
+    expect(s.toMeta(NO_SESSION_USER_STATE).offer).toEqual(offer)
 
     expect(s.clearOffer()).toBe(true)
-    expect('offer' in s.toMeta()).toBe(false)
+    expect('offer' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
   })
 
   it('toMeta surfaces draftUpdatedAt only when a draft exists', () => {
     const s = makeSession()
-    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
+    expect('draftUpdatedAt' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
 
     s.draftUpdatedAt = '2026-06-24T12:00:00.000Z'
-    expect(s.toMeta().draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
+    expect(s.toMeta(NO_SESSION_USER_STATE).draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
 
     s.draftUpdatedAt = undefined
-    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
+    expect('draftUpdatedAt' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
   })
 })
 

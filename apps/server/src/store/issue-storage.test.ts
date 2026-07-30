@@ -76,10 +76,8 @@ const fullRow = (): IssueRow => ({
   deferUntil: '2026-01-20T00:00:00Z',
   closedReason: 'fixed',
   closedAt: '2026-01-08T00:00:00Z',
-  tuckedAt: '2026-01-10T00:00:00Z',
   supersededBy: asIssueId('iss_super'),
   duplicateOf: asIssueId('iss_dupe'),
-  pinned: true,
   sortKey: 'a0',
   color: 'rose',
   estimateMin: 90,
@@ -93,7 +91,6 @@ const fullRow = (): IssueRow => ({
   origin: 'agent',
   audience: 'human',
   draft: true,
-  readAt: '2026-01-04T00:00:00Z',
   coordinatorSessionId: asSessionId('sess_coord'),
   startedBySession: asSessionId('sess_start'),
 })
@@ -140,10 +137,8 @@ const emptyRow = (): IssueRow => ({
   deferUntil: null,
   closedReason: null,
   closedAt: null,
-  tuckedAt: null,
   supersededBy: null,
   duplicateOf: null,
-  pinned: false,
   sortKey: null,
   color: null,
   estimateMin: null,
@@ -156,17 +151,15 @@ const emptyRow = (): IssueRow => ({
   origin: 'human',
   audience: 'human',
   draft: false,
-  readAt: null,
   coordinatorSessionId: null,
   startedBySession: null,
 })
 
-/** The R3-only quartet, lifted off the row so a round trip can hand it back. */
+/** The ONE R3-only column, lifted off the row so a round trip can hand it back.
+ *  It was a quartet until POD-1076 re-keyed the other three onto per-user rows —
+ *  they are not columns of this row for any user, so they cannot be passed here. */
 const storageOnly = (row: IssueRow): Parameters<typeof toStorage>[1] => ({
   repoPath: row.repoPath,
-  readAt: row.readAt ?? null,
-  tuckedAt: row.tuckedAt ?? null,
-  pinned: row.pinned,
 })
 
 /** Decode then re-encode one row — the identity the pair must preserve. */

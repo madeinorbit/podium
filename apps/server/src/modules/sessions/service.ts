@@ -857,6 +857,46 @@ export class SessionsService {
   }
 
   /**
+   * Persist a PER-USER write on the same write-seam ledger as every session
+   * mutation, so the change reaches the replica instead of only the broadcast.
+   *
+   * THE CACHE IS INVALIDATED TWICE, and both are load-bearing.
+   *
+   * BEFORE `changes` is built (inside `write`, after the row is written): the
+   * payload comes from `sessionWire`, which reads the overlay cache. Skip this
+   * and the change carries the PRE-change value, the ledger's byte-dedup drops it
+   * as unchanged, and the durable write silently stops being transactional with
+   * its own change record — the write still lands, the replica never hears.
+   *
+   * AFTER the commit attempt, in a `finally`: that first re-read happens INSIDE
+   * the span, so it caches a value the append can still roll back. Without the
+   * second invalidation a failed append leaves the projection serving a snooze
+   * that is not in the database — the live/durable divergence the rollback exists
+   * to prevent, reintroduced one layer up.
+   */
+  private persistPerUserState(sessionId: SessionId, write: () => void): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      try {
+        write()
+      } finally {
+        this.invalidateViewerOverlay()
+      }
+      this.broadcastSessions()
+      return
+    }
+    try {
+      this.persist(session, () => {
+        write()
+        this.invalidateViewerOverlay()
+      })
+    } finally {
+      this.invalidateViewerOverlay()
+    }
+    this.broadcastSessions()
+  }
+
+  /**
    * Stamp the derived permanent `displayRef` onto a session's wire meta (#474).
    * PURE READ — allocation happens at the deliberate naming points
    * (spawn / first attach / boot backfill), never inside serialization.
@@ -1490,29 +1530,15 @@ export class SessionsService {
     sessionId: SessionId
     until: string | null
   }): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      this.store.sessions.setSnooze(userId, sessionId, until)
-      this.invalidateViewerOverlay()
-      this.broadcastSessions()
-      return
-    }
-    this.persist(session, () => this.store.sessions.setSnooze(userId, sessionId, until))
-    this.invalidateViewerOverlay()
-    this.broadcastSessions()
+    this.persistPerUserState(sessionId, () =>
+      this.store.sessions.setSnooze(userId, sessionId, until),
+    )
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      this.store.sessions.clearSnooze(userId, sessionId)
-      this.invalidateViewerOverlay()
-      this.broadcastSessions()
-      return
-    }
-    this.persist(session, () => this.store.sessions.clearSnooze(userId, sessionId))
-    this.invalidateViewerOverlay()
-    this.broadcastSessions()
+    this.persistPerUserState(sessionId, () =>
+      this.store.sessions.clearSnooze(userId, sessionId),
+    )
   }
 
   /**
@@ -2710,13 +2736,13 @@ export class SessionsService {
     if (!this.sessions.has(sessionId)) return
     // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
     // lexical unread compare both require it (this.now() is epoch ms).
-    this.store.sessions.markSessionRead(
-      this.broadcastViewer(),
-      sessionId,
-      new Date(this.now()).toISOString(),
+    this.persistPerUserState(sessionId, () =>
+      this.store.sessions.markSessionRead(
+        this.broadcastViewer(),
+        sessionId,
+        new Date(this.now()).toISOString(),
+      ),
     )
-    this.invalidateViewerOverlay()
-    this.broadcastSessions()
   }
 
   /** Mark this session UNREAD again (issue #138, the email-style inverse of
@@ -2725,9 +2751,9 @@ export class SessionsService {
    *  never touches yours. No-op for an unknown session. */
   markSessionUnread(sessionId: SessionId): void {
     if (!this.sessions.has(sessionId)) return
-    this.store.sessions.markSessionUnread(this.broadcastViewer(), sessionId)
-    this.invalidateViewerOverlay()
-    this.broadcastSessions()
+    this.persistPerUserState(sessionId, () =>
+      this.store.sessions.markSessionUnread(this.broadcastViewer(), sessionId),
+    )
   }
 
   /**

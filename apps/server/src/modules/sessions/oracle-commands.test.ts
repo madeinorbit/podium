@@ -10,7 +10,7 @@
  * the durable row. See oracle-support.ts for the tag contract.
  */
 
-import { asSessionId } from '@podium/model'
+import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -465,7 +465,9 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     expect(row).toMatchObject({ status: 'hibernated', stopReason: 'parent' })
     // A terminal transition is new unread information [spec:SP-6144]: stop
     // resurfaces the session, where archive deliberately does not.
-    expect(row?.readAt).toBeNull()
+    // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
+    // which is what nulling the one column used to mean.
+    expect(o.store.sessions.listReadAt(SOLE_USER_ID)[sessionId]).toBeUndefined()
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 

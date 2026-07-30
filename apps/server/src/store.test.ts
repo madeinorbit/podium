@@ -177,8 +177,6 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     refIssueId: null,
     refLetter: null,
     refDraft: null,
-    // And email-style read state (issue #124): always present, null = never opened.
-    readAt: null,
     // Durable completion metadata drives acknowledgment-gated decay [spec:SP-6144].
     stoppedAt: null,
     stopReason: null,
@@ -416,15 +414,40 @@ describe('SessionStore sessions', () => {
     store.close()
   })
 
-  it('round-trips read_at; a row that never had it reads null', () => {
+  // POD-1076: read state is no longer a session COLUMN, so this stopped being a
+  // round-trip of the row and became one of the per-user table. The
+  // never-opened case is now an ABSENT ROW rather than a null column, which is
+  // the single-spelling rule the repository enforces.
+  it('round-trips per-user readAt; a session this user never opened has NO row', () => {
     const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(row({ id: asSessionId('s_read'), durableLabel: 'podium-s_read' }))
     store.sessions.upsertSession(
-      row({ id: asSessionId('s_read'), durableLabel: 'podium-s_read', readAt: '2026-07-07T00:00:00.000Z' }),
+      row({ id: asSessionId('s_unread'), durableLabel: 'podium-s_unread' }),
     )
-    store.sessions.upsertSession(row({ id: asSessionId('s_unread'), durableLabel: 'podium-s_unread' }))
-    const loaded = store.sessions.loadSessions()
-    expect(loaded.find((s) => s.id === 's_read')?.readAt).toBe('2026-07-07T00:00:00.000Z')
-    expect(loaded.find((s) => s.id === 's_unread')?.readAt).toBeNull()
+    store.sessions.markSessionRead(SOLE_USER_ID, asSessionId('s_read'), '2026-07-07T00:00:00.000Z')
+
+    expect(store.sessions.getReadAt(SOLE_USER_ID, asSessionId('s_read'))).toBe(
+      '2026-07-07T00:00:00.000Z',
+    )
+    expect(store.sessions.getReadAt(SOLE_USER_ID, asSessionId('s_unread'))).toBeNull()
+    expect(store.sessions.listReadAt(SOLE_USER_ID)).toEqual({
+      s_read: '2026-07-07T00:00:00.000Z',
+    })
+
+    // ANOTHER user's slice is empty for the SAME session — the property the
+    // re-key exists for. Two users, one session, two answers.
+    expect(store.sessions.getReadAt('user:other', asSessionId('s_read'))).toBeNull()
+    expect(store.sessions.listReadAt('user:other')).toEqual({})
+
+    // markUnread DELETES rather than nulling, so absence keeps its one meaning.
+    store.sessions.markSessionUnread(SOLE_USER_ID, asSessionId('s_read'))
+    expect(store.sessions.listReadAt(SOLE_USER_ID)).toEqual({})
+
+    // A per-user WRITE with no identity fails CLOSED — it never falls back to an
+    // operator. Reads tolerate an unknown user (an empty slice is the truth).
+    expect(() => store.sessions.markSessionRead('', asSessionId('s_read'), 't')).toThrow(
+      /no user id/,
+    )
     store.close()
   })
 })

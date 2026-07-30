@@ -52,12 +52,17 @@ export const MUST_NOT_CHANGE = 'must-not-change'
 export const SUPERSEDING_ISSUES = [
   // Real user identity + per-user principal (one shared password today).
   'POD-1075',
-  // Per-user state keyed (userId, entityId) — readAt / snooze / pins / tab order.
-  'POD-1076',
   // Authorization over human-vs-human (agent-capability only today).
   'POD-1073',
   // Machines as owned compute: see / use / manage (ambient placement today).
   'POD-1079',
+  // POD-1076 HAS LANDED and is deliberately NOT listed any more. It superseded one
+  // characterization — session `readAt` as a single instance-wide value — by
+  // re-keying the marker onto `(userId, sessionId)`. `oracle-presence.test.ts` now
+  // pins the RESIDUAL as must-not-change: the storage is per user, and the still-
+  // unscoped feed serves one viewer to every DEVICE of that person (POD-1077 scopes
+  // the feed; the row already has an owner, so nothing about it changes then).
+  //
   // POD-642 HAS LANDED and is deliberately NOT listed any more. It superseded one
   // characterization — concurrent duplicate handoff dispatch running two complete
   // orchestrations — and `oracle-handoff.test.ts` now pins the single-flighted

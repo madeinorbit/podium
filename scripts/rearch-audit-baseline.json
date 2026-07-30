@@ -15,7 +15,7 @@
     "local-placeholders": 16,
     "mobile-client-value": 1,
     "panel-mode-duality": 3,
-    "per-user-singletons": 8,
+    "per-user-singletons": 2,
     "publish-computed-fanout": 13,
     "reexport-shims": 22,
     "representation-registry-rot": 0,

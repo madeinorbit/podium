@@ -3,7 +3,7 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -227,7 +227,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     }),
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: (issueId, ids) =>
-      store.issues.markIssueMessagesRead(issueId, ids, 'tr'),
+      store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
     ...(opts?.spawnOnWake ? { spawnOnWake: opts.spawnOnWake } : {}),
     notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),

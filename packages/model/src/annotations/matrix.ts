@@ -130,6 +130,7 @@ export const ROW = {
   delegationRecord: id('delegation-record'),
   telegramChatBinding: id('telegram-chat-binding'),
   perUserStateFamily: id('per-user-state-family'),
+  recapWatermark: id('recap-watermark'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -1993,6 +1994,30 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     offline: 'online-only',
   }),
   perUserState({
+    id: ROW.recapWatermark,
+    section: 'multi-user-classes',
+    title: 'Recap watermark (`recap_watermarks`) — per-READER transcript cursor',
+    sites: ['`recap_watermarks` — keyed `(reader, session_id)`', 'apps/server/src/store/read-watermarks.ts'],
+    idMinting: 'Composite `(reader, sessionId)` — ALREADY keyed per principal; no re-key was needed',
+    writers: ['operator', 'agent-session'],
+    conflictNote:
+      'ONE OF POD-385\u2019s THREE UNCLASSIFIED PER-USER-SHAPED TABLES, ADJUDICATED BY POD-1076 AND ADOPTED. ' +
+      '\u201cHow far did I get reading this transcript\u201d is a fact about a READER, never shared and never ' +
+      'grantable \u2014 D4\u2019s backstop answered `personal`, which is the WRONG class rather than merely an ' +
+      'absent one, because `personal` IS shareable. Declaring it costs a row and no migration: the table ' +
+      'is already keyed per principal.',
+    replicationNote:
+      'The key half is a READER (`ReaderRef`), which may be an AGENT session rather than a human, and that ' +
+      'is deliberate \u2014 two agents of the same person hold independent cursors, so collapsing the key onto ' +
+      '`userId` would silently merge them. The family\u2019s SHAPE is (principal, entity); `userId` is the ' +
+      'common case, not the definition.',
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The reader is the actor. An agent reading on a human\u2019s behalf still owns its OWN cursor.',
+    },
+  }),
+  perUserState({
     id: ROW.perUserStateFamily,
     section: 'multi-user-classes',
     title: 'Per-user state family (generic)',
@@ -2097,5 +2122,10 @@ export const PER_USER_WRITER_EXCEPTIONS: readonly {
     row: ROW.replicaCursor,
     reason:
       'Device-local cache maintenance, written by the replica apply loop as `system`. Not a user-authored row at all; it exists so the Authority’s order can be applied.',
+  },
+  {
+    row: ROW.recapWatermark,
+    reason:
+      'The reader in the key MAY BE AN AGENT SESSION, so `agent-session` writes rows it OWNS — not another principal’s. The family rule forbids writing SOMEBODY ELSE’S row; `WriterRole` names a role CLASS, not a principal, so an agent writing its own cursor is inside the rule rather than an exception to its intent. Collapsing the key onto `userId` to avoid declaring this would silently MERGE the cursors of two agents belonging to one person — a data loss, not a tightening.',
   },
 ]

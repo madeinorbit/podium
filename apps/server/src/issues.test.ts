@@ -1,4 +1,13 @@
-import { asArtifactId, asIssueId, asSessionId, asUserId, type IssueId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asArtifactId,
+  asIssueId,
+  asSessionId,
+  asUserId,
+  FIRST_ADMIN_USER_ID,
+  type IssueId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -281,30 +290,21 @@ describe('IssueService unread (#124)', () => {
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(w.id, { worktreePath: '/r/wt' })
     const row = store.issues.getIssue(w.id)!
+    // `readAt` is PER-USER (POD-1076), so it is no longer a field the caller can
+    // spread onto the row: it is written to the viewer's `(userId, issueId)` row
+    // and the service reloads it. That is the point of the re-key, and it is why
+    // this test drives the store rather than a row literal.
+    const withReadAt = (readAt: string, updatedAt: string) => {
+      store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, w.id, { readAt })
+      svc.reload()
+      return svc.toWire({ ...row, updatedAt }).unread
+    }
     // readAt AFTER all activity → read.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-01T00:00:00.000Z',
-        readAt: '2026-06-06T00:00:00.000Z',
-      }).unread,
-    ).toBe(false)
+    expect(withReadAt('2026-06-06T00:00:00.000Z', '2026-06-01T00:00:00.000Z')).toBe(false)
     // A member session went active AFTER readAt → unread again.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-01T00:00:00.000Z',
-        readAt: '2026-06-04T00:00:00.000Z',
-      }).unread,
-    ).toBe(true)
+    expect(withReadAt('2026-06-04T00:00:00.000Z', '2026-06-01T00:00:00.000Z')).toBe(true)
     // updatedAt itself postdates readAt → unread.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-10T00:00:00.000Z',
-        readAt: '2026-06-06T00:00:00.000Z',
-      }).unread,
-    ).toBe(true)
+    expect(withReadAt('2026-06-06T00:00:00.000Z', '2026-06-10T00:00:00.000Z')).toBe(true)
   })
 
   // POD-325: pin / drag-reorder are human board organization, not new content.
@@ -315,7 +315,7 @@ describe('IssueService unread (#124)', () => {
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.markIssueRead(w.id)
     expect(svc.get(w.id)!.unread).toBe(false)
-    const readAt = store.issues.getIssue(w.id)!.readAt
+    const readAt = store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id)!.readAt
     const updatedAt = store.issues.getIssue(w.id)!.updatedAt
 
     const pinned = svc.update(w.id, { pinned: true })
@@ -409,7 +409,9 @@ describe('IssueService tuck-away (POD-333)', () => {
     expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     expect(svc.get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     // Durable, not in-memory: it is in the DB column…
-    expect(store.issues.getIssue(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id)!.tuckedAt).toBe(
+      '2026-06-30T00:00:00.000Z',
+    )
     // …so a cold service over the same store — the "different browser / after a
     // restart" case — serves the same fold instead of an un-tucked live row.
     expect(new IssueService(deps).get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
@@ -515,11 +517,14 @@ describe('IssueService tuck-away (POD-333)', () => {
     const w = closedIssue(svc)
     svc.markIssueRead(w.id)
     const before = store.issues.getIssue(w.id)!
+    const beforeReadAt = store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id)!.readAt
 
     const tucked = svc.setIssueTucked(w.id, true)
 
     expect(tucked.updatedAt).toBe(before.updatedAt)
-    expect(tucked.readAt).toBe(before.readAt)
+    // The tuck patch must not disturb the read marker — the two share a row now
+    // (POD-1076), so this also covers the partial-patch rule at the service level.
+    expect(tucked.readAt).toBe(beforeReadAt)
     expect(tucked.unread).toBe(false)
   })
 })
@@ -3171,7 +3176,6 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:00.000Z',
       status: 'unread',
       claimedBy: null,
-      readAt: null,
       claimedAt: null,
     })
     store.messages.addMessage(substrateRow(a.id, id, 'delivered'))
@@ -3195,7 +3199,6 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:00.000Z',
       status: 'unread',
       claimedBy: null,
-      readAt: null,
       claimedAt: null,
     })
     store.messages.addMessage(substrateRow(a.id, id, 'queued'))
@@ -3254,7 +3257,6 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:00.000Z',
       status: 'unread',
       claimedBy: null,
-      readAt: null,
       claimedAt: null,
     })
     store.messages.addMessage(substrateRow(a.id, id, 'queued'))

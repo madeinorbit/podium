@@ -36,7 +36,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
     priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
     notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
-    duplicateOf: null, pinned: false, estimateMin: null,
+    duplicateOf: null, estimateMin: null,
     needsHuman: false, humanQuestion: null,
     ...over,
   }
@@ -53,7 +53,7 @@ describe('issue schema: FK behavior at runtime', () => {
     s.issues.addIssueComment({ id: 'cmt_1', issueId: asIssueId('iss_a'), author: 'me', body: 'hi', createdAt: 't' })
     s.issues.addIssueMessage({
       id: 'msg_1', issueId: asIssueId('iss_a'), fromAuthor: 'me', body: 'mail', createdAt: 't',
-      status: 'unread', claimedBy: null, readAt: null, claimedAt: null,
+      status: 'unread', claimedBy: null, claimedAt: null,
     })
 
     s.issues.deleteIssue('iss_a')
