@@ -39,6 +39,66 @@
       "encoded": "\"\""
     },
     {
+      "schema": "ActorRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "user",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "ActorRef",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "user",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "ActorRef",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "agent",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"agent\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "ActorRef",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "machine",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"machine\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "ActorRef",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "system",
+        "job": "job"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"system\",\"job\":\"job\"}"
+    },
+    {
       "schema": "AgentError",
       "variant": "minimal",
       "wire": {
@@ -61,6 +121,42 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"class\":\"class\",\"retryable\":true}"
+    },
+    {
+      "schema": "AgentIdentityId",
+      "variant": "minimal",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "AgentIdentityId",
+      "variant": "full",
+      "wire": "x",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"x\""
+    },
+    {
+      "schema": "AgentIdentityIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "AgentIdentityIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "AgentInventory",
@@ -303,6 +399,81 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "Attribution",
+      "variant": "minimal",
+      "wire": {
+        "actor": {
+          "kind": "user",
+          "id": "actor.id"
+        },
+        "onBehalfOf": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"actor\":{\"kind\":\"user\",\"id\":\"actor.id\"},\"onBehalfOf\":null}"
+    },
+    {
+      "schema": "Attribution",
+      "variant": "full/arm0",
+      "wire": {
+        "actor": {
+          "kind": "user",
+          "id": "actor.id"
+        },
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"actor\":{\"kind\":\"user\",\"id\":\"actor.id\"},\"onBehalfOf\":\"onBehalfOf\"}"
+    },
+    {
+      "schema": "Attribution",
+      "variant": "full/arm1",
+      "wire": {
+        "actor": {
+          "kind": "agent",
+          "id": "actor.id"
+        },
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"actor\":{\"kind\":\"agent\",\"id\":\"actor.id\"},\"onBehalfOf\":\"onBehalfOf\"}"
+    },
+    {
+      "schema": "Attribution",
+      "variant": "full/arm2",
+      "wire": {
+        "actor": {
+          "kind": "machine",
+          "id": "actor.id"
+        },
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"actor\":{\"kind\":\"machine\",\"id\":\"actor.id\"},\"onBehalfOf\":\"onBehalfOf\"}"
+    },
+    {
+      "schema": "Attribution",
+      "variant": "full/arm3",
+      "wire": {
+        "actor": {
+          "kind": "system",
+          "job": "actor.job"
+        },
+        "onBehalfOf": "onBehalfOf"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"actor\":{\"kind\":\"system\",\"job\":\"actor.job\"},\"onBehalfOf\":\"onBehalfOf\"}"
     },
     {
       "schema": "AutomationId",
@@ -1146,6 +1317,616 @@
       "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\"}}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
+      "schema": "IssueAgentDefaults",
+      "variant": "minimal",
+      "wire": {
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\"}"
+    },
+    {
+      "schema": "IssueAgentDefaults",
+      "variant": "full",
+      "wire": {
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\"}"
+    },
+    {
+      "schema": "IssueAggregate",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "seq": 1,
+        "title": "title",
+        "description": {
+          "value": "description.value"
+        },
+        "stage": "proposed",
+        "archived": true,
+        "priority": 1,
+        "type": "task",
+        "labels": [],
+        "worktreePath": null,
+        "branch": null,
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": null
+        },
+        "owner": "owner",
+        "visibility": "personal",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {
+        "blockedByNotes": [],
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"seq\":1,\"title\":\"title\",\"description\":{\"value\":\"description.value\"},\"stage\":\"proposed\",\"archived\":true,\"priority\":1,\"type\":\"task\",\"labels\":[],\"blockedByNotes\":[],\"worktreePath\":null,\"branch\":null,\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":false,\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":null},\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "IssueAggregate",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 1,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 1,
+          "ops": [
+            {
+              "unknownFixture": "description.ops[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 1,
+          "ops": [
+            {
+              "unknownFixture": "notes.ops[0]"
+            }
+          ]
+        },
+        "stage": "proposed",
+        "suggestedStage": "proposed",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "user",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 1,
+        "type": "task",
+        "assignee": "assignee",
+        "labels": ["labels[0]"],
+        "estimateMin": 1,
+        "color": "rose",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "worktreePath": "worktreePath",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "machineId": "machineId",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "user",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 1
+                }
+              ]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": true,
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "owner": "owner",
+        "visibility": "personal",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"description.ops[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"notes.ops[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "IssueAggregate",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 2,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 2,
+          "ops": [
+            {
+              "unknownFixture": "description.ops[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 2,
+          "ops": [
+            {
+              "unknownFixture": "notes.ops[0]"
+            }
+          ]
+        },
+        "stage": "backlog",
+        "suggestedStage": "backlog",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "agent",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 2,
+        "type": "bug",
+        "assignee": "assignee",
+        "labels": ["labels[0]"],
+        "estimateMin": 2,
+        "color": "pink",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "worktreePath": "worktreePath",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "machineId": "machineId",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "agent",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": false
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 2
+                }
+              ]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": false,
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "owner": "owner",
+        "visibility": "per-user-state",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"ops\":[{\"unknownFixture\":\"description.ops[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"ops\":[{\"unknownFixture\":\"notes.ops[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "IssueAggregate",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 3,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 3,
+          "ops": [
+            {
+              "unknownFixture": "description.ops[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 3,
+          "ops": [
+            {
+              "unknownFixture": "notes.ops[0]"
+            }
+          ]
+        },
+        "stage": "planning",
+        "suggestedStage": "planning",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "machine",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 3,
+        "type": "feature",
+        "assignee": "assignee",
+        "labels": ["labels[0]"],
+        "estimateMin": 3,
+        "color": "fuchsia",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "worktreePath": "worktreePath",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "machineId": "machineId",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "machine",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 3
+                }
+              ]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": true,
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "owner": "owner",
+        "visibility": "owned-compute",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"ops\":[{\"unknownFixture\":\"description.ops[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"ops\":[{\"unknownFixture\":\"notes.ops[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "IssueAggregate",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 4,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 4,
+          "ops": [
+            {
+              "unknownFixture": "description.ops[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 4,
+          "ops": [
+            {
+              "unknownFixture": "notes.ops[0]"
+            }
+          ]
+        },
+        "stage": "in_progress",
+        "suggestedStage": "in_progress",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "system",
+            "job": "lastLifecycleActor.actor.job"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 4,
+        "type": "chore",
+        "assignee": "assignee",
+        "labels": ["labels[0]"],
+        "estimateMin": 4,
+        "color": "violet",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "worktreePath": "worktreePath",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "machineId": "machineId",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "system",
+              "job": "asked.attribution.actor.job"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": false
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 4
+                }
+              ]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": false,
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "owner": "owner",
+        "visibility": "deployment-substrate",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"ops\":[{\"unknownFixture\":\"description.ops[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"ops\":[{\"unknownFixture\":\"notes.ops[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
       "schema": "IssueColor",
       "variant": "minimal",
       "wire": "rose",
@@ -1190,6 +1971,91 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"author\":\"author\",\"body\":\"body\",\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "IssueCoordination",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "IssueCoordination",
+      "variant": "full/arm0",
+      "wire": {
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueCoordination",
+      "variant": "full/arm1",
+      "wire": {
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueCoordination",
+      "variant": "full/arm2",
+      "wire": {
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueCoordination",
+      "variant": "full/arm3",
+      "wire": {
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession",
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "IssueCount",
@@ -1250,6 +2116,96 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"type\":\"type\"}"
+    },
+    {
+      "schema": "IssueDerived",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "IssueDerived",
+      "variant": "full",
+      "wire": {
+        "ready": true,
+        "blocked": true,
+        "deferred": true,
+        "childCount": 1,
+        "childDoneCount": 1,
+        "commentCount": 1,
+        "sessionSummary": {
+          "total": 1,
+          "byPhase": {
+            "sessionSummary.byPhase.key": 1
+          }
+        },
+        "gitState": {
+          "updatedAt": "gitState.updatedAt",
+          "computing": true,
+          "branch": "gitState.branch",
+          "shared": true,
+          "ahead": 1,
+          "dirtyFiles": 1,
+          "dirtyOwn": 1,
+          "commits": ["gitState.commits[0]"],
+          "lastCommitAt": "gitState.lastCommitAt",
+          "unpushed": 1,
+          "merged": true,
+          "fallback": true
+        },
+        "displayRef": "displayRef",
+        "prefix": "prefix",
+        "repoPath": "repoPath",
+        "unread": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"commentCount\":1,\"sessionSummary\":{\"total\":1,\"byPhase\":{\"sessionSummary.byPhase.key\":1}},\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"displayRef\":\"displayRef\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\",\"unread\":true}"
+    },
+    {
+      "schema": "IssueDocuments",
+      "variant": "minimal",
+      "wire": {
+        "description": {
+          "value": "description.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"description\":{\"value\":\"description.value\"}}"
+    },
+    {
+      "schema": "IssueDocuments",
+      "variant": "full",
+      "wire": {
+        "description": {
+          "value": "description.value",
+          "revision": 1,
+          "ops": [
+            {
+              "unknownFixture": "description.ops[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 1,
+          "ops": [
+            {
+              "unknownFixture": "notes.ops[0]"
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"description\":{\"value\":\"description.value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"description.ops[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"notes.ops[0]\"}]}}"
     },
     {
       "schema": "IssueGitState",
@@ -1391,6 +2347,31 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"title\":\"title\",\"stage\":\"proposed\",\"priority\":1,\"type\":\"task\",\"ready\":true,\"blocked\":true}"
     },
     {
+      "schema": "IssueGraphRefs",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {
+        "blockedByNotes": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"blockedByNotes\":[]}"
+    },
+    {
+      "schema": "IssueGraphRefs",
+      "variant": "full",
+      "wire": {
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"]}"
+    },
+    {
       "schema": "IssueId",
       "variant": "minimal",
       "wire": "x",
@@ -1409,6 +2390,31 @@
       "encoded": "\"x\""
     },
     {
+      "schema": "IssueIdentity",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"seq\":1}"
+    },
+    {
+      "schema": "IssueIdentity",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1}"
+    },
+    {
       "schema": "IssueIdField",
       "variant": "minimal",
       "wire": "",
@@ -1425,6 +2431,163 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "IssueIntent",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":false}"
+    },
+    {
+      "schema": "IssueIntent",
+      "variant": "full",
+      "wire": {
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true}"
+    },
+    {
+      "schema": "IssueLifecycle",
+      "variant": "minimal",
+      "wire": {
+        "stage": "proposed",
+        "archived": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stage\":\"proposed\",\"archived\":true}"
+    },
+    {
+      "schema": "IssueLifecycle",
+      "variant": "full/arm0",
+      "wire": {
+        "stage": "proposed",
+        "suggestedStage": "proposed",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "user",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueLifecycle",
+      "variant": "full/arm1",
+      "wire": {
+        "stage": "backlog",
+        "suggestedStage": "backlog",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "agent",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueLifecycle",
+      "variant": "full/arm2",
+      "wire": {
+        "stage": "planning",
+        "suggestedStage": "planning",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "machine",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueLifecycle",
+      "variant": "full/arm3",
+      "wire": {
+        "stage": "in_progress",
+        "suggestedStage": "in_progress",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "system",
+            "job": "lastLifecycleActor.actor.job"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"}}"
+    },
+    {
+      "schema": "IssueLinear",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "IssueLinear",
+      "variant": "full",
+      "wire": {
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\"}"
     },
     {
       "schema": "IssuePanel",
@@ -1532,6 +2695,54 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"text\":\"text\",\"addedAt\":\"addedAt\"}"
+    },
+    {
+      "schema": "IssuePanelGroup",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "IssuePanelGroup",
+      "variant": "full",
+      "wire": {
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 1
+                }
+              ]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]}}"
     },
     {
       "schema": "IssuePanelTodo",
@@ -1660,6 +2871,66 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"total\":1,\"open\":1,\"closed\":1,\"ready\":1,\"blocked\":1,\"deferred\":1}"
+    },
+    {
+      "schema": "IssueText",
+      "variant": "minimal",
+      "wire": {
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\"}"
+    },
+    {
+      "schema": "IssueText",
+      "variant": "full",
+      "wire": {
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\"}"
+    },
+    {
+      "schema": "IssueTriage",
+      "variant": "minimal",
+      "wire": {
+        "priority": 1,
+        "type": "task",
+        "labels": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"priority\":1,\"type\":\"task\",\"labels\":[]}"
+    },
+    {
+      "schema": "IssueTriage",
+      "variant": "full",
+      "wire": {
+        "priority": 1,
+        "type": "task",
+        "assignee": "assignee",
+        "labels": ["labels[0]"],
+        "estimateMin": 1,
+        "color": "rose",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\"}"
     },
     {
       "schema": "IssueType",
@@ -2782,6 +4053,33 @@
       "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"prefix\":\"prefix\",\"displayRef\":\"displayRef\",\"seq\":2,\"title\":\"title\",\"description\":\"description\",\"brief\":\"brief\",\"stage\":\"backlog\",\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"machineId\":\"machineId\",\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"suggestedStage\":\"backlog\",\"suggestedReason\":\"suggestedReason\",\"blockedBy\":[\"blockedBy[0]\"],\"dependencyNote\":\"dependencyNote\",\"prUrl\":\"prUrl\",\"priority\":2,\"type\":\"bug\",\"assignee\":\"assignee\",\"parentId\":\"parentId\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"notes\":\"notes\",\"dueAt\":\"dueAt\",\"deferUntil\":\"deferUntil\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"tuckedAt\":\"tuckedAt\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"pinned\":false,\"sortKey\":\"sortKey\",\"color\":\"pink\",\"estimateMin\":2,\"needsHuman\":false,\"humanQuestion\":\"humanQuestion\",\"humanQuestionOptions\":[\"humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"labels\":[\"labels[0]\"],\"deps\":[{\"id\":\"deps[0].id\",\"type\":\"deps[0].type\"}],\"dependents\":[{\"id\":\"dependents[0].id\",\"type\":\"dependents[0].type\"}],\"comments\":[{\"id\":\"comments[0].id\",\"author\":\"comments[0].author\",\"body\":\"comments[0].body\",\"createdAt\":\"comments[0].createdAt\"}],\"commentCount\":2,\"ready\":false,\"blocked\":false,\"deferred\":false,\"childCount\":2,\"childDoneCount\":2,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"readAt\":\"readAt\",\"unread\":false,\"origin\":\"agent\",\"audience\":\"agent\",\"draft\":false,\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"agentKind\":\"codex\",\"title\":\"sessions[0].title\",\"name\":\"sessions[0].name\",\"model\":\"sessions[0].model\",\"effort\":\"sessions[0].effort\",\"accountId\":\"sessions[0].accountId\",\"nameSource\":\"agent\",\"cwd\":\"sessions[0].cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"sessions[0].spawnFailure\",\"controllerId\":\"sessions[0].controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"clientCount\":2,\"createdAt\":\"sessions[0].createdAt\",\"lastActiveAt\":\"sessions[0].lastActiveAt\",\"lastInputAt\":\"sessions[0].lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"sessions[0].origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"sessions[0].agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"sessions[0].agentState.nativeSubagents[0].id\",\"type\":\"sessions[0].agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"sessions[0].agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"sessions[0].agentState.need.summary\"},\"error\":{\"class\":\"sessions[0].agentState.error.class\",\"retryable\":false}},\"archived\":false,\"readAt\":\"sessions[0].readAt\",\"stoppedAt\":\"sessions[0].stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"sessions[0].resume.kind\",\"value\":\"sessions[0].resume.value\"},\"transcriptAvailable\":false,\"busy\":false,\"agentColor\":\"sessions[0].agentColor\",\"observedModel\":\"sessions[0].observedModel\",\"observedEffort\":\"sessions[0].observedEffort\",\"machineId\":\"sessions[0].machineId\",\"machineName\":\"sessions[0].machineName\",\"snoozedUntil\":\"sessions[0].snoozedUntil\",\"draftUpdatedAt\":\"sessions[0].draftUpdatedAt\",\"draftSyncEngine\":false,\"queuedMessageCount\":2,\"offer\":{\"message\":\"sessions[0].offer.message\",\"actions\":[{\"label\":\"sessions[0].offer.actions[0].label\",\"prompt\":\"sessions[0].offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"sessions[0].offer.artifacts[0]\"],\"createdAt\":\"sessions[0].offer.createdAt\"},\"handoffTarget\":\"sessions[0].handoffTarget\",\"conversationPodiumId\":\"sessions[0].conversationPodiumId\",\"spawnedBy\":\"sessions[0].spawnedBy\",\"workflowRunId\":\"sessions[0].workflowRunId\",\"workflowStepId\":\"sessions[0].workflowStepId\",\"executionProfileId\":\"sessions[0].executionProfileId\",\"issueId\":\"sessions[0].issueId\",\"refIssueId\":\"sessions[0].refIssueId\",\"refLetter\":\"sessions[0].refLetter\",\"refDraft\":2,\"displayRef\":\"sessions[0].displayRef\",\"headless\":false,\"viaHub\":false,\"upstreamStale\":false}],\"sessionSummary\":{\"total\":2,\"byPhase\":{\"sessionSummary.byPhase.key\":2}},\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":false,\"branch\":\"gitState.branch\",\"shared\":false,\"ahead\":2,\"dirtyFiles\":2,\"dirtyOwn\":2,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":2,\"merged\":false,\"fallback\":false},\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\"}"
     },
     {
+      "schema": "IssueWorkspace",
+      "variant": "minimal",
+      "wire": {
+        "worktreePath": null,
+        "branch": null,
+        "parentBranch": "parentBranch"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"worktreePath\":null,\"branch\":null,\"parentBranch\":\"parentBranch\"}"
+    },
+    {
+      "schema": "IssueWorkspace",
+      "variant": "full",
+      "wire": {
+        "worktreePath": "worktreePath",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "machineId": "machineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\"}"
+    },
+    {
       "schema": "LintFinding",
       "variant": "minimal",
       "wire": {
@@ -3025,6 +4323,141 @@
       "encoded": "{\"id\":\"id\",\"type\":\"type\"}"
     },
     {
+      "schema": "NeedsHuman",
+      "variant": "minimal",
+      "wire": {
+        "needsHuman": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"needsHuman\":true}"
+    },
+    {
+      "schema": "NeedsHuman",
+      "variant": "full/arm0",
+      "wire": {
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "user",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}}}"
+    },
+    {
+      "schema": "NeedsHuman",
+      "variant": "full/arm1",
+      "wire": {
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "agent",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}}}"
+    },
+    {
+      "schema": "NeedsHuman",
+      "variant": "full/arm2",
+      "wire": {
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "machine",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}}}"
+    },
+    {
+      "schema": "NeedsHuman",
+      "variant": "full/arm3",
+      "wire": {
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "system",
+              "job": "asked.attribution.actor.job"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}}}"
+    },
+    {
+      "schema": "OpStreamDocument",
+      "variant": "minimal",
+      "wire": {
+        "value": "value"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":\"value\"}"
+    },
+    {
+      "schema": "OpStreamDocument",
+      "variant": "full",
+      "wire": {
+        "value": "value",
+        "revision": 1,
+        "ops": [
+          {
+            "unknownFixture": "ops[0]"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"value\":\"value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"ops[0]\"}]}"
+    },
+    {
       "schema": "OrphanIssue",
       "variant": "minimal",
       "wire": {
@@ -3051,6 +4484,54 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"seq\":1,\"title\":\"title\",\"ref\":\"ref\"}"
+    },
+    {
+      "schema": "Ownership",
+      "variant": "minimal",
+      "wire": {
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "Ownership",
+      "variant": "full",
+      "wire": {
+        "owner": "owner",
+        "visibility": "personal"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "PerUserKey",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
+    },
+    {
+      "schema": "PerUserKey",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
     },
     {
       "schema": "ProjectMemoryWire",
@@ -3199,6 +4680,881 @@
       "encoded": "{\"kind\":\"kind\",\"value\":\"value\"}"
     },
     {
+      "schema": "SessionActivity",
+      "variant": "minimal",
+      "wire": {
+        "lastActiveAt": "lastActiveAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"lastActiveAt\":\"lastActiveAt\"}"
+    },
+    {
+      "schema": "SessionActivity",
+      "variant": "full",
+      "wire": {
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 1,
+        "outputCount": 1,
+        "activityCount": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":1,\"outputCount\":1,\"activityCount\":1}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "spawn"
+        },
+        "cwd": "cwd",
+        "title": "title",
+        "status": "starting",
+        "archived": true,
+        "lastActiveAt": "lastActiveAt",
+        "owner": "owner",
+        "visibility": "personal",
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"spawn\"},\"cwd\":\"cwd\",\"title\":\"title\",\"status\":\"starting\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"owner\":\"owner\",\"visibility\":\"personal\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm0",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "spawn"
+        },
+        "headless": true,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "user",
+        "namedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "user"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 1,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "starting",
+        "exitCode": 1,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "self",
+        "archived": true,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 1,
+        "outputCount": 1,
+        "activityCount": 1,
+        "workState": "planning",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "issue",
+          "by": {
+            "actor": {
+              "kind": "user",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "personal",
+        "agentState": {
+          "phase": "unknown",
+          "since": "agentState.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": true
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"spawn\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"user\",\"namedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"user\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":1,\"outputCount\":1,\"activityCount\":1,\"workState\":\"planning\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"issue\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"personal\",\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true}},\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm1",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": false,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "system"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 2,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "live",
+        "exitCode": 2,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "parent",
+        "archived": false,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 2,
+        "outputCount": 2,
+        "activityCount": 2,
+        "workState": "implementing",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "agent",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "per-user-state",
+        "agentState": {
+          "phase": "working",
+          "since": "agentState.since",
+          "workingMsTotal": 2,
+          "nativeSubagentCount": 2,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": false,
+          "idle": {
+            "kind": "question",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": false
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"system\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"archived\":false,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":2,\"outputCount\":2,\"activityCount\":2,\"workState\":\"implementing\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false}},\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm2",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "grok",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": true,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "agent"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 3,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "reconnecting",
+        "exitCode": 3,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "forced",
+        "archived": true,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 3,
+        "outputCount": 3,
+        "activityCount": 3,
+        "workState": "testing",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "machine",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "owned-compute",
+        "agentState": {
+          "phase": "idle",
+          "since": "agentState.since",
+          "workingMsTotal": 3,
+          "nativeSubagentCount": 3,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "approval",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": true
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"agent\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":3,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"reconnecting\",\"exitCode\":3,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"forced\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":3,\"outputCount\":3,\"activityCount\":3,\"workState\":\"testing\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"agentState\":{\"phase\":\"idle\",\"since\":\"agentState.since\",\"workingMsTotal\":3,\"nativeSubagentCount\":3,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"approval\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true}},\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm3",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "opencode",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": false,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "namedBy.actor.job"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "session",
+          "id": "spawnedBy.id"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 4,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "hibernated",
+        "exitCode": 4,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "exited",
+        "archived": false,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 4,
+        "outputCount": 4,
+        "activityCount": 4,
+        "workState": "done",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "deleted.by.actor.job"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "deployment-substrate",
+        "agentState": {
+          "phase": "needs_user",
+          "since": "agentState.since",
+          "workingMsTotal": 4,
+          "nativeSubagentCount": 4,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": false,
+          "idle": {
+            "kind": "open_todos",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": false
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"session\",\"id\":\"spawnedBy.id\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":4,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"hibernated\",\"exitCode\":4,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"archived\":false,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":4,\"outputCount\":4,\"activityCount\":4,\"workState\":\"done\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"agentState\":{\"phase\":\"needs_user\",\"since\":\"agentState.since\",\"workingMsTotal\":4,\"nativeSubagentCount\":4,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"open_todos\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false}},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm4",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "cursor",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": true,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "namedBy.actor.job"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "issue",
+          "id": "spawnedBy.id"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 5,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "exited",
+        "exitCode": 5,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "exited",
+        "archived": true,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 5,
+        "outputCount": 5,
+        "activityCount": 5,
+        "workState": "icebox",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "deleted.by.actor.job"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "secret",
+        "agentState": {
+          "phase": "errored",
+          "since": "agentState.since",
+          "workingMsTotal": 5,
+          "nativeSubagentCount": 5,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "interrupted",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": true
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"issue\",\"id\":\"spawnedBy.id\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":5,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"exited\",\"exitCode\":5,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":5,\"outputCount\":5,\"activityCount\":5,\"workState\":\"icebox\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"secret\",\"agentState\":{\"phase\":\"errored\",\"since\":\"agentState.since\",\"workingMsTotal\":5,\"nativeSubagentCount\":5,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true}},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm5",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "shell",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": false,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "namedBy.actor.job"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "superagent",
+          "threadId": "spawnedBy.threadId"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 6,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "exited",
+        "exitCode": 6,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "exited",
+        "archived": false,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 6,
+        "outputCount": 6,
+        "activityCount": 6,
+        "workState": "icebox",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "deleted.by.actor.job"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "secret",
+        "agentState": {
+          "phase": "compacting",
+          "since": "agentState.since",
+          "workingMsTotal": 6,
+          "nativeSubagentCount": 6,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": false,
+          "idle": {
+            "kind": "interrupted",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": false
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"shell\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"superagent\",\"threadId\":\"spawnedBy.threadId\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":6,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"exited\",\"exitCode\":6,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"archived\":false,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":6,\"outputCount\":6,\"activityCount\":6,\"workState\":\"icebox\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"secret\",\"agentState\":{\"phase\":\"compacting\",\"since\":\"agentState.since\",\"workingMsTotal\":6,\"nativeSubagentCount\":6,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false}},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionAggregate",
+      "variant": "full/arm6",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "shell",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": true,
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel",
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "namedBy.actor.job"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        },
+        "spawnedBy": {
+          "kind": "automation",
+          "id": "spawnedBy.id"
+        },
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 7,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "status": "exited",
+        "exitCode": 7,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "exited",
+        "archived": true,
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "lastOutputAt": "lastOutputAt",
+        "lastResumedAt": "lastResumedAt",
+        "inputCount": 7,
+        "outputCount": 7,
+        "activityCount": 7,
+        "workState": "icebox",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "deleted.by.actor.job"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        },
+        "owner": "owner",
+        "visibility": "secret",
+        "agentState": {
+          "phase": "ended",
+          "since": "agentState.since",
+          "workingMsTotal": 7,
+          "nativeSubagentCount": 7,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "interrupted",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": true
+          }
+        },
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"shell\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"automation\",\"id\":\"spawnedBy.id\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":7,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"exited\",\"exitCode\":7,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"exited\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":7,\"outputCount\":7,\"activityCount\":7,\"workState\":\"icebox\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"secret\",\"agentState\":{\"phase\":\"ended\",\"since\":\"agentState.since\",\"workingMsTotal\":7,\"nativeSubagentCount\":7,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true}},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionComposerDraft",
+      "variant": "minimal",
+      "wire": {
+        "body": {
+          "value": "body.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"body\":{\"value\":\"body.value\"}}"
+    },
+    {
+      "schema": "SessionComposerDraft",
+      "variant": "full",
+      "wire": {
+        "body": {
+          "value": "body.value",
+          "revision": 1,
+          "ops": [
+            {
+              "unknownFixture": "body.ops[0]"
+            }
+          ]
+        },
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"body\":{\"value\":\"body.value\",\"revision\":1,\"ops\":[{\"unknownFixture\":\"body.ops[0]\"}]},\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SessionDerived",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionDerived",
+      "variant": "full",
+      "wire": {
+        "displayRef": "displayRef",
+        "resumable": true,
+        "unread": true,
+        "machineName": "machineName",
+        "conversationPodiumId": "conversationPodiumId",
+        "queuedMessageCount": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"displayRef\":\"displayRef\",\"resumable\":true,\"unread\":true,\"machineName\":\"machineName\",\"conversationPodiumId\":\"conversationPodiumId\",\"queuedMessageCount\":1}"
+    },
+    {
       "schema": "SessionId",
       "variant": "minimal",
       "wire": "x",
@@ -3217,6 +5573,57 @@
       "encoded": "\"x\""
     },
     {
+      "schema": "SessionIdentity",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "spawn"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"spawn\"}}"
+    },
+    {
+      "schema": "SessionIdentity",
+      "variant": "full/arm0",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "spawn"
+        },
+        "headless": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"spawn\"},\"headless\":true}"
+    },
+    {
+      "schema": "SessionIdentity",
+      "variant": "full/arm1",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "createdAt": "createdAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "headless": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false}"
+    },
+    {
       "schema": "SessionIdField",
       "variant": "minimal",
       "wire": "",
@@ -3233,6 +5640,91 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "SessionLaunchConfig",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionLaunchConfig",
+      "variant": "full",
+      "wire": {
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "durableLabel": "durableLabel"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\"}"
+    },
+    {
+      "schema": "SessionLifecycle",
+      "variant": "minimal",
+      "wire": {
+        "status": "starting",
+        "archived": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"starting\",\"archived\":true}"
+    },
+    {
+      "schema": "SessionLifecycle",
+      "variant": "full",
+      "wire": {
+        "status": "starting",
+        "exitCode": 1,
+        "spawnFailure": "spawnFailure",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "self",
+        "archived": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"archived\":true}"
+    },
+    {
+      "schema": "SessionLiveOverlay",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionLiveOverlay",
+      "variant": "full",
+      "wire": {
+        "controllerId": "controllerId",
+        "clientCount": 1,
+        "epoch": 1,
+        "busy": true,
+        "handoffTarget": "handoffTarget",
+        "titleLocked": true,
+        "agentColor": "agentColor",
+        "observedModel": "observedModel",
+        "observedEffort": "observedEffort",
+        "transcriptAvailable": true,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "activityDirty": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"controllerId\":\"controllerId\",\"clientCount\":1,\"epoch\":1,\"busy\":true,\"handoffTarget\":\"handoffTarget\",\"titleLocked\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"transcriptAvailable\":true,\"geometry\":{\"cols\":1,\"rows\":1},\"activityDirty\":true}"
     },
     {
       "schema": "SessionMeta",
@@ -3727,6 +6219,97 @@
       "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false}},\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptAvailable\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"displayRef\":\"displayRef\",\"headless\":false}"
     },
     {
+      "schema": "SessionNaming",
+      "variant": "minimal",
+      "wire": {
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\"}"
+    },
+    {
+      "schema": "SessionNaming",
+      "variant": "full/arm0",
+      "wire": {
+        "title": "title",
+        "name": "name",
+        "nameSource": "user",
+        "namedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"user\",\"namedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionNaming",
+      "variant": "full/arm1",
+      "wire": {
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionNaming",
+      "variant": "full/arm2",
+      "wire": {
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "namedBy.actor.id"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"namedBy.actor.id\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "SessionNaming",
+      "variant": "full/arm3",
+      "wire": {
+        "title": "title",
+        "name": "name",
+        "nameSource": "agent",
+        "namedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "namedBy.actor.job"
+          },
+          "onBehalfOf": "namedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"}}"
+    },
+    {
       "schema": "SessionOffer",
       "variant": "minimal",
       "wire": {
@@ -3794,6 +6377,179 @@
       "encoded": "{\"kind\":\"resume\",\"conversationId\":\"conversationId\"}"
     },
     {
+      "schema": "SessionPlacement",
+      "variant": "minimal",
+      "wire": {
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "SessionPlacement",
+      "variant": "full",
+      "wire": {
+        "cwd": "cwd",
+        "machineId": "machineId",
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm0",
+      "wire": {
+        "spawnedBy": {
+          "kind": "user"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"user\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm1",
+      "wire": {
+        "spawnedBy": {
+          "kind": "system"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"system\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm2",
+      "wire": {
+        "spawnedBy": {
+          "kind": "agent"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"agent\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm3",
+      "wire": {
+        "spawnedBy": {
+          "kind": "session",
+          "id": "spawnedBy.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"session\",\"id\":\"spawnedBy.id\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm4",
+      "wire": {
+        "spawnedBy": {
+          "kind": "issue",
+          "id": "spawnedBy.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"issue\",\"id\":\"spawnedBy.id\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm5",
+      "wire": {
+        "spawnedBy": {
+          "kind": "superagent",
+          "threadId": "spawnedBy.threadId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"superagent\",\"threadId\":\"spawnedBy.threadId\"}}"
+    },
+    {
+      "schema": "SessionProvenance",
+      "variant": "full/arm6",
+      "wire": {
+        "spawnedBy": {
+          "kind": "automation",
+          "id": "spawnedBy.id"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"spawnedBy\":{\"kind\":\"automation\",\"id\":\"spawnedBy.id\"}}"
+    },
+    {
+      "schema": "SessionRef",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionRef",
+      "variant": "full",
+      "wire": {
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1}"
+    },
+    {
+      "schema": "SessionResume",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionResume",
+      "variant": "full",
+      "wire": {
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+    },
+    {
       "schema": "SessionStatus",
       "variant": "minimal",
       "wire": "starting",
@@ -3810,6 +6566,237 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"starting\""
+    },
+    {
+      "schema": "SessionTombstone",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionTombstone",
+      "variant": "full/arm0",
+      "wire": {
+        "deleted": {
+          "at": "deleted.at",
+          "source": "issue",
+          "by": {
+            "actor": {
+              "kind": "user",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"issue\",\"by\":{\"actor\":{\"kind\":\"user\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
+    },
+    {
+      "schema": "SessionTombstone",
+      "variant": "full/arm1",
+      "wire": {
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "agent",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
+    },
+    {
+      "schema": "SessionTombstone",
+      "variant": "full/arm2",
+      "wire": {
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "machine",
+              "id": "deleted.by.actor.id"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"deleted.by.actor.id\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
+    },
+    {
+      "schema": "SessionTombstone",
+      "variant": "full/arm3",
+      "wire": {
+        "deleted": {
+          "at": "deleted.at",
+          "source": "standalone",
+          "by": {
+            "actor": {
+              "kind": "system",
+              "job": "deleted.by.actor.job"
+            },
+            "onBehalfOf": "deleted.by.onBehalfOf"
+          },
+          "byIssueId": "deleted.byIssueId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
+    },
+    {
+      "schema": "SessionWorkflowLink",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionWorkflowLink",
+      "variant": "full",
+      "wire": {
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\"}"
+    },
+    {
+      "schema": "SessionWorkState",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionWorkState",
+      "variant": "full",
+      "wire": {
+        "workState": "planning"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"workState\":\"planning\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"user\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "system"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"system\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "agent"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"agent\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "session",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"session\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "issue",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"issue\",\"id\":\"id\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "superagent",
+        "threadId": "threadId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"superagent\",\"threadId\":\"threadId\"}"
+    },
+    {
+      "schema": "SpawnedByRef",
+      "variant": "full/arm6",
+      "wire": {
+        "kind": "automation",
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"automation\",\"id\":\"id\"}"
     },
     {
       "schema": "ThreadId",
@@ -4028,6 +7015,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"\""
+    },
+    {
+      "schema": "VisibilityClassField",
+      "variant": "minimal",
+      "wire": "personal",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"personal\""
+    },
+    {
+      "schema": "VisibilityClassField",
+      "variant": "full",
+      "wire": "personal",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"personal\""
     },
     {
       "schema": "WorkState",
