@@ -47,6 +47,7 @@ import {
   type MachineOwnershipIndex,
 } from '../../../machine-access'
 import type { AssertMachineUse } from './ports'
+import { HandoffRefusalError, refusalForMachineAccess } from './refusal'
 
 /**
  * The gate, over a principal and an ownership index — both resolved by the
@@ -65,8 +66,13 @@ export const machineUseGateFor = (deps: {
   return (machineId: string) => {
     const failure = checkMachineUse(deps.principal, machineId, deps.ownership)
     if (!failure) return
-    throw new Error(
+    // The message is UNCHANGED; what is new (POD-1079, for POD-643) is that the
+    // throw also carries the classified reason. `absent` becomes `unknown-target`
+    // — the arm an invisible machine SHARES with a nonexistent one, so the
+    // refusal cannot be read as an existence oracle.
+    throw new HandoffRefusalError(
       machineAccessMessage(failure, machineId, deps.ownership.rowFor(machineId)?.name),
+      refusalForMachineAccess(failure),
     )
   }
 }

@@ -62,6 +62,7 @@ import { agentSupportsHandoff } from '@podium/protocol'
 import type { Session } from '../session'
 import { transferHandoffPackage, verifiedBundleBases, verifiedCommonBundleBases } from '../handoff-transfer'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './ports'
+import { HandoffRefusalError } from './refusal'
 
 export interface HandoffInput {
   sessionId: SessionId
@@ -213,7 +214,12 @@ export class HandoffCoordinator {
     // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the
     // time execution reaches here the principal may `use` this machine, so
     // saying it is offline reveals nothing it could not already see.
-    if (!targetMachine?.online) throw new Error('target machine is offline')
+    // UNREACHABLE, and it is a different answer from unauthorized (M5): the two
+    // `use` checks above already passed, so the principal may use this machine
+    // and retrying later is the correct advice. Reachable only inside the `see`
+    // set, which is what keeps this compatible with the consistent-error rule.
+    if (!targetMachine?.online)
+      throw new HandoffRefusalError('target machine is offline', 'unreachable')
     const harness = targetMachine.inventory?.agents.find(
       (agent) => agent.kind === session.agentKind,
     )
