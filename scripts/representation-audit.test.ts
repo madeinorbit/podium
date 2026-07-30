@@ -283,7 +283,12 @@ describe('the detector’s two judgement calls are pinned', () => {
     // in an excluded file is still counted.
     // 31 + POD-1153's `HANDOFF_BUNDLE_CORE`, the shape both handoff format arms
     // spread. Bumping this number is the deliberate act the pin exists to force.
-    expect(NOT_A_REPRESENTATION.length).toBe(32)
+    // 32 -> 34: POD-381 moved sessions.create / sessions.resume's procedure inputs
+    // out of `appRouter` onto their command contracts, so `createInput` and
+    // `resumeInput` are excluded at their NEW address for the reason `appRouter`
+    // already carried. Excluding them by their old container alone would have made
+    // the audit's answer depend on which file the transport edge happens to live in.
+    expect(NOT_A_REPRESENTATION.length).toBe(34)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)
