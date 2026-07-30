@@ -1186,7 +1186,15 @@ describe('the optimistic-overlay reducer seam', () => {
     )
     h.store.cache.failNextPrepare = 'durable write denied'
     channel.push(bootstrapChunk(10, [], true))
+    // The authority stops serving after the aborted install, so the restarted walk
+    // runs out of attempts instead of blocking forever on a manual channel this
+    // test never feeds again. What is under test is the ABORT, not the retry: the
+    // point is that the replica ends up with its pre-bootstrap slice and an
+    // untouched outbox however the walk finishes.
+    h.authority.manual = null
+    h.authority.slice = null
     await h.replica.settled()
+    expect(h.replica.trace).toContain('D6-RESTART')
 
     // The walk restarts (D6-RESTART) rather than half-installing, and NOTHING was
     // retired: a command confirmed by a frame whose install never committed is
@@ -1194,6 +1202,9 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-one', 'm-two'])
     expect(h.replica.entities()).toHaveLength(0)
     expect(h.replica.cursor?.seq).toBe(5)
+    // Handed over exactly once, by the install that then aborted — so this asserts
+    // the batch took NO effect, not that it was never built.
+    expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-one', 'm-two'])
   })
 
   it('a frame carrying NO provenance opens no unit of work (D10 clause 2)', async () => {
