@@ -5354,6 +5354,11 @@ export class SessionsService {
     const sourceCursor = this.publicationWorker.sourceCursor()
     for (const client of this.clients.values()) {
       if (!client.publication) continue
+      // A peer outside the wire window is served NO entity state, and this path
+      // is the other half of that: the edge refuses to translate for it, and the
+      // publication worker — which does not go through the edge — must not hand
+      // it a v1 session world either.
+      if (client.entityServingRefused) continue
       const descriptor = this.publicationView(client)
       if (!descriptor) continue
       const deltaCapable = client.caps.has(CAP_METADATA_DELTA)
@@ -5423,6 +5428,12 @@ export class SessionsService {
             if (!client?.publication || client.publicationRequestVersion !== recipient.version) {
               continue
             }
+            // RE-CHECKED AT SEND TIME, not only at scheduling time. A publication
+            // is prepared asynchronously, so a connection can announce an
+            // unsupported wire version in the window between being selected and
+            // being sent to — measured, as a wire-window test that passed or
+            // failed on scheduling order alone.
+            if (client.entityServingRefused) continue
             const current = this.publicationView(client)
             if (
               !current ||
@@ -5529,6 +5540,9 @@ export class SessionsService {
    * sees the choice, which is why it can no longer disagree with the wire.
    */
   deliverEntityMessage(client: ClientConn, msg: ServerMessage): void {
+    // Refused peers are served no entity state, by any route. The edge already
+    // stops translating for one; this is the backstop for every other caller.
+    if (client.entityServingRefused) return
     const publication = client.publication
     if (msg.type === 'metadataDelta') {
       if (!publication) {

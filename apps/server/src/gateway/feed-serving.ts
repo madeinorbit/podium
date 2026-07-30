@@ -124,6 +124,8 @@ export class FeedServing {
   private readonly edge: WireFeedEdge
   private readonly peers = new Map<string, FeedPeer>()
   private readonly connections = new Map<string, FeedConnection>()
+  /** The wire version each connection's WORLD was expressed in. */
+  private readonly servedVersion = new Map<string, number>()
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -150,7 +152,13 @@ export class FeedServing {
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
+    this.serveWorld(peer, principal)
+    return null
+  }
 
+  /** Read the world, send it, and start framing from the position it was read
+   *  at. The one place a connection acquires a position. */
+  private serveWorld(peer: FeedPeer, principal: FeedPrincipal): void {
     // ONE synchronous pass: the world, and the position it was read at.
     const world = this.deps.authority.bootstrap(principal)
     const identity = this.deps.identity.current()
@@ -172,11 +180,16 @@ export class FeedServing {
       last: true,
     }
     this.edge.publishTo(peer, bootstrap)
-    this.connections.set(
-      peer.id,
-      this.publisher.connect(peer.id, world.throughSeq, principal),
-    )
-    return null
+    this.servedVersion.set(peer.id, peer.wireVersion)
+    const existing = this.connections.get(peer.id)
+    if (existing === undefined) {
+      this.connections.set(peer.id, this.publisher.connect(peer.id, world.throughSeq, principal))
+      return
+    }
+    // A RE-SERVE. `rearm` is the publisher's own "this replica has just
+    // re-bootstrapped, resume from here" — the same call a demoted connection
+    // takes back. Reusing it keeps ONE way for a position to be set.
+    existing.rearm(world.throughSeq)
   }
 
   /**
@@ -189,17 +202,35 @@ export class FeedServing {
    * committed in between. What changes is only which adapter frames the NEXT
    * frame, which is a translation decision and nothing else.
    */
-  renegotiate(peer: FeedPeer): UpgradeRequired | null {
-    if (!this.connections.has(peer.id)) return this.edge.attach(peer)
+  renegotiate(peer: FeedPeer, principal: FeedPrincipal): UpgradeRequired | null {
     const refusal = this.edge.attach(peer)
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
+    if (!this.connections.has(peer.id)) {
+      this.serveWorld(peer, principal)
+      return null
+    }
+    // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
+    // wire 1 before it says anything, so its world went out as v1 full lists. If
+    // `hello` then announces a different version, that world was expressed in a
+    // dialect this peer never advertised — so it is served again, in the version
+    // it named, and the publisher is re-armed at the new position.
+    //
+    // The cost is one duplicated world per non-v1 connection, for the length of
+    // the rollout window, and it is bounded and self-cancelling: the day
+    // MIN_SUPPORTED_VERSION reaches 2 the pre-hello default rises with it and no
+    // supported peer changes version at hello any more. The alternative —
+    // bootstrapping only at `hello` — withholds the world from every peer that
+    // never sends one, which is what the pre-cutover code deliberately served.
+    if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
+    this.serveWorld(peer, principal)
     return null
   }
 
   detach(peerId: string): void {
     this.edge.detach(peerId)
     this.peers.delete(peerId)
+    this.servedVersion.delete(peerId)
     this.connections.get(peerId)?.disconnect()
     this.connections.delete(peerId)
   }

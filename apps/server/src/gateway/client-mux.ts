@@ -275,8 +275,21 @@ export class ClientMux {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
     conn.wireVersion = announced ?? 1
-    const refusal = this.deps.feed.renegotiate(this.peerOf(conn))
+    const refusal = this.deps.feed.renegotiate(this.peerOf(conn), feedPrincipalOf(conn.principal))
     if (refusal === null) return
+    // DROPPED FROM THE SERVING SET, not merely un-resolvable. Until `hello` a
+    // socket is admitted at wire 1 — the only honest reading of silence — so a
+    // beyond-window peer has already been served a v1 world and holds a framing
+    // position. Leaving it there would keep the publisher certifying ranges for a
+    // connection nothing can translate for, and the first adapter that DID cover
+    // its version would start mid-stream.
+    this.deps.feed.detach(conn.id)
+    // The prepared-publication worker is a SEPARATE delivery path (it serves a
+    // scoped connection its own filtered session view) and the edge cannot reach
+    // it. Without this flag a refused peer keeps receiving the worker's v1
+    // `sessionsChanged` — measured, as a flake in the wire-window test that
+    // passed or failed on scheduling order alone.
+    conn.entityServingRefused = true
     console.warn('[podium] client outside the supported wire window; not serving the feed', {
       client: conn.id,
       refusal,

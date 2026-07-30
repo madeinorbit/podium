@@ -100,6 +100,16 @@ export interface ClientConn {
    * edge resolves an adapter from; the connection itself never interprets it.
    */
   wireVersion: number
+  /**
+   * This connection announced a wire version outside the supported window, and
+   * is served NO entity state at all (POD-1203).
+   *
+   * Not derivable from {@link wireVersion} here: the window is the gateway's
+   * (`WireFeedEdge.support()`), and re-deriving "is this supported?" in the
+   * feature that reads this flag would be a second answer to a question the edge
+   * already answers. It is set once, by the mux, from the edge's own refusal.
+   */
+  entityServingRefused?: boolean
   /** Session ids this client subscribed to the structured transcript of. Lets
    *  detach sweep just this client's subscriptions instead of scanning every
    *  session on the host (audit P2-18). */
