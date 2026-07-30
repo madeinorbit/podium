@@ -212,9 +212,22 @@ switch surfaced that its `setNeedsHuman` arm stamps `humanQuestionAskedAt` uncon
 carrying `humanQuestionAskedBy` only when the input happens to supply a string — a value that answers
 *when* a question was asked while answering nothing about *who*, which is exactly the split ADR 9 D5
 A3 forbids. POD-365 responded by nesting the tuple as one optional-as-a-whole `asked` object, so the
-timestamp cannot exist outside the object carrying its actor, and applied the same treatment to
-`SessionTombstone` and `SessionNaming`. The offending arm becomes a compile error at the POD-311
-cutover instead of a silent gap.
+timestamp cannot exist outside the object carrying its actor. The offending arm becomes a compile
+error at the POD-311 cutover instead of a silent gap.
+
+**The finding generalised to three sites, and the two it did not start with are the worse ones.** Both
+are cases of *a field that looks like attribution and answers a different question* — the same
+category error as collapsing the pair, which is why a field name is not evidence of attribution:
+
+- `SessionTombstone.deleted` — session deletion had **no actor at all**. `deletion_source` is a
+  code-**path** label, not a person, so "we record `deletion_source`, therefore deletion is
+  attributed" was false.
+- `SessionNaming.namedBy` — `nameSource` is a **role class** (`'user' | 'agent'`), not a person, even
+  though [spec:SP-eb60]'s rule that a human-set name outranks an agent-set one depends on it.
+
+All three now nest the timestamp inside the object carrying the actor, so a half-filled value does not
+typecheck. Those two are session-side and belong to POD-366/POD-365; recorded here because the class
+was found on this surface.
 
 ### 3.5 Per-user state
 
@@ -268,11 +281,22 @@ bootstrap snapshot being *positive state*, and for a document the truth is the m
 
 POD-365 landed the shape as `IssueDocuments` — `{ value, revision?, ops? }`, `value` required so the
 read position stays compatible with the string it replaces. That neither implements op-streams nor
-annotates conflict classes (POD-304 owns the annotation), and it does not preclude the tail. **One
-constraint was flagged back to POD-365 and is recorded here in case it is not adopted:** `ops` must
-be a bounded *tail*, not the whole history. An unbounded op array is precisely the head-pruning
-hazard D5 note 1 warns about, and anything other than tail-plus-materialized-value needs the log
-compaction ADR that ADR 2 already parks.
+annotates conflict classes (POD-304 owns the annotation), and it does not preclude the tail.
+
+**One constraint was flagged back to POD-365 and has been adopted** (`ce014033`): `ops` is now
+**`opsTail`**, with the bound stated in the field comment. The rename is not cosmetic — `ops` reads as
+*the history*, and a document rebuilt by replaying an unbounded history is exactly the head-pruning
+hazard D5 note 1 warns about, because D5's safety proof needs the bootstrap snapshot to be **positive
+state**. Anything other than materialized-value-plus-bounded-tail needs the log-compaction ADR that
+ADR 2 already parks, and now whoever builds op-streams inherits that constraint from the field rather
+than from an ADR two documents away. POD-365 re-proved wire additivity against the pre-POD-365 corpus
+*before* regenerating: removed 0, changed 0, added 123, with only the four shape-carrying schemas
+moving.
+
+On the write position, no change is wanted: `value` being required keeps the *read* position
+shape-compatible, and every *write* site learns the wrapper at the `IssueWire` re-derivation — which
+is the right place for it to land, since the alternative is a plain `z.string()` that has to change
+shape later, exactly what §8 asks POD-365 not to leave behind.
 
 ### 3.9 Existence leaks
 
@@ -295,12 +319,19 @@ Six representations (#2, #3, #6, #7, #8, and the `Ownership`/`Attribution` membe
 are `Pick`s from the thirteen shared field groups POD-365 owns. POD-365 has landed them — as
 `69d1cfc6` **on its own branch**.
 
-They are not consumed here because two instructions do not compose: the coordinator's ("do not
-rebase onto or merge POD-365; I own integration and will land POD-365, then you") and POD-365's
-("pull it"). Writing the Picks against symbols absent from this tree would produce a branch that
-**cannot be typechecked by the agent reporting it done**, which is the failure the fan-out's own
-verification rule exists to prevent. A ruling was requested from the coordinator; until it arrives
-the blocked items stay blocked and are reported as blocked.
+They are not consumed here because the coordinator's instruction is explicit: *do not rebase onto or
+merge POD-365; I own integration and will land POD-365, then you.* POD-365 had said "pull it", which
+briefly looked like a conflicting instruction — **it has since withdrawn that** as a statement about
+symbol *visibility* rather than a merge instruction, agreeing the coordinator wins. So there is no
+tie to break: this is not a deadlock, it is **waiting for a merge the coordinator already intends to
+perform in this order**, which is a materially different thing for a reader of this ledger.
+
+The Picks are still not written speculatively. POD-365's exported names are final and will not move,
+so churn is no longer the risk — but writing them here would hand a reviewer code that **neither
+author can compile in their own tree**, which is precisely the failure the fan-out's verification rule
+exists to prevent. They typecheck the moment the branches meet, and that moment is the coordinator's
+to choose. (A ruling request remains queued in case it wants to rule for all three implementers, since
+POD-366 resolved the same question the other way and has already consumed POD-365.)
 
 The three CLI retirements (#7, #8, and #6's session member) carry a second, independent blocker worth
 stating because it is easy to mistake for laziness: `packages/issue-client` and `apps/cli` cannot
