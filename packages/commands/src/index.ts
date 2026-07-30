@@ -235,6 +235,35 @@ export {
 } from './mutations'
 export * from './sessions/command-plane'
 export {
+  CONTRACT_TIER,
+  contractMatrixRow,
+  preferencePathsInTier,
+  SECRET_COMMAND_KEYS,
+  SETTINGS_COMMAND_NAMES,
+  SETTINGS_CONTRACTS,
+  type SettingsContractName,
+  settingsClearSecretContract,
+  settingsClearSecretInput,
+  settingsSetSecretContract,
+  settingsSetSecretInput,
+  settingsUpdateInstanceContract,
+  settingsUpdateInstanceInput,
+  settingsUpdatePersonalContract,
+  settingsUpdatePersonalInput,
+  TIER_COMMAND,
+  WRITABLE_PREFERENCE_PATHS,
+} from './settings/contracts'
+export {
+  type ChangedLeaf,
+  changedSettingsLeaves,
+  ONLINE_ONLY_SETTINGS_COMMANDS,
+  type PlanOptions,
+  planSettingsWrite,
+  type SettingsWriteIntent,
+  type SettingsWritePlan,
+  type SettingsWriteRefusal,
+} from './settings/write-plan'
+export {
   EXPORTABLE_HARNESSES,
   type SessionHandoffInput,
   type SessionHandoffOutput,
