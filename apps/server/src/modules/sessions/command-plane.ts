@@ -305,10 +305,41 @@ function substrateSend(ctx: SessionCommandCtx, input: SendInput, lifecycle: 'wai
  * substrate's `dead_letter`. Both are POD-379-pinned, and they differ because
  * the transports differ, not because the check does.
  */
+/**
+ * A send whose target is ABSENT — nonexistent, or invisible to the principal's
+ * delegating human — never reaches the substrate.
+ *
+ * FOUND BY POD-382's CROSS-COMMAND SWEEP, and it is the finding the gate existed
+ * for. The handler used to fall through to `substrateSend` whenever the caller was
+ * not an agent, and the substrate resolves the target from its OWN session list,
+ * which knows nothing about a principal. So a nonexistent id dead-lettered while an
+ * INVISIBLE-BUT-EXISTING session was `queued` — two observable answers, i.e. the
+ * existence oracle §3.1.5 forbids, and worse: the message was actually DELIVERED to
+ * a session the principal may not see.
+ *
+ * The shape is the substrate's own, reproduced rather than imported because it is
+ * built inside a private `deadLetter` path. `session-cutover.audit.test.ts` asserts
+ * this value equals what the substrate returns for a real ghost send, so the two
+ * cannot drift: the duplication is checked, not trusted. POD-379 pins `ok:false` +
+ * `disposition:'dead_letter'` for that path and asserts nothing about a ledger row,
+ * which is what makes not writing one behaviour-preserving.
+ */
+const UNADDRESSABLE_SEND = {
+  ok: false,
+  reason: 'dead-lettered: session no longer exists',
+  disposition: 'dead_letter',
+} as const
+
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return (ctx: SessionCommandCtx, input: SendInput) => {
     const target = ctx.target(input.sessionId, proc)
-    if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+    if (!target) {
+      // A relayed agent's absent target throws; an operator's dead-letters. Both
+      // POD-379-pinned, and they differ because the TRANSPORTS differ — not because
+      // the target resolution does.
+      if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+      return { ...UNADDRESSABLE_SEND }
+    }
     return substrateSend(ctx, input, lifecycle)
   }
 }
