@@ -1,6 +1,8 @@
 # ADR pack — architecture rewrite v3 (POD-279)
 
-Status: **Proposed** — pending human sign-off at the POD-359 gate. ADRs 1–8 authored 2026-07-17
+Status: **Proposed** — the POD-359 human sign-off gate is **suspended** for the autonomous
+POD-279 fan-out (`docs/agents/rewrite-fanout-protocol.md` §1); the coordinator records sign-off in
+its place, with the tracker-reconciliation evidence below. ADRs 1–8 authored 2026-07-17
 against integration tip `ca361327`; ADR 9 and the five amendments authored 2026-07-29 against
 tip `2ddfec21`. Source proposal committed at
 `docs/proposals/2026-07-10-architecture-redesign.html`; living execution record in
@@ -82,3 +84,31 @@ amendment's drift row marked resolved.
 **Not multi-tenancy** is stated in all six documents and in every compliance checklist: ADR 1 D5
 is **unaffected**, its reserved-columns clause is **not** triggered, and no `instance_id` or
 equivalent tenant discriminator may be added anywhere as a consequence of multi-user.
+
+## Tracker reconciliation (2026-07-30, POD-359)
+
+The pack's second acceptance obligation is that contradictions are reconciled **in the tracker**,
+not only between ADRs. Swept: POD-279 and every descendant carried in its tree — the six phase
+epics (POD-288…POD-293), their children (POD-299…POD-316, POD-352, POD-355, POD-360…POD-421,
+POD-423…POD-425, POD-640…POD-645, POD-727…POD-736), and the seven multi-user phase issues
+(POD-1075…POD-1081). 103 issues inspected in full.
+
+- **No surviving single-operator contradiction was found.** Every occurrence of *single-operator*,
+  *unscoped*, *capability snapshot* and *instance_id* in the subtree is the **corrected** form —
+  a rationale being declared void, a firehose declared overturned, a snapshot declared forbidden,
+  or the "do NOT add `instance_id`" guard rail. No issue proposes a tenant discriminator.
+- **Governing-ADR references added** where a brief cited only `docs/multi-user-readiness.md`:
+  POD-360, POD-362, POD-363 (ADR 4 + Amd 1 D8–D10, ADR 7, ADR 9) and POD-730 (ADR 3 + Amd 1,
+  ADR 9). POD-861 was inspected and left alone — it is an audit-ratchet issue on the main lineage,
+  untouched by the pack.
+- **Ordering made schedulable, not advisory.** The must-land-before-POD-308 constraint is stated in
+  ADR 2 Amd 1 D17.2, in POD-1077, in POD-308 and in the Phase 2 epic; the `POD-308 → POD-1077`
+  dependency edge exists. POD-1077 gained edges on **POD-305** (the Authority defines the injected
+  visibility port) and **POD-373** (the parameterised conformance suite that hosts its cases), so
+  the scoped feed cannot be scheduled outside the kernel it must land inside. D17.1's three
+  conformance cases — grant/revoke mid-session, scoped gap heal, revoked-while-offline-with-queued-
+  writes — are carried as Phase-2 **gate conditions** in POD-289, POD-306, POD-373, POD-1077,
+  POD-308 and POD-310.
+- **Phase wiring verified:** POD-1075/1076 under POD-288, POD-1077 under POD-289, POD-1080 under
+  POD-290, POD-1078/1079 under POD-291, POD-1081 under POD-292; each references ADR 9 and its own
+  governing ADR.
