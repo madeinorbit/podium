@@ -340,8 +340,17 @@ orphaned live process is a failure this repo has actually suffered. The contract
   **terminates that attempt** — not the session, not the durable host of the winning
   attempt.
 - Termination is **by attempt id**, never by session id or by scanning process names.
-  A bare `abduco` sweep once killed 93 unrelated masters on this machine; POD-417's
-  crash-recovery test must assert the narrow kill.
+  A bare `abduco` sweep once killed 93 unrelated masters on this machine.
+
+  > **Test obligation (POD-417), stated as survivors and not only as victims.** A test named
+  > "terminates the losing attempt" passes if the daemon killed *everything*, which is the
+  > failure this clause exists to prevent — so asserting the victim died proves nothing about
+  > narrowness. The assertion set must be: the **losing attempt is gone**, the **winning
+  > attempt is still alive and still serving frames**, and **an unrelated third session's
+  > durable host on the same machine is untouched**. The third one is the assertion that
+  > actually distinguishes a narrow kill from a sweep; without it the test is named for a
+  > property it does not check. Mutate the disposal call to take the session id instead of
+  > the attempt id — the test must go red.
 - If the daemon cannot prove which attempt is which, it terminates **nothing** and reports
   `conflicted`. Failing closed here means a duplicate pane; failing open means killing a
   human's live work.
@@ -788,8 +797,15 @@ describe it.
 **S2 — Fail closed on a newer version.** A reader encountering an unknown `schemaVersion`
 **refuses the record and reports it**. It does not best-effort parse and it does not delete.
 An unparseable binding must never degrade into an `unbound` session that a guess can fill
-in. POD-415 must **test** that the gate refuses what it cannot parse — an untested
-fail-closed path is a fail-open path.
+in.
+
+> **Test obligation (POD-415).** An untested fail-closed path is a fail-open path, and
+> "it threw" is not the claim. S2 makes three separate promises and each needs its own
+> assertion: the read **refuses** (and refuses *for the version reason* — assert the
+> reason, or a missing-file error passes the test); the record is **still on disk
+> afterwards**, byte-identical; and the session does **not** appear as `unbound`, because
+> degrading to `unbound` is exactly the state a later guess is allowed to fill in. Mutate
+> the version check to fall through to the v1 parser — all three must red.
 
 **S3 — Unknown fields are preserved.** A daemon older than the server must round-trip
 fields it does not understand rather than dropping them on rewrite: there is no migration
@@ -874,7 +890,11 @@ silently choosing.
 
 **Cutover.** Dual-read, single-write, in this order: (1) POD-415 lands the store and
 backfill; the binding is written on every change but **reads still come from the old
-columns**. (2) A conformance run asserts the two agree for every live session. (3) Reads
+columns**. (2) A conformance run asserts the two agree for every live session — and must
+assert a **non-zero session count** first, because "they agree for every session" is
+trivially true of an empty set, and must compare **null against null explicitly** rather
+than skipping rows where either side is absent, since an unbound session on both sides is
+the agreement most likely to be vacuous. (3) Reads
 switch to the binding; the old columns become projections written from the head. (4) The
 old columns stop being authoritative — **the point of no return, and it is one commit**.
 Restart at any stage is idempotent because the backfill is keyed by `sessionId` and seeded
@@ -1018,7 +1038,7 @@ Each row names the failure mode, the clause answering it, and what to attack.
 | 10 | A human revoked while their agent is live | P4, P0.1 | Revoke mid-turn with queued outbox writes. Do they apply? Does the session say *why* it stopped, rather than going quietly idle? |
 | 11 | A sub-agent spawn widening its parent's scope | P3, §6.1 authorization row | Refused **at mint time**, not silently narrowed and not caught only at apply. |
 | 12 | Adoption onto a machine without `use` | P10, W15 | Is the error a denial, an "offline", or an empty list? A machine you cannot `see` must fail like a nonexistent id. |
-| 13 | Two users racing reattach on a shared machine | P11, W13, W14, W15 | Both hold `use`, one holds a session grant; then both. One lease, correct response per caller, **losing process disposed of by attempt id**, `onBehalfOf` unchanged. |
+| 13 | Two users racing reattach on a shared machine | P11, W13, W14, W15 | Both hold `use`, one holds a session grant; then both. One lease, correct response per caller, `onBehalfOf` unchanged, and disposal checked **by survivor, not only by victim** — winner still serving, an unrelated third session on that machine untouched (W14's test obligation). |
 
 ### 14.5 Structural
 
