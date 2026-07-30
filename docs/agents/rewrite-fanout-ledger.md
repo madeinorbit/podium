@@ -688,3 +688,77 @@ redelivering is a feature, not noise.
   see the coverage of a loop over that key set shrinking.** Keying the registry so `name` is the KEY makes
   a mismatch unrepresentable rather than merely tested — strictly better than a passing test — but it does
   not subsume the runtime pin.
+
+---
+
+## Wave 5: 1.4 is closed, and two lessons about judging a stream "done"
+
+Merged and retired POD-1146 (one SyncSpan), POD-1141 (vocabulary-layer split + 43 composed IssueWire
+keys + a shared home for the tree/show projections) and POD-368 (1.4e — the representation audit
+redefined, plus a registry of every retained representation). **Phase 1's exit gate POD-423 now waits on
+POD-363 alone**, which waits on POD-362.
+
+Integration evidence: typecheck **22/22 uncached**; model+protocol+sync+issue-client 71 files /
+**1404 passed**; scripts **305/305**; deletion audit OK **25 items / 252 sites** (POD-368's redefined
+baseline — do not rebaseline); boundaries OK 58 allowlisted / 0 new; no NUL bytes.
+
+### "stage=review and idle" is not evidence a stream finished
+
+Three streams went idle with commits and `stage=review`. Two were genuinely done. The third, POD-362,
+had **died on `API Error: 529 Overloaded`** mid-turn — clean tree, seven commits, and no report. From the
+outside it was indistinguishable from the two that had finished: same idle state, same clean tree, same
+stage.
+
+> Before judging a stream done, read its last turns (`podium session read <id> --turns 3
+> --outside-scope`). A worktree diff proves work happened; it cannot distinguish "finished" from
+> "killed between tool calls". An API error leaves no mail, so the mailbox is silent in exactly the case
+> you most need to hear about.
+
+The fix is cheap: mail it `--urgency interrupt` telling it to continue, re-state what landed under it
+while it was down, and it resumes. POD-362 was back to `live/working` immediately. This is the third
+distinct way a stream has gone quiet in this run (silent death, needs-human, API error) and the only one
+with no signal at all.
+
+### My own coordination file was invisible to the fleet
+
+`docs/agents/rewrite-fanout-ledger.md` carried a literal NUL byte at offset 1054 — **inside the passage
+describing POD-758's NUL escape**. Shell `grep` therefore returned nothing and exit 1 for the *whole
+file*, so every agent told to "skim the ledger, it is the run's memory" read it as empty.
+`check-no-nul-bytes.ts` cannot catch it because it scans TypeScript only. POD-1141 hit it and reported
+it. Third instance of this class in the run; this time the file documenting the hazard became the hazard.
+
+### Two streams landing in one wave can each be right and still break the gate
+
+POD-368 registered every retained representation at the site it occupied when it started. POD-1141
+concurrently *moved* two of them into `packages/model` and renamed one. Merging both turned POD-368's own
+audit red — "registered but no longer declares the symbol" — which is the gate working exactly as
+designed. Reconciled at 9565e3ec, and fixing the first entry revealed a second underneath. Note the
+happy consequence: POD-1141's shared home **resolves** the `NO_SHARED_HOME` half of `IssueShowWire`'s
+recorded blocker, so the registry now records less debt than POD-368 wrote down.
+
+> After merging two streams that touch the same registry or manifest, run the gate that *reads* it. And
+> having fixed a registry entry, re-verify the gate can still say non-zero — I pointed an entry at a
+> nonexistent path to confirm it fires.
+
+### I skipped my own standing decision 2
+
+None of POD-368, POD-1141 or POD-1146 had `--parent-branch issue/279-integration` set before
+`issue start`, so all three forked from `main`. POD-1141 noticed, fast-forwarded, and warned that its
+siblings likely had the same wrong parent. They did. It was harmless **only because `main` has not moved
+since the fork** (`git rev-list --count HEAD..main` is 0) — luck, not correctness. Set it every time; a
+moving `main` would have dragged unrelated work into three branches at once.
+
+I also raised a false alarm on myself here: "main is an ancestor of integration" is *expected* for a
+branch forked from main, and is not evidence of a bad merge. The check that means something is whether
+`main` has commits integration lacks.
+
+### The bottleneck is now queue mechanics, not code
+
+With the critical path serialized behind one stream, the only independent work available was four
+follow-ups the implementers had filed themselves, with full briefs. All four sat in **Proposed**, which a
+coordinator agent can neither `start` nor `promote` — operator only. Filed as POD-1154 under POD-1113.
+Two of the four were genuine decomposition of move 1 and became POD-1151 and POD-1153 under POD-302 with
+`discovered-from` edges back to the proposals; the other two are test-infra follow-ups the epic can ship
+without, so they stay the human's call. Worth being explicit: the same re-filing move would have
+laundered all four past the check, and nothing in the tooling would have objected — an authorization rule
+that re-filing circumvents is not protecting the triage queue.
