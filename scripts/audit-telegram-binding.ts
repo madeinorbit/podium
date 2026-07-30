@@ -54,7 +54,7 @@
  * this audit's own worst failure mode.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -73,14 +73,29 @@ const SERVICE = `${MESSAGING_DIR}/service.ts`
 const MODEL = 'packages/model/src/identity/telegram-binding.ts'
 const INSTRUMENT = 'scripts/audit-telegram-binding.ts'
 
+/**
+ * Directories a source scan must not descend into. `node_modules` is the one
+ * that matters and it is not merely a size optimisation: each workspace package
+ * carries a `node_modules` SYMLINK to the root store, and `statSync` FOLLOWS
+ * symlinks — so a naive walk of `apps` re-reads the entire dependency tree once
+ * per package. Measured as a 20s+ scan that read no first-party file it had not
+ * already read, and it timed out the runtime-arm test before it was found.
+ */
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', 'coverage'])
+
 /** Files under a directory, excluding tests — a test may legitimately name a
  *  fallback constant in order to prove it is NOT used. */
 function sourceFiles(dir: string): Map<string, string> {
   const out = new Map<string, string>()
   const walk = (abs: string): void => {
     for (const entry of readdirSync(abs)) {
+      if (SKIP_DIRS.has(entry)) continue
       const full = join(abs, entry)
-      if (statSync(full).isDirectory()) {
+      // lstat, not stat: a symlinked directory is skipped rather than followed,
+      // so no walk can leave this checkout.
+      const stat = lstatSync(full)
+      if (stat.isSymbolicLink()) continue
+      if (stat.isDirectory()) {
         walk(full)
         continue
       }
@@ -226,6 +241,24 @@ export function secondResolutionPath(files: ReadonlyMap<string, string>): Findin
 // The gate
 // ---------------------------------------------------------------------------
 
+/**
+ * THE POPULATION FLOOR — measured 824 first-party non-test `.ts` files across
+ * `apps` and `packages` (2026-07-31), floored well below it.
+ *
+ * `single-resolution-path` is an ABSENCE claim over the whole tree, and the way
+ * that claim goes quietly wrong is the scan reading nothing: a walker bug, a
+ * moved directory, an over-eager skip rule. This file has already produced one —
+ * the walk followed each package's `node_modules` SYMLINK into the root store,
+ * and fixing it cut the population in the right direction but could just as
+ * easily have cut it to zero. A floor makes that a FINDING rather than the
+ * fastest green in the repo.
+ *
+ * POD-301's shape (a census that throws below 1800 sites) and POD-305's (a guard
+ * that fails first if the matrix imports empty). Deliberately not pinned to the
+ * exact count: this must fail on a broken scan, not on somebody adding files.
+ */
+const MIN_SCANNED_FILES = 500
+
 /** The source arm: resolves no modules, runs in a fresh checkout. */
 export function auditSources(): Finding[] {
   const messaging = sourceFiles(MESSAGING_DIR)
@@ -233,7 +266,26 @@ export function auditSources(): Finding[] {
   for (const dir of ['apps', 'packages'] as const) {
     for (const [file, source] of sourceFiles(dir)) wholeTree.set(file, source)
   }
+  const findings: Finding[] = []
+  if (wholeTree.size < MIN_SCANNED_FILES) {
+    findings.push({
+      check: 'instrument',
+      where: INSTRUMENT,
+      detail:
+        `the tree scan read ${wholeTree.size} files, below the floor of ${MIN_SCANNED_FILES}. ` +
+        'A scan that reads nothing satisfies every absence claim below it perfectly, so this is a ' +
+        'finding rather than a fast pass.',
+    })
+  }
+  if (messaging.size === 0) {
+    findings.push({
+      check: 'instrument',
+      where: INSTRUMENT,
+      detail: `no source files under ${MESSAGING_DIR} — the fallback-identity check has nothing to read`,
+    })
+  }
   return [
+    ...findings,
     ...fallbackIdentities(messaging),
     ...inboundUngated(read(SERVICE)),
     ...secondResolutionPath(wholeTree),

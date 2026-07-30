@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, readSettingsLeaf } from '@podium/commands'
 import {
   redeemTelegramClaimCode,
-  telegramClaimCodeIsLive,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
   type ServerSecretKey,
   type TelegramChatBinding,
   type TelegramClaimCode,
+  telegramClaimCodeIsLive,
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'

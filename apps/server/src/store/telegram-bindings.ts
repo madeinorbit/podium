@@ -49,11 +49,17 @@ function toAttribution(r: Record<string, unknown>): Attribution | undefined {
   const onBehalfOf = (r.on_behalf_of as string | null | undefined) ?? null
   if (kind === 'user') {
     if (!id) return undefined
-    return { actor: { kind: 'user', id: asUserId(id) }, onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null }
+    return {
+      actor: { kind: 'user', id: asUserId(id) },
+      onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null,
+    }
   }
   if (kind === 'system') {
     if (!id) return undefined
-    return { actor: { kind: 'system', job: id }, onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null }
+    return {
+      actor: { kind: 'system', job: id },
+      onBehalfOf: onBehalfOf ? asUserId(onBehalfOf) : null,
+    }
   }
   // `agent` and `machine` arms are representable in the model and are not
   // written here: a binding is only ever created by the redemption of a mint a

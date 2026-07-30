@@ -63,14 +63,16 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  *  - `set` is the legacy blob write, still called by the sidebar, the
  *    auto-continue dialog and the engine — and it now refuses a SECRET change,
  *    which is what makes the contracted pair the only way to write material.
- *  - the two telegram procedures are a stateful pairing ceremony over a
- *    third-party API, not a settings write with a payload.
+ *  - the two telegram procedures WERE here and are now CONTRACTED (POD-1080,
+ *    ADR 3 Amendment 1 D22): the binding ceremony is an authentication surface,
+ *    so they moved into `DERIVED` below under unchanged wire keys. They are the
+ *    one kind of removal this guard is meant to admit — POD-420 deferred them to
+ *    that issue by name — and the whole-map equality still fails if they vanish
+ *    from the ROUTER, because `DERIVED` is read off the contract table.
  */
 const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
   'settings.get': 'query',
   'settings.set': 'mutation',
-  'settings.telegramSetupStart': 'mutation',
-  'settings.telegramSetupPoll': 'mutation',
 }
 
 /** The contracted half, DERIVED from the table — so a fifth contract must appear
@@ -145,10 +147,12 @@ describe('this guard can say NO', () => {
   it('the contract table is NOT empty — the derived half has content', () => {
     // Without this, "every contract declaring trpc is served" passes perfectly
     // against a table naming nothing, which is the emptiness POD-732 named.
-    expect(SETTINGS_COMMAND_NAMES.length).toBe(4)
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(6)
     expect(Object.keys(DERIVED).sort()).toEqual([
       'settings.clearSecret',
       'settings.setSecret',
+      'settings.telegramSetupPoll',
+      'settings.telegramSetupStart',
       'settings.updateInstance',
       'settings.updatePersonal',
     ])
