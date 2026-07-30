@@ -1,5 +1,5 @@
 import { shouldPinOnReset } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   blockMatches,

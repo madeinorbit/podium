@@ -1,4 +1,4 @@
-import type { IssueGitState } from '@podium/protocol'
+import type { IssueGitState } from '@podium/model'
 import { describe, expect, test } from 'vitest'
 import { deriveGitStamp } from './git-stamp'
 

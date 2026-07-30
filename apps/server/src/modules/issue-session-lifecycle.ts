@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { IssueService } from './issues/service'
 import type { SessionsService } from './sessions/service'

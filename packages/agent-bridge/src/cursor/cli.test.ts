@@ -8,10 +8,7 @@ import {
 
 describe('cursor cli', () => {
   it('lists ~/.local/bin/agent before bare agent', () => {
-    expect(cursorBinCandidates('/home/tester')).toEqual([
-      '/home/tester/.local/bin/agent',
-      'agent',
-    ])
+    expect(cursorBinCandidates('/home/tester')).toEqual(['/home/tester/.local/bin/agent', 'agent'])
   })
 
   it('resolves a working agent binary when installed', () => {

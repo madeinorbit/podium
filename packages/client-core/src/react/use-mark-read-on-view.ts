@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { useEffect, useRef } from 'react'
 import { MARK_READ_ON_VIEW_MS } from '../engine/engine'
 

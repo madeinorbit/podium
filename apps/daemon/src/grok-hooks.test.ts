@@ -20,7 +20,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const execFileAsync = promisify(execFile)
 
 async function home(): Promise<string> {

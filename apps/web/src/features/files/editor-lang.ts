@@ -1,12 +1,20 @@
 export type LangId = 'javascript' | 'json' | 'markdown' | 'python' | 'css' | 'html' | 'plain'
 
 const BY_EXT: Record<string, LangId> = {
-  ts: 'javascript', tsx: 'javascript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  ts: 'javascript',
+  tsx: 'javascript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
   json: 'json',
-  md: 'markdown', markdown: 'markdown',
+  md: 'markdown',
+  markdown: 'markdown',
   py: 'python',
-  css: 'css', scss: 'css',
-  html: 'html', htm: 'html',
+  css: 'css',
+  scss: 'css',
+  html: 'html',
+  htm: 'html',
 }
 
 export function langIdForPath(path: string): LangId {
@@ -19,7 +27,9 @@ export function langIdForPath(path: string): LangId {
 export async function loadLanguage(id: LangId): Promise<import('@codemirror/state').Extension[]> {
   switch (id) {
     case 'javascript':
-      return [(await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true })]
+      return [
+        (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true }),
+      ]
     case 'json':
       return [(await import('@codemirror/lang-json')).json()]
     case 'markdown':

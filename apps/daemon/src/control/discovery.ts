@@ -8,12 +8,12 @@ import {
   scanGitRepositoriesAtPath,
 } from '@podium/agent-bridge'
 import type {
-  ControlMessage,
   DirectoryEntryWire,
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'

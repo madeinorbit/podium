@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { RecentFileEntry } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineWire } from '@podium/protocol'
+import type { AgentKind, MachineWire } from '@podium/model'
 import { Circle, FileText, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'

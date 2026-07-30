@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 /**
  * Build a valid `IssueWire` for unit tests, overriding any fields via `over`.

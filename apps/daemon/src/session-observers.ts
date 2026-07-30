@@ -19,13 +19,12 @@ import {
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
 } from '@podium/agent-bridge'
+import type { AgentKind, TranscriptItem } from '@podium/model'
 import type {
-  AgentKind,
   AgentObservation,
   ControlMessage,
   DaemonMessage,
   ObservationInputOrigin,
-  TranscriptItem,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import {

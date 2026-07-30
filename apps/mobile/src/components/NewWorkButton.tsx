@@ -7,7 +7,7 @@ import {
   sidebarSections,
   spawnTargetForRepo,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'

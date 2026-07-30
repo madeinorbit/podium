@@ -27,16 +27,48 @@ function rawDb(s: SessionStore): {
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
-    worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
-    defaultModel: 'auto', defaultEffort: 'auto',
-    linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
-    notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
-    dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
-    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
-    duplicateOf: null, pinned: false, estimateMin: null,
-    needsHuman: false, humanQuestion: null,
+    id: 'iss_x',
+    repoPath: '/r',
+    seq: 1,
+    title: 'X',
+    description: '',
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    linearId: null,
+    linearIdentifier: null,
+    linearUrl: null,
+    activityNotes: null,
+    notesUpdatedAt: null,
+    suggestedStage: null,
+    suggestedReason: null,
+    blockedBy: [],
+    dependencyNote: null,
+    prUrl: null,
+    createdAt: 't',
+    updatedAt: 't',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    assignee: null,
+    parentId: null,
+    design: null,
+    acceptance: null,
+    notes: null,
+    dueAt: null,
+    deferUntil: null,
+    closedReason: null,
+    closedAt: null,
+    supersededBy: null,
+    duplicateOf: null,
+    pinned: false,
+    estimateMin: null,
+    needsHuman: false,
+    humanQuestion: null,
     ...over,
   }
 }
@@ -49,10 +81,23 @@ describe('issue schema: FK behavior at runtime', () => {
     s.issues.setIssueLabels('iss_a', ['ui'])
     s.issues.addIssueDep('iss_a', 'iss_b', 'blocks')
     s.issues.addIssueDep('iss_b', 'iss_a', 'related')
-    s.issues.addIssueComment({ id: 'cmt_1', issueId: 'iss_a', author: 'me', body: 'hi', createdAt: 't' })
+    s.issues.addIssueComment({
+      id: 'cmt_1',
+      issueId: 'iss_a',
+      author: 'me',
+      body: 'hi',
+      createdAt: 't',
+    })
     s.issues.addIssueMessage({
-      id: 'msg_1', issueId: 'iss_a', fromAuthor: 'me', body: 'mail', createdAt: 't',
-      status: 'unread', claimedBy: null, readAt: null, claimedAt: null,
+      id: 'msg_1',
+      issueId: 'iss_a',
+      fromAuthor: 'me',
+      body: 'mail',
+      createdAt: 't',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
     })
 
     s.issues.deleteIssue('iss_a')
@@ -69,7 +114,9 @@ describe('issue schema: FK behavior at runtime', () => {
     const s = new SessionStore(':memory:')
     s.issues.upsertIssue(issueRow({ id: 'iss_parent', seq: 1 }))
     s.issues.upsertIssue(issueRow({ id: 'iss_child', seq: 2, parentId: 'iss_parent' }))
-    s.issues.upsertIssue(issueRow({ id: 'iss_dup', seq: 3, duplicateOf: 'iss_parent', supersededBy: 'iss_parent' }))
+    s.issues.upsertIssue(
+      issueRow({ id: 'iss_dup', seq: 3, duplicateOf: 'iss_parent', supersededBy: 'iss_parent' }),
+    )
 
     s.issues.deleteIssue('iss_parent')
 
@@ -83,7 +130,9 @@ describe('issue schema: FK behavior at runtime', () => {
     const s = new SessionStore(':memory:')
     expect(() =>
       rawDb(s)
-        .prepare("INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES ('c', 'iss_ghost', 'a', 'b', 't')")
+        .prepare(
+          "INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES ('c', 'iss_ghost', 'a', 'b', 't')",
+        )
         .run(),
     ).toThrow(/foreign key/i)
     s.close()

@@ -122,13 +122,7 @@ describe('formatTelegramMarkdown', () => {
   })
 
   it('converts tables end-to-end without pipe escapes', () => {
-    const text = [
-      'Data:',
-      '',
-      '| Col1 | Col2 |',
-      '|------|------|',
-      '| A    | B    |',
-    ].join('\n')
+    const text = ['Data:', '', '| Col1 | Col2 |', '|------|------|', '| A    | B    |'].join('\n')
     const out = formatTelegramMarkdown(text)
     expect(out).toContain('*A*')
     expect(out).not.toContain('• Col1: A')

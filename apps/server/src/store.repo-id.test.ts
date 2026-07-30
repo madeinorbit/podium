@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
-import { SessionStore } from './store'
 import type { IssueRow } from './store'
+import { SessionStore } from './store'
 
 function db(store: SessionStore) {
   // @ts-expect-error private db — schema/migration assertions
@@ -10,16 +10,48 @@ function db(store: SessionStore) {
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
-    worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
-    defaultModel: 'auto', defaultEffort: 'auto',
-    linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
-    notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
-    dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
-    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
-    duplicateOf: null, pinned: false, estimateMin: null,
-    needsHuman: false, humanQuestion: null,
+    id: 'iss_x',
+    repoPath: '/r',
+    seq: 1,
+    title: 'X',
+    description: '',
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    linearId: null,
+    linearIdentifier: null,
+    linearUrl: null,
+    activityNotes: null,
+    notesUpdatedAt: null,
+    suggestedStage: null,
+    suggestedReason: null,
+    blockedBy: [],
+    dependencyNote: null,
+    prUrl: null,
+    createdAt: 't',
+    updatedAt: 't',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    assignee: null,
+    parentId: null,
+    design: null,
+    acceptance: null,
+    notes: null,
+    dueAt: null,
+    deferUntil: null,
+    closedReason: null,
+    closedAt: null,
+    supersededBy: null,
+    duplicateOf: null,
+    pinned: false,
+    estimateMin: null,
+    needsHuman: false,
+    humanQuestion: null,
     ...over,
   }
 }
@@ -112,7 +144,11 @@ describe('repo_id schema (v8, #74)', () => {
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(fallback)
 
     s.repos.updateRepoOrigin('m1', '/r', 'git@github.com:o/r.git')
-    const originId = deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/r' })
+    const originId = deriveRepoId({
+      originUrl: 'git@github.com:o/r.git',
+      machineId: 'm1',
+      path: '/r',
+    })
     expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
     expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)

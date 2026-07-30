@@ -16,7 +16,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 describe('daemon identity', () => {
   it('creates a stable uuid machineId on first load and reuses it', () => {
     const dir = trackTmp('podium-id-')

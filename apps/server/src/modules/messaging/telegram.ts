@@ -5,12 +5,7 @@ import {
   isTelegramMarkdownParseError,
   stripTelegramMarkdownV2,
 } from './telegram-markdown'
-import type {
-  ChannelAdapter,
-  ConversationRef,
-  InboundChatMessage,
-  SendOptions,
-} from './types'
+import type { ChannelAdapter, ConversationRef, InboundChatMessage, SendOptions } from './types'
 
 /** Telegram caps sendMessage at 4096 UTF-16 code units; split below it so the
  *  " (n/m)" counter never overflows a chunk. JS string.length IS UTF-16 code
@@ -148,7 +143,12 @@ export function chunkTelegramText(text: string, limit = SPLIT_THRESHOLD): string
   return chunks
 }
 
-type TelegramApiBody = { ok?: boolean; description?: string; result?: unknown; parameters?: unknown }
+type TelegramApiBody = {
+  ok?: boolean
+  description?: string
+  result?: unknown
+  parameters?: unknown
+}
 
 /**
  * Telegram transport [spec:SP-5d81]: long-polls getUpdates on the notification
@@ -175,7 +175,11 @@ export class TelegramChannel implements ChannelAdapter {
     return `https://api.telegram.org/bot${this.config.botToken.trim()}/${method}`
   }
 
-  private async call(method: string, body?: unknown, signal?: AbortSignal): Promise<TelegramApiBody> {
+  private async call(
+    method: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<TelegramApiBody> {
     const res = await fetch(this.api(method), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -301,7 +305,8 @@ export class TelegramChannel implements ChannelAdapter {
       name: name.slice(0, 128),
     })
     const threadId = (body.result as { message_thread_id?: unknown } | undefined)?.message_thread_id
-    if (typeof threadId !== 'number') throw new Error('createForumTopic returned no message_thread_id')
+    if (typeof threadId !== 'number')
+      throw new Error('createForumTopic returned no message_thread_id')
     return { threadRef: String(threadId) }
   }
 

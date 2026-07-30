@@ -1,11 +1,5 @@
-import type { IssueColorSlot } from '@podium/model'
-import type {
-  IssueWire,
-  MetadataChange,
-  RepoOp,
-  ServerMessage,
-  SessionMeta,
-} from '@podium/protocol'
+import type { IssueColorSlot, IssueWire, SessionMeta } from '@podium/model'
+import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'

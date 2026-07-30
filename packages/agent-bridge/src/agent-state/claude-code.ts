@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
+import type { AgentRuntimeState } from '@podium/model'
 import type {
   AgentObservation,
-  AgentRuntimeState,
   ObservationInputOrigin,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'

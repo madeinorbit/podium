@@ -77,10 +77,7 @@ export function makeFileLinkProvider(
   getConfig: () => FileLinkConfig | null,
 ): ILinkProvider {
   return {
-    provideLinks(
-      bufferLineNumber: number,
-      callback: (links: ILink[] | undefined) => void,
-    ): void {
+    provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void): void {
       const cfg = getConfig()
       if (!cfg) return callback(undefined)
       const cells = stitchLogicalLine(getBuffer(), bufferLineNumber - 1) // xterm rows are 1-based here

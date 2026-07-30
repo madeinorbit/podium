@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/protocol'
+import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { formatClock, motionPhase, motionTiming } from './derive'
 
@@ -70,9 +70,7 @@ describe('motionPhase — the four phases of the motion grammar', () => {
       },
       agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
     })
-    expect(
-      motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire),
-    ).toBe('done')
+    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire)).toBe('done')
   })
 
   it('a finished run (idle done / ended) is done', () => {

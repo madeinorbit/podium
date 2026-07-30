@@ -29,4 +29,6 @@ http
     })
     req.pipe(proxyReq)
   })
-  .listen(port, () => console.log(`[fault-proxy] :${port} → ${upstream}, failing first ${failsLeft}`))
+  .listen(port, () =>
+    console.log(`[fault-proxy] :${port} → ${upstream}, failing first ${failsLeft}`),
+  )

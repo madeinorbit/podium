@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 /**
  * Direction of a relation entry relative to the subject issue:

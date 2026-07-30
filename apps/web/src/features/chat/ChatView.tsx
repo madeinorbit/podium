@@ -1,7 +1,8 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
+import type { HeadlessActivityEvent } from '@podium/protocol'
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -26,6 +27,7 @@ import { BlockCaret } from '@/lib/BlockCaret'
 import { chatActivity } from '@/lib/derive'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { renderMarkdown } from '@/lib/markdown'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
 import { ChatBlockView } from './ChatBlockView'
@@ -44,7 +46,6 @@ import { Minimap } from './Minimap'
 import { parseEnvelopeBatch } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
-import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { ToolBatchView } from './ToolBatchView'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
 

@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import {
   claudeRecordColor,
   claudeRecordEffort,

@@ -10,7 +10,7 @@
  * See docs/superpowers/specs/2026-07-17-draft-sync-v2-design.md §4, §5.
  */
 
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import {
   extractClaudePromptDraft,
   extractCodexPromptDraft,

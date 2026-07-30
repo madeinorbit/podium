@@ -1,7 +1,7 @@
+import type { IssueWire } from '@podium/model'
 import type {
   AutomationRunWire,
   AutomationWire,
-  IssueWire,
   SyncChangesSinceResult,
   SyncChangesSinceResultLenient,
 } from '@podium/protocol'

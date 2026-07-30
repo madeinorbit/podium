@@ -1,11 +1,8 @@
-import {
-  issueDisplayRef,
-  type AgentRuntimeState,
-  type IssueWire,
-  type TranscriptItem,
-} from '@podium/protocol'
+import type { AgentRuntimeState, IssueWire, TranscriptItem } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
+import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import type { EventBus } from '../bus'
 import {
   buildIssuesMessage,
@@ -16,12 +13,7 @@ import {
   registerTelegramCommands,
 } from './commands'
 import { TelegramChannel } from './telegram'
-import {
-  formatTopicRecap,
-  TOPIC_INACTIVITY_MS,
-  transcriptSessionIdForThread,
-} from './topic-recap'
-import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
+import { formatTopicRecap, TOPIC_INACTIVITY_MS, transcriptSessionIdForThread } from './topic-recap'
 import type {
   ChannelAdapter,
   ConversationRef,
@@ -53,10 +45,12 @@ export interface MessagingTopicsPort {
 
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
 export interface TopicRecapPort {
-  getSuperagentThread(threadId: string): {
-    podiumSessionId?: string | null
-    originSessionId?: string | null
-  } | undefined
+  getSuperagentThread(threadId: string):
+    | {
+        podiumSessionId?: string | null
+        originSessionId?: string | null
+      }
+    | undefined
   readTranscript(input: {
     sessionId: string
     direction: 'before' | 'after'
@@ -522,7 +516,10 @@ export class MessagingService implements TelegramNoticePort {
           try {
             this.deps.superagent.restartThread({ threadId })
             this.queues.delete(threadId)
-            await this.reply(source, 'Superagent thread restarted — next message uses a fresh harness session.')
+            await this.reply(
+              source,
+              'Superagent thread restarted — next message uses a fresh harness session.',
+            )
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             await this.reply(source, `⚠️ ${message}`)
@@ -540,13 +537,18 @@ export class MessagingService implements TelegramNoticePort {
     return `(Telegram message${sender} — you are replying into a phone chat: be concise, plain text, no markdown tables)\n\n${msg.text}`
   }
 
-  private onTurnEnded(ev: { threadId: string; ok: boolean; output?: string; error?: string }): void {
+  private onTurnEnded(ev: {
+    threadId: string
+    ok: boolean
+    output?: string
+    error?: string
+  }): void {
     const awaited = this.awaiting.get(ev.threadId)
     if (awaited) {
       this.releaseTyping(turnTypingOwner(ev.threadId), awaited.source)
       this.awaiting.delete(ev.threadId)
       const text = ev.ok
-        ? (ev.output?.trim() || '(the superagent finished without a text reply)')
+        ? ev.output?.trim() || '(the superagent finished without a text reply)'
         : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
       void this.reply(awaited.source, text)
     }
@@ -650,16 +652,15 @@ export class MessagingService implements TelegramNoticePort {
     }
   }
 
-  private async reply(
-    target: ConversationRef,
-    text: string,
-    opts?: SendOptions,
-  ): Promise<void> {
+  private async reply(target: ConversationRef, text: string, opts?: SendOptions): Promise<void> {
     try {
       await this.adapter?.send(target, text, opts)
       this.touchTopicActivity(target)
     } catch (err) {
-      console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
+      console.warn(
+        '[podium:messaging] reply send failed:',
+        err instanceof Error ? err.message : err,
+      )
     }
   }
 }

@@ -1,4 +1,5 @@
-import { type AgentKind, agentSupportsInitialPrompt } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
+import { agentSupportsInitialPrompt } from '@podium/protocol'
 import type { HarnessLaunchOptions, LaunchSpec } from './harness/adapter.js'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './harness/issue-system-pointer.js'
 import { harnessAdapterFor } from './harness/registry.js'

@@ -63,10 +63,7 @@ describe('issues.* capability gate', () => {
     })
     const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
-    const scoped = caller(
-      { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } },
-      registry,
-    )
+    const scoped = caller({ role: 'worker', scope: { kind: 'subtree', rootId: epic.id } }, registry)
     // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.
     // Past the gate, start hits real git plumbing ('/r' is not a repo) — any failure there
     // must NOT be an authz denial. (Mirrors the "passes the gate, then errors on other
@@ -78,9 +75,7 @@ describe('issues.* capability gate', () => {
     if (err) expect(String(err)).not.toMatch(/FORBIDDEN|not allowed|outside your subtree/i)
 
     // Outside the subtree: the scope gate demands the explicit override.
-    await expect(scoped.issues.start({ id: outsider.id })).rejects.toThrow(
-      /outside your subtree/i,
-    )
+    await expect(scoped.issues.start({ id: outsider.id })).rejects.toThrow(/outside your subtree/i)
   })
 
   it('operator (admin) may create AND delete', async () => {

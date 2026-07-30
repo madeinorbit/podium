@@ -1,4 +1,4 @@
-import type { MachineQuotaWire } from '@podium/protocol'
+import type { MachineQuotaWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   QuotaCliError,

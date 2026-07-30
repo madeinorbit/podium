@@ -1,6 +1,7 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
+import { ISSUE_STAGES } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'

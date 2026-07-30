@@ -1,6 +1,6 @@
-import type { SessionMeta } from '@podium/protocol'
-import type { Ledger } from '@podium/sync'
+import type { SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { type IssueDeps, IssueService } from './service'

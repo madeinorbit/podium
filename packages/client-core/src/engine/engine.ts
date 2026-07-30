@@ -22,9 +22,6 @@
 
 import type {
   AgentKind,
-  ApprovalWire,
-  AutomationRunWire,
-  AutomationWire,
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -33,7 +30,8 @@ import type {
   MachineWire,
   SessionMeta,
   WorkState,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ApprovalWire, AutomationRunWire, AutomationWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'

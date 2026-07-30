@@ -57,7 +57,9 @@ async function waitFor(pred: () => boolean, label: string, timeoutMs = 15000): P
   }
 }
 
-const runtime = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`
+const runtime = process.versions.bun
+  ? `bun ${process.versions.bun}`
+  : `node ${process.versions.node}`
 console.log(`[smoke] runtime: ${runtime}`)
 
 const srv = await startServer()
@@ -83,7 +85,9 @@ try {
   console.log('[smoke] ✓ output streamed: cols=80 rows=24')
 
   // 2) input typed at the client round-trips to the agent and back
-  client.send(encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }))
+  client.send(
+    encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }),
+  )
   await waitFor(() => c.text.includes('last-input=61'), 'input echo')
   console.log('[smoke] ✓ input round-trip: last-input=61')
 
@@ -99,12 +103,18 @@ try {
 } finally {
   const bound = async (p: Promise<unknown>, label: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<'timeout'>((r) => { timer = setTimeout(() => r('timeout'), 3000) })
+    const timeout = new Promise<'timeout'>((r) => {
+      timer = setTimeout(() => r('timeout'), 3000)
+    })
     const result = await Promise.race([p.then(() => 'closed' as const), timeout])
     if (timer) clearTimeout(timer)
-    console.log(`[smoke] ${label} ${result === 'timeout' ? 'close did not drain in 3s (known: Bun node:http close waits on sockets)' : 'closed'}`)
+    console.log(
+      `[smoke] ${label} ${result === 'timeout' ? 'close did not drain in 3s (known: Bun node:http close waits on sockets)' : 'closed'}`,
+    )
   }
-  try { client.close() } catch {}
+  try {
+    client.close()
+  } catch {}
   await bound(daemon.close(), 'daemon')
   await bound(srv.close(), 'server')
   reapHarnessSessions(PORT)

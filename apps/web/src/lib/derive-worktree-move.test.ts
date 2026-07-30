@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { planWorktreeMoves } from './derive'
 
@@ -28,9 +28,7 @@ describe('planWorktreeMoves', () => {
       visiblePanes: [], // not in a pane
     })
     expect(plan.follow).toBeNull()
-    expect(plan.moved).toEqual([
-      { sessionId: 's1', from: '/repo', to: '/repo/.worktrees/feat' },
-    ])
+    expect(plan.moved).toEqual([{ sessionId: 's1', from: '/repo', to: '/repo/.worktrees/feat' }])
   })
 
   it('a subdirectory cd within the same worktree is neither a follow nor a move', () => {

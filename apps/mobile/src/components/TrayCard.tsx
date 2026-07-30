@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { TrayItem } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
 import { useState } from 'react'
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'

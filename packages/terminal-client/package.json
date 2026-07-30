@@ -37,6 +37,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/composer": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@xterm/addon-fit": "^0.10.0",

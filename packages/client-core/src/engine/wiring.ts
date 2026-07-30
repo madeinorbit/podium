@@ -6,7 +6,7 @@
  * shares ONE construction path with zero React involvement.
  */
 
-import type { WorkState } from '@podium/protocol'
+import type { WorkState } from '@podium/model'
 import { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'

@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import type { FileTab } from './store'
 
 /** The file tabs that belong in a workspace's tab strip.

@@ -11,7 +11,7 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'

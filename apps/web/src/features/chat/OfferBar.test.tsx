@@ -1,4 +1,4 @@
-import type { SessionOffer } from '@podium/protocol'
+import type { SessionOffer } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

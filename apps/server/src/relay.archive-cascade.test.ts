@@ -17,17 +17,23 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     const reg = regWithDaemon()
     const issue = reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     reg.issues.update(issue.id, { worktreePath: '/repo/wt' })
-    const a = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id })
-      .sessionId
-    const b = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id })
-      .sessionId
+    const a = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo/wt',
+      issueId: issue.id,
+    }).sessionId
+    const b = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo/wt',
+      issueId: issue.id,
+    }).sessionId
     expect(reg.modules.sessions.listSessions().filter((s) => s.archived)).toHaveLength(0)
 
     reg.issues.archive(issue.id)
 
     const archived = new Set(
-      reg
-        .modules.sessions.listSessions()
+      reg.modules.sessions
+        .listSessions()
         .filter((s) => s.archived)
         .map((s) => s.sessionId),
     )
@@ -40,8 +46,11 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
   it('un-archiving the issue leaves the sessions archived (no cascade back)', () => {
     const reg = regWithDaemon()
     const issue = reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    const s = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo', issueId: issue.id })
-      .sessionId
+    const s = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo',
+      issueId: issue.id,
+    }).sessionId
     reg.issues.archive(issue.id)
     reg.issues.update(issue.id, { archived: false })
     expect(reg.modules.sessions.listSessions().find((x) => x.sessionId === s)?.archived).toBe(true)

@@ -1,6 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { type HandoffBlocker, type HandoffRejection, handoffAvailability } from '@podium/model'
-import type { AgentKind, SessionMeta } from '@podium/protocol'
+import {
+  type AgentKind,
+  type HandoffBlocker,
+  type HandoffRejection,
+  handoffAvailability,
+  type SessionMeta,
+} from '@podium/model'
 import {
   AlarmClock,
   AlarmClockOff,

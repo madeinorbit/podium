@@ -1,4 +1,5 @@
-import type { AgentKind, ControlMessage } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'

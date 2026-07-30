@@ -1,10 +1,10 @@
+import type { SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionMeta } from '@podium/protocol'
-import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './modules/issues/service'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -12,7 +12,15 @@ function harness(sessions: SessionMeta[] = []) {
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () => sessions,
-    getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
+    getSettings: () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+      }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
@@ -30,7 +38,13 @@ describe('SessionStore event log', () => {
     expect(id2).toBeGreaterThan(id1)
     const all = store.events.listEventsSince(0)
     expect(all.map((e) => e.id)).toEqual([id1, id2])
-    expect(all[0]).toMatchObject({ ts: 't1', kind: 'a', subject: 's1', repoPath: null, payload: { x: 1 } })
+    expect(all[0]).toMatchObject({
+      ts: 't1',
+      kind: 'a',
+      subject: 's1',
+      repoPath: null,
+      payload: { x: 1 },
+    })
     expect(all[1]).toMatchObject({ kind: 'b', repoPath: '/r', payload: {} })
   })
 
@@ -47,7 +61,10 @@ describe('SessionStore event log', () => {
     store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
     store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
     store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
-    expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual(['a', 'c'])
+    expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual([
+      'a',
+      'c',
+    ])
     expect(store.events.listEventsSince(0, { repoPath: '/r2' }).map((e) => e.kind)).toEqual(['b'])
     expect(store.events.listEventsSince(0, { limit: 2 }).length).toBe(2)
   })
@@ -88,13 +105,9 @@ describe('SessionStore event log retention', () => {
       store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     }
 
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
     expect(store.events.listEventsSince(0)).toHaveLength(3)
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
     expect(store.events.listEventsSince(0)).toHaveLength(1)
   })
 
@@ -189,7 +202,10 @@ describe('IssueService event emission', () => {
     svc.clearNeedsHuman(a.id)
     const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
-    expect(flagged[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, question: 'which key?' } })
+    expect(flagged[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, question: 'which key?' },
+    })
     expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
   })
 
@@ -234,7 +250,10 @@ describe('IssueService event emission', () => {
     svc.defer(a.id, null)
     const snoozed = store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
     expect(snoozed.length).toBe(1)
-    expect(snoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, until: '2999-01-01' } })
+    expect(snoozed[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, until: '2999-01-01' },
+    })
     const unsnoozed = store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })
     expect(unsnoozed.length).toBe(1)
     expect(unsnoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -359,9 +378,16 @@ describe('SessionRegistry session.phase events', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     reg.modules.sessions.attachDaemon('local', () => {})
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
     // First state after boot/spawn: prev is undefined → no phantom row.
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: st('working'),
+    })
     expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
@@ -369,7 +395,11 @@ describe('SessionRegistry session.phase events', () => {
       state: st('idle', { kind: 'question' }),
     })
     // Same-phase refresh → no second row.
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: st('idle'),
+    })
     const evs = store.events.listEventsSince(0, { kinds: ['session.phase'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({

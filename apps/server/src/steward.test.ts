@@ -1,14 +1,14 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
+  isAcceptedLiveTerminalEvent,
   type StewardDeps,
+  StewardService,
   sessionSpawnerParentId,
   subscriptionEventKinds,
-  isAcceptedLiveTerminalEvent,
-  StewardService,
   TRIGGER_RULES,
 } from './steward'
 import { SessionStore } from './store'

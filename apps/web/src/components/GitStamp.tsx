@@ -1,4 +1,4 @@
-import type { IssueGitState } from '@podium/protocol'
+import type { IssueGitState } from '@podium/model'
 import { GitBranch } from 'lucide-react'
 import type { JSX } from 'react'
 import { deriveGitStamp } from './git-stamp'

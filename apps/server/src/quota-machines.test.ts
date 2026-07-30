@@ -11,7 +11,8 @@
  *   3. single-machine invariant: agentQuotaAll() == one entry with agentQuota()'s agents.
  *   4. memoryBreakdown(roots, machineId) routes to that machine.
  */
-import type { AgentQuotaWire, ControlMessage, DaemonMessage } from '@podium/protocol'
+import type { AgentQuotaWire } from '@podium/model'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -32,7 +33,12 @@ function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'podium-host', hostname: 'podium-host', tokenHash: 'x' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'podium-host',
+    hostname: 'podium-host',
+    tokenHash: 'x',
+  })
   store.machines.upsertMachine({ id: 'm2', name: 'VMI', hostname: 'vmi', tokenHash: 'y' })
   const reg = new SessionRegistry(store)
   const m1Out: ControlMessage[] = []
@@ -69,7 +75,10 @@ describe('SessionRegistry.agentQuotaAll()', () => {
     const result = await p
     const byMachine = new Map(result.map((r) => [r.machineId, r]))
     expect(result).toHaveLength(2)
-    expect(byMachine.get('m1')).toMatchObject({ machineName: 'podium-host', hostname: 'podium-host' })
+    expect(byMachine.get('m1')).toMatchObject({
+      machineName: 'podium-host',
+      hostname: 'podium-host',
+    })
     expect(byMachine.get('m1')?.agents[0]?.account?.email).toBe('lud@example.com')
     expect(byMachine.get('m2')).toMatchObject({ machineName: 'VMI', hostname: 'vmi' })
     expect(byMachine.get('m2')?.agents[0]?.account?.email).toBe('vmi@example.com')

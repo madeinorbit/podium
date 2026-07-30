@@ -1,4 +1,4 @@
-import type { UsageBucketWire } from '@podium/protocol'
+import type { UsageBucketWire } from '@podium/model'
 
 /**
  * Window math + API-cost-equivalent over the daemon's hour×model usage buckets.

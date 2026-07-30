@@ -35,7 +35,10 @@ describe('connectivity status file (#19)', () => {
       { state: 'connected', serverUrl: 'wss://relay', lastHelloOkAt: '2026-07-07T00:00:00Z' },
       dir,
     )
-    writeConnectivity({ state: 'disconnected', lastError: 'ECONNREFUSED', retryBackoffMs: 500 }, dir)
+    writeConnectivity(
+      { state: 'disconnected', lastError: 'ECONNREFUSED', retryBackoffMs: 500 },
+      dir,
+    )
     const afterDrop = readConnectivity(dir)
     expect(afterDrop?.lastHelloOkAt).toBe('2026-07-07T00:00:00Z') // "last seen" survives
     expect(afterDrop?.serverUrl).toBe('wss://relay')

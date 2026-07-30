@@ -1,9 +1,9 @@
 import {
-  MaintenanceCommand,
-  MaintenanceHandshake,
   type MaintenanceCommand as Command,
-  type MaintenanceCommandReply,
   type MaintenanceHandshake as Handshake,
+  MaintenanceCommand,
+  type MaintenanceCommandReply,
+  MaintenanceHandshake,
   type MaintenanceHandshakeReply,
 } from '@podium/protocol'
 import type { Hono } from 'hono'

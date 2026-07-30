@@ -1,6 +1,6 @@
+import type { AgentRuntimeState } from '@podium/model'
 import type {
   AgentObservation,
-  AgentRuntimeState,
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'

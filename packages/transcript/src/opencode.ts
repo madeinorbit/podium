@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 /**
  * One row of opencode's SQLite `part` join (message + part payloads). The type
  * lives here — next to the pure part→items mapper — so the parser package needs

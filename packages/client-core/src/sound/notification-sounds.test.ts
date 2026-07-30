@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionMeta } from '@podium/protocol'
+import type { AgentRuntimeState, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { UiState } from '../replica/replica'
 import {

@@ -4,7 +4,7 @@
  * ("when did this last move"). Pure format/derive helpers are exported
  * separately so they unit-test without a clock.
  */
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import type { JSX } from 'react'
 import { isSessionWorking } from '@/lib/derive'
 import { relativeTime } from '@/lib/home'

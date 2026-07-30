@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lineForTop, topForLine, type BlockPos } from './scroll-sync'
+import { type BlockPos, lineForTop, topForLine } from './scroll-sync'
 
 const blocks: BlockPos[] = [
   { line: 1, top: 0 },

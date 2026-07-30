@@ -1,4 +1,4 @@
-import type { QuotaWindowWire } from '@podium/protocol'
+import type { QuotaWindowWire } from '@podium/model'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { HealthPopoverFooter } from './HealthPopover'

@@ -1,5 +1,4 @@
-import { repoNameFromOrigin } from '@podium/model'
-import type { GitRepositoryWire } from '@podium/protocol'
+import { type GitRepositoryWire, repoNameFromOrigin } from '@podium/model'
 
 /** Display name for a scanned repo: its ORIGIN's repo name, since a clone's
  *  folder is not its identity (~/bak_podium of .../podium.git lists as "podium").

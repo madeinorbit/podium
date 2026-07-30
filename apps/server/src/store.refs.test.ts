@@ -27,7 +27,9 @@ describe('repo prefixes', () => {
     s.repos.addRepo('/a/podium', '__local__', undefined, 'PDM')
     expect(s.repos.prefixForPath('/a/podium')).toBe('PDM')
     expect(() => s.repos.addRepo('/b/thing', '__local__', undefined, 'lower')).toThrow()
-    expect(() => s.repos.addRepo('/c/thing', '__local__', undefined, 'PDM')).toThrow(/already in use/)
+    expect(() => s.repos.addRepo('/c/thing', '__local__', undefined, 'PDM')).toThrow(
+      /already in use/,
+    )
     s.close()
   })
 

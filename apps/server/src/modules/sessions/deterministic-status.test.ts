@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'

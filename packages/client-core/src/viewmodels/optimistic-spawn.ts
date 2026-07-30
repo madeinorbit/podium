@@ -1,5 +1,10 @@
-import { isSortKey, sortKeyBetween } from '@podium/model'
-import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
+import {
+  type AgentKind,
+  type IssueWire,
+  isSortKey,
+  type SessionMeta,
+  sortKeyBetween,
+} from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).

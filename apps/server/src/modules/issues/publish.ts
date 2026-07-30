@@ -1,4 +1,5 @@
-import type { IssueWire, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
 
 /** One publishable issue state change: the wire rows the ledger reconciles

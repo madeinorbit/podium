@@ -28,9 +28,7 @@ function unquotePath(p: string): string {
   if (!(p.startsWith('"') && p.endsWith('"') && p.length >= 2)) return p
   return p
     .slice(1, -1)
-    .replace(/\\([\\"tn])/g, (_, c: string) =>
-      c === 't' ? '\t' : c === 'n' ? '\n' : c,
-    )
+    .replace(/\\([\\"tn])/g, (_, c: string) => (c === 't' ? '\t' : c === 'n' ? '\n' : c))
 }
 
 /** Parse `git status --porcelain=v1 -b` output (the statusProbe op). */

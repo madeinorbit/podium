@@ -28,6 +28,7 @@ const TICK_MS = 100
 const STALL_MS = 250 // sample is a "stall" above this
 
 import { appendFileSync, writeFileSync } from 'node:fs'
+
 writeFileSync(CSV, 'iso,elapsed_ms,own_lag_ms,server_rtt_ms,daemon_rtt_ms\n')
 
 const t0 = performance.now()
@@ -58,10 +59,12 @@ function connectWs() {
   ws = new WebSocket(SERVER_WS)
   ws.onopen = () => {
     wsOpen = true
-    try { ws.send(JSON.stringify({ type: 'presence', visible: false })) } catch {}
+    try {
+      ws.send(JSON.stringify({ type: 'presence', visible: false }))
+    } catch {}
   }
   ws.onmessage = (ev) => {
-    let txt = ev.data
+    const txt = ev.data
     if (typeof txt !== 'string') return // ignore non-text broadcasts
     // cheap check before JSON.parse to avoid burning our own loop on big frames
     if (txt.length > 40 || txt.indexOf('pong') === -1) return
@@ -74,8 +77,16 @@ function connectWs() {
       }
     } catch {}
   }
-  ws.onclose = () => { wsOpen = false; pingSentAt = null; setTimeout(connectWs, 500) }
-  ws.onerror = () => { try { ws.close() } catch {} }
+  ws.onclose = () => {
+    wsOpen = false
+    pingSentAt = null
+    setTimeout(connectWs, 500)
+  }
+  ws.onerror = () => {
+    try {
+      ws.close()
+    } catch {}
+  }
 }
 connectWs()
 
@@ -89,12 +100,16 @@ async function daemonLoop() {
     try {
       const ctrl = new AbortController()
       const to = setTimeout(() => ctrl.abort(), 5000)
-      await fetch(DAEMON_URL, { signal: ctrl.signal }).then((r) => r.arrayBuffer()).catch(() => {})
+      await fetch(DAEMON_URL, { signal: ctrl.signal })
+        .then((r) => r.arrayBuffer())
+        .catch(() => {})
       clearTimeout(to)
       const rtt = performance.now() - start
       lastDaemonRtt = rtt.toFixed(1)
       daemonSamples.push(rtt)
-    } catch { lastDaemonRtt = '' }
+    } catch {
+      lastDaemonRtt = ''
+    }
     const elapsed = performance.now() - start
     if (elapsed < TICK_MS) await new Promise((r) => setTimeout(r, TICK_MS - elapsed))
   }
@@ -110,11 +125,18 @@ const mainTimer = setInterval(() => {
   // outstanding ping is mid-stall and its eventual RTT will capture the gap.
   if (wsOpen && pingSentAt == null) {
     pingSentAt = performance.now()
-    try { ws.send(JSON.stringify({ type: 'ping' })) } catch { pingSentAt = null }
+    try {
+      ws.send(JSON.stringify({ type: 'ping' }))
+    } catch {
+      pingSentAt = null
+    }
   }
   const ownLagMs = ownLagWindowMaxNs / 1e6
   ownSamples.push(ownLagMs)
-  appendFileSync(CSV, `${iso()},${nowMs().toFixed(0)},${ownLagMs.toFixed(1)},${lastServerRtt},${lastDaemonRtt}\n`)
+  appendFileSync(
+    CSV,
+    `${iso()},${nowMs().toFixed(0)},${ownLagMs.toFixed(1)},${lastServerRtt},${lastDaemonRtt}\n`,
+  )
   secBucket.push({ own: ownLagMs, srtt: lastServerRtt, drtt: lastDaemonRtt })
 
   const el = nowMs()
@@ -147,15 +169,25 @@ function finish() {
   daemonRunning = false
   clearInterval(mainTimer)
   clearInterval(ownTimer)
-  try { ws.close() } catch {}
+  try {
+    ws.close()
+  } catch {}
   console.log('\n================ PROBE SUMMARY ================')
-  console.log(`duration=${(nowMs() / 1000).toFixed(0)}s  tick=${TICK_MS}ms  stall_threshold=${STALL_MS}ms`)
+  console.log(
+    `duration=${(nowMs() / 1000).toFixed(0)}s  tick=${TICK_MS}ms  stall_threshold=${STALL_MS}ms`,
+  )
   console.log(summarize('own_loop_lag', ownSamples))
   console.log(summarize('server_ws_rtt', serverSamples))
   console.log(summarize('daemon_http_rtt', daemonSamples))
   // worst 8 server & daemon RTTs with rough correlation to own-lag
-  const worstServer = [...serverSamples].sort((a, b) => b - a).slice(0, 8).map((x) => x.toFixed(0))
-  const worstDaemon = [...daemonSamples].sort((a, b) => b - a).slice(0, 8).map((x) => x.toFixed(0))
+  const worstServer = [...serverSamples]
+    .sort((a, b) => b - a)
+    .slice(0, 8)
+    .map((x) => x.toFixed(0))
+  const worstDaemon = [...daemonSamples]
+    .sort((a, b) => b - a)
+    .slice(0, 8)
+    .map((x) => x.toFixed(0))
   console.log(`worst server RTTs (ms): ${worstServer.join(', ')}`)
   console.log(`worst daemon RTTs (ms): ${worstDaemon.join(', ')}`)
   console.log(`CSV: ${CSV}`)

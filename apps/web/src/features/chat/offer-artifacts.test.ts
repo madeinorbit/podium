@@ -1,4 +1,4 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveOfferArtifacts } from './offer-artifacts'
 

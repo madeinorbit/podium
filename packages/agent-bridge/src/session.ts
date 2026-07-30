@@ -1,5 +1,5 @@
 import { StringDecoder } from 'node:string_decoder'
-import type { Geometry } from '@podium/protocol'
+import type { Geometry } from '@podium/model'
 import { createTitleScanner } from './osc-title.js'
 import { defaultPtyBackend } from './pty/index.js'
 import type { PtyBackend, PtyProcess } from './pty/types.js'

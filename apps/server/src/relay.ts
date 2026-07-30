@@ -1,13 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/agent-bridge'
-import type {
-  AgentKind,
-  ConversationSummaryWire,
-  IssueWire,
-  LiveServerMessage,
-  SessionMeta,
-} from '@podium/protocol'
+import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
+import type { LiveServerMessage } from '@podium/protocol'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'

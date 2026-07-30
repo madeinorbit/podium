@@ -18,7 +18,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { AgentKind } from '@podium/protocol'
+import { AgentKind } from '@podium/model'
 import { z } from 'zod'
 import {
   type TelemetryFeature,

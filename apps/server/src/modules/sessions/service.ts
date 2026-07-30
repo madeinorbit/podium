@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/agent-bridge'
-import { computePriorities, repoNameFromOrigin } from '@podium/model'
+import {
+  AgentKind,
+  type AgentRuntimeState,
+  computePriorities,
+  type Geometry,
+  type IssueWire,
+  type ResumeRef,
+  repoNameFromOrigin,
+  type SessionMeta,
+  type TranscriptItem,
+  type WorkState,
+} from '@podium/model'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  AgentKind,
-  type AgentRuntimeState,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationRunWire,
@@ -19,21 +28,15 @@ import {
   type DaemonMessage,
   type DraftEditMessage,
   formatSessionRef,
-  type Geometry,
-  type IssueWire,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type ObservationInputOrigin,
   type ObservationProvider,
-  type ResumeRef,
   type ServerMessage,
-  type SessionMeta,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
-  type TranscriptItem,
-  type WorkState,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -1793,7 +1796,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: string,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return

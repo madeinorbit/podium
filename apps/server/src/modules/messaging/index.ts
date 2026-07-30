@@ -1,7 +1,7 @@
 export {
   buildIssuesMessage,
-  HELP_TEXT,
   formatIssues,
+  HELP_TEXT,
   issueCallbackData,
   parseIssueCallbackData,
   parseSlashCommand,
@@ -9,8 +9,9 @@ export {
   registerTelegramCommands,
   TELEGRAM_COMMANDS,
 } from './commands'
-export { MessagingService } from './service'
 export type { MessagingDeps, SuperagentTurnPort, TopicRecapPort } from './service'
+export { MessagingService } from './service'
+export { chunkTelegramText, parseTelegramUpdates, TelegramChannel } from './telegram'
 export {
   formatTopicRecap,
   pickRecapMessages,
@@ -20,7 +21,6 @@ export {
   transcriptSessionIdForThread,
   truncatePhoneText,
 } from './topic-recap'
-export { TelegramChannel, chunkTelegramText, parseTelegramUpdates } from './telegram'
 export type {
   ChannelAdapter,
   ConversationRef,

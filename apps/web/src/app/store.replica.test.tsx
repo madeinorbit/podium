@@ -1,4 +1,5 @@
-import type { IssueWire, SessionMeta, SyncChangesSinceResult } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

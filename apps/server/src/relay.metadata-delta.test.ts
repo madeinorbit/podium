@@ -1,4 +1,5 @@
-import type { IssueWire, MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 

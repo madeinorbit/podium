@@ -7,12 +7,12 @@ import {
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
 import {
-  type ClientSwitchTrace,
   type GitRepositoryWire,
   ISSUE_STAGES,
   type IssueWire,
   type SessionMeta,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { ClientSwitchTrace } from '@podium/protocol'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssuesView } from '@/features/issues/IssuesView'

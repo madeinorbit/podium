@@ -22,7 +22,7 @@ import {
   type LaunchOptions,
   type LaunchSpec,
 } from '@podium/agent-bridge'
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'

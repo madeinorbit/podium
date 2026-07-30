@@ -1,4 +1,5 @@
-import type { AgentRuntimeState, Geometry, ServerMessage } from '@podium/protocol'
+import type { AgentRuntimeState, Geometry } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type ClientConn, Session } from './session'
 

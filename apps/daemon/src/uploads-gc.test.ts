@@ -4,7 +4,10 @@ import { uploadsToGc } from './uploads-gc'
 describe('uploadsToGc', () => {
   it('collects files older than the ttl', () => {
     const now = 1_000_000
-    const files = [{ path: 'a', mtimeMs: now - 1000 }, { path: 'b', mtimeMs: now - 90_000_000 }]
+    const files = [
+      { path: 'a', mtimeMs: now - 1000 },
+      { path: 'b', mtimeMs: now - 90_000_000 },
+    ]
     expect(uploadsToGc(files, now, 24 * 3600_000)).toEqual(['b'])
   })
 

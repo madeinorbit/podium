@@ -23,7 +23,7 @@
  * held in memory — see `TelemetryWindow` in queue.ts for why "one report a day"
  * is otherwise false on any machine that restarts.
  */
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import { type EnvSource, loadConfig, type PodiumConfig } from '@podium/runtime/config'
 import { isTierOn, resolveTelemetryEndpoint } from './consent'
 import {

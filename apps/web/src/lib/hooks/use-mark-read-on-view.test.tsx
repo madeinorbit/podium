@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMarkReadOnView } from './use-mark-read-on-view'
@@ -79,7 +79,10 @@ describe('useMarkReadOnView', () => {
     vi.advanceTimersByTime(600) // not settled yet
     // New output arrives (lastActiveAt advances) → the debounce restarts.
     rerender(
-      <Harness session={sess({ unread: true, lastActiveAt: '2026-07-06T12:00:01.000Z' })} mark={mark} />,
+      <Harness
+        session={sess({ unread: true, lastActiveAt: '2026-07-06T12:00:01.000Z' })}
+        mark={mark}
+      />,
     )
     vi.advanceTimersByTime(600) // 600ms since the restart — still not settled
     expect(mark).not.toHaveBeenCalled()

@@ -1,6 +1,6 @@
+import { Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
-import { Check } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,

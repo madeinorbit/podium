@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'

@@ -1,5 +1,5 @@
 import { type ChatBlock, type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
-import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
+import type { TranscriptItem, TranscriptTag } from '@podium/model'
 
 /**
  * Pure helpers for the chat view: transcript search and the birds-eye minimap

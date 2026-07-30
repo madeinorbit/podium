@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { insertInCursorOrder } from './cursor-order'
 
 /** Identity key for a transcript item: the opaque cursor when present (stable

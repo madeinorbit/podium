@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from './claude'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */

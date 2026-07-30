@@ -4,7 +4,7 @@
  * collapsible section header, the stale-sessions tuck-away, and the session
  * PanelRow used by every session list in the unified sidebar.
  */
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
   JSX,

@@ -54,14 +54,8 @@
  *      cache — a null cursor just means one full snapshot fetch).
  */
 
-import type {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
-  IssueWire,
-  SessionMeta,
-  TranscriptItem,
-} from '@podium/protocol'
+import type { ConversationSummaryWire, IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import type { AutomationRunWire, AutomationWire } from '@podium/protocol'
 import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser
@@ -332,8 +326,7 @@ function jsonRowsEqual(left: unknown, right: unknown): boolean {
   const bKeys = Object.keys(b).filter((key) => b[key] !== undefined)
   if (aKeys.length !== bKeys.length) return false
   for (const key of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(b, key) || !jsonRowsEqual(a[key], b[key]))
-      return false
+    if (!Object.hasOwn(b, key) || !jsonRowsEqual(a[key], b[key])) return false
   }
   return true
 }

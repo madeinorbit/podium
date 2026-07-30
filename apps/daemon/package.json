@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "@podium/agent-bridge": "workspace:*",
     "@podium/composer": "workspace:*",

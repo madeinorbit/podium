@@ -1,5 +1,5 @@
 // M6 coordinator elevate + started-by issue nesting (POD-902).
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,

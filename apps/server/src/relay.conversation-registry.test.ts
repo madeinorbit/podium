@@ -1,4 +1,5 @@
-import type { ConversationSummaryWire, ServerMessage } from '@podium/protocol'
+import type { ConversationSummaryWire } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 
@@ -17,7 +18,10 @@ describe('SessionRegistry conversation registry', () => {
     return registry
   }
 
-  const conv = (id: string, extra: Partial<ConversationSummaryWire> = {}): ConversationSummaryWire =>
+  const conv = (
+    id: string,
+    extra: Partial<ConversationSummaryWire> = {},
+  ): ConversationSummaryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {
@@ -54,7 +58,10 @@ describe('SessionRegistry conversation registry', () => {
     const registry = makeRegistry()
     const daemon: unknown[] = []
     registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/moved/to' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/moved/to',
+    })
     registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
@@ -69,9 +76,10 @@ describe('SessionRegistry conversation registry', () => {
       diagnostics: [],
     })
     void registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
-    const read = daemon.find(
-      (m) => (m as { type: string }).type === 'transcriptRead',
-    ) as { pathHint?: string; cwd: string }
+    const read = daemon.find((m) => (m as { type: string }).type === 'transcriptRead') as {
+      pathHint?: string
+      cwd: string
+    }
     expect(read.cwd).toBe('/moved/to') // restamped cwd still sent (fallback input)
     expect(read.pathHint).toBe('/home/u/.claude/projects/-original-spot/native-x.jsonl')
   })
@@ -79,7 +87,10 @@ describe('SessionRegistry conversation registry', () => {
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
     registry.modules.sessions.attachDaemon('local', () => {})
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
 
     registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',

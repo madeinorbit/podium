@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyScreeningDecision,

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs'
-import type { AgentMemoryWire, ProjectMemoryWire } from '@podium/protocol'
+import type { AgentMemoryWire, ProjectMemoryWire } from '@podium/model'
 
 /** One process as seen in /proc. memBytes is PSS where readable, RSS otherwise. */
 export interface ProcSample {

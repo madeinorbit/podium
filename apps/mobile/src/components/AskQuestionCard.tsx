@@ -1,5 +1,5 @@
 import { isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { color, font, monoLabel, radius, sans, space } from '../theme/theme'

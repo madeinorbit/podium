@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import type {
   PreparedPublication,
   PreparePublicationInput,

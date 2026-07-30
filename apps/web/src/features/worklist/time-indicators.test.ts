@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, test } from 'vitest'
 import { formatElapsed, workingSinceMs } from './time-indicators'
 

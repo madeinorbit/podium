@@ -1,4 +1,4 @@
-import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
+import type { TranscriptItem, TranscriptTag } from '@podium/model'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented

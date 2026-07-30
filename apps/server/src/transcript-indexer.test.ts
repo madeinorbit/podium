@@ -207,7 +207,12 @@ describe('TranscriptIndexer', () => {
     for (const s of segments) {
       seed(store, s.nativeId)
       writeFileSync(join(lakeDir, 'm1', `${s.nativeId}.jsonl`), s.content)
-      store.conversations.setMirrorCursor('m1', s.nativeId, Buffer.byteLength(s.content), '2026-07-01T10:00:00Z')
+      store.conversations.setMirrorCursor(
+        'm1',
+        s.nativeId,
+        Buffer.byteLength(s.content),
+        '2026-07-01T10:00:00Z',
+      )
     }
     const indexer = new TranscriptIndexer(store, { chunkDelayMs: 0, ...options })
     const lakePathFor = (nativeId: string) => join(lakeDir, 'm1', `${nativeId}.jsonl`)
@@ -338,7 +343,12 @@ describe('TranscriptIndexer', () => {
     // The mirror completes the record: cursor moves → the segment re-qualifies.
     const completed = `${complete + partial},"content":"now whole"}}\n`
     writeFileSync(lakePathFor('tail'), completed)
-    store.conversations.setMirrorCursor('m1', 'tail', Buffer.byteLength(completed), '2026-07-01T11:00:00Z')
+    store.conversations.setMirrorCursor(
+      'm1',
+      'tail',
+      Buffer.byteLength(completed),
+      '2026-07-01T11:00:00Z',
+    )
     indexer.backfillMachine('m1', lakePathFor)
     await indexer.settled()
     expect(store.conversations.indexedCursor('m1', 'tail')).toBe(Buffer.byteLength(completed))

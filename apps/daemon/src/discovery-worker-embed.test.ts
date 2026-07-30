@@ -19,9 +19,7 @@ describe('isCompiledBunfsUrl', () => {
     expect(isCompiledBunfsUrl('B:\\~BUN\\root\\worker-client.js')).toBe(true)
   })
   it('is false for ordinary on-disk module URLs', () => {
-    expect(isCompiledBunfsUrl('file:///home/u/podium/apps/daemon/src/worker-client.ts')).toBe(
-      false,
-    )
+    expect(isCompiledBunfsUrl('file:///home/u/podium/apps/daemon/src/worker-client.ts')).toBe(false)
     expect(isCompiledBunfsUrl('file:///C:/Users/u/podium/apps/daemon/src/worker-client.ts')).toBe(
       false,
     )

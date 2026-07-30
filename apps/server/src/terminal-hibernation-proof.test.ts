@@ -1,4 +1,5 @@
-import type { AgentObservation, AgentRuntimeState, ControlMessage } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
+import type { AgentObservation, ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'

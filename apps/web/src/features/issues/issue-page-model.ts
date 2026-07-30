@@ -5,7 +5,8 @@
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
 import { shallowEqual } from '@podium/client-core'
-import { type IssueWire, issueDisplayRef } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'

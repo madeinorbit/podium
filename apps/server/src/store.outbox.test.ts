@@ -40,15 +40,15 @@ describe('SessionStore queued_messages', () => {
     const store = new SessionStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
     // (queued_at first, rowid as the tiebreaker).
-    expect(store.sync.enqueueMessage({ id: 'q-b', sessionId: 's1', text: 'b', queuedAt: 2000 })).toBe(
-      true,
-    )
-    expect(store.sync.enqueueMessage({ id: 'q-c', sessionId: 's1', text: 'c', queuedAt: 2000 })).toBe(
-      true,
-    )
-    expect(store.sync.enqueueMessage({ id: 'q-a', sessionId: 's1', text: 'a', queuedAt: 1000 })).toBe(
-      true,
-    )
+    expect(
+      store.sync.enqueueMessage({ id: 'q-b', sessionId: 's1', text: 'b', queuedAt: 2000 }),
+    ).toBe(true)
+    expect(
+      store.sync.enqueueMessage({ id: 'q-c', sessionId: 's1', text: 'c', queuedAt: 2000 }),
+    ).toBe(true)
+    expect(
+      store.sync.enqueueMessage({ id: 'q-a', sessionId: 's1', text: 'a', queuedAt: 1000 }),
+    ).toBe(true)
     expect(store.sync.listQueuedMessages('s1').map((m) => m.text)).toEqual(['a', 'b', 'c'])
   })
 

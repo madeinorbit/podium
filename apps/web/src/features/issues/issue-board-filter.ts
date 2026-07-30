@@ -1,4 +1,4 @@
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/model'
 import { STAGE_LABELS } from './issue-card'
 
 export interface BoardFilter {

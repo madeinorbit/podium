@@ -6,7 +6,8 @@ import {
   resolveWithinRoots,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
-import type { AgentKind, ControlMessage } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'
 

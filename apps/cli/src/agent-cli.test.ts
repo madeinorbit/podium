@@ -214,17 +214,20 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium agent real-binary smoke', () => {
-  it('renders help without a server', () => {
-    const out = execFileSync('bun', [cliEntry, 'agent', '--help'], { encoding: 'utf8' })
-    expect(out).toContain('podium agent <command>')
-    expect(out).toContain('spawn --prompt')
-    expect(out).toContain('await <sessionId>')
-  })
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
+  'podium agent real-binary smoke',
+  () => {
+    it('renders help without a server', () => {
+      const out = execFileSync('bun', [cliEntry, 'agent', '--help'], { encoding: 'utf8' })
+      expect(out).toContain('podium agent <command>')
+      expect(out).toContain('spawn --prompt')
+      expect(out).toContain('await <sessionId>')
+    })
 
-  it('fails fast on an unknown agent command', () => {
-    expect(() =>
-      execFileSync('bun', [cliEntry, 'agent', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-    ).toThrow()
-  })
-})
+    it('fails fast on an unknown agent command', () => {
+      expect(() =>
+        execFileSync('bun', [cliEntry, 'agent', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+      ).toThrow()
+    })
+  },
+)

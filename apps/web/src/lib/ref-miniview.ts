@@ -10,7 +10,8 @@
  * without React or the store.
  */
 
-import { type AnyRef, type IssueStage, parseAnyRef } from '@podium/protocol'
+import type { IssueStage } from '@podium/model'
+import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
  * The issue shape the resolver needs and the miniview card renders (a

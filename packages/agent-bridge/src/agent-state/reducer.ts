@@ -1,4 +1,4 @@
-import type { AgentRuntimeState } from '@podium/protocol'
+import type { AgentRuntimeState } from '@podium/model'
 import type { AgentStateEvent } from './types.js'
 
 export function initialAgentState(now: string): AgentRuntimeState {
@@ -15,9 +15,9 @@ function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
 }
 
 /** Carry the identity list only when non-empty (field is optional/additive). */
-function withSubagents(
-  list: NonNullable<AgentRuntimeState['nativeSubagents']> | undefined,
-): { nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } {
+function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> | undefined): {
+  nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']>
+} {
   return list && list.length > 0 ? { nativeSubagents: list } : {}
 }
 
@@ -32,7 +32,10 @@ function withSubagents(
 function applyTaskDelta(
   prev: AgentRuntimeState,
   event: Extract<AgentStateEvent, { kind: 'task_delta' }>,
-): { nativeSubagentCount: number; nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } | null {
+): {
+  nativeSubagentCount: number
+  nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']>
+} | null {
   const prevList = prev.nativeSubagents ?? []
   const identityMode = prevList.length > 0
   if (event.agentId) {

@@ -1,4 +1,5 @@
-import type { MetadataChange, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
+import type { MetadataChange } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   createViewKey,

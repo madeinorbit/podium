@@ -15,7 +15,7 @@
  *    free text must never land on top of an open menu.
  */
 
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
 export interface AnswerTargetSession {

@@ -4,4 +4,4 @@
  * `./types` imports keep working.
  */
 export type { PinKind, PinState, RepoView, WorktreeView } from '@podium/client-core/viewmodels'
-export type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
+export type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/model'

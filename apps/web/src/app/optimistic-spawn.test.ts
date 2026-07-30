@@ -1,4 +1,4 @@
-import { IssueWire, SessionMeta } from '@podium/protocol'
+import { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   mergeOptimistic,

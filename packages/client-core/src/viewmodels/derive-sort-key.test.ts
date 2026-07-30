@@ -2,7 +2,7 @@
 // keyed rows sort ascending by key within their band; unkeyed legacy rows keep
 // newest-first creation order below keyed rows; snoozed still sinks and nothing
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   partitionUnifiedWork,

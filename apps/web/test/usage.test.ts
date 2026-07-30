@@ -1,4 +1,4 @@
-import type { UsageBucketWire } from '@podium/protocol'
+import type { UsageBucketWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { bucketCostUsd, formatTokens, localDay, usageSummary } from '../src/features/usage/usage'
 

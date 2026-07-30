@@ -2,9 +2,7 @@
   "version": "7",
   "dialect": "sqlite",
   "id": "ef5ef472-4750-4f81-b282-2b1b20feb752",
-  "prevIds": [
-    "921bb2c5-e2fd-48cd-a259-bfe6dcaaf8e3"
-  ],
+  "prevIds": ["921bb2c5-e2fd-48cd-a259-bfe6dcaaf8e3"],
   "ddl": [
     {
       "name": "accounts",
@@ -4649,13 +4647,9 @@
       "table": "workflows"
     },
     {
-      "columns": [
-        "automation_id"
-      ],
+      "columns": ["automation_id"],
       "tableTo": "automations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4664,13 +4658,9 @@
       "table": "automation_runs"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4679,13 +4669,9 @@
       "table": "issue_comments"
     },
     {
-      "columns": [
-        "from_id"
-      ],
+      "columns": ["from_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4694,13 +4680,9 @@
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "to_id"
-      ],
+      "columns": ["to_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4709,13 +4691,9 @@
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4724,13 +4702,9 @@
       "table": "issue_labels"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4739,13 +4713,9 @@
       "table": "issue_messages"
     },
     {
-      "columns": [
-        "parent_id"
-      ],
+      "columns": ["parent_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -4754,13 +4724,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "superseded_by"
-      ],
+      "columns": ["superseded_by"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -4769,13 +4735,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "duplicate_of"
-      ],
+      "columns": ["duplicate_of"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -4784,13 +4746,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "revision_id"
-      ],
+      "columns": ["revision_id"],
       "tableTo": "workflow_revisions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -4799,13 +4757,9 @@
       "table": "workflow_bindings"
     },
     {
-      "columns": [
-        "workflow_id"
-      ],
+      "columns": ["workflow_id"],
       "tableTo": "workflows",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4814,13 +4768,9 @@
       "table": "workflow_revisions"
     },
     {
-      "columns": [
-        "run_id"
-      ],
+      "columns": ["run_id"],
       "tableTo": "workflow_runs",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -4829,13 +4779,9 @@
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "revision_id"
-      ],
+      "columns": ["revision_id"],
       "tableTo": "workflow_revisions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -4844,13 +4790,9 @@
       "table": "workflow_runs"
     },
     {
-      "columns": [
-        "supersedes_run_id"
-      ],
+      "columns": ["supersedes_run_id"],
       "tableTo": "workflow_runs",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -4859,491 +4801,371 @@
       "table": "workflow_runs"
     },
     {
-      "columns": [
-        "machine_id",
-        "native_id"
-      ],
+      "columns": ["machine_id", "native_id"],
       "nameExplicit": true,
       "name": "conversation_segments_pk",
       "entityType": "pks",
       "table": "conversation_segments"
     },
     {
-      "columns": [
-        "from_id",
-        "to_id",
-        "type"
-      ],
+      "columns": ["from_id", "to_id", "type"],
       "nameExplicit": true,
       "name": "issue_deps_pk",
       "entityType": "pks",
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "issue_id",
-        "label"
-      ],
+      "columns": ["issue_id", "label"],
       "nameExplicit": true,
       "name": "issue_labels_pk",
       "entityType": "pks",
       "table": "issue_labels"
     },
     {
-      "columns": [
-        "repo_id",
-        "name"
-      ],
+      "columns": ["repo_id", "name"],
       "nameExplicit": true,
       "name": "locks_pk",
       "entityType": "pks",
       "table": "locks"
     },
     {
-      "columns": [
-        "job_kind",
-        "run_key"
-      ],
+      "columns": ["job_kind", "run_key"],
       "nameExplicit": true,
       "name": "maintenance_commands_pk",
       "entityType": "pks",
       "table": "maintenance_commands"
     },
     {
-      "columns": [
-        "issue_id",
-        "chat_id"
-      ],
+      "columns": ["issue_id", "chat_id"],
       "nameExplicit": true,
       "name": "messaging_issue_topics_pk",
       "entityType": "pks",
       "table": "messaging_issue_topics"
     },
     {
-      "columns": [
-        "fact_key",
-        "target"
-      ],
+      "columns": ["fact_key", "target"],
       "nameExplicit": true,
       "name": "notification_facts_pk",
       "entityType": "pks",
       "table": "notification_facts"
     },
     {
-      "columns": [
-        "kind",
-        "id"
-      ],
+      "columns": ["kind", "id"],
       "nameExplicit": true,
       "name": "pins_pk",
       "entityType": "pks",
       "table": "pins"
     },
     {
-      "columns": [
-        "reader",
-        "session_id"
-      ],
+      "columns": ["reader", "session_id"],
       "nameExplicit": true,
       "name": "recap_watermarks_pk",
       "entityType": "pks",
       "table": "recap_watermarks"
     },
     {
-      "columns": [
-        "machine_id",
-        "path"
-      ],
+      "columns": ["machine_id", "path"],
       "nameExplicit": true,
       "name": "repos_pk",
       "entityType": "pks",
       "table": "repos"
     },
     {
-      "columns": [
-        "subscription_id",
-        "event_id"
-      ],
+      "columns": ["subscription_id", "event_id"],
       "nameExplicit": true,
       "name": "subscription_deliveries_pk",
       "entityType": "pks",
       "table": "subscription_deliveries"
     },
     {
-      "columns": [
-        "target_kind",
-        "target_id"
-      ],
+      "columns": ["target_kind", "target_id"],
       "nameExplicit": true,
       "name": "workflow_bindings_pk",
       "entityType": "pks",
       "table": "workflow_bindings"
     },
     {
-      "columns": [
-        "run_id",
-        "step_id"
-      ],
+      "columns": ["run_id", "step_id"],
       "nameExplicit": true,
       "name": "workflow_run_steps_pk",
       "entityType": "pks",
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "accounts_pk",
       "table": "accounts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "mutation_id"
-      ],
+      "columns": ["mutation_id"],
       "nameExplicit": false,
       "name": "applied_mutations_pk",
       "table": "applied_mutations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "approval_requests_pk",
       "table": "approval_requests",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "automation_runs_pk",
       "table": "automation_runs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "automations_pk",
       "table": "automations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "seq"
-      ],
+      "columns": ["seq"],
       "nameExplicit": false,
       "name": "changes_pk",
       "table": "changes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "token_hash"
-      ],
+      "columns": ["token_hash"],
       "nameExplicit": false,
       "name": "client_sessions_pk",
       "table": "client_sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "podium_id"
-      ],
+      "columns": ["podium_id"],
       "nameExplicit": false,
       "name": "conversation_identities_pk",
       "table": "conversation_identities",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversations_pk",
       "table": "conversations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "execution_profiles_pk",
       "table": "execution_profiles",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issue_comments_pk",
       "table": "issue_comments",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issue_messages_pk",
       "table": "issue_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "nameExplicit": false,
       "name": "issue_ref_letters_pk",
       "table": "issue_ref_letters",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issues_pk",
       "table": "issues",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "lock_waiters_pk",
       "table": "lock_waiters",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "machines_pk",
       "table": "machines",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "name"
-      ],
+      "columns": ["name"],
       "nameExplicit": false,
       "name": "maintenance_leases_pk",
       "table": "maintenance_leases",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "message_wake_cooldowns_pk",
       "table": "message_wake_cooldowns",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "messages_pk",
       "table": "messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "meta_pk",
       "table": "meta",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "offers_pk",
       "table": "offers",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "podium_events_pk",
       "table": "podium_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "queued_messages_pk",
       "table": "queued_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "repo_id"
-      ],
+      "columns": ["repo_id"],
       "nameExplicit": false,
       "name": "repo_draft_seq_pk",
       "table": "repo_draft_seq",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "repo_id"
-      ],
+      "columns": ["repo_id"],
       "nameExplicit": false,
       "name": "repo_prefixes_pk",
       "table": "repo_prefixes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "session_drafts_pk",
       "table": "session_drafts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "sessions_pk",
       "table": "sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "snoozes_pk",
       "table": "snoozes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "steward_state_pk",
       "table": "steward_state",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "subscriptions_pk",
       "table": "subscriptions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "superagent_messages_pk",
       "table": "superagent_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "turn_id"
-      ],
+      "columns": ["turn_id"],
       "nameExplicit": false,
       "name": "superagent_pending_turns_pk",
       "table": "superagent_pending_turns",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "input_id"
-      ],
+      "columns": ["input_id"],
       "nameExplicit": false,
       "name": "superagent_queued_inputs_pk",
       "table": "superagent_queued_inputs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "superagent_threads_pk",
       "table": "superagent_threads",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "worktree"
-      ],
+      "columns": ["worktree"],
       "nameExplicit": false,
       "name": "tab_order_pk",
       "table": "tab_order",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "mutation_id"
-      ],
+      "columns": ["mutation_id"],
       "nameExplicit": false,
       "name": "upstream_outbox_pk",
       "table": "upstream_outbox",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_events_pk",
       "table": "workflow_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_revisions_pk",
       "table": "workflow_revisions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_runs_pk",
       "table": "workflow_runs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflows_pk",
       "table": "workflows",
@@ -6080,67 +5902,49 @@
       "table": "workflows"
     },
     {
-      "columns": [
-        "name"
-      ],
+      "columns": ["name"],
       "nameExplicit": true,
       "name": "execution_profiles_name_unique",
       "entityType": "uniques",
       "table": "execution_profiles"
     },
     {
-      "columns": [
-        "repo_id",
-        "name",
-        "session_id"
-      ],
+      "columns": ["repo_id", "name", "session_id"],
       "nameExplicit": false,
       "name": "lock_waiters_repo_id_name_session_id_unique",
       "entityType": "uniques",
       "table": "lock_waiters"
     },
     {
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "nameExplicit": true,
       "name": "superagent_pending_turns_thread_id_unique",
       "entityType": "uniques",
       "table": "superagent_pending_turns"
     },
     {
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "nameExplicit": true,
       "name": "superagent_queued_inputs_thread_id_unique",
       "entityType": "uniques",
       "table": "superagent_queued_inputs"
     },
     {
-      "columns": [
-        "workflow_id",
-        "version"
-      ],
+      "columns": ["workflow_id", "version"],
       "nameExplicit": false,
       "name": "workflow_revisions_workflow_id_version_unique",
       "entityType": "uniques",
       "table": "workflow_revisions"
     },
     {
-      "columns": [
-        "run_id",
-        "position"
-      ],
+      "columns": ["run_id", "position"],
       "nameExplicit": false,
       "name": "workflow_run_steps_run_id_position_unique",
       "entityType": "uniques",
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "prefix"
-      ],
+      "columns": ["prefix"],
       "nameExplicit": false,
       "name": "repo_prefixes_prefix_unique",
       "entityType": "uniques",

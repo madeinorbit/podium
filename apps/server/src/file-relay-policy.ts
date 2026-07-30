@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 /** The set of absolute paths a session has structurally referenced — the
  *  read allow-list for files outside the repo cwd. */

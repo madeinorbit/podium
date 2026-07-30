@@ -1,8 +1,8 @@
+import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TranscriptItem } from '@podium/protocol'
-import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
-import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'
+import { EventBus } from '../bus'
+import { type MessagingDeps, MessagingService, TYPING_REFRESH_MS } from './service'
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import { TOPIC_INACTIVITY_MS } from './topic-recap'
 import type { ChannelAdapter, InboundChatMessage } from './types'
@@ -21,9 +21,7 @@ describe('parseTelegramUpdates', () => {
       { update_id: 11, message: { chat: { id: 42 }, photo: [{}] } },
       { update_id: 12, edited_message: { text: 'edited', chat: { id: 42 } } },
     ])
-    expect(messages).toEqual([
-      { updateId: 10, chatId: '42', text: 'hello', senderLabel: '@mika' },
-    ])
+    expect(messages).toEqual([{ updateId: 10, chatId: '42', text: 'hello', senderLabel: '@mika' }])
     expect(callbacks).toEqual([])
     expect(lastUpdateId).toBe(12)
   })
@@ -92,7 +90,10 @@ describe('chunkTelegramText', () => {
 interface Harness {
   service: MessagingService
   bus: EventBus
-  inbound: (text: string, opts?: { threadRef?: string; callback?: { id: string; data: string } }) => void
+  inbound: (
+    text: string,
+    opts?: { threadRef?: string; callback?: { id: string; data: string } },
+  ) => void
   sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }>
   typingCalls: Array<{ chatId: string; threadRef?: string }>
   sendTurn: ReturnType<typeof vi.fn>
@@ -236,8 +237,7 @@ function makeHarness(
     },
   }
   const sendTurn = vi.fn(
-    opts.sendTurnImpl ??
-      (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
+    opts.sendTurnImpl ?? (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
@@ -482,8 +482,7 @@ describe('MessagingService', () => {
     it('clears typing when the thread is busy elsewhere', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sendTurnImpl: () =>
-          Promise.reject(new Error('a turn is already running on this thread')),
+        sendTurnImpl: () => Promise.reject(new Error('a turn is already running on this thread')),
       })
       h.inbound('hello')
       await flushMicro()
@@ -515,15 +514,15 @@ describe('MessagingService', () => {
       vi.useRealTimers()
     })
 
-    function agentState(phase: 'working' | 'idle' | 'needs_user' | 'errored' | 'ended' | 'compacting') {
+    function agentState(
+      phase: 'working' | 'idle' | 'needs_user' | 'errored' | 'ended' | 'compacting',
+    ) {
       return {
         phase,
         since: '2026-07-16T00:00:00.000Z',
         nativeSubagentCount: 0,
         ...(phase === 'needs_user' ? { need: { kind: 'question' as const } } : {}),
-        ...(phase === 'errored'
-          ? { error: { class: 'server_error', retryable: true } }
-          : {}),
+        ...(phase === 'errored' ? { error: { class: 'server_error', retryable: true } } : {}),
         ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
       }
     }
@@ -589,29 +588,32 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(3)
     })
 
-    it.each(['idle', 'needs_user', 'errored', 'ended', 'compacting'] as const)(
-      'stops ambient typing on %s',
-      (phase) => {
-        vi.useFakeTimers()
-        const h = makeHarness({
-          sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
-        })
-        const { sessionId } = bindTopic(h)
-        h.bus.emit('session.stateChanged', {
-          sessionId,
-          prev: undefined,
-          next: agentState('working'),
-        })
-        const countWhileWorking = h.typingCalls.length
-        h.bus.emit('session.stateChanged', {
-          sessionId,
-          prev: agentState('working'),
-          next: agentState(phase),
-        })
-        vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
-        expect(h.typingCalls).toHaveLength(countWhileWorking)
-      },
-    )
+    it.each([
+      'idle',
+      'needs_user',
+      'errored',
+      'ended',
+      'compacting',
+    ] as const)('stops ambient typing on %s', (phase) => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      const countWhileWorking = h.typingCalls.length
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: agentState('working'),
+        next: agentState(phase),
+      })
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countWhileWorking)
+    })
 
     it('stops ambient typing on session.exited', () => {
       vi.useFakeTimers()
@@ -1017,9 +1019,7 @@ describe('MessagingService', () => {
       chatId: '42',
     })
     await flush()
-    expect(h.sent).toEqual([
-      { chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' },
-    ])
+    expect(h.sent).toEqual([{ chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' }])
   })
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
@@ -1034,10 +1034,14 @@ describe('MessagingService', () => {
       updatedAt: '2026-07-16T00:00:00.000Z',
     })
     h.inbound('in another topic', { threadRef: '77' })
-    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
-      botToken: 'tok',
-      chatId: '42',
-    }, { sessionId: 's_pod' })
+    h.service.sendNotice(
+      'keyboard needs you\n\nSQLite or Postgres?',
+      {
+        botToken: 'tok',
+        chatId: '42',
+      },
+      { sessionId: 's_pod' },
+    )
     await flush()
     expect(h.sent).toEqual([
       {
@@ -1053,10 +1057,14 @@ describe('MessagingService', () => {
       sessionIssueId: () => 'iss_unbound',
     })
     h.inbound('in topic', { threadRef: '77' })
-    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
-      botToken: 'tok',
-      chatId: '42',
-    }, { sessionId: 's1' })
+    h.service.sendNotice(
+      'keyboard needs you\n\nSQLite or Postgres?',
+      {
+        botToken: 'tok',
+        chatId: '42',
+      },
+      { sessionId: 's1' },
+    )
     await flush()
     expect(h.sent).toEqual([
       {

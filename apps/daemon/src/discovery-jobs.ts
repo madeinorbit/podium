@@ -3,7 +3,7 @@ import {
   scanAgentConversationsCached,
   summarizePaths,
 } from '@podium/agent-bridge'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
   attributeMemory,

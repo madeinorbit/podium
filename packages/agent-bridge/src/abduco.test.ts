@@ -215,7 +215,10 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 
 describe.skipIf(!hasAbduco)('abduco integration', () => {
   // Resource-sensitive under concurrent suite load (abduco + many PTYs); one retry.
-  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', { retry: 1, timeout: 20000 }, async () => {
+  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', {
+    retry: 1,
+    timeout: 20000,
+  }, async () => {
     const label = `podium-abduco-itest-${process.pid}`
     killAbducoSession(label)
     // Integration uses the runtime default backend (bun-terminal under Bun, node-pty under

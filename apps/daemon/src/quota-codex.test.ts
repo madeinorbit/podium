@@ -16,7 +16,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 
 const okBody = {
@@ -64,9 +63,7 @@ describe('parseWhamUsage', () => {
       },
     }
     const w = parseWhamUsage(body)
-    expect(w.map((x) => [x.key, x.label, x.windowMinutes])).toEqual([
-      ['weekly', 'Weekly', 10080],
-    ])
+    expect(w.map((x) => [x.key, x.label, x.windowMinutes])).toEqual([['weekly', 'Weekly', 10080]])
   })
 
   it('classifies a 5h-sized secondary_window as 5h if windows are swapped', () => {

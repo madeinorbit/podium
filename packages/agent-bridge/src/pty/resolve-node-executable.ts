@@ -49,9 +49,7 @@ export function resolveNodeExecutable(): string {
       if (looksLikeBun(real)) continue
       cached = candidate
       return cached
-    } catch {
-      continue
-    }
+    } catch {}
   }
   throw new Error(
     'Real Node.js ≥ 22 not found on PATH (only Bun shims). ' +

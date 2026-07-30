@@ -1,9 +1,9 @@
+import type { SessionMeta } from '@podium/model'
 import {
   createDispatcher,
   type DispatchHandlers,
   encode,
   type ServerMessage,
-  type SessionMeta,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './connection'

@@ -1,12 +1,29 @@
+import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { SessionMeta } from '@podium/protocol'
-import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
+import {
+  isMemberCwd,
+  selectMailNudgeSession,
+  sessionsForIssue,
+  slugifyBranch,
+  stageIndex,
+  summarizeSessions,
+} from './issue-util'
 
 const sess = (cwd: string, phase?: string): SessionMeta =>
   ({
-    sessionId: cwd, agentKind: phase ? 'claude-code' : 'shell', title: 't', cwd,
-    status: 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
-    clientCount: 0, createdAt: 't', lastActiveAt: 't', origin: { kind: 'spawn' }, archived: false,
+    sessionId: cwd,
+    agentKind: phase ? 'claude-code' : 'shell',
+    title: 't',
+    cwd,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: 't',
+    lastActiveAt: 't',
+    origin: { kind: 'spawn' },
+    archived: false,
     ...(phase ? { agentState: { phase, since: 't', nativeSubagentCount: 0 } } : {}),
   }) as unknown as SessionMeta
 
@@ -56,10 +73,19 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
     lastActiveAt?: string
   }): SessionMeta =>
     ({
-      sessionId: o.id, agentKind: o.agentKind ?? 'claude-code', title: 't', cwd: '/r/wt',
-      status: o.status ?? 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
-      clientCount: 0, createdAt: 't', lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
-      origin: { kind: 'spawn' }, archived: false,
+      sessionId: o.id,
+      agentKind: o.agentKind ?? 'claude-code',
+      title: 't',
+      cwd: '/r/wt',
+      status: o.status ?? 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: 't',
+      lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
+      origin: { kind: 'spawn' },
+      archived: false,
       ...(o.phase ? { agentState: { phase: o.phase, since: 't', nativeSubagentCount: 0 } } : {}),
     }) as unknown as SessionMeta
 

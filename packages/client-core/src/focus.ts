@@ -1,4 +1,4 @@
-import type { SessionMeta, WorkState } from '@podium/protocol'
+import type { SessionMeta, WorkState } from '@podium/model'
 
 /**
  * The home board's attention triage. The whole point of the product: the user

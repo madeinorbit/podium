@@ -1,4 +1,5 @@
-import type { IssueWire, SearchResultWire, SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from './store'
 
 /** The registry surface search needs — kept structural so tests can fake it. */

@@ -1,10 +1,5 @@
-import {
-  ISSUE_STAGES,
-  type IssueStage,
-  IssueType,
-  type IssueWire,
-  issueDisplayRef,
-} from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import {
   Bot,
   Check,

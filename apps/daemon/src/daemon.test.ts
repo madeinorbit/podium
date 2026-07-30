@@ -15,11 +15,8 @@ import {
   reapAbducoTestSessions,
   tmuxHasSession,
 } from '@podium/agent-bridge'
-import type {
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
-  DaemonHandshakeReply,
-} from '@podium/protocol'
+import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import type { DaemonHandshakeReply } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -35,8 +32,8 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
-import { createSessionObservers, type ReattachControl } from './session-observers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's

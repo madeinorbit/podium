@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { optimisticIssuePatch } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import { commandTarget } from './registry'

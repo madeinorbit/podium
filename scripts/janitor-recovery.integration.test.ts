@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { startJanitor, type JanitorHandle } from '../apps/janitor/src/janitor'
-import { startServer, type ServerHandle } from '../apps/server/src/server'
-import { SessionStore, type MessageRow } from '../apps/server/src/store'
+import { type JanitorHandle, startJanitor } from '../apps/janitor/src/janitor'
+import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { type MessageRow, SessionStore } from '../apps/server/src/store'
 
 function messageStatus(dbPath: string): string | undefined {
   const db = openDatabase(dbPath, { readOnly: true })

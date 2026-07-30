@@ -118,9 +118,7 @@ export default defineConfig({
       '@podium/composer': fileURLToPath(
         new URL('../../packages/composer/src/index.ts', import.meta.url),
       ),
-      '@podium/model': fileURLToPath(
-        new URL('../../packages/model/src/index.ts', import.meta.url),
-      ),
+      '@podium/model': fileURLToPath(new URL('../../packages/model/src/index.ts', import.meta.url)),
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),
       ),

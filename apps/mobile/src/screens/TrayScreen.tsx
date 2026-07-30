@@ -1,6 +1,6 @@
 import { groupSessions, relativeTime, withoutShells } from '@podium/client-core/focus'
 import { artifactKind, deriveTrayItems } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Settings } from 'lucide-react-native'
 import { useMemo, useState } from 'react'

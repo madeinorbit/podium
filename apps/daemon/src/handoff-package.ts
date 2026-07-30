@@ -18,7 +18,7 @@ import {
   locateClaudeSessionFile,
   resolvePinnedCodexRollout,
 } from '@podium/agent-bridge'
-import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/protocol'
+import { HandoffManifest } from '@podium/model'
 import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)

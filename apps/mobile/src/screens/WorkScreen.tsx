@@ -23,7 +23,8 @@ import {
   type UnifiedWorkRow,
   unifiedWorkList,
 } from '@podium/client-core/viewmodels'
-import { type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { ArrowDownToLine, ChevronDown, ChevronRight, Pin } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'

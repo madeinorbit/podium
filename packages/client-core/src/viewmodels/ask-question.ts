@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {

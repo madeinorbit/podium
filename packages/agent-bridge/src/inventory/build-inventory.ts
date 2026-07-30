@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentInventory, Inventory, ToolInventory } from '@podium/protocol'
+import type { AgentInventory, Inventory, ToolInventory } from '@podium/model'
 import type { HarnessAdapter } from '../harness/adapter.js'
 import { HARNESS_ADAPTERS } from '../harness/registry.js'
 

@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/model'
 import type { FileTab } from './store'
 
 // The rendered panel deck [POD-782] [spec:SP-0b2e]: issues are the MAIN way to

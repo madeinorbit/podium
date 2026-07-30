@@ -1,4 +1,4 @@
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */

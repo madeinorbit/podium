@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { claudeRecordToItems } from './claude'
 import { codexRecordToItems } from './codex'
 import { cursorRecordToItems } from './cursor'

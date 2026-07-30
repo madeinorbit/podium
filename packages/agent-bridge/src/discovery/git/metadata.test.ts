@@ -17,7 +17,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const mainSha = '1111111111111111111111111111111111111111'
 const featureSha = '2222222222222222222222222222222222222222'
 const altSha = '3333333333333333333333333333333333333333'

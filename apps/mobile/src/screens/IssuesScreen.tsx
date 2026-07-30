@@ -1,5 +1,5 @@
 import { boardIssues } from '@podium/client-core/viewmodels'
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { ChevronRight, Layers, Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'

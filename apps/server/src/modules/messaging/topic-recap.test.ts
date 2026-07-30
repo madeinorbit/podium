@@ -1,5 +1,5 @@
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { TranscriptItem } from '@podium/protocol'
 import {
   formatTopicRecap,
   pickRecapMessages,
@@ -25,9 +25,7 @@ describe('transcriptSessionIdForThread', () => {
   })
 
   it('falls back to origin for btw threads without a podium session yet', () => {
-    expect(
-      transcriptSessionIdForThread({ originSessionId: 'sess_1' }, 'btw_sess_1'),
-    ).toBe('sess_1')
+    expect(transcriptSessionIdForThread({ originSessionId: 'sess_1' }, 'btw_sess_1')).toBe('sess_1')
   })
 
   it('parses btw_ thread ids when the thread row is missing', () => {

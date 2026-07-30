@@ -239,7 +239,10 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    store.auth.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
+    store.auth.createClientSession(
+      hashToken(token),
+      new Date(nowMs + 30 * DAY - HOUR).toISOString(),
+    )
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })

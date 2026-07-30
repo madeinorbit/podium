@@ -1,4 +1,4 @@
-import type { AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
 import { createElement, type ReactNode } from 'react'
 import {
   ClaudeCodeIcon,

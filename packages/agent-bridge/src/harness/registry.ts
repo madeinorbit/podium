@@ -1,4 +1,4 @@
-import type { AgentKind, HarnessAgent } from '@podium/protocol'
+import type { AgentKind, HarnessAgent } from '@podium/model'
 import type { AgentStateProvider } from '../agent-state/types.js'
 import type { HarnessAdapter } from './adapter.js'
 import { claudeCodeAdapter } from './adapters/claude-code.js'

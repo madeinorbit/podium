@@ -27,7 +27,9 @@ export function normalizeOriginUrl(url: string | null | undefined): string | nul
   let port: string | undefined
   let path: string
 
-  const full = raw.match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/)
+  const full = raw.match(
+    /^([A-Za-z][A-Za-z0-9+.-]*):\/\/(?:[^/@]*@)?([^/:?#]+)(?::(\d+))?(\/[^?#]*)?/,
+  )
   // scp-style: [user@]host:path — only when there's no scheme and the part after
   // ':' doesn't look like a port-only or //-authority form.
   const scp = full ? null : raw.match(/^(?:[^@/]+@)?([^:/@]+):([^/].*)$/)

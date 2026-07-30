@@ -1,4 +1,4 @@
-import type { GitRepositoryWire, SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   dedupeSessionsByResume,

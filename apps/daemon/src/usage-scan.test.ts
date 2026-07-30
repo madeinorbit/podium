@@ -16,7 +16,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const assistantLine = (ts: string, model: string, input: number, output: number) =>
   JSON.stringify({
     type: 'assistant',

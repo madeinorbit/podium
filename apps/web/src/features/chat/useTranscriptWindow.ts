@@ -1,5 +1,5 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import type { SessionMeta, TranscriptItem } from '@podium/protocol'
+import type { SessionMeta, TranscriptItem } from '@podium/model'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'

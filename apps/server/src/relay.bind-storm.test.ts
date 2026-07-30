@@ -31,7 +31,11 @@ describe('bind-storm regression', () => {
     for (let i = 0; i < opts.sessions; i++) {
       const machineId = i % 2 ? 'm2' : 'm1'
       const cwd = `/repo/w${i}`
-      const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd, machineId })
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd,
+        machineId,
+      })
       bound.push({ sessionId, cwd, machineId })
     }
     // Settle setup: run any coalesced broadcast so the storm below starts clean.
@@ -47,7 +51,8 @@ describe('bind-storm regression', () => {
     const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound)
+      registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
 
     // (c) Pipeline runs ≪ bind count: leading run + one coalesced trailing flush.
@@ -76,7 +81,8 @@ describe('bind-storm regression', () => {
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 3, issues: 1 })
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound)
+      registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
     const last = inbox.filter((m) => m.type === 'sessionsChanged').at(-1)
@@ -87,14 +93,17 @@ describe('bind-storm regression', () => {
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 2, issues: 0 })
-    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound)
+      registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
     registry.modules.machines.renameMachine('m1', 'renamed-one')
     registry.modules.sessions.flushBroadcasts()
     const last = inbox.filter((m) => m.type === 'sessionsChanged').at(-1)
     if (last?.type !== 'sessionsChanged') throw new Error('expected sessionsChanged')
     expect(last.sessions.find((s) => s.machineId === 'm1')?.machineName).toBe('renamed-one')
-    expect(registry.modules.machines.listMachines().find((m) => m.id === 'm1')?.name).toBe('renamed-one')
+    expect(registry.modules.machines.listMachines().find((m) => m.id === 'm1')?.name).toBe(
+      'renamed-one',
+    )
     registry.dispose()
   })
 })

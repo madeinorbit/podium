@@ -1,7 +1,7 @@
 import { mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { decodeCursor, encodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'

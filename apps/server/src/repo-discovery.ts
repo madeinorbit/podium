@@ -1,5 +1,5 @@
 import { dirname } from 'node:path'
-import type { GitDiscoveryDiagnosticWire, GitRepositoryWire } from '@podium/protocol'
+import type { GitDiscoveryDiagnosticWire, GitRepositoryWire } from '@podium/model'
 import type { ScanReposResult } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { normalizeRepoPath } from './store'

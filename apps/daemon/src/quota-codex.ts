@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentQuotaWire, QuotaWindowWire } from '@podium/model'
 
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 

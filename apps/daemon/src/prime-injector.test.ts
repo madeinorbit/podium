@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createPrimeInjector } from './prime-injector'
 
 const okRelay = (text: string) => async () => ({ ok: true, result: text })
@@ -6,9 +6,14 @@ const okRelay = (text: string) => async () => ({ ok: true, result: text })
 describe('prime injector', () => {
   it('injects additionalContext on SessionStart, once', async () => {
     let calls = 0
-    const inj = createPrimeInjector(async () => { calls++; return { ok: true, result: 'PRIME' } })
+    const inj = createPrimeInjector(async () => {
+      calls++
+      return { ok: true, result: 'PRIME' }
+    })
     const first = await inj.respondTo('s1', { hook_event_name: 'SessionStart' })
-    expect(JSON.parse(first!)).toEqual({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' } })
+    expect(JSON.parse(first!)).toEqual({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
+    })
     const second = await inj.respondTo('s1', { hook_event_name: 'UserPromptSubmit' })
     expect(second).toBeNull() // already primed
     expect(calls).toBe(1)

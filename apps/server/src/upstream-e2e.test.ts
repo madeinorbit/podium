@@ -274,7 +274,10 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   it('hub stopped → mirrored entries stale-flagged and RETAINED; node-local work unaffected', async () => {
     const before = nodeHubSessions().length
     expect(before).toBeGreaterThan(0)
-    const local = nodeRegistry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/node/local' })
+    const local = nodeRegistry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/node/local',
+    })
 
     await hub.close()
     hubClosed = true
@@ -282,13 +285,21 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // Retained (stale-visible, never blank) …
     expect(nodeHubSessions().length).toBe(before)
     // … while local entities never carry upstream flags and keep working.
-    const localMeta = nodeRegistry.modules.sessions.listSessions().find((s) => s.sessionId === local.sessionId)
+    const localMeta = nodeRegistry.modules.sessions
+      .listSessions()
+      .find((s) => s.sessionId === local.sessionId)
     expect(localMeta).toBeDefined()
     expect(localMeta?.viaHub).toBeUndefined()
     expect(localMeta?.upstreamStale).toBeUndefined()
-    expect(nodeRegistry.modules.sessions.renameSession({ sessionId: local.sessionId, name: 'still-mine' }))
-    expect(nodeRegistry.modules.sessions.listSessions().find((s) => s.sessionId === local.sessionId)?.name).toBe(
-      'still-mine',
+    expect(
+      nodeRegistry.modules.sessions.renameSession({
+        sessionId: local.sessionId,
+        name: 'still-mine',
+      }),
     )
+    expect(
+      nodeRegistry.modules.sessions.listSessions().find((s) => s.sessionId === local.sessionId)
+        ?.name,
+    ).toBe('still-mine')
   })
 })

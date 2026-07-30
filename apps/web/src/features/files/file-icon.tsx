@@ -1,11 +1,11 @@
 import {
   Braces,
   Database,
-  File as FileIcon,
   FileArchive,
   FileAudio,
   FileCode,
   FileCog,
+  File as FileIcon,
   FileImage,
   FileLock,
   FileTerminal,
@@ -79,7 +79,11 @@ const BY_EXT: Record<string, { icon: LucideIcon; className: string }> = {
 export function FileTypeIcon({ name, size = 14 }: { name: string; size?: number }): JSX.Element {
   const lower = name.toLowerCase()
   const ext = lower.includes('.') ? lower.split('.').pop()! : ''
-  const m = BY_EXT[ext] ?? (lower.startsWith('.') ? { icon: FileCog, className: 'text-muted-foreground' } : { icon: FileIcon, className: 'text-muted-foreground' })
+  const m =
+    BY_EXT[ext] ??
+    (lower.startsWith('.')
+      ? { icon: FileCog, className: 'text-muted-foreground' }
+      : { icon: FileIcon, className: 'text-muted-foreground' })
   const Icon = m.icon
   return <Icon size={size} className={`flex-none ${m.className}`} aria-hidden="true" />
 }

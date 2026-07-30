@@ -27,9 +27,9 @@
 // here. Instead we assert the provider output that the bug corrupted, plus xterm core's
 // own multi-row hit-test math, which together are the data the activation path consumes.
 
-import { Terminal } from '@xterm/xterm'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
+import { Terminal } from '@xterm/xterm'
 import { describe, expect, it } from 'vitest'
 
 /** Load the real addon onto a real Terminal and capture the link provider it
@@ -38,11 +38,12 @@ import { describe, expect, it } from 'vitest'
 function captureProvider(term: Terminal): () => ILinkProvider {
   let provider: ILinkProvider | undefined
   const register = term.registerLinkProvider.bind(term)
-  ;(term as unknown as { registerLinkProvider: (p: ILinkProvider) => unknown }).registerLinkProvider =
-    (p: ILinkProvider) => {
-      provider = p
-      return register(p)
-    }
+  ;(
+    term as unknown as { registerLinkProvider: (p: ILinkProvider) => unknown }
+  ).registerLinkProvider = (p: ILinkProvider) => {
+    provider = p
+    return register(p)
+  }
   term.loadAddon(new WebLinksAddon(() => {}))
   return () => {
     if (!provider) throw new Error('addon did not register a link provider')
@@ -84,7 +85,9 @@ function occupiedRows(term: Terminal): Array<{ y: number; len: number }> {
 describe('wrapped (multiline) URL link', () => {
   it('xterm wraps a long URL across rows headless (precondition for the rest)', async () => {
     const term = new Terminal({ cols: 20, rows: 6 })
-    await new Promise<void>((res) => term.write('https://example.com/some/really/long/path/that/wraps', res))
+    await new Promise<void>((res) =>
+      term.write('https://example.com/some/really/long/path/that/wraps', res),
+    )
     const rows = occupiedRows(term)
     expect(rows.length).toBeGreaterThan(1)
     expect(term.buffer.active.getLine(rows[1]!.y)!.isWrapped).toBe(true)

@@ -1,7 +1,8 @@
 // apps/web/src/SourceEditor.tsx
-import type { EditorView as EditorViewType } from '@codemirror/view'
+
 import { EditorState } from '@codemirror/state'
-import { EditorView, basicSetup } from 'codemirror'
+import type { EditorView as EditorViewType } from '@codemirror/view'
+import { basicSetup, EditorView } from 'codemirror'
 import { type JSX, useEffect, useRef } from 'react'
 import { langIdForPath, loadLanguage } from './editor-lang'
 

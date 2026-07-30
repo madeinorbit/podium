@@ -1,4 +1,4 @@
-import type { SessionMeta, SessionOffer } from '@podium/protocol'
+import type { SessionMeta, SessionOffer } from '@podium/model'
 import { Lightbulb } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { cn } from '@/lib/utils'

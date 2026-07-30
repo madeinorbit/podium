@@ -1,5 +1,5 @@
 import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'

@@ -1,4 +1,4 @@
-import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
+import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

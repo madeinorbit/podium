@@ -68,7 +68,9 @@ describe('upstream sync token auth e2e (password-gated hub)', () => {
     const token = hub.registry.mintUpstreamToken()
     const { registry, store, sync } = makeNode(token)
     sync.start()
-    await until(() => registry.modules.sessions.listSessions().some((s) => s.viaHub && s.cwd === '/hub/authed'))
+    await until(() =>
+      registry.modules.sessions.listSessions().some((s) => s.viaHub && s.cwd === '/hub/authed'),
+    )
     expect(sync.lastCatchUpKind).toBe('snapshot')
     sync.stop()
     registry.dispose()

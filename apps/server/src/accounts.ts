@@ -10,7 +10,7 @@
 // the daemon inventory and this server-side AccountView use the same facts.
 import { homedir } from 'node:os'
 import { HARNESS_ADAPTERS } from '@podium/agent-bridge'
-import type { HarnessAgent } from '@podium/protocol'
+import type { HarnessAgent } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { z } from 'zod'
 import type { AccountsRepository } from './store/accounts'

@@ -4,31 +4,163 @@
   "title": "Design System: Podium",
   "extensions": {
     "colorMeta": {
-      "superade-yellow": { "role": "primary", "displayName": "Superade Yellow", "canonical": "#f5c518", "tonalRamp": ["#332902", "#5c4a05", "#8a6f08", "#b8940c", "#e0b512", "#f5c518", "#f9d95e", "#fdf0b8"] },
-      "royal-blue": { "role": "primary", "displayName": "Royal Blue (light variant lead)", "canonical": "#1d4ed8", "tonalRamp": ["#0a1440", "#122566", "#183a9e", "#1d4ed8", "#3b6ae6", "#6b8ff0", "#a3bcf7", "#d8e2fc"] },
-      "alert-red": { "role": "secondary", "displayName": "Alert Red", "canonical": "#e5303f", "tonalRamp": ["#3a0a0e", "#661218", "#9e1c26", "#cc2734", "#e5303f", "#ee6470", "#f5a0a8", "#fbd6da"] },
-      "accent-blue": { "role": "secondary", "displayName": "Accent Blue", "canonical": "#2f6bff", "tonalRamp": ["#0a1840", "#122a66", "#1c439e", "#2657cc", "#2f6bff", "#638fff", "#9cb8ff", "#d3e0ff"] },
-      "race-navy": { "role": "neutral", "displayName": "Race Navy", "canonical": "#0a0f1c", "tonalRamp": ["#050912", "#0a0f1c", "#121b30", "#1c2a4c", "#2c3e66", "#4a5c86", "#7c8aa8", "#c2c9d9"] },
-      "claude-terracotta": { "role": "tertiary", "displayName": "Claude Terracotta (reserved)", "canonical": "#d97757", "tonalRamp": ["#36160c", "#5e2817", "#8c3f26", "#b45a3a", "#d97757", "#e39a82", "#eec0b0", "#f8e2da"] },
-      "flow-slate": { "role": "tertiary", "displayName": "Flow Slate", "canonical": "#94a3b8", "tonalRamp": ["#1a2028", "#2e3844", "#475466", "#64748b", "#7c8ba0", "#94a3b8", "#b8c2d0", "#dde2e9"] }
+      "superade-yellow": {
+        "role": "primary",
+        "displayName": "Superade Yellow",
+        "canonical": "#f5c518",
+        "tonalRamp": [
+          "#332902",
+          "#5c4a05",
+          "#8a6f08",
+          "#b8940c",
+          "#e0b512",
+          "#f5c518",
+          "#f9d95e",
+          "#fdf0b8"
+        ]
+      },
+      "royal-blue": {
+        "role": "primary",
+        "displayName": "Royal Blue (light variant lead)",
+        "canonical": "#1d4ed8",
+        "tonalRamp": [
+          "#0a1440",
+          "#122566",
+          "#183a9e",
+          "#1d4ed8",
+          "#3b6ae6",
+          "#6b8ff0",
+          "#a3bcf7",
+          "#d8e2fc"
+        ]
+      },
+      "alert-red": {
+        "role": "secondary",
+        "displayName": "Alert Red",
+        "canonical": "#e5303f",
+        "tonalRamp": [
+          "#3a0a0e",
+          "#661218",
+          "#9e1c26",
+          "#cc2734",
+          "#e5303f",
+          "#ee6470",
+          "#f5a0a8",
+          "#fbd6da"
+        ]
+      },
+      "accent-blue": {
+        "role": "secondary",
+        "displayName": "Accent Blue",
+        "canonical": "#2f6bff",
+        "tonalRamp": [
+          "#0a1840",
+          "#122a66",
+          "#1c439e",
+          "#2657cc",
+          "#2f6bff",
+          "#638fff",
+          "#9cb8ff",
+          "#d3e0ff"
+        ]
+      },
+      "race-navy": {
+        "role": "neutral",
+        "displayName": "Race Navy",
+        "canonical": "#0a0f1c",
+        "tonalRamp": [
+          "#050912",
+          "#0a0f1c",
+          "#121b30",
+          "#1c2a4c",
+          "#2c3e66",
+          "#4a5c86",
+          "#7c8aa8",
+          "#c2c9d9"
+        ]
+      },
+      "claude-terracotta": {
+        "role": "tertiary",
+        "displayName": "Claude Terracotta (reserved)",
+        "canonical": "#d97757",
+        "tonalRamp": [
+          "#36160c",
+          "#5e2817",
+          "#8c3f26",
+          "#b45a3a",
+          "#d97757",
+          "#e39a82",
+          "#eec0b0",
+          "#f8e2da"
+        ]
+      },
+      "flow-slate": {
+        "role": "tertiary",
+        "displayName": "Flow Slate",
+        "canonical": "#94a3b8",
+        "tonalRamp": [
+          "#1a2028",
+          "#2e3844",
+          "#475466",
+          "#64748b",
+          "#7c8ba0",
+          "#94a3b8",
+          "#b8c2d0",
+          "#dde2e9"
+        ]
+      }
     },
     "typographyMeta": {
       "headline": { "displayName": "Headline", "purpose": "Section headers, strong ink." },
       "title": { "displayName": "Title", "purpose": "Row titles; 600 weight when selected." },
       "body": { "displayName": "Body", "purpose": "Chat and prose, 11.5-12px / 1.5." },
-      "label": { "displayName": "Mono Label", "purpose": "UPPERCASE tracked machine-voice labels (WORK, TRAY)." },
-      "mono": { "displayName": "Terminal Mono", "purpose": "Terminal output 10.5px/1.7; timers 9px tabular-nums." }
+      "label": {
+        "displayName": "Mono Label",
+        "purpose": "UPPERCASE tracked machine-voice labels (WORK, TRAY)."
+      },
+      "mono": {
+        "displayName": "Terminal Mono",
+        "purpose": "Terminal output 10.5px/1.7; timers 9px tabular-nums."
+      }
     },
     "shadows": [
-      { "name": "engraved", "value": "inset 3px 0 6px -3px rgb(0 0 0 / 0.85), inset -3px 0 6px -3px rgb(0 0 0 / 0.85), inset 0 3px 6px -3px rgb(0 0 0 / 0.85)", "purpose": "Recessed middle column — depth carved inward." },
-      { "name": "engraved-bar", "value": "inset 2px 0 5px -2px rgb(0 0 0 / 0.85), inset -2px 0 5px -2px rgb(0 0 0 / 0.85)", "purpose": "Folded 44px vertical bar." },
-      { "name": "bar-drop", "value": "0 5px 10px -5px rgb(0 0 0 / 0.9)", "purpose": "Tight fold-shadow below compact section bars." },
-      { "name": "popover", "value": "0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)", "purpose": "The only lifted tier: transient overlays." }
+      {
+        "name": "engraved",
+        "value": "inset 3px 0 6px -3px rgb(0 0 0 / 0.85), inset -3px 0 6px -3px rgb(0 0 0 / 0.85), inset 0 3px 6px -3px rgb(0 0 0 / 0.85)",
+        "purpose": "Recessed middle column — depth carved inward."
+      },
+      {
+        "name": "engraved-bar",
+        "value": "inset 2px 0 5px -2px rgb(0 0 0 / 0.85), inset -2px 0 5px -2px rgb(0 0 0 / 0.85)",
+        "purpose": "Folded 44px vertical bar."
+      },
+      {
+        "name": "bar-drop",
+        "value": "0 5px 10px -5px rgb(0 0 0 / 0.9)",
+        "purpose": "Tight fold-shadow below compact section bars."
+      },
+      {
+        "name": "popover",
+        "value": "0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)",
+        "purpose": "The only lifted tier: transient overlays."
+      }
     ],
     "motion": [
-      { "name": "phase-crossfade", "value": "0.4s", "purpose": "Issue-color crossfade via registered --issue @property; gated on prefers-reduced-motion." },
-      { "name": "control-transition", "value": "150ms", "purpose": "Button/hover state transitions." },
-      { "name": "spinner", "value": "braille 10-frame CSS content animation", "purpose": "The only perpetual motion, only while an agent computes; stillness means needs-you." }
+      {
+        "name": "phase-crossfade",
+        "value": "0.4s",
+        "purpose": "Issue-color crossfade via registered --issue @property; gated on prefers-reduced-motion."
+      },
+      {
+        "name": "control-transition",
+        "value": "150ms",
+        "purpose": "Button/hover state transitions."
+      },
+      {
+        "name": "spinner",
+        "value": "braille 10-frame CSS content animation",
+        "purpose": "The only perpetual motion, only while an agent computes; stillness means needs-you."
+      }
     ],
     "breakpoints": []
   },
@@ -101,11 +233,31 @@
       "Stillness means 'needs you' — the only perpetual motion is an agent actually working"
     ],
     "rules": [
-      { "name": "The Signal Rule", "body": "Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.", "section": "colors" },
-      { "name": "The Tint, Never Fill Rule", "body": "Issue colors color-mix into their base surface at prescribed percentages. A flat fill of an issue color is prohibited.", "section": "colors" },
-      { "name": "The Reserved Hues Rule", "body": "Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.", "section": "colors" },
-      { "name": "The Machine Voice Rule", "body": "Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans.", "section": "typography" },
-      { "name": "The Carved Rule", "body": "If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.", "section": "elevation" }
+      {
+        "name": "The Signal Rule",
+        "body": "Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint, Never Fill Rule",
+        "body": "Issue colors color-mix into their base surface at prescribed percentages. A flat fill of an issue color is prohibited.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reserved Hues Rule",
+        "body": "Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.",
+        "section": "colors"
+      },
+      {
+        "name": "The Machine Voice Rule",
+        "body": "Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Carved Rule",
+        "body": "If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do use Superade Yellow only where action or attention is being asked — The Signal Rule.",

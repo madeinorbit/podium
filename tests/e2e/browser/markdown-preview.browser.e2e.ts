@@ -17,9 +17,15 @@ async function sh(page: Page, line: string): Promise<void> {
 
 /** Click a STYLED relative path printed into the shell and wait for its file tab. Mirrors
  *  the robust retry-click in clickable-files (visible terminal cell + lazy link resolve). */
-async function openStyledFile(page: Page, rel: string, st: { cols: number; rows: number }): Promise<void> {
+async function openStyledFile(
+  page: Page,
+  rel: string,
+  st: { cols: number; rows: number },
+): Promise<void> {
   await sh(page, `printf '\\033[1;34m%s\\033[0m\\n' '${rel}'`)
-  await expect.poll(async () => (await podium.screen(page)).includes(rel), { timeout: 15_000 }).toBe(true)
+  await expect
+    .poll(async () => (await podium.screen(page)).includes(rel), { timeout: 15_000 })
+    .toBe(true)
   const base = rel.replace('./', '')
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const lines = (await podium.screen(page)).split('\n')
@@ -28,7 +34,8 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
     if (lines.lastIndexOf(rel) >= 0 && screenRow >= 0 && screenRow < st.rows) {
       const box = await page.evaluate(() => {
         const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
-        const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+        const el =
+          els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
         const r = el.getBoundingClientRect()
         return { x: r.x, y: r.y, w: r.width, h: r.height }
       })
@@ -40,7 +47,10 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
       try {
         // main's first-class tabs nest the label button inside the tab wrapper, so two
         // buttons share the basename name — match the first to avoid a strict violation.
-        await page.getByRole('button', { name: base }).first().waitFor({ state: 'visible', timeout: 1500 })
+        await page
+          .getByRole('button', { name: base })
+          .first()
+          .waitFor({ state: 'visible', timeout: 1500 })
         return
       } catch {
         /* render/hit-test miss — recompute and retry */
@@ -58,17 +68,22 @@ test('markdown opens as a rendered preview; sanitizes; toggles Preview/Source/Sp
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
   await newSession(page, 'Shell')
-  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
 
   // Session cwd === the repo root (serve-harness registers this repo); confirm it.
   await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
   let cwd = ''
   await expect
-    .poll(async () => {
-      const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
-      if (m) cwd = m[1].trim()
-      return cwd
-    }, { timeout: 15_000 })
+    .poll(
+      async () => {
+        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
+        if (m) cwd = m[1].trim()
+        return cwd
+      },
+      { timeout: 15_000 },
+    )
     .toMatch(/^\//)
 
   // A real image next to the .md (copied from the committed fixture) + a markdown file
@@ -78,7 +93,9 @@ test('markdown opens as a rendered preview; sanitizes; toggles Preview/Source/Sp
     '# Heading\\n\\npara with **bold** text and a [link](https://example.com)\\n\\n| a | b |\\n| - | - |\\n| 1 | 2 |\\n\\n<script>window.__XSS=1</script>\\n\\n![pic](./e2e_img.png)\\n'
   await sh(page, `printf '${md}' > ./e2e_preview.md`)
   const st = await page.evaluate(() => {
-    const s = (window as unknown as { __podium: { state(): { cols: number; rows: number } } }).__podium.state()
+    const s = (
+      window as unknown as { __podium: { state(): { cols: number; rows: number } } }
+    ).__podium.state()
     return { cols: s.cols, rows: s.rows }
   })
 

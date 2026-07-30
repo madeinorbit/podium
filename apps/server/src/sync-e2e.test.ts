@@ -8,8 +8,8 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import WebSocket from 'ws'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import WebSocket from 'ws'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
@@ -88,9 +88,7 @@ describe('metadata oplog e2e (live server)', () => {
     expect(delta.changes[0]).toMatchObject({ entity: 'issue', op: 'upsert' })
 
     // The legacy socket saw a full issuesChanged and never a delta.
-    await until(() =>
-      legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1),
-    )
+    await until(() => legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1))
     expect(legacy.inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
     // ...and the cap socket never got the issuesChanged rebroadcast (only the
     // attach-time bootstrap, which arrives before hello lands).

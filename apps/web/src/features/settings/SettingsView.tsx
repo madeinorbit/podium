@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { HostMetricsWire } from '@podium/protocol'
+import type { HostMetricsWire } from '@podium/model'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
@@ -405,9 +405,7 @@ export function SettingsView(): JSX.Element {
       className="settings-overlay fixed inset-x-0 top-11 bottom-0 z-40 flex flex-col bg-background"
       aria-label="Settings"
     >
-      <header
-        className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5"
-      >
+      <header className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5">
         <Button
           type="button"
           variant="ghost"

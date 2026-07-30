@@ -1,5 +1,5 @@
 import { latestPendingQuestion } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { useMobileClient } from '../client/MobileClientProvider'
 

@@ -25,50 +25,53 @@ const hasClaude = ((): boolean => {
 
 const bins: HarnessBins = { opencode: () => 'opencode', cursor: () => 'cursor' }
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)('real claude binary smoke (issue #84)', () => {
-  it('runs one headless turn through the exact daemon argv + stdin and answers', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-harness-smoke-'))
-    const mcpConfigPath = join(dir, 'mcp.json')
-    writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }))
-    try {
-      const { cmd, args, stdin } = buildHarnessExec(
-        'claude-code',
-        {
-          prompt: 'reply with the word pong',
-          systemPrompt: 'You are a smoke test. Answer in one word.',
-          mcpConfigPath,
-          allowedTools: ['Read', 'Grep'],
-        },
-        bins,
-      )
-      const started = Date.now()
-      const { code, stdout, stderr } = await new Promise<{
-        code: number | null
-        stdout: string
-        stderr: string
-      }>((resolve) => {
-        // Same invocation shape as the daemon's runHarnessExec: execFile with
-        // a kill budget, prompt written to stdin then EOF.
-        const child = execFile(
-          cmd,
-          args,
-          { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
-          (err, stdout, stderr) =>
-            resolve({
-              code: err ? ((err as NodeJS.ErrnoException & { code?: number }).code ?? 1) : 0,
-              stdout,
-              stderr,
-            }),
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
+  'real claude binary smoke (issue #84)',
+  () => {
+    it('runs one headless turn through the exact daemon argv + stdin and answers', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-harness-smoke-'))
+      const mcpConfigPath = join(dir, 'mcp.json')
+      writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }))
+      try {
+        const { cmd, args, stdin } = buildHarnessExec(
+          'claude-code',
+          {
+            prompt: 'reply with the word pong',
+            systemPrompt: 'You are a smoke test. Answer in one word.',
+            mcpConfigPath,
+            allowedTools: ['Read', 'Grep'],
+          },
+          bins,
         )
-        child.stdin?.end(stdin ?? '')
-      })
-      // eslint-disable-next-line no-console
-      console.log(`[smoke] claude turn took ${((Date.now() - started) / 1000).toFixed(1)}s`)
-      expect(stderr).not.toContain('Ignoring --allowedTools rule')
-      expect(code).toBe(0)
-      expect(stdout.toLowerCase()).toContain('pong')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  }, 150_000)
-})
+        const started = Date.now()
+        const { code, stdout, stderr } = await new Promise<{
+          code: number | null
+          stdout: string
+          stderr: string
+        }>((resolve) => {
+          // Same invocation shape as the daemon's runHarnessExec: execFile with
+          // a kill budget, prompt written to stdin then EOF.
+          const child = execFile(
+            cmd,
+            args,
+            { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
+            (err, stdout, stderr) =>
+              resolve({
+                code: err ? ((err as NodeJS.ErrnoException & { code?: number }).code ?? 1) : 0,
+                stdout,
+                stderr,
+              }),
+          )
+          child.stdin?.end(stdin ?? '')
+        })
+        // eslint-disable-next-line no-console
+        console.log(`[smoke] claude turn took ${((Date.now() - started) / 1000).toFixed(1)}s`)
+        expect(stderr).not.toContain('Ignoring --allowedTools rule')
+        expect(code).toBe(0)
+        expect(stdout.toLowerCase()).toContain('pong')
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }, 150_000)
+  },
+)

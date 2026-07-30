@@ -14,7 +14,8 @@ import {
   spawnTmuxAgent,
   tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
-import { AGENT_CAPABILITIES, type AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
+import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'

@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { ConversationSummaryWire, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { ConversationSummaryWire, SessionMeta } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { SessionRegistry } from './relay'
 import { UPSTREAM_COMMAND_REJECTION } from './modules/sessions/service'
+import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
 // Registry-level tests for the upstream mirror (docs/spec/node-hub-sync.md §2.3):
@@ -46,7 +47,10 @@ function makeNode() {
 describe('upstream mirror (registry surface)', () => {
   it('listSessions returns local ∪ upstream with viaHub set only on hub entries', () => {
     const { registry } = makeNode()
-    const { sessionId: localId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/local' })
+    const { sessionId: localId } = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/local',
+    })
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1'), hubSession('hub-2')])
 
     const list = registry.modules.sessions.listSessions()
@@ -74,7 +78,10 @@ describe('upstream mirror (registry surface)', () => {
 
   it('hub loss marks upstream entries stale but RETAINS them; local unaffected', () => {
     const { registry } = makeNode()
-    const { sessionId: localId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/local' })
+    const { sessionId: localId } = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/local',
+    })
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
 
     registry.modules.sessions.setUpstreamStale(true)
@@ -145,8 +152,14 @@ describe('upstream mirror (registry surface)', () => {
       ok: false,
       reason,
     })
-    expect(registry.modules.sessions.hibernateSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(await registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
+    expect(registry.modules.sessions.hibernateSession({ sessionId: 'hub-1' })).toEqual({
+      ok: false,
+      reason,
+    })
+    expect(await registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({
+      ok: false,
+      reason,
+    })
     expect(registry.modules.sessions.continueSession({ sessionId: 'hub-1' })).toEqual({ ok: false })
     expect(() => registry.modules.sessions.killSession({ sessionId: 'hub-1' })).toThrow(reason)
     // ...and the mirror entry is still there (rejection is side-effect free).

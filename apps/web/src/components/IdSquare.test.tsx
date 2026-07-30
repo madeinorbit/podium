@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IdSquare, idSquareLabel } from './IdSquare'

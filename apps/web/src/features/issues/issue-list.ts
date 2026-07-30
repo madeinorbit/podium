@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/model'
 import { type IssuesOrdering, orderIssues } from './issues-display'
 
 /** Group active issues into all six lifecycle stages (board parity: every stage

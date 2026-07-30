@@ -23,6 +23,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/transcript": "workspace:*",

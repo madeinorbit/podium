@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueStage, IssueWire } from '@podium/protocol'
-import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
   AlarmClockOff,

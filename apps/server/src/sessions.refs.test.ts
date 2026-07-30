@@ -12,8 +12,7 @@ function harness() {
   store.repos.addRepo('/r/podium') // prefix POD
   const reg = new SessionRegistry(store)
   const issue = reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
-  const meta = (id: string) =>
-    reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
+  const meta = (id: string) => reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
   return { store, reg, issue, meta }
 }
 
@@ -30,14 +29,20 @@ describe('session birth naming (#474)', () => {
 
   it('issueless spawn gets a DRAFT ordinal, not an issue letter', () => {
     const { reg, meta } = harness()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/podium',
+    })
     expect(meta(sessionId)?.displayRef).toBe('POD-DRAFT-1')
   })
 
   it('a broadcast/listSessions read NEVER allocates: unnamed stays unnamed', () => {
     const { store, reg } = harness()
     // A session in an unregistered cwd has no prefix — no DRAFT allocation either.
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/elsewhere',
+    })
     reg.modules.sessions.listSessions()
     reg.modules.sessions.listSessions()
     const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
@@ -47,14 +52,20 @@ describe('session birth naming (#474)', () => {
 
   it('first attach names an unnamed session with the issue letter (no DRAFT brand)', () => {
     const { reg, issue, meta } = harness()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/elsewhere',
+    })
     reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect(meta(sessionId)?.displayRef).toBe(`${issue.displayRef}-A`)
   })
 
   it('does not consume the first issue letter when the attachment append fails', () => {
     const { store, reg, issue, meta } = harness()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/elsewhere',
+    })
     const cursor = reg.modules.sessions.syncChangesSince(null).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
@@ -104,7 +115,10 @@ describe('session birth naming (#474)', () => {
     })
     expect(events).toEqual([])
 
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/podium',
+    })
     expect(meta(sessionId)?.displayRef).toBe('POD-DRAFT-1')
   })
 
@@ -125,7 +139,10 @@ describe('session birth naming (#474)', () => {
     const store = new SessionStore(':memory:')
     store.repos.addRepo('/r/podium')
     const reg1 = new SessionRegistry(store)
-    const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId
+    const a = reg1.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/podium',
+    }).sessionId
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
     // upsert keeps non-null refs, so write via a fresh row literal).
     const seeded = store.sessions.loadSessions().find((r) => r.id === a)!

@@ -34,7 +34,8 @@ test('#14 a long branch name stays bounded + ellipsized in the mobile header', a
     // The branch line span carries `truncate` (overflow:hidden); it should be
     // clipped (scrollWidth > clientWidth) rather than overflowing the header.
     const span = [...t.querySelectorAll('span')].find(
-      (s) => /worktree-ux-batch/.test(s.textContent ?? '') && getComputedStyle(s).overflow === 'hidden',
+      (s) =>
+        /worktree-ux-batch/.test(s.textContent ?? '') && getComputedStyle(s).overflow === 'hidden',
     )
     return {
       right: r.right,
@@ -74,7 +75,10 @@ test('mobile chat view: the native key bar / toolbar are NOT shown (chat uses th
   const usesKbOpen = await page.evaluate(() => {
     const ta = document.querySelector('textarea')
     let el: HTMLElement | null = ta as HTMLElement | null
-    while (el && !/var\(--kb-open/.test(el.style.paddingBottom || getComputedStyle(el).paddingBottom)) {
+    while (
+      el &&
+      !/var\(--kb-open/.test(el.style.paddingBottom || getComputedStyle(el).paddingBottom)
+    ) {
       el = el.parentElement
     }
     // Fall back to scanning the footer's inline class for the token (computed style

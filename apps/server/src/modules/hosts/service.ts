@@ -1,8 +1,7 @@
+import type { AgentRuntimeState, HostMetricsWire } from '@podium/model'
 import type {
-  AgentRuntimeState,
   ControlMessage,
   DaemonMessage,
-  HostMetricsWire,
   LiveServerMessage,
   ServerMessage,
 } from '@podium/protocol'

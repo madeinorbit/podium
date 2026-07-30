@@ -1,11 +1,16 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { decodeCursor } from '@podium/transcript'
+import {
+  type ChainEntry,
+  decodeCursor,
+  fileChainSource,
+  fileIdFor,
+  stampOpencodeItems,
+} from '@podium/transcript'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type ChainEntry, fileChainSource, fileIdFor, stampOpencodeItems } from '@podium/transcript'
 import { opencodeDbSource } from './adapters/opencode.js'
 import { transcriptSourceFor } from './transcript-source.js'
 

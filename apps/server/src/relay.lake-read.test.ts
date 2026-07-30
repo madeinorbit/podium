@@ -58,7 +58,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     lakeContent: string,
   ): string {
     registry.modules.sessions.attachDaemon('m1', () => {})
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -66,7 +69,12 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
-    store.conversations.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
+    store.conversations.setMirrorCursor(
+      'm1',
+      nativeId,
+      Buffer.byteLength(lakeContent),
+      '2026-07-01T11:00:00Z',
+    )
     return sessionId
   }
 
@@ -75,7 +83,11 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-lake', LAKE_LINES)
     registry.modules.sessions.detachDaemon('m1')
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({
+      sessionId,
+      direction: 'before',
+      limit: 10,
+    })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -100,7 +112,11 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({
+      sessionId,
+      direction: 'before',
+      limit: 10,
+    })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -130,7 +146,11 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({
+      sessionId,
+      direction: 'before',
+      limit: 10,
+    })
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
 
@@ -145,10 +165,9 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     registry.modules.sessions.detachDaemon('m1')
     registry.modules.sessions.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
-      expect(store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
-        'where does the flux capacitor live?',
-        'The flux capacitor lives in engine.ts',
-      ])
+      expect(
+        store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content),
+      ).toEqual(['where does the flux capacitor live?', 'The flux capacitor lives in engine.ts'])
     })
     expect(store.conversations.segmentsToIndex('m1')).toEqual([])
   })
@@ -156,7 +175,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
     const { registry } = setup()
     registry.modules.sessions.attachDaemon('m1', () => {})
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -164,7 +186,11 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     registry.modules.sessions.detachDaemon('m1')
 
-    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({
+      sessionId,
+      direction: 'before',
+      limit: 10,
+    })
     expect(res).toEqual({ items: [], hasMore: false })
   })
 })

@@ -25,13 +25,13 @@ import type {
   AgentKind,
   ConversationSummaryWire,
   GitRepositoryWire,
-  HeadlessActivityEvent,
   IssueWire,
   MachineWire,
   SessionMeta,
   TranscriptItem,
   WorkState,
-} from '@podium/protocol'
+} from '@podium/model'
+import type { HeadlessActivityEvent } from '@podium/protocol'
 import type { SocketHub } from '@podium/terminal-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {

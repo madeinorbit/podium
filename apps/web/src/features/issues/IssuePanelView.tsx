@@ -1,10 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  type IssueComment,
-  type IssueStage,
-  type IssueWire,
-  issueDisplayRef,
-} from '@podium/protocol'
+import type { IssueComment, IssueStage, IssueWire } from '@podium/model'
+import { issueDisplayRef } from '@podium/protocol'
 import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'

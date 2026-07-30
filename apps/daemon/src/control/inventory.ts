@@ -1,5 +1,5 @@
 import { buildInventory } from '@podium/agent-bridge'
-import type { Inventory } from '@podium/protocol'
+import type { Inventory } from '@podium/model'
 import type { ControlHandlers, DaemonContext } from './context'
 
 /**

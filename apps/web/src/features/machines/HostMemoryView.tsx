@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'

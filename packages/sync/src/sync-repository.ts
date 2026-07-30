@@ -91,11 +91,7 @@ export class SyncRepository {
    * recur inside every bounded delete unit. Rows appended after the snapshot are
    * intentionally handled by the next job.
    */
-  planChangePrune(opts: {
-    keepRows: number
-    maxAgeMs: number
-    now: number
-  }): ChangePrunePlan {
+  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan {
     const rowCapSeq = this.maxChangeSeq() - opts.keepRows
     const aged = this.db
       .prepare(

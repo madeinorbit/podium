@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
+import type { IssueWire, SessionMeta, SessionOffer } from '@podium/model'
 import { attentionGroup } from '../focus'
 
 /**

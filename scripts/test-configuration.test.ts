@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import acceptanceConfig from '../vitest.acceptance.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
+import acceptanceConfig from '../vitest.acceptance.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
@@ -145,8 +145,7 @@ describe('test lane configuration', () => {
         expect(
           match[1].trim(),
           `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
-        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/,
-        )
+        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/)
       }
     }
   })

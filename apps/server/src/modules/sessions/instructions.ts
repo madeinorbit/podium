@@ -1,4 +1,5 @@
-import type { AgentInstruction, AgentKind } from '@podium/protocol'
+import type { AgentKind } from '@podium/model'
+import type { AgentInstruction } from '@podium/protocol'
 
 export interface SessionInstructionContext {
   sessionId: string

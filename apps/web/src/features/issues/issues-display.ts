@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/model'
 
 export type IssuesLayout = 'board' | 'list'
 export type IssuesOrdering = 'priority' | 'updated' | 'created'

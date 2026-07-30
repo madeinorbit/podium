@@ -20,9 +20,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
-import { ConversationDiscoveryCache } from '@podium/agent-bridge'
-import { agentLaunchCommand, type LaunchOptions, type LaunchSpec } from '@podium/agent-bridge'
-import type { AgentKind } from '@podium/protocol'
+import {
+  agentLaunchCommand,
+  ConversationDiscoveryCache,
+  type LaunchOptions,
+  type LaunchSpec,
+} from '@podium/agent-bridge'
+import type { AgentKind } from '@podium/model'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
@@ -58,7 +62,11 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
               for (const h of handlers) h({ id: job.id, ok: true, value })
             } catch (err) {
               for (const h of handlers)
-                h({ id: job.id, ok: false, error: err instanceof Error ? err.message : String(err) })
+                h({
+                  id: job.id,
+                  ok: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
             }
           })()
         },
@@ -89,7 +97,11 @@ async function main() {
   const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
     kind === 'shell'
       ? agentLaunchCommand(kind, opts)
-      : { cmd: process.execPath, args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'], cwd: KEYECHO_PKG }
+      : {
+          cmd: process.execPath,
+          args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'],
+          cwd: KEYECHO_PKG,
+        }
 
   const server = await startServer({ port: PORT })
   const daemon = await startDaemon({
@@ -104,7 +116,11 @@ async function main() {
   log(`server on :${server.port}, state=${stateDir}`)
 
   const issues = server.registry.issues
-  const created = issues.create({ repoPath: REPO_ROOT, title: 'Repro Unsnooze Tag', origin: 'human' })
+  const created = issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Repro Unsnooze Tag',
+    origin: 'human',
+  })
   server.registry.createSession({ agentKind: 'claude-code', cwd: REPO_ROOT, issueId: created.id })
   // The exact user flow: snooze (future) then Unsnooze — undefer backdates deferUntil,
   // landing the issue in returned-from-defer (top of WORK + "Unsnoozed" tag).

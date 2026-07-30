@@ -4,7 +4,7 @@ import {
   resolveServerConfig,
   type ServerConfig,
 } from '@podium/client-core/transport'
-import type { IssueStage, IssueType, IssueWire, TranscriptItem } from '@podium/protocol'
+import type { IssueStage, IssueType, IssueWire, TranscriptItem } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 

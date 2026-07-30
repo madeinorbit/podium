@@ -1,4 +1,4 @@
-import type { GitRepositoryWire } from '@podium/protocol'
+import type { GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { isHiddenRepoPath, rankRepoCandidates } from '../src/features/setup/ranking'
 

@@ -2,10 +2,10 @@ import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
 import { OPERATOR } from './issue-authz'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './modules/superagent'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -164,7 +164,10 @@ describe('cloud router', () => {
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.modules.sessions.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.modules.sessions.onDaemonMessageFrom(
+      'local',
+      bind(sessionId, '/workspace/podium', 'claude-code'),
+    )
     registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
@@ -179,9 +182,9 @@ describe('cloud router', () => {
 
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
-      'hibernated',
-    )
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status,
+    ).toBe('hibernated')
     expect(cloud.createdAgents.at(-1)).toMatchObject({
       sourceSession: {
         sessionId,

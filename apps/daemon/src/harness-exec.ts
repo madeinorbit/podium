@@ -1,6 +1,6 @@
 import type { HarnessBins, HarnessExecOptions, HarnessExecSpec } from '@podium/agent-bridge'
 import { harnessAdapterFor } from '@podium/agent-bridge'
-import type { HarnessAgent } from '@podium/protocol'
+import type { HarnessAgent } from '@podium/model'
 
 /** @deprecated Unified with protocol's HarnessAgent (#158); kept as an alias. */
 export type HarnessAgentKind = HarnessAgent

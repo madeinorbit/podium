@@ -4,7 +4,7 @@
  */
 
 /** Characters MarkdownV2 requires escaped outside code spans. */
-const MDV2_ESCAPE_RE = /([_*\[\]()~`>#+\-=|{}.!\\])/g
+const MDV2_ESCAPE_RE = /([_*[\]()~`>#+\-=|{}.!\\])/g
 
 export function escapeTelegramMarkdownV2(text: string): string {
   return text.replace(MDV2_ESCAPE_RE, '\\$1')
@@ -12,7 +12,7 @@ export function escapeTelegramMarkdownV2(text: string): string {
 
 /** Strip MarkdownV2 escapes and formatting markers for plain-text fallback. */
 export function stripTelegramMarkdownV2(text: string): string {
-  let cleaned = text.replace(/\\([_*\[\]()~`>#+\-=|{}.!\\])/g, '$1')
+  let cleaned = text.replace(/\\([_*[\]()~`>#+\-=|{}.!\\])/g, '$1')
   cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1')
   cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1')
   cleaned = cleaned.replace(/(?<!\w)_([^_]+)_(?!\w)/g, '$1')
@@ -41,8 +41,7 @@ function renderTableBlockForTelegram(tableBlock: string[]): string {
   const headers = splitMarkdownTableRow(tableBlock[0]!)
   if (headers.length < 2) return tableBlock.join('\n')
 
-  const firstDataRow =
-    tableBlock.length > 2 ? splitMarkdownTableRow(tableBlock[2]!) : []
+  const firstDataRow = tableBlock.length > 2 ? splitMarkdownTableRow(tableBlock[2]!) : []
   const hasRowLabelCol = firstDataRow.length === headers.length + 1
 
   const renderedGroups: string[] = []
@@ -103,11 +102,7 @@ export function wrapMarkdownTables(text: string): string {
       continue
     }
 
-    if (
-      line.includes('|') &&
-      i + 1 < lines.length &&
-      TABLE_SEPARATOR_RE.test(lines[i + 1]!)
-    ) {
+    if (line.includes('|') && i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1]!)) {
       const tableBlock = [line, lines[i + 1]!]
       let j = i + 2
       while (j < lines.length && isTableRow(lines[j]!)) {

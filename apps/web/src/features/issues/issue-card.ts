@@ -1,4 +1,5 @@
-import { formatLong, type IssueStage, type IssueWire, issueDisplayRef } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/model'
+import { formatLong, issueDisplayRef } from '@podium/protocol'
 
 export const STAGE_LABELS: Record<IssueStage, string> = {
   proposed: 'Proposed',

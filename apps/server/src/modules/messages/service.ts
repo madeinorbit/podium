@@ -26,7 +26,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AgentPhase, SessionMeta } from '@podium/protocol'
+import type { AgentPhase, SessionMeta } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,

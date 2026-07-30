@@ -1,16 +1,20 @@
+import type {
+  ConversationSummaryWire,
+  HostMetricsWire,
+  IssueWire,
+  MachineWire,
+  SessionMeta,
+  TranscriptItem,
+} from '@podium/model'
 import {
   type ApprovalWire,
   type AutomationRunWire,
   type AutomationWire,
   CAP_METADATA_DELTA,
-  type ConversationSummaryWire,
   createDispatcher,
   encode,
   type HeadlessActivityEvent,
-  type HostMetricsWire,
-  type IssueWire,
   isKnownMetadataChange,
-  type MachineWire,
   type MetadataChange,
   type MetadataChangeLenient,
   type MetadataDeltaMessageLenient,
@@ -18,11 +22,9 @@ import {
   parseServerMessageLenient,
   type ServerMessage,
   type ServerMessageLenient,
-  type SessionMeta,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   type SyncChangesSinceResultLenient,
-  type TranscriptItem,
 } from '@podium/protocol'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 
