@@ -31,6 +31,8 @@ import {
   type SettingsContractName,
   settingsClearSecretInput,
   settingsSetSecretInput,
+  settingsTelegramSetupPollInput,
+  settingsTelegramSetupStartInput,
   settingsUpdateInstanceInput,
   settingsUpdatePersonalInput,
   TIER_COMMAND,
@@ -41,10 +43,12 @@ const NAMES = SETTINGS_COMMAND_NAMES
 const ALL = NAMES.map((name) => SETTINGS_CONTRACTS[name])
 
 describe('the family is complete and classified', () => {
-  it('declares four contracts, one per tier plus the secret CLEAR arm', () => {
+  it('declares six contracts: one per tier, the secret CLEAR arm, and the ceremony pair', () => {
     expect(NAMES).toEqual([
       'settings.clearSecret',
       'settings.setSecret',
+      'settings.telegramSetupPoll',
+      'settings.telegramSetupStart',
       'settings.updateInstance',
       'settings.updatePersonal',
     ])
@@ -323,10 +327,128 @@ describe('redaction was reviewed, and the answers differ where the tiers differ'
     expect(SETTINGS_CONTRACTS['settings.clearSecret'].redaction.inputPaths).toEqual([])
   })
 
-  it('no arm redacts an OUTPUT, because no output has a value key by construction', () => {
-    for (const name of NAMES as SettingsContractName[]) {
+  it('no BLOB arm redacts an OUTPUT, because no output has a value key by construction', () => {
+    // Scoped to the four blob writes by their TIER membership rather than by a
+    // hand list, so a seventh blob contract inherits the claim and a seventh
+    // ceremony contract does not. The ceremony arms genuinely do carry material
+    // outwards and are asserted separately below — widening this loop over them
+    // would have meant either a false claim or a weakened one.
+    const blobArms = (NAMES as SettingsContractName[]).filter((n) => CONTRACT_TIER[n] !== undefined)
+    expect(blobArms).toHaveLength(4)
+    for (const name of blobArms) {
       expect(SETTINGS_CONTRACTS[name].redaction.outputPaths).toEqual([])
       expect(SETTINGS_CONTRACTS[name].redaction.reviewed).toBe(true)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The binding ceremony (POD-1080)
+// ---------------------------------------------------------------------------
+
+describe('the ceremony pair classifies a MINT and a REDEMPTION differently', () => {
+  const start = SETTINGS_CONTRACTS['settings.telegramSetupStart']
+  const poll = SETTINGS_CONTRACTS['settings.telegramSetupPoll']
+
+  it('the mint is secret-classed and the redeem is per-user-state — they DIFFER', () => {
+    expect(start.visibility).toBe('secret')
+    expect(poll.visibility).toBe('per-user-state')
+    // If these ever agree, one of the two rows is being misread and the split
+    // between "writes a credential" and "writes an owned row" has no content.
+    expect(start.visibility).not.toBe(poll.visibility)
+  })
+
+  it('reads BOTH classes off shipped matrix rows, and the rows are not the same row', () => {
+    // `contractMatrixRow` is the instrument; these two assertions are its
+    // per-arm use. The rows are looked up by id and the lookup THROWS on a miss,
+    // so a row id that stopped existing reddens here rather than defaulting.
+    expect(contractMatrixRow('settings.telegramSetupStart').visibility).toBe('secret')
+    expect(contractMatrixRow('settings.telegramSetupPoll').visibility).toBe('per-user-state')
+    expect(contractMatrixRow('settings.telegramSetupStart').id).not.toBe(
+      contractMatrixRow('settings.telegramSetupPoll').id,
+    )
+  })
+
+  it('the instrument can say NO: an unclassified contract name throws', () => {
+    // Non-vacuity for the two assertions above. Without this, a
+    // `contractMatrixRow` that returned some default row would satisfy them.
+    expect(() => contractMatrixRow('settings.notAContract' as SettingsContractName)).toThrow(
+      /names no settings tier and no matrix row/,
+    )
+  })
+
+  it('neither arm is queueable — a live bearer code and a chat binding are both online', () => {
+    expect(start.delivery.class).toBe('online-sensitive')
+    expect(poll.delivery.class).toBe('online-only')
+    expect(start.exposure).not.toContain('outbox')
+    expect(poll.exposure).not.toContain('outbox')
+    // …and the shipped rows say the same from the other end.
+    expect(contractMatrixRow('settings.telegramSetupStart').offline).toBe('never-enqueue')
+    expect(contractMatrixRow('settings.telegramSetupPoll').offline).toBe('online-only')
+  })
+
+  it('THE MINT REDACTS THE URL AS WELL AS THE CODE — the joinCommand lesson', () => {
+    // `telegramUrl` is `t.me/<bot>?start=<code>`: it INLINES the credential, so
+    // redacting `code` alone would be theatre. `machines.pairingCode` learned
+    // this about `joinCommand` and this is the same shape.
+    expect(start.redaction.outputPaths).toEqual(['code', 'telegramUrl'])
+    expect(start.redaction.inputPaths).toEqual([])
+  })
+
+  it('the mint takes NO identity input — there is nothing for a caller to assert', () => {
+    // The mechanism claim at the schema layer: the input parses to an empty
+    // object, so a `userId` or `chatId` a caller adds cannot survive it.
+    const parsed = settingsTelegramSetupStartInput.safeParse(undefined)
+    expect(parsed.success).toBe(true)
+    expect(parsed.success && parsed.data).toEqual({})
+    // Keyed on the OUTPUT (POD-640): zod STRIPS unknown keys and succeeds, so
+    // `.success` alone would prove nothing about what got through.
+    const smuggled = settingsTelegramSetupStartInput.safeParse({ userId: 'user:bob' })
+    expect(smuggled.success && smuggled.data).toEqual({})
+  })
+
+  it('the redeem is addressed by the mint handle, and refuses an empty one', () => {
+    expect(settingsTelegramSetupPollInput.safeParse({ setupId: 'abc' }).success).toBe(true)
+    expect(settingsTelegramSetupPollInput.safeParse({ setupId: '' }).success).toBe(false)
+    expect(settingsTelegramSetupPollInput.safeParse({}).success).toBe(false)
+    // The CODE is not a field here: it reaches the server out-of-band, through
+    // Telegram. A `code` key would make the ceremony a single-channel one.
+    const smuggled = settingsTelegramSetupPollInput.safeParse({ setupId: 'abc', code: 'PODIUM1' })
+    expect(smuggled.success && smuggled.data).toEqual({ setupId: 'abc' })
+  })
+
+  it('OWNERSHIP FLOWS FROM THE MINT: the redeem inherits from its PARENT', () => {
+    // POD-1079's rule. `on-behalf-of-human` alone would name the REDEEMER, and
+    // then whoever obtained a `setupId` could complete someone else's ceremony
+    // and take the chat.
+    expect(poll.ownership).toMatchObject({
+      creates: ['telegram-chat-binding'],
+      owner: 'on-behalf-of-human',
+      inheritanceOnCreate: 'parent',
+      visibility: 'per-user-state',
+    })
+  })
+
+  it('the MINT creates nothing — a secret has no owner to assign', () => {
+    expect(start.ownership.creates).toEqual([])
+    expect('owner' in start.ownership).toBe(false)
+    expect(contractMatrixRow('settings.telegramSetupStart').owner?.kind).toBe('none')
+  })
+
+  it('both halves of one ceremony carry the SAME floor', () => {
+    // The lower floor is the ceremony's real floor; two different ones would
+    // make the higher a decoration.
+    expect(start.policy.roleFloor).toBe('admin')
+    expect(poll.policy.roleFloor).toBe(start.policy.roleFloor)
+  })
+
+  it('the redeem takes a caller-supplied target id and must not become a probe', () => {
+    // The only arm in this family that does, which is why it does not share
+    // `CLOSED_VOCABULARY_ERRORS`.
+    expect(poll.errorConsistency.callerSuppliedTargetId).toBe(true)
+    expect(start.errorConsistency.callerSuppliedTargetId).toBe(false)
+    expect(
+      poll.errorConsistency.callerSuppliedTargetId && poll.errorConsistency.invisibleFailsAs,
+    ).toBe('nonexistent')
   })
 })

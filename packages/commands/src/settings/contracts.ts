@@ -83,6 +83,7 @@
 
 import {
   classifySettingsPath,
+  OWNERSHIP_MATRIX_INDEX,
   SERVER_SECRET_KEYS,
   SETTINGS_CLASSIFICATION,
   ServerSecretKey,
@@ -674,6 +675,264 @@ export const settingsClearSecretContract = {
 } as const satisfies CommandContract<typeof settingsClearSecretInput>
 
 // ---------------------------------------------------------------------------
+// settings.telegramSetupStart / settings.telegramSetupPoll — THE BINDING CEREMONY
+// ---------------------------------------------------------------------------
+
+/**
+ * THE TWO HALVES OF ONE AUTHENTICATION CEREMONY (POD-1080, ADR 3 Amendment 1
+ * D22) — and the answer to the question POD-420 recorded and deferred.
+ *
+ * That note read: *"Modelling a ceremony as a command contract is its own design
+ * question, and ADR 9 D8's note that the inbound Telegram edge becomes an
+ * AUTHENTICATION surface under multi-user says that question is bigger than this
+ * issue."* This is that issue, and the answer is yes: a mint and a redemption
+ * are two commands, they write state on two different matrix rows, and being
+ * unclassifiable was never a property of ceremonies — it was a property of not
+ * having decided what the ceremony was FOR.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THESE NAMES AND NOT NEW ONES
+ * ---------------------------------------------------------------------------
+ *
+ * They are the wire keys `router.ts` already serves and the web client already
+ * calls. A `telegram.claimCode` family beside them would be a THIRD spelling of
+ * one ceremony (after the procedure keys and the service methods), and the
+ * exception list in `scripts/audit-settings-commands.ts` would then have to name
+ * the old pair forever while a new pair sat next to it. Contracting the existing
+ * names instead makes that exception list SHRINK, which is the direction a
+ * ratchet is supposed to move.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY START IS `secret` AND POLL IS `per-user-state`
+ * ---------------------------------------------------------------------------
+ *
+ * `visibility` names what a command WRITES, and these two write different rows.
+ * Start mints a claim code — a bearer preimage, ADR 9 D3's `secrets` class, the
+ * same cell `machines.pairingCode` carries. Poll consumes that mint and writes
+ * the durable `(userId, chatId)` binding, which ADR 1's matrix carries as
+ * `telegram-chat-binding`: `perUserState`, `secret: 'preference'`,
+ * `offline: 'online-only'`. Giving both the mint's class would have classified
+ * the binding as credential material and made it unreplicable to its own owner;
+ * giving both the binding's class would have put a live bearer code in a class
+ * that replicates.
+ */
+
+/**
+ * Start takes no arguments — and `.default({})` is what lets that stay true
+ * through a schema-driven transport.
+ *
+ * The shipped client calls `telegramSetupStart.mutate()` with no argument, so
+ * the parsed input is `undefined`; a bare `z.object({})` rejects that and the
+ * ceremony would break at runtime while every type still checked. The default
+ * makes "no argument" the schema's own answer rather than a transport quirk.
+ *
+ * What is deliberately ABSENT is any user, chat or identity field. There is
+ * nothing here for a caller to assert about who they are: the mint reads its
+ * user from the transport principal, which is the entire mechanism (ADR 3 D7).
+ */
+export const settingsTelegramSetupStartInput = z.object({}).default({})
+
+/**
+ * The mint's delivery class, argued rather than inherited.
+ *
+ * Same conclusion as {@link SECRET_DELIVERY} and a different row: ADR 1's
+ * `telegram-chat-binding` row is `offline: 'online-only'`, and the code this
+ * command RETURNS is a preimage on top of that. Both reasons point the same way,
+ * so the class is `online-sensitive` — which `resource: 'secret'` forces anyway
+ * (ADR 3 D4 rule 1), and the agreement between the forced value and the argued
+ * one is the check.
+ */
+const TELEGRAM_MINT_DELIVERY: DeliveryPolicy = {
+  class: 'online-sensitive',
+  outboxReconciliation:
+    'NEVER queued. The mint RETURNS a live bearer credential, so a queue entry for it is a token at ' +
+    'rest on a client and a replay mints a SECOND live code nobody asked for — `machines.pairingCode`’s ' +
+    'reasoning verbatim, because it is the same act. The ceremony is also a real-time conversation ' +
+    'with a third-party API (`getMe`, then `getUpdates` long-polls for the code), which a queue ' +
+    'cannot replay meaningfully: the window it opens is measured in minutes and the update it waits ' +
+    'for is consumed by the poll. ADR 1’s `telegram-chat-binding` row says `online-only` from the ' +
+    'other end.',
+  applyTimeReauthorization:
+    'Apply IS the call — no queue, so no gap to re-authorize across. The obligation ADR 3 D8 / ' +
+    'Amendment 1 D16 places here lands at the REDEEM instead, and it is the interesting half: the ' +
+    'binding names the MINTING user, resolved live at redemption, so a principal disabled between ' +
+    'mint and redeem must not acquire a chat that speaks as them. Nothing enforces the admin floor ' +
+    'today — POD-315 owns per-user login, and `settings.setSecret` records the same gap.',
+}
+
+/**
+ * THE OUTPUT IS THE SECRET, TWICE OVER — and the second one is the trap.
+ *
+ * `code` is the bearer credential, and `telegramUrl` is
+ * `https://t.me/<bot>?start=<code>` with the code embedded VERBATIM. Redacting
+ * one and not the other would be theatre — exactly the finding
+ * `machines.pairingCode` recorded about `joinCommand`, which is the same shape
+ * (a convenience string that inlines the credential). Both are named.
+ *
+ * `setupId` is NOT redacted: it is a server-minted handle to the pending
+ * ceremony and confers nothing on its own — presenting it to Telegram does not
+ * bind anything, because the bot matches on the CODE. `botUsername` is public by
+ * definition; it is how anyone finds the bot.
+ */
+const TELEGRAM_MINT_REDACTION: RedactionPolicy = {
+  reviewed: true,
+  inputPaths: [],
+  outputPaths: ['code', 'telegramUrl'],
+  note:
+    'THE OUTPUT IS THE SECRET, and `telegramUrl` embeds it verbatim (`t.me/<bot>?start=<code>`), so ' +
+    'both are named — `machines.pairingCode`’s `joinCommand` lesson, which is the identical shape. ' +
+    'Never logged, never echoed into an event, never persisted client-side, never included in an ' +
+    'error. `setupId` is a server-minted handle that binds nothing by itself (the bot matches the ' +
+    'CODE, not the handle) and `botUsername` is public — redacting either would hide the only fields ' +
+    'that make the flow usable while protecting nothing. The INPUT is empty and carries no material.',
+}
+
+export const settingsTelegramSetupStartContract = {
+  name: 'settings.telegramSetupStart',
+  version: 1,
+  visibility: 'secret',
+  input: settingsTelegramSetupStartInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'secret',
+    confirmation: 'confirm',
+    rationale:
+      'Mints a bearer credential that lets whoever presents it bind a chat that SPEAKS AS THE MINTER. ' +
+      '`resource: "secret"` because what it writes is a preimage (ADR 9 D3’s `secrets` class names ' +
+      'pairing token preimages; this is that row’s sibling), which forces `online-sensitive` through ' +
+      '`classificationErrors`. `action: "manage"` and not `write`: it administers an authentication ' +
+      'path, it does not edit a row the caller owns. No `machineVerb` — there is no compute here. ' +
+      'RECORDED FORK on the floor, and it is the same fork `machines.pairingCode` recorded and ' +
+      'resolved the same way. D22 reads as SELF-SERVICE (each person binds their own chat, and the ' +
+      'binding this mint leads to is owned by the minter, so a member could not escalate through it) ' +
+      '— that argues `member`. ADR 3 Amendment 1 D15.3 is unconditional in the other direction: "any ' +
+      'contract whose policy names the `secret` resource kind requires the `admin` instance role". ' +
+      'The ADR is the pack’s tie-break and admin is the default-closed side, so admin it is; on ' +
+      'today’s one-account instance the two answers coincide, and whoever relaxes this when per-user ' +
+      'login lands must say why in the same place. `confirmation: "confirm"`: minting a credential ' +
+      'that can impersonate you must not happen by a stray click — `machines.pairingCode` again. ' +
+      'NOTHING ENFORCES EITHER THE FLOOR OR THE CONFIRMATION TODAY; the shipped button calls this ' +
+      'directly, and POD-315 owns the principal that would make the floor mean something.',
+  },
+  exposure: SERVED_ON,
+  delivery: TELEGRAM_MINT_DELIVERY,
+  redaction: TELEGRAM_MINT_REDACTION,
+  ownership: {
+    creates: [],
+    note:
+      'Deliberately EMPTY, and for `machines.pairingCode`’s exact reason: what this mints is ' +
+      'credential material, and ADR 1 gives a secret row `owner: { kind: "none", reason: "secret" }`. ' +
+      'The row that DOES get an owner is the binding — and it is created by the REDEEM, which is why ' +
+      '`settings.telegramSetupPoll` carries the non-empty `creates` and this does not. That split is ' +
+      'the whole ceremony: the mint carries the user opaquely, the redeem is what mints the owned row.',
+  },
+  attribution: SETTINGS_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note:
+      'Takes NO input at all, so there is no id, address or vocabulary member an error could ' +
+      'disclose the existence of. The one refusal it can produce — "no bot token is configured" — ' +
+      'discloses the instance’s own configuration to a principal already authenticated on it, which ' +
+      'is the presence bit the settings surface publishes anyway.',
+  },
+  cli: { summary: 'Mint a Telegram claim code bound to the calling principal' },
+} as const satisfies CommandContract<typeof settingsTelegramSetupStartInput>
+
+/** The redeem is addressed by the handle the mint returned, never by a user or a
+ *  chat: both of those are read from state the caller did not supply. */
+export const settingsTelegramSetupPollInput = z.object({ setupId: z.string().min(1) })
+
+export const settingsTelegramSetupPollContract = {
+  name: 'settings.telegramSetupPoll',
+  version: 1,
+  visibility: 'per-user-state',
+  input: settingsTelegramSetupPollInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'admin',
+    resource: 'settings-domain',
+    confirmation: 'none',
+    rationale:
+      'Writes the durable `(userId, chatId)` binding — ADR 1’s `telegram-chat-binding` row, ' +
+      '`perUserState`, whose owner resolves to the user in the key. `resource: "settings-domain"` ' +
+      'names that row gate, following `settings.updatePersonal`: not `secret` (the secret is the ' +
+      'mint, and it is CONSUMED here rather than written), not `global` (a binding is nobody else’s), ' +
+      'not `none` (there IS a target class). `action: "write"` because it materialises the caller’s ' +
+      'own row rather than administering the instance. THE FLOOR IS `admin` TO MATCH THE MINT, and ' +
+      'that is a rule rather than a copy: the two halves of one ceremony must not carry different ' +
+      'floors, because the LOWER of the two is then the ceremony’s real floor and the higher one is ' +
+      'decoration. `confirmation: "none"`: the deliberate act was the mint, and re-confirming the ' +
+      'completion of a ceremony the principal started is friction on the path that ENDS the window — ' +
+      'a code that stays live because its redemption was awkward is the worse outcome.',
+  },
+  exposure: SERVED_ON,
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'ADR 1’s `telegram-chat-binding` row is `offline: "online-only"` and the addressing is why: ' +
+      'this call LONG-POLLS a third-party API for an update that is consumed when it arrives, and it ' +
+      'redeems a mint that lives for minutes. A queued redemption would drain against an expired ' +
+      'mint at best and against a REUSED `setupId` at worst. Nothing names `outbox`, and per ADR 3 ' +
+      'D3 rule 2 it could not.',
+    applyTimeReauthorization:
+      'THE HALF THAT MATTERS, and it is not the caller’s rights — it is the MINTER’s. The binding ' +
+      'names `mint.userId`, so this resolves that user LIVE at redemption (ADR 3 D8 / Amendment 1 ' +
+      'D16): a principal disabled between mint and redeem must not acquire a chat that speaks as ' +
+      'them, and a mint is not a frozen capability. The caller’s own floor is re-checked here too, ' +
+      'never read from a capability minted at enqueue — there is no enqueue.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: ['settings.notifications.telegramBotToken'],
+    note:
+      'The INPUT carries no material: `setupId` is a server-minted handle, and note what is NOT here ' +
+      '— THE CODE NEVER TRAVERSES THIS API. The claimant types it into Telegram; the server matches ' +
+      'it out of `getUpdates`. That is what makes the code an out-of-band factor rather than a ' +
+      'second field on the same authenticated channel. The OUTPUT is where the finding is: this ' +
+      'procedure returns the whole `PodiumSettings` blob on success, which carries ' +
+      '`notifications.telegramBotToken` — a `secret-value` leaf. It is named here rather than fixed ' +
+      'here because the blob-returns-secrets surface is `settings.get`’s too and POD-419 owns the ' +
+      'scrub for both; a one-command fix would leave the larger hole open and make it look closed. ' +
+      '`chatId`, `chatType` and `chatLabel` are routing/display facts the matrix carries as ' +
+      '`secret: "preference"` (ADR 9 D8 S4) and are returned to the principal that just bound them.',
+  },
+  ownership: {
+    creates: ['telegram-chat-binding'],
+    owner: 'on-behalf-of-human',
+    visibility: 'per-user-state',
+    inheritanceOnCreate: 'parent',
+    note:
+      'READ `inheritanceOnCreate: "parent"` CAREFULLY — IT IS THE SECURITY PROPERTY, NOT BOOKKEEPING. ' +
+      'The parent is THE MINT, and the on-behalf-of human the binding records is the mint’s, resolved ' +
+      'from stored state, NOT the human behind this redeeming call. POD-1079 established the shape ' +
+      'for machine pairing ("ownership flows from the PAIRER, stamped at mint from the transport ' +
+      'principal and carried opaquely to redeem") and the reason is sharper here: if the owner were ' +
+      'the redeemer, anyone who obtained a `setupId` could complete someone else’s ceremony and take ' +
+      'the chat. `redeemTelegramClaimCode(mint, chatId, now)` enforces it by having NO user ' +
+      'parameter — the value cannot be supplied at redemption because there is nowhere to put it. ' +
+      '`visibility: "per-user-state"` matches the matrix row; a binding is non-grantable by ' +
+      'construction (ADR 9 D3 rule 4 — there is no "share my Telegram account" verb), so there are ' +
+      'no grants to inherit either way.',
+  },
+  attribution: SETTINGS_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      '`setupId` IS a caller-supplied target id — the one command in this family that takes one, ' +
+      'which is why this cell is not `CLOSED_VOCABULARY_ERRORS`. D20.2 applies and M5’s placement ' +
+      'carve-out does not (no machine is named). An unknown id, an expired window and another ' +
+      'principal’s pending ceremony must all fail as the same `expired` result the shipped surface ' +
+      'already returns — otherwise the difference between "no such ceremony" and "someone else’s ' +
+      'ceremony is open" is a probe for whether an admin is mid-binding.',
+  },
+  cli: { summary: 'Redeem a pending Telegram claim code and bind the chat' },
+} as const satisfies CommandContract<typeof settingsTelegramSetupPollInput>
+
+// ---------------------------------------------------------------------------
 // The table
 // ---------------------------------------------------------------------------
 
@@ -686,22 +945,24 @@ export const settingsClearSecretContract = {
  * that replaces them). A contract for it written now would classify a payload
  * that is about to change shape.
  *
- * `settings.telegramSetupStart` / `telegramSetupPoll` are also absent, and that
- * is a decision rather than an oversight: they are a stateful PAIRING CEREMONY
- * over a third-party API — start mints a code, poll long-polls Telegram and
- * writes `notifications.telegramChatId` on success — not a settings write with a
- * payload. They read the bot token and never carry it. Modelling a ceremony as a
- * command contract is its own design question, and ADR 9 D8's note that the
- * inbound Telegram edge becomes an AUTHENTICATION surface under multi-user says
- * that question is bigger than this issue. `audit-settings-commands.ts` names
- * them as the two hand-written writes this family still allows, by key, so the
- * exception is visible and counted rather than assumed.
+ * `settings.telegramSetupStart` / `telegramSetupPoll` ARE NOW HERE, and POD-420's
+ * note deferring them is answered rather than deleted. It read: *"Modelling a
+ * ceremony as a command contract is its own design question, and ADR 9 D8's note
+ * that the inbound Telegram edge becomes an AUTHENTICATION surface under
+ * multi-user says that question is bigger than this issue."* POD-1080 is that
+ * issue. The answer: a mint and a redemption are two commands on two matrix
+ * rows, and the pair being hard to classify was never a property of ceremonies —
+ * it was the absence of a decision about what this one is FOR. They keep their
+ * shipped wire keys deliberately, so the audit's exception list SHRINKS instead
+ * of growing a second spelling beside it.
  */
 export const SETTINGS_CONTRACTS = {
   'settings.updatePersonal': settingsUpdatePersonalContract,
   'settings.updateInstance': settingsUpdateInstanceContract,
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
+  'settings.telegramSetupStart': settingsTelegramSetupStartContract,
+  'settings.telegramSetupPoll': settingsTelegramSetupPollContract,
 } as const
 
 export type SettingsContractName = keyof typeof SETTINGS_CONTRACTS
@@ -733,16 +994,55 @@ export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsContractName>> 
  * assert every column against the SHIPPED row rather than against a restatement
  * — POD-305's rule, applied per contract rather than to arm 0.
  */
-export const CONTRACT_TIER: Readonly<Record<SettingsContractName, SettingsTier>> = {
+export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, SettingsTier>>> = {
   'settings.updatePersonal': 'personal-preference',
   'settings.updateInstance': 'instance-preference',
   'settings.setSecret': 'server-secret',
   'settings.clearSecret': 'server-secret',
+  // `telegramSetupStart` / `telegramSetupPoll` are deliberately ABSENT and the
+  // type is `Partial` to say so. They are not blob writes and answer to no
+  // settings TIER: the mint's row is the shared preimage row and the redeem's is
+  // the binding's. {@link CEREMONY_ROW} names both, and `contractMatrixRow`
+  // resolves either kind — so the ceremony arms are still checked against a
+  // SHIPPED row rather than exempted from the check.
 }
 
-/** The shipped matrix row a contract's classification is read off. */
+/**
+ * The ceremony arms' matrix rows, by id — the other half of
+ * {@link contractMatrixRow}'s lookup.
+ *
+ * `pairing-token` is the mint's row and it is a REUSE, not an approximation: the
+ * row is every server-minted bearer preimage (`machines.token_hash`,
+ * `client_sessions.token_hash`, and now the claim code), and all five of its
+ * security cells — `secret-value`, `replication: 'none'`, `never-enqueue`,
+ * `owner: none/secret`, `visibility: 'secret'` — are already the right answers
+ * for a Telegram claim code. A separate row would be a second place to keep them
+ * in sync, which is how two answers to one question start.
+ */
+const CEREMONY_ROW = {
+  'settings.telegramSetupStart': 'pairing-token',
+  'settings.telegramSetupPoll': 'telegram-chat-binding',
+} as const satisfies Partial<Record<SettingsContractName, string>>
+
+/**
+ * The shipped matrix row a contract's classification is read off.
+ *
+ * THROWS on a name it cannot resolve, rather than returning a default row. A
+ * default would make the per-contract assertions in `contracts.test.ts` pass
+ * against whatever row it defaulted to — the "instrument that finds nothing
+ * passes everything" shape this run has hit twice in zod alone.
+ */
 export function contractMatrixRow(name: SettingsContractName): ReturnType<typeof settingsTierRow> {
-  return settingsTierRow(CONTRACT_TIER[name])
+  const tier = CONTRACT_TIER[name]
+  if (tier) return settingsTierRow(tier)
+  const rowId = (CEREMONY_ROW as Partial<Record<SettingsContractName, string>>)[name]
+  const row = rowId ? OWNERSHIP_MATRIX_INDEX.get(rowId) : undefined
+  if (!row) {
+    throw new Error(
+      `settings contract '${name}' names no settings tier and no matrix row — classify it before shipping it`,
+    )
+  }
+  return row
 }
 
 /** Every classified path this family can write, across both preference tiers.

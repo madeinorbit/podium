@@ -287,7 +287,11 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     id: ROW.pairingToken,
     section: 'identity-and-deployment-scope',
     title: 'Pairing token / client session token',
-    sites: ['`machines.token_hash`', '`client_sessions.token_hash`'],
+    sites: [
+      '`machines.token_hash`',
+      '`client_sessions.token_hash`',
+      'Telegram claim code (`TelegramClaimCode.code`, POD-1080) — a third preimage of the same kind, added to this row rather than given its own: every cell here is already the right answer for it (server-minted, hashed or held server-side, never replicated, never queued, no owner because a secret has none), and a second row would be a second place to keep those five answers in sync.',
+    ],
     home: 'server',
     idMinting: 'Server mints at pair / login; hashed at rest',
     writers: ['system'],
