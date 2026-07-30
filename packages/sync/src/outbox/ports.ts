@@ -67,22 +67,46 @@ export interface OutboxSubmitPort {
  * Durable home for the queue (ADR 6 D1: transactional IndexedDB on web, SQLite
  * on mobile, in-memory for tests — never localStorage/AsyncStorage).
  *
- * `write` takes the whole record set on purpose: a partial write is then not
- * representable at the port, which is the cheapest way to honour D4.1 (one
- * storage transaction) and D4.3 (outbox entries are durable on the same footing
- * as entity rows). Adapters that batch the outbox together with entity rows,
- * cursor and overlay compose this call into that one transaction (POD-374/375).
+ * Writes are RECORD-LEVEL (`apply`), not whole-snapshot — see the note on
+ * `apply` for why that distinction is a data-loss bug and not a taste. D4.3 puts
+ * these records in the same durability class as entity rows, and adapters that
+ * batch the outbox with entity rows, cursor and overlay enroll them in one
+ * transaction through the span (POD-374/375).
  */
 export interface OutboxStorePort {
   /** Reject (or throw) when the store is genuinely unreadable. That is the ONE
    *  case where user work is lost (ADR 2 D7), and the Outbox makes it loud
    *  rather than starting quietly empty. */
   read(): Promise<readonly OutboxRecord[]>
-  /** Enroll this write in `span` when one is supplied, so it lands in the same
-   *  native transaction as the entity rows and the cursor advance (ADR 2 D10).
-   *  Without a span it is its own transaction — see `SyncUnitOfWork` rule 3 on
-   *  why that is a surfaced degraded mode rather than the normal path. */
-  write(records: readonly OutboxRecord[], span?: SyncSpan): Promise<void>
+  /**
+   * Apply RECORD-LEVEL changes. Not a whole-snapshot write, and the difference is
+   * a data-loss bug rather than a style preference: a snapshot write expresses
+   * "the store now contains exactly these records", so any writer holding a
+   * stale base silently deletes rows it never knew about. Two principal-bound
+   * instances over one physical store (which the privacy model explicitly
+   * supports) then clobber each other's queued work, and two retirements
+   * enrolled in one span resurrect the first one.
+   *
+   * `put` inserts or replaces by `mutationId`; `remove` deletes by id. Everything
+   * the store holds and the mutation does not mention is untouched.
+   *
+   * **Insertion order is part of the contract**: a first `put` appends, a
+   * replacing `put` keeps the record's existing position. FIFO within an ordering
+   * partition (ADR 3 D12) is expressed as record order, so an adapter must keep it
+   * — an autoincrement column, or IndexedDB key order.
+   *
+   * Enroll in `span` when one is supplied, so this lands in the same native
+   * transaction as the entity rows and the cursor advance (ADR 2 D10). Without a
+   * span it is its own transaction — see `SyncUnitOfWork` rule 3 on why that is a
+   * surfaced degraded mode rather than the normal path.
+   */
+  apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<void>
+}
+
+/** Record-level changes for `OutboxStorePort.apply`. */
+export interface OutboxStoreMutation {
+  readonly put?: readonly OutboxRecord[]
+  readonly remove?: readonly MutationId[]
 }
 
 /**

@@ -57,6 +57,7 @@ import type {
   OutboxConfig,
   OutboxEnvelope,
   OutboxEvent,
+  OutboxStoreMutation,
   OutboxStorePort,
   OutboxSubmitOutcome,
   SyncSpan,
@@ -149,6 +150,9 @@ export type RemovalLicence =
 class OutboxDraft {
   readonly events: OutboxEvent[] = []
   private readonly licensed = new Map<MutationId, RemovalLicence>()
+  /** Ids this draft inserted or replaced, and ids it removed. */
+  private readonly touched = new Set<MutationId>()
+  private readonly removed = new Set<MutationId>()
   private records: OutboxRecord[]
 
   constructor(private readonly before: readonly OutboxRecord[]) {
@@ -168,11 +172,32 @@ class OutboxDraft {
     const idx = this.records.findIndex((r) => r.mutationId === record.mutationId)
     if (idx === -1) this.records.push(record)
     else this.records[idx] = record
+    this.touched.add(record.mutationId)
+    this.removed.delete(record.mutationId)
   }
 
   remove(mutationId: MutationId, licence: RemovalLicence): void {
     this.licensed.set(mutationId, licence)
     this.records = this.records.filter((r) => r.mutationId !== mutationId)
+    this.removed.add(mutationId)
+    this.touched.delete(mutationId)
+  }
+
+  /**
+   * The RECORD-LEVEL changes this draft makes — what goes to the store.
+   *
+   * Sending a delta rather than a snapshot is what stops a writer with a stale
+   * base from deleting rows it never knew about: another principal's queued work
+   * on a shared store, or an earlier retirement enrolled in the same span.
+   */
+  delta(): OutboxStoreMutation {
+    const put = [...this.touched]
+      .map((id) => this.records.find((r) => r.mutationId === id))
+      .filter((r): r is OutboxRecord => r !== undefined)
+    return {
+      ...(put.length > 0 ? { put } : {}),
+      ...(this.removed.size > 0 ? { remove: [...this.removed] } : {}),
+    }
   }
 
   emit(event: OutboxEvent): void {
@@ -214,6 +239,10 @@ export class Outbox {
    *  two concurrent `enqueue` calls cannot interleave stage-and-write and commit
    *  out of order. */
   private mutations: Promise<unknown> = Promise.resolve()
+  /** Per-span accumulated view and staged events, so several outbox changes in
+   *  ONE transaction compose instead of overwriting each other. */
+  private readonly spanViews = new WeakMap<SyncSpan, readonly OutboxRecord[]>()
+  private readonly spanEvents = new WeakMap<SyncSpan, OutboxEvent[]>()
 
   private constructor(config: OutboxConfig, records: readonly OutboxRecord[]) {
     this.config = config
@@ -739,11 +768,18 @@ export class Outbox {
    * coercing), staged, persisted, adopted, and only then observed.
    */
   private async transition(
-    record: OutboxRecord,
+    subject: OutboxRecord,
     transition: OutboxTransition,
     patch: Partial<OutboxRecord> & { reason?: OutboxRejectionReason | undefined },
   ): Promise<OutboxRecord> {
     return await this.mutate((draft) => {
+      // Read the record from the REBASED draft, not from the caller's snapshot:
+      // the mutation rebases on fresh truth, so another writer (or an earlier
+      // step in the same span) may have moved it on.
+      const record = draft.find(subject.mutationId)
+      if (!record) {
+        throw new OutboxUsageError(`outbox entry vanished before transition: ${subject.mutationId}`)
+      }
       const next: OutboxRecord = {
         ...record,
         ...patch,
@@ -770,22 +806,14 @@ export class Outbox {
    * (D4.3). Serializing means two concurrent callers cannot stage from the same
    * base and commit out of order.
    */
-  private async mutate<T>(body: (draft: OutboxDraft) => T, span?: SyncSpan): Promise<T> {
+  private async mutate<T>(body: (draft: OutboxDraft) => T, ambient?: SyncSpan): Promise<T> {
     const run = this.mutations.then(async () => {
-      const before = this.records
-      const draft = new OutboxDraft(before)
-      const result = body(draft)
-      const next = draft.sealed()
-      try {
-        await this.commit(next, before, draft, span)
-      } catch (error) {
-        // Belt and braces: the span's `onAbort` should already have restored
-        // this, but a rollback that depends on an adapter calling us back is not
-        // a rollback.
-        this.records = before
-        throw error
-      }
-      return result
+      if (ambient) return await this.stage(body, ambient)
+      const uow = this.config.unitOfWork
+      if (uow) return await uow.transact(async (span) => await this.stage(body, span))
+      // No unit of work wired: one transaction per mutation. Legal only as ADR 2's
+      // surfaced degraded mode (SyncUnitOfWork rule 3), never as POD-373 wiring.
+      return await this.stage(body, undefined)
     })
     // The chain must survive a rejection, or one failed write would wedge every
     // later mutation.
@@ -797,40 +825,60 @@ export class Outbox {
   }
 
   /**
-   * Persist, joining an ambient transaction when one is wired (ADR 2 D10 / ADR 6
-   * D4.1). Without a `unitOfWork` each write is its own transaction, exactly as
-   * before — the seam changes nothing for callers who do not use it.
+   * Stage one mutation and enroll its delta.
+   *
+   * Two rebasing rules, each fixing a data-loss bug that a per-instance snapshot
+   * caused:
+   *
+   * - **Outside a span, rebase on FRESH TRUTH from the store.** This instance is
+   *   not the only writer: the privacy model explicitly supports a second
+   *   principal-bound instance over the same physical store, and ADR 6 D4.6 adds
+   *   a second browser tab. Staging from a stale in-memory base and writing a
+   *   whole snapshot silently deleted the other writer's queued work. It is also
+   *   what makes `mutationId` uniqueness global rather than per-instance.
+   * - **Inside a span, rebase on the span's own accumulated view.** Enrolled
+   *   writes have not landed yet, so a re-read would return the pre-span state and
+   *   the second retirement in one span would resurrect the first. One span
+   *   therefore keeps one staged view and publishes ONCE, on commit — a feed frame
+   *   can carry several provenance retirements.
    */
-  private async commit(
-    next: readonly OutboxRecord[],
-    before: readonly OutboxRecord[],
-    draft: OutboxDraft,
-    ambient?: SyncSpan,
-  ): Promise<void> {
-    /** Adopt the draft and publish its events. Staged until the span commits:
-     *  POD-369's amendment 2 — an event that escapes to a subscriber before the
-     *  outer transaction commits cannot be un-emitted. */
-    const publish = (): void => {
+  private async stage<T>(body: (draft: OutboxDraft) => T, span?: SyncSpan): Promise<T> {
+    const base = span
+      ? (this.spanViews.get(span) ?? (await this.store.read()))
+      : await this.store.read()
+    const draft = new OutboxDraft(base)
+    const result = body(draft)
+    const next = draft.sealed()
+    if (!span) {
+      await this.store.apply(draft.delta())
       this.records = next
       for (const event of draft.events) this.emit(event)
+      return result
     }
-    const enroll = async (span: SyncSpan): Promise<void> => {
-      span.onCommit(publish)
-      span.onAbort(() => {
-        this.records = before
+    this.spanViews.set(span, next)
+    const pending = this.spanEvents.get(span)
+    if (pending) pending.push(...draft.events)
+    else {
+      this.spanEvents.set(span, [...draft.events])
+      // ONE publication per span, registered once: in-memory adoption and event
+      // emission happen from `onCommit` so nothing escapes to a subscriber before
+      // the outer transaction is durable (POD-369's amendment 2).
+      span.onCommit(() => {
+        const view = this.spanViews.get(span)
+        if (view) this.records = view
+        for (const event of this.spanEvents.get(span) ?? []) this.emit(event)
+        this.spanViews.delete(span)
+        this.spanEvents.delete(span)
       })
-      await this.store.write(next, span)
+      span.onAbort(() => {
+        // Nothing was adopted and nothing was emitted, so the revert is simply
+        // dropping the staged view.
+        this.spanViews.delete(span)
+        this.spanEvents.delete(span)
+      })
     }
-    // A caller-supplied span wins: it is the one already covering the entity
-    // write and the cursor advance, and opening a second transaction inside it
-    // is exactly the torn window this seam closes.
-    if (ambient) return await enroll(ambient)
-    const uow = this.config.unitOfWork
-    if (uow) return await uow.transact(enroll)
-    // No unit of work wired: one transaction per write. Legal only as ADR 2's
-    // surfaced degraded mode (SyncUnitOfWork rule 3), never as POD-373 wiring.
-    await this.store.write(next)
-    publish()
+    await this.store.apply(draft.delta(), span)
+    return result
   }
 
   private emit(event: OutboxEvent): void {
