@@ -19,6 +19,12 @@
  *     goes through `readDurable` — a connection of its own — never through the
  *     store object that performed the scrub. A mirror scrubbed ahead of its
  *     durable write would satisfy any assertion made through the adapter.
+ *  5. STATED LIMIT, so the fixture does not imply more than it proves: the walk
+ *     treats a `Map`, `Set` or TypedArray as an OPAQUE LEAF and does not descend
+ *     into it. That is deliberate — rebuilding a container this module does not
+ *     understand is how a scrub corrupts the rows it was sent to protect — and it
+ *     is sound here because no replica row nests a settings blob inside one. If a
+ *     future writer does, the scrub will not reach it.
  *  4. A SCRUB THAT DESTROYS DATA REPORTS A CLEAN STORE, TRUTHFULLY. This is the
  *     defect the scrub's own unit test found: a `Date` satisfies a naive
  *     plain-object check, so a rebuilding walker turns structured-clone values
@@ -151,9 +157,19 @@ async function seedIdb(factory: IdbFactoryLike): Promise<void> {
     principal: ADA,
     entity: 'settings',
     entityId: 'singleton',
-    // A real Date, which only structured clone preserves — the value class the
-    // rebuilding-walker bug destroyed.
-    value: { ...payloadWith(SECRET.entity), fetchedAt: new Date(0) },
+    // EVERY VALUE CLASS structured clone admits that a naive plain-object check
+    // would swallow. `Date` is the one that actually bit; `Map`, `Set` and a
+    // TypedArray satisfy the same naive `typeof v === 'object'` test and would be
+    // rebuilt as `{}` by the same walker. The scrub's contract is two-sided —
+    // remove exactly the secret, preserve exactly everything else — and only this
+    // half is at risk from a rebuilding walker.
+    value: {
+      ...payloadWith(SECRET.entity),
+      fetchedAt: new Date(0),
+      labels: new Map([['a', 1]]),
+      seen: new Set(['x', 'y']),
+      bytes: new Uint8Array([1, 2, 3]),
+    },
     revision: 7,
     provenance: { origin: 'authority' },
   })
@@ -236,6 +252,14 @@ describe('IndexedDB: a replica written by an earlier build is scrubbed at open',
     // `{}` and reports a perfectly clean scrub.
     expect(entity.value.fetchedAt).toBeInstanceOf(Date)
     expect((entity.value.fetchedAt as Date).getTime()).toBe(0)
+    // …and the rest of the structured-clone menagerie, BY VALUE rather than by
+    // "is it still truthy": a rebuilt `{}` is truthy and has the wrong contents.
+    expect(entity.value.labels).toBeInstanceOf(Map)
+    expect([...(entity.value.labels as Map<string, number>)]).toEqual([['a', 1]])
+    expect(entity.value.seen).toBeInstanceOf(Set)
+    expect([...(entity.value.seen as Set<string>)]).toEqual(['x', 'y'])
+    expect(entity.value.bytes).toBeInstanceOf(Uint8Array)
+    expect([...(entity.value.bytes as Uint8Array)]).toEqual([1, 2, 3])
 
     const outboxRows = (durable[OUTBOX_STORE] ?? []) as {
       mutationId: string
