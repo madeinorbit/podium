@@ -7,11 +7,11 @@ Human gates are suspended for this run, so the evidence they asked for is record
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Handoff characterization (POD-379's refreshed set) green on the new path | **met** | `oracle-handoff.test.ts` 23/23; `modules/sessions` 333/333. Two tests rewritten, both where POD-379's own tag invited it (see "the two rewrites"). |
-| Two-machine handoff e2e (POD-498 isolated harness) green through the contract | **partially met, and honestly** | The harness now passes its principal explicitly, so it drives the same seam production does. It **cannot be run here**: it needs a second real machine over the tailnet and is a hand-driven script, not a lane — the same constraint POD-379 recorded. Two-machine coverage in the lane is 23 tests against the real `SessionsService` with scripted daemons on both ends. |
+| Handoff characterization (POD-379's refreshed set) green on the new path | **met** | `oracle-handoff.test.ts` 22/22; `modules/sessions` + `packages/commands` + POD-381's facet rules 434/434. Two tests rewritten where POD-379's own tag invited it, and one deleted whose name stopped being true (see below). |
+| Two-machine handoff e2e (POD-498 isolated harness) green through the contract | **partially met, and honestly** | The harness now passes its principal explicitly, so it drives the same seam production does. It **cannot be run here**: it needs a second real machine over the tailnet and is a hand-driven script, not a lane — the same constraint POD-379 recorded. Two-machine coverage in the lane is 22 tests against the real `SessionsService` with scripted daemons on both ends. |
 | Mid-transfer-crash and duplicate-dispatch semantics tested: no session fork, no silent loss | **met** | Export failure → rollback + resurrect on the source. Concurrent duplicate dispatch → one export, one import, one spawn (was two of each). Different-target dispatch → refused. Failed transfer → slot released, retryable. |
-| Handoff requires `use` on both source and target; lacking it on the target is DENIED, never silently retargeted | **met** | Source and target both asserted before anything moves; a caller that may use the source but not the target gets `not authorized to use machine 'm2'`, the session stays put, and no import runs anywhere. |
-| Denied vs unreachable distinguishable for a visible machine; an invisible machineId fails identically to a nonexistent one | **met** | Visible + offline → `target machine is offline`. Visible + no `use` → `not authorized to use machine '<id>'`. Invisible → `unknown machine '<id>'`, asserted as an *equality* against the nonexistent path rather than as two independent string checks. |
+| Handoff requires `use` on both source and target; lacking it on the target is DENIED, never silently retargeted | **met** | Source and target both asserted before anything moves; a caller that may use the source but not the target gets the fleet's own refusal (`you do not have access to run agents on machine 'target'`), the session stays put, and no import runs anywhere. |
+| Denied vs unreachable distinguishable for a visible machine; an invisible machineId fails identically to a nonexistent one | **met** | Visible + offline → `target machine is offline`. Visible + no `use` → `you do not have access to run agents on machine '<name>'`. Invisible → `unknown machine '<id>'`, asserted as an *equality* against the nonexistent path rather than as two independent string checks. All three strings are POD-381's shared `machineAccessMessage`, not a second vocabulary. |
 | Owner preserved across the transfer; rights re-resolved live on the target, not carried as a snapshot | **met** | The persisted row changes **only** `cwd`, `machineId`, `activityCount`, `lastResumedAt` — asserted as a diff over the whole row, so any new field the transfer starts writing has to be justified. Rights are re-resolved by calling the gate again at each apply point; nothing is captured. |
 | Revocation mid-transfer: the import leg is refused at apply time, not completed on a dispatch-time check | **met** | Two checkpoints, two tests: a revocation landing during the base handshake refuses before the kill; one landing after the export refuses the import and rolls back to the source. |
 | Delegation chain and SessionBinding identity intact on the target; no transfer-specific identity introduced | **met by absence** | Nothing mints a capability, token or identity; asserted by the row diff above rather than by a no-op method, so it gets louder when POD-1075 adds an owner column instead of going quiet. |
@@ -44,9 +44,11 @@ duplication. POD-642 is also dropped from `SUPERSEDING_ISSUES`, because a landed
 list keeps asserting that a pending change is still pending.
 
 `willChange('POD-1079')` — *"handoff to any paired ONLINE machine is allowed with no per-machine
-authorization"* → the check point exists now; what POD-1079 replaces is its **backing**. Renamed
-rather than supplemented: adding a truer test beside it would have left the old one wearing the old
-name.
+authorization"* → the check point exists now; what POD-1079 replaces is where its **rows** come
+from. Renamed rather than supplemented, twice: my first replacement claimed "a constrained caller
+may not", which was true of my admin-only stand-in and false of the shared resolver, so it was
+deleted when the stand-in was. Machine `use` is not gated on the issue-tracker role, and
+`ownershipFromMachines` resolves every row to the one instance account until POD-1079.
 
 ## Mutation evidence — 13 applied, 13 caught, 0 survivors
 
@@ -61,8 +63,8 @@ text grepped back out) and reverted against a byte-compared backup, one mutant p
 | 4 | release the slot only on success | a failed transfer is retryable |
 | 5 | join instead of refusing a second target | different-target dispatch is refused |
 | 6 | collapse the attribution pair | actor vs on-behalf-of distinguishable |
-| 7 | flatten `unauthorized` into `absent` | see-grant / owner-less / admin / target-denied |
-| 8 | drop the scope half of the admin check | a subtree-scoped admin is refused |
+| 7 | flatten `unauthorized` into `absent` | see-grant / owner-less / admin / target-denied *(run against the stand-in gate, now deleted; mutant 13 is its replacement against the shared resolver)* |
+| 8 | drop the scope half of the admin check | a subtree-scoped admin is refused *(same — the stand-in's rule, since retired)* |
 | 9 | skip authorization for joiners | the joining caller is authorized on its own rights |
 | 10 | write `spawnedBy` during the move | the row changes only its placement |
 | 11 | restate a composed input field as a fresh `z.string()` | the `toBe` composition test — and **nothing else**: 143 other tests including the golden wire corpus stayed green |
