@@ -1,0 +1,1127 @@
+{
+  "family": "terminal",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "AgentColorMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentColor",
+        "sessionId": "sessionId",
+        "color": "color"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentColor\",\"sessionId\":\"sessionId\",\"color\":\"color\"}"
+    },
+    {
+      "schema": "AgentColorMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentColor",
+        "sessionId": "sessionId",
+        "color": "color"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentColor\",\"sessionId\":\"sessionId\",\"color\":\"color\"}"
+    },
+    {
+      "schema": "AgentExitMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentExit",
+        "sessionId": "sessionId",
+        "code": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentExit\",\"sessionId\":\"sessionId\",\"code\":1}"
+    },
+    {
+      "schema": "AgentExitMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentExit",
+        "sessionId": "sessionId",
+        "code": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentExit\",\"sessionId\":\"sessionId\",\"code\":1}"
+    },
+    {
+      "schema": "AgentFrameBatchMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentFrameBatch",
+        "sessionId": "sessionId",
+        "frames": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentFrameBatch\",\"sessionId\":\"sessionId\",\"frames\":[]}"
+    },
+    {
+      "schema": "AgentFrameBatchMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentFrameBatch",
+        "sessionId": "sessionId",
+        "frames": ["frames[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentFrameBatch\",\"sessionId\":\"sessionId\",\"frames\":[\"frames[0]\"]}"
+    },
+    {
+      "schema": "AgentFrameMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentFrame",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "data": "data"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentFrame\",\"sessionId\":\"sessionId\",\"seq\":1,\"data\":\"data\"}"
+    },
+    {
+      "schema": "AgentFrameMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentFrame",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "data": "data"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentFrame\",\"sessionId\":\"sessionId\",\"seq\":1,\"data\":\"data\"}"
+    },
+    {
+      "schema": "AgentInstruction",
+      "variant": "minimal",
+      "wire": {
+        "source": "source",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"source\":\"source\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "AgentInstruction",
+      "variant": "full",
+      "wire": {
+        "source": "source",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"source\":\"source\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "AgentKind",
+      "variant": "minimal",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "AgentKind",
+      "variant": "full",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "AgentModelMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentModel",
+        "sessionId": "sessionId",
+        "model": "model"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentModel\",\"sessionId\":\"sessionId\",\"model\":\"model\"}"
+    },
+    {
+      "schema": "AgentModelMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentModel",
+        "sessionId": "sessionId",
+        "model": "model",
+        "effort": "effort"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentModel\",\"sessionId\":\"sessionId\",\"model\":\"model\",\"effort\":\"effort\"}"
+    },
+    {
+      "schema": "AttachedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "attached",
+        "sessionId": "sessionId",
+        "controllerId": null,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "epoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1}"
+    },
+    {
+      "schema": "AttachedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "attached",
+        "sessionId": "sessionId",
+        "controllerId": "controllerId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "epoch": 1,
+        "resumed": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"resumed\":true}"
+    },
+    {
+      "schema": "AttachMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "attach",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attach\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "AttachMessage",
+      "variant": "full",
+      "wire": {
+        "type": "attach",
+        "sessionId": "sessionId",
+        "sinceSeq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"attach\",\"sessionId\":\"sessionId\",\"sinceSeq\":1}"
+    },
+    {
+      "schema": "BindMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "bind",
+        "sessionId": "sessionId",
+        "cmd": "cmd",
+        "cwd": "cwd",
+        "agentKind": "claude-code",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "BindMessage",
+      "variant": "full",
+      "wire": {
+        "type": "bind",
+        "sessionId": "sessionId",
+        "cmd": "cmd",
+        "cwd": "cwd",
+        "agentKind": "claude-code",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "draftSyncEngine": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"draftSyncEngine\":true}"
+    },
+    {
+      "schema": "ControllerChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "controllerChanged",
+        "sessionId": "sessionId",
+        "controllerId": null,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"controllerChanged\",\"sessionId\":\"sessionId\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "ControllerChangedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "controllerChanged",
+        "sessionId": "sessionId",
+        "controllerId": "controllerId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"controllerChanged\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "DetachMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "detach",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"detach\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "DetachMessage",
+      "variant": "full",
+      "wire": {
+        "type": "detach",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"detach\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "DraftEditMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "draftEdit",
+        "sessionId": "sessionId",
+        "baseRev": 1,
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"draftEdit\",\"sessionId\":\"sessionId\",\"baseRev\":1,\"text\":\"text\"}"
+    },
+    {
+      "schema": "DraftEditMessage",
+      "variant": "full",
+      "wire": {
+        "type": "draftEdit",
+        "sessionId": "sessionId",
+        "baseRev": 1,
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"draftEdit\",\"sessionId\":\"sessionId\",\"baseRev\":1,\"text\":\"text\"}"
+    },
+    {
+      "schema": "DraftTargetMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "draftTarget",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "DraftTargetMessage",
+      "variant": "full",
+      "wire": {
+        "type": "draftTarget",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "Geometry",
+      "variant": "minimal",
+      "wire": {
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "Geometry",
+      "variant": "full",
+      "wire": {
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "GeometryMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "geometry",
+        "sessionId": "sessionId",
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"geometry\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "GeometryMessage",
+      "variant": "full",
+      "wire": {
+        "type": "geometry",
+        "sessionId": "sessionId",
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"geometry\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "HelloMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "hello",
+        "clientId": "clientId",
+        "viewport": {
+          "cols": 1,
+          "rows": 1,
+          "dpr": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1}}"
+    },
+    {
+      "schema": "HelloMessage",
+      "variant": "full",
+      "wire": {
+        "type": "hello",
+        "clientId": "clientId",
+        "viewport": {
+          "cols": 1,
+          "rows": 1,
+          "dpr": 1
+        },
+        "caps": ["caps[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"hello\",\"clientId\":\"clientId\",\"viewport\":{\"cols\":1,\"rows\":1,\"dpr\":1},\"caps\":[\"caps[0]\"]}"
+    },
+    {
+      "schema": "InputMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "input",
+        "sessionId": "sessionId",
+        "data": "data"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\"}"
+    },
+    {
+      "schema": "InputMessage",
+      "variant": "full",
+      "wire": {
+        "type": "input",
+        "sessionId": "sessionId",
+        "data": "data",
+        "inputOrigin": "human"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"input\",\"sessionId\":\"sessionId\",\"data\":\"data\",\"inputOrigin\":\"human\"}"
+    },
+    {
+      "schema": "KillMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "kill",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"kill\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "KillMessage",
+      "variant": "full",
+      "wire": {
+        "type": "kill",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"kill\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\"}"
+    },
+    {
+      "schema": "OutputFrameMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "outputFrame",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1,
+        "data": "data"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"outputFrame\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1,\"data\":\"data\"}"
+    },
+    {
+      "schema": "OutputFrameMessage",
+      "variant": "full",
+      "wire": {
+        "type": "outputFrame",
+        "sessionId": "sessionId",
+        "seq": 1,
+        "epoch": 1,
+        "data": "data"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"outputFrame\",\"sessionId\":\"sessionId\",\"seq\":1,\"epoch\":1,\"data\":\"data\"}"
+    },
+    {
+      "schema": "PingMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "ping"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"ping\"}"
+    },
+    {
+      "schema": "PingMessage",
+      "variant": "full",
+      "wire": {
+        "type": "ping"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"ping\"}"
+    },
+    {
+      "schema": "PongMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "pong"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pong\"}"
+    },
+    {
+      "schema": "PongMessage",
+      "variant": "full",
+      "wire": {
+        "type": "pong"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pong\"}"
+    },
+    {
+      "schema": "PresenceMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "presence",
+        "visible": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presence\",\"visible\":true}"
+    },
+    {
+      "schema": "PresenceMessage",
+      "variant": "full",
+      "wire": {
+        "type": "presence",
+        "visible": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"presence\",\"visible\":true}"
+    },
+    {
+      "schema": "ReattachFailedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "reattachFailed",
+        "sessionId": "sessionId",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattachFailed\",\"sessionId\":\"sessionId\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "ReattachFailedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "reattachFailed",
+        "sessionId": "sessionId",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattachFailed\",\"sessionId\":\"sessionId\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "ReattachMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "reattach",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "ReattachMessage",
+      "variant": "full",
+      "wire": {
+        "type": "reattach",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "pathHint": "pathHint",
+        "createdAtMs": 1,
+        "draftSync": true,
+        "observationGeneration": 1,
+        "observationBindingVersion": 1,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":1,\"rows\":1},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":1,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "RedrawMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "redraw",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"redraw\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RedrawMessage",
+      "variant": "full",
+      "wire": {
+        "type": "redraw",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"redraw\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RedrawRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "redrawRequest",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"redrawRequest\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RedrawRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "redrawRequest",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"redrawRequest\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RequestControlMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "requestControl",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"requestControl\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RequestControlMessage",
+      "variant": "full",
+      "wire": {
+        "type": "requestControl",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"requestControl\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "ResizeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "resize",
+        "sessionId": "sessionId",
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"resize\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "ResizeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "resize",
+        "sessionId": "sessionId",
+        "cols": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"resize\",\"sessionId\":\"sessionId\",\"cols\":1,\"rows\":1}"
+    },
+    {
+      "schema": "ResumeRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "kind",
+        "value": "value"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"value\":\"value\"}"
+    },
+    {
+      "schema": "ResumeRef",
+      "variant": "full",
+      "wire": {
+        "kind": "kind",
+        "value": "value"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"kind\",\"value\":\"value\"}"
+    },
+    {
+      "schema": "SessionPriorityMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionPriority",
+        "sessionId": "sessionId",
+        "priority": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionPriority\",\"sessionId\":\"sessionId\",\"priority\":1}"
+    },
+    {
+      "schema": "SessionPriorityMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionPriority",
+        "sessionId": "sessionId",
+        "priority": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionPriority\",\"sessionId\":\"sessionId\",\"priority\":1}"
+    },
+    {
+      "schema": "SessionResumeRefAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionResumeRefAck",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+    },
+    {
+      "schema": "SessionResumeRefAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionResumeRefAck",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRefAck\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+    },
+    {
+      "schema": "SessionStatus",
+      "variant": "minimal",
+      "wire": "starting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"starting\""
+    },
+    {
+      "schema": "SessionStatus",
+      "variant": "full",
+      "wire": "starting",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"starting\""
+    },
+    {
+      "schema": "SetSessionDraftMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "setSessionDraft",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"setSessionDraft\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "SetSessionDraftMessage",
+      "variant": "full",
+      "wire": {
+        "type": "setSessionDraft",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"setSessionDraft\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "SpawnErrorMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "spawnError",
+        "sessionId": "sessionId",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawnError\",\"sessionId\":\"sessionId\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "SpawnErrorMessage",
+      "variant": "full",
+      "wire": {
+        "type": "spawnError",
+        "sessionId": "sessionId",
+        "message": "message"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawnError\",\"sessionId\":\"sessionId\",\"message\":\"message\"}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"geometry\":{\"cols\":1,\"rows\":1}}"
+    },
+    {
+      "schema": "SpawnMessage",
+      "variant": "full",
+      "wire": {
+        "type": "spawn",
+        "sessionId": "sessionId",
+        "durableLabel": "durableLabel",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "model": "model",
+        "subagentModel": "subagentModel",
+        "effort": "effort",
+        "initialPrompt": "initialPrompt",
+        "instructions": [
+          {
+            "source": "instructions[0].source",
+            "content": "instructions[0].content"
+          }
+        ],
+        "env": {
+          "env.key": "env.env.key"
+        },
+        "seedCliTheme": true,
+        "draftSync": true,
+        "observationGeneration": 1,
+        "observationBindingVersion": 1,
+        "observationProviderSessionId": "observationProviderSessionId",
+        "observationCheckpoint": {
+          "unknownFixture": "observationCheckpoint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":1,\"rows\":1},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+    },
+    {
+      "schema": "TitleMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "title",
+        "sessionId": "sessionId",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"title\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
+    },
+    {
+      "schema": "TitleMessage",
+      "variant": "full",
+      "wire": {
+        "type": "title",
+        "sessionId": "sessionId",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"title\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
+    },
+    {
+      "schema": "Viewport",
+      "variant": "minimal",
+      "wire": {
+        "cols": 1,
+        "rows": 1,
+        "dpr": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cols\":1,\"rows\":1,\"dpr\":1}"
+    },
+    {
+      "schema": "Viewport",
+      "variant": "full",
+      "wire": {
+        "cols": 1,
+        "rows": 1,
+        "dpr": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"cols\":1,\"rows\":1,\"dpr\":1}"
+    },
+    {
+      "schema": "ViewStateMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "viewState",
+        "visible": [],
+        "focused": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"viewState\",\"visible\":[],\"focused\":null}"
+    },
+    {
+      "schema": "ViewStateMessage",
+      "variant": "full",
+      "wire": {
+        "type": "viewState",
+        "visible": ["visible[0]"],
+        "focused": "focused",
+        "modes": {
+          "modes.key": "native"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"viewState\",\"visible\":[\"visible[0]\"],\"focused\":\"focused\",\"modes\":{\"modes.key\":\"native\"}}"
+    },
+    {
+      "schema": "WelcomeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "welcome",
+        "clientId": "clientId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\"}"
+    },
+    {
+      "schema": "WelcomeMessage",
+      "variant": "full",
+      "wire": {
+        "type": "welcome",
+        "clientId": "clientId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\"}"
+    }
+  ]
+}

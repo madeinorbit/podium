@@ -1,0 +1,122 @@
+{
+  "family": "daemon",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "NativeDraftMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "nativeDraft",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"nativeDraft\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "NativeDraftMessage",
+      "variant": "full",
+      "wire": {
+        "type": "nativeDraft",
+        "sessionId": "sessionId",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"nativeDraft\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "SessionCwdMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionCwd",
+        "sessionId": "sessionId",
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionCwd\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "SessionCwdMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionCwd",
+        "sessionId": "sessionId",
+        "cwd": "cwd",
+        "explicit": true,
+        "kind": "main",
+        "branch": "branch",
+        "repoRoot": "repoRoot"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionCwd\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"explicit\":true,\"kind\":\"main\",\"branch\":\"branch\",\"repoRoot\":\"repoRoot\"}"
+    },
+    {
+      "schema": "SessionGitActivityMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionGitActivity",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionGitActivity\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "SessionGitActivityMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionGitActivity",
+        "sessionId": "sessionId",
+        "commits": ["commits[0]"],
+        "touched": ["touched[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionGitActivity\",\"sessionId\":\"sessionId\",\"commits\":[\"commits[0]\"],\"touched\":[\"touched[0]\"]}"
+    },
+    {
+      "schema": "SessionResumeRefMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionResumeRef",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRef\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"}}"
+    },
+    {
+      "schema": "SessionResumeRefMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionResumeRef",
+        "sessionId": "sessionId",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "confidence": "exact",
+        "ackRequested": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionResumeRef\",\"sessionId\":\"sessionId\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"confidence\":\"exact\",\"ackRequested\":true}"
+    }
+  ]
+}

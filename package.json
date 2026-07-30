@@ -59,6 +59,8 @@
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
+    "fixtures:wire:update": "bun scripts/update-wire-fixtures.ts",
+    "inventory:ids": "bun scripts/id-inventory-sweep.ts",
     "format": "biome format --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",

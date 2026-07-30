@@ -1,0 +1,163 @@
+{
+  "family": "daemon-handshake",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "HelloFrame",
+      "variant": "minimal",
+      "wire": {
+        "type": "hello",
+        "machineId": "machineId",
+        "token": "token",
+        "hostname": "hostname"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"hello\",\"machineId\":\"machineId\",\"token\":\"token\",\"hostname\":\"hostname\"}"
+    },
+    {
+      "schema": "HelloFrame",
+      "variant": "full",
+      "wire": {
+        "type": "hello",
+        "machineId": "machineId",
+        "token": "token",
+        "hostname": "hostname"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"hello\",\"machineId\":\"machineId\",\"token\":\"token\",\"hostname\":\"hostname\"}"
+    },
+    {
+      "schema": "HelloOkReply",
+      "variant": "minimal",
+      "wire": {
+        "type": "helloOk",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"helloOk\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "HelloOkReply",
+      "variant": "full",
+      "wire": {
+        "type": "helloOk",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"helloOk\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "HelloRejectedReply",
+      "variant": "minimal",
+      "wire": {
+        "type": "helloRejected",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"helloRejected\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "HelloRejectedReply",
+      "variant": "full",
+      "wire": {
+        "type": "helloRejected",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"helloRejected\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "PairedReply",
+      "variant": "minimal",
+      "wire": {
+        "type": "paired",
+        "token": "token",
+        "machineId": "machineId",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"paired\",\"token\":\"token\",\"machineId\":\"machineId\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "PairedReply",
+      "variant": "full",
+      "wire": {
+        "type": "paired",
+        "token": "token",
+        "machineId": "machineId",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"paired\",\"token\":\"token\",\"machineId\":\"machineId\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "PairFrame",
+      "variant": "minimal",
+      "wire": {
+        "type": "pair",
+        "code": "code",
+        "machineId": "machineId",
+        "hostname": "hostname"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pair\",\"code\":\"code\",\"machineId\":\"machineId\",\"hostname\":\"hostname\"}"
+    },
+    {
+      "schema": "PairFrame",
+      "variant": "full",
+      "wire": {
+        "type": "pair",
+        "code": "code",
+        "machineId": "machineId",
+        "hostname": "hostname",
+        "name": "name"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pair\",\"code\":\"code\",\"machineId\":\"machineId\",\"hostname\":\"hostname\",\"name\":\"name\"}"
+    },
+    {
+      "schema": "PairRejectedReply",
+      "variant": "minimal",
+      "wire": {
+        "type": "pairRejected",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pairRejected\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "PairRejectedReply",
+      "variant": "full",
+      "wire": {
+        "type": "pairRejected",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"pairRejected\",\"reason\":\"reason\"}"
+    }
+  ]
+}

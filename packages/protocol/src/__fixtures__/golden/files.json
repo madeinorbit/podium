@@ -1,0 +1,342 @@
+{
+  "family": "files",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "DirEntry",
+      "variant": "minimal",
+      "wire": {
+        "name": "name",
+        "isDir": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"isDir\":true}"
+    },
+    {
+      "schema": "DirEntry",
+      "variant": "full",
+      "wire": {
+        "name": "name",
+        "isDir": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"isDir\":true}"
+    },
+    {
+      "schema": "DirListRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "dirListRequest",
+        "requestId": "requestId",
+        "root": "root",
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirListRequest\",\"requestId\":\"requestId\",\"root\":\"root\",\"path\":\"path\"}"
+    },
+    {
+      "schema": "DirListRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "dirListRequest",
+        "requestId": "requestId",
+        "root": "root",
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirListRequest\",\"requestId\":\"requestId\",\"root\":\"root\",\"path\":\"path\"}"
+    },
+    {
+      "schema": "DirListResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "dirListResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path"
+      },
+      "parseAdded": {
+        "entries": []
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirListResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\",\"entries\":[]}"
+    },
+    {
+      "schema": "DirListResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "dirListResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path",
+        "entries": [
+          {
+            "name": "entries[0].name",
+            "isDir": true
+          }
+        ],
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"dirListResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\",\"entries\":[{\"name\":\"entries[0].name\",\"isDir\":true}],\"error\":\"error\"}"
+    },
+    {
+      "schema": "FileAssetRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileAssetRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "knownPath": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileAssetRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true}"
+    },
+    {
+      "schema": "FileAssetRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileAssetRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "knownPath": true,
+        "offset": 1,
+        "length": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileAssetRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true,\"offset\":1,\"length\":1}"
+    },
+    {
+      "schema": "FileAssetResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileAssetResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileAssetResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\"}"
+    },
+    {
+      "schema": "FileAssetResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileAssetResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path",
+        "dataBase64": "dataBase64",
+        "contentType": "contentType",
+        "tooLarge": true,
+        "size": 1,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileAssetResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\",\"dataBase64\":\"dataBase64\",\"contentType\":\"contentType\",\"tooLarge\":true,\"size\":1,\"error\":\"error\"}"
+    },
+    {
+      "schema": "FileReadRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileReadRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "knownPath": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileReadRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true}"
+    },
+    {
+      "schema": "FileReadRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileReadRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "knownPath": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileReadRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true}"
+    },
+    {
+      "schema": "FileReadResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileReadResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileReadResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\"}"
+    },
+    {
+      "schema": "FileReadResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileReadResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path",
+        "content": "content",
+        "baseHash": "baseHash",
+        "tooLarge": true,
+        "binary": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileReadResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\",\"content\":\"content\",\"baseHash\":\"baseHash\",\"tooLarge\":true,\"binary\":true,\"error\":\"error\"}"
+    },
+    {
+      "schema": "FileWriteRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileWriteRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "content": "content"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileWriteRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"content\":\"content\"}"
+    },
+    {
+      "schema": "FileWriteRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileWriteRequest",
+        "requestId": "requestId",
+        "cwd": "cwd",
+        "path": "path",
+        "content": "content",
+        "baseHash": "baseHash"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileWriteRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"content\":\"content\",\"baseHash\":\"baseHash\"}"
+    },
+    {
+      "schema": "FileWriteResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "fileWriteResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileWriteResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "FileWriteResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "fileWriteResult",
+        "requestId": "requestId",
+        "ok": true,
+        "baseHash": "baseHash",
+        "conflict": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"fileWriteResult\",\"requestId\":\"requestId\",\"ok\":true,\"baseHash\":\"baseHash\",\"conflict\":true,\"error\":\"error\"}"
+    },
+    {
+      "schema": "ImageUploadRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "imageUploadRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "filename": "filename",
+        "mimeType": "mimeType",
+        "dataBase64": "dataBase64"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"imageUploadRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"filename\":\"filename\",\"mimeType\":\"mimeType\",\"dataBase64\":\"dataBase64\"}"
+    },
+    {
+      "schema": "ImageUploadRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "imageUploadRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "filename": "filename",
+        "mimeType": "mimeType",
+        "dataBase64": "dataBase64"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"imageUploadRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"filename\":\"filename\",\"mimeType\":\"mimeType\",\"dataBase64\":\"dataBase64\"}"
+    },
+    {
+      "schema": "ImageUploadResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "imageUploadResult",
+        "requestId": "requestId",
+        "path": "path"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"imageUploadResult\",\"requestId\":\"requestId\",\"path\":\"path\"}"
+    },
+    {
+      "schema": "ImageUploadResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "imageUploadResult",
+        "requestId": "requestId",
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"imageUploadResult\",\"requestId\":\"requestId\",\"path\":\"path\",\"error\":\"error\"}"
+    }
+  ]
+}

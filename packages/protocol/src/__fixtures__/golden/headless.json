@@ -1,0 +1,425 @@
+{
+  "family": "headless",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "HeadlessActivityEvent",
+      "variant": "minimal",
+      "wire": {
+        "kind": "partial-text",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial-text\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "HeadlessActivityEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "partial-text",
+        "text": "text",
+        "itemHint": "itemHint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial-text\",\"text\":\"text\",\"itemHint\":\"itemHint\"}"
+    },
+    {
+      "schema": "HeadlessActivityEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "status",
+        "status": "running",
+        "label": "label"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\"}"
+    },
+    {
+      "schema": "HeadlessActivityEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "turn-start"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"turn-start\"}"
+    },
+    {
+      "schema": "HeadlessActivityEvent",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "turn-end",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"turn-end\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "HeadlessActivityMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessActivity",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "partial-text",
+          "text": "event.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"partial-text\",\"text\":\"event.text\"}}"
+    },
+    {
+      "schema": "HeadlessActivityMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "headlessActivity",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "partial-text",
+          "text": "event.text",
+          "itemHint": "event.itemHint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"partial-text\",\"text\":\"event.text\",\"itemHint\":\"event.itemHint\"}}"
+    },
+    {
+      "schema": "HeadlessActivityMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "headlessActivity",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "status",
+          "status": "running",
+          "label": "event.label"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\"}}"
+    },
+    {
+      "schema": "HeadlessActivityMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "headlessActivity",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "turn-start"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"turn-start\"}}"
+    },
+    {
+      "schema": "HeadlessActivityMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "headlessActivity",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "turn-end",
+          "error": "event.error"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessActivity\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"turn-end\",\"error\":\"event.error\"}}"
+    },
+    {
+      "schema": "HeadlessBindMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessBind",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "resumeValue": "resumeValue"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessBind\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resumeValue\":\"resumeValue\"}"
+    },
+    {
+      "schema": "HeadlessBindMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessBind",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "cwd": "cwd",
+        "resumeValue": "resumeValue"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessBind\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resumeValue\":\"resumeValue\"}"
+    },
+    {
+      "schema": "HeadlessBindResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessBindResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessBindResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HeadlessBindResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessBindResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessBindResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\"}"
+    },
+    {
+      "schema": "HeadlessInterruptMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessInterrupt",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessInterrupt\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "HeadlessInterruptMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessInterrupt",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessInterrupt\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "HeadlessTurnAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessTurnAck",
+        "turnId": "turnId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "HeadlessTurnAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessTurnAck",
+        "turnId": "turnId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnAck\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "HeadlessTurnEvent",
+      "variant": "minimal",
+      "wire": {
+        "kind": "partial-text",
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial-text\",\"text\":\"text\"}"
+    },
+    {
+      "schema": "HeadlessTurnEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "partial-text",
+        "text": "text",
+        "itemHint": "itemHint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial-text\",\"text\":\"text\",\"itemHint\":\"itemHint\"}"
+    },
+    {
+      "schema": "HeadlessTurnEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "status",
+        "status": "running",
+        "label": "label"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"status\",\"status\":\"running\",\"label\":\"label\"}"
+    },
+    {
+      "schema": "HeadlessTurnEventMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessTurnEvent",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "partial-text",
+          "text": "event.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnEvent\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"partial-text\",\"text\":\"event.text\"}}"
+    },
+    {
+      "schema": "HeadlessTurnEventMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "headlessTurnEvent",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "partial-text",
+          "text": "event.text",
+          "itemHint": "event.itemHint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnEvent\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"partial-text\",\"text\":\"event.text\",\"itemHint\":\"event.itemHint\"}}"
+    },
+    {
+      "schema": "HeadlessTurnEventMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "headlessTurnEvent",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "event": {
+          "kind": "status",
+          "status": "running",
+          "label": "event.label"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnEvent\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"event\":{\"kind\":\"status\",\"status\":\"running\",\"label\":\"event.label\"}}"
+    },
+    {
+      "schema": "HeadlessTurnRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessTurnRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "threadId": "threadId",
+        "agent": "claude-code",
+        "cwd": "cwd",
+        "prompt": "prompt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"cwd\":\"cwd\",\"prompt\":\"prompt\"}"
+    },
+    {
+      "schema": "HeadlessTurnRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessTurnRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "threadId": "threadId",
+        "agent": "claude-code",
+        "model": "model",
+        "effort": "effort",
+        "cwd": "cwd",
+        "prompt": "prompt",
+        "contextPrompt": "contextPrompt",
+        "systemPrompt": "systemPrompt",
+        "mcpConfig": "mcpConfig",
+        "allowedTools": ["allowedTools[0]"],
+        "permissionMode": "permissionMode",
+        "resumeValue": "resumeValue",
+        "sessionUuid": "sessionUuid",
+        "timeoutMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"threadId\":\"threadId\",\"agent\":\"claude-code\",\"model\":\"model\",\"effort\":\"effort\",\"cwd\":\"cwd\",\"prompt\":\"prompt\",\"contextPrompt\":\"contextPrompt\",\"systemPrompt\":\"systemPrompt\",\"mcpConfig\":\"mcpConfig\",\"allowedTools\":[\"allowedTools[0]\"],\"permissionMode\":\"permissionMode\",\"resumeValue\":\"resumeValue\",\"sessionUuid\":\"sessionUuid\",\"timeoutMs\":1}"
+    },
+    {
+      "schema": "HeadlessTurnResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "headlessTurnResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HeadlessTurnResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "headlessTurnResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "harnessSessionId": "harnessSessionId",
+        "output": "output"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"headlessTurnResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"harnessSessionId\":\"harnessSessionId\",\"output\":\"output\"}"
+    }
+  ]
+}

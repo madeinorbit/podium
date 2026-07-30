@@ -1,0 +1,1741 @@
+{
+  "family": "runtime-state",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "AgentError",
+      "variant": "minimal",
+      "wire": {
+        "class": "class",
+        "retryable": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"class\":\"class\",\"retryable\":true}"
+    },
+    {
+      "schema": "AgentError",
+      "variant": "full",
+      "wire": {
+        "class": "class",
+        "retryable": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"class\":\"class\",\"retryable\":true}"
+    },
+    {
+      "schema": "AgentNeed",
+      "variant": "minimal",
+      "wire": {
+        "kind": "question"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\"}"
+    },
+    {
+      "schema": "AgentNeed",
+      "variant": "full",
+      "wire": {
+        "kind": "question",
+        "summary": "summary"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"summary\":\"summary\"}"
+    },
+    {
+      "schema": "AgentObservation",
+      "variant": "minimal",
+      "wire": {
+        "podiumSessionId": "podiumSessionId",
+        "provider": "claude-code",
+        "providerSessionId": null,
+        "bindingVersion": 1,
+        "providerTurnId": null,
+        "providerPromptId": null,
+        "observerGeneration": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "components": {}
+        },
+        "providerAt": null,
+        "receivedAt": "2026-01-02T03:04:05.000Z",
+        "sourceEventKind": "sourceEventKind",
+        "transitionKind": "turn_opened",
+        "provenance": "bootstrap",
+        "inputOrigin": "human",
+        "turnEpoch": 1,
+        "priorPhase": "unknown",
+        "nextPhase": "unknown",
+        "transitionId": "transitionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "nativeSubagentCount": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"podiumSessionId\":\"podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":null,\"bindingVersion\":1,\"providerTurnId\":null,\"providerPromptId\":null,\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"components\":{}},\"providerAt\":null,\"receivedAt\":\"2026-01-02T03:04:05.000Z\",\"sourceEventKind\":\"sourceEventKind\",\"transitionKind\":\"turn_opened\",\"provenance\":\"bootstrap\",\"inputOrigin\":\"human\",\"turnEpoch\":1,\"priorPhase\":\"unknown\",\"nextPhase\":\"unknown\",\"transitionId\":\"transitionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"nativeSubagentCount\":1}}"
+    },
+    {
+      "schema": "AgentObservation",
+      "variant": "full",
+      "wire": {
+        "podiumSessionId": "podiumSessionId",
+        "provider": "claude-code",
+        "providerSessionId": "providerSessionId",
+        "bindingVersion": 1,
+        "providerTurnId": "providerTurnId",
+        "providerPromptId": "providerPromptId",
+        "observerGeneration": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "predecessorSegmentId": "providerCursor.predecessorSegmentId",
+          "pathHint": "providerCursor.pathHint",
+          "device": "providerCursor.device",
+          "inode": "providerCursor.inode",
+          "integrity": "providerCursor.integrity",
+          "components": {
+            "providerCursor.components.key": 1
+          }
+        },
+        "providerAt": "2026-01-02T03:04:05.000Z",
+        "receivedAt": "2026-01-02T03:04:05.000Z",
+        "sourceEventKind": "sourceEventKind",
+        "transitionKind": "turn_opened",
+        "provenance": "bootstrap",
+        "inputOrigin": "human",
+        "turnEpoch": 1,
+        "priorPhase": "unknown",
+        "nextPhase": "unknown",
+        "transitionId": "transitionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "state.nativeSubagents[0].id",
+              "type": "state.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "state.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "state.need.summary"
+          },
+          "error": {
+            "class": "state.error.class",
+            "retryable": true
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"podiumSessionId\":\"podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"providerSessionId\",\"bindingVersion\":1,\"providerTurnId\":\"providerTurnId\",\"providerPromptId\":\"providerPromptId\",\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"predecessorSegmentId\":\"providerCursor.predecessorSegmentId\",\"pathHint\":\"providerCursor.pathHint\",\"device\":\"providerCursor.device\",\"inode\":\"providerCursor.inode\",\"integrity\":\"providerCursor.integrity\",\"components\":{\"providerCursor.components.key\":1}},\"providerAt\":\"2026-01-02T03:04:05.000Z\",\"receivedAt\":\"2026-01-02T03:04:05.000Z\",\"sourceEventKind\":\"sourceEventKind\",\"transitionKind\":\"turn_opened\",\"provenance\":\"bootstrap\",\"inputOrigin\":\"human\",\"turnEpoch\":1,\"priorPhase\":\"unknown\",\"nextPhase\":\"unknown\",\"transitionId\":\"transitionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"state.nativeSubagents[0].id\",\"type\":\"state.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"state.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"state.need.summary\"},\"error\":{\"class\":\"state.error.class\",\"retryable\":true}}}"
+    },
+    {
+      "schema": "AgentObservationAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentObservationAck",
+        "sessionId": "sessionId",
+        "observerGeneration": 1,
+        "transitionId": "transitionId",
+        "result": "snapshot_applied"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationAck\",\"sessionId\":\"sessionId\",\"observerGeneration\":1,\"transitionId\":\"transitionId\",\"result\":\"snapshot_applied\"}"
+    },
+    {
+      "schema": "AgentObservationAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentObservationAck",
+        "sessionId": "sessionId",
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "transitionId": "transitionId",
+        "result": "snapshot_applied",
+        "rejectionReason": "stale_observer_generation",
+        "acceptedCursor": {
+          "segmentId": "acceptedCursor.segmentId",
+          "predecessorSegmentId": "acceptedCursor.predecessorSegmentId",
+          "pathHint": "acceptedCursor.pathHint",
+          "device": "acceptedCursor.device",
+          "inode": "acceptedCursor.inode",
+          "integrity": "acceptedCursor.integrity",
+          "components": {
+            "acceptedCursor.components.key": 1
+          }
+        },
+        "checkpoint": {
+          "schemaVersion": 1,
+          "podiumSessionId": "checkpoint.podiumSessionId",
+          "provider": "claude-code",
+          "providerSessionId": "checkpoint.providerSessionId",
+          "bindingVersion": 1,
+          "lifecycleObservationGeneration": 1,
+          "providerCursor": {
+            "segmentId": "checkpoint.providerCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.providerCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.providerCursor.pathHint",
+            "device": "checkpoint.providerCursor.device",
+            "inode": "checkpoint.providerCursor.inode",
+            "integrity": "checkpoint.providerCursor.integrity",
+            "components": {
+              "checkpoint.providerCursor.components.key": 1
+            }
+          },
+          "bootstrapCursor": {
+            "segmentId": "checkpoint.bootstrapCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.bootstrapCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.bootstrapCursor.pathHint",
+            "device": "checkpoint.bootstrapCursor.device",
+            "inode": "checkpoint.bootstrapCursor.inode",
+            "integrity": "checkpoint.bootstrapCursor.integrity",
+            "components": {
+              "checkpoint.bootstrapCursor.components.key": 1
+            }
+          },
+          "lastAcceptedLiveCursor": {
+            "segmentId": "checkpoint.lastAcceptedLiveCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.lastAcceptedLiveCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.lastAcceptedLiveCursor.pathHint",
+            "device": "checkpoint.lastAcceptedLiveCursor.device",
+            "inode": "checkpoint.lastAcceptedLiveCursor.inode",
+            "integrity": "checkpoint.lastAcceptedLiveCursor.integrity",
+            "components": {
+              "checkpoint.lastAcceptedLiveCursor.components.key": 1
+            }
+          },
+          "turnEpoch": 1,
+          "providerTurnId": "checkpoint.providerTurnId",
+          "providerPromptId": "checkpoint.providerPromptId",
+          "turnState": {
+            "phase": "unknown",
+            "since": "checkpoint.turnState.since",
+            "workingMsTotal": 1,
+            "nativeSubagentCount": 1,
+            "nativeSubagents": [
+              {
+                "id": "checkpoint.turnState.nativeSubagents[0].id",
+                "type": "checkpoint.turnState.nativeSubagents[0].type"
+              }
+            ],
+            "awaitingSubagents": true,
+            "idle": {
+              "kind": "done",
+              "summary": "checkpoint.turnState.idle.summary"
+            },
+            "need": {
+              "kind": "question",
+              "summary": "checkpoint.turnState.need.summary"
+            },
+            "error": {
+              "class": "checkpoint.turnState.error.class",
+              "retryable": true
+            }
+          },
+          "terminalFence": {
+            "turnEpoch": 1,
+            "providerCursor": {
+              "segmentId": "checkpoint.terminalFence.providerCursor.segmentId",
+              "predecessorSegmentId": "checkpoint.terminalFence.providerCursor.predecessorSegmentId",
+              "pathHint": "checkpoint.terminalFence.providerCursor.pathHint",
+              "device": "checkpoint.terminalFence.providerCursor.device",
+              "inode": "checkpoint.terminalFence.providerCursor.inode",
+              "integrity": "checkpoint.terminalFence.providerCursor.integrity",
+              "components": {
+                "checkpoint.terminalFence.providerCursor.components.key": 1
+              }
+            },
+            "verdict": "done",
+            "transitionId": "checkpoint.terminalFence.transitionId",
+            "closing": true
+          },
+          "providerAt": "2026-01-02T03:04:05.000Z",
+          "acceptedAt": "2026-01-02T03:04:05.000Z",
+          "lastLiveReceiptAt": "2026-01-02T03:04:05.000Z",
+          "lastTransitionId": "checkpoint.lastTransitionId",
+          "acceptedTransitionIds": ["checkpoint.acceptedTransitionIds[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationAck\",\"sessionId\":\"sessionId\",\"observerGeneration\":1,\"bindingVersion\":1,\"transitionId\":\"transitionId\",\"result\":\"snapshot_applied\",\"rejectionReason\":\"stale_observer_generation\",\"acceptedCursor\":{\"segmentId\":\"acceptedCursor.segmentId\",\"predecessorSegmentId\":\"acceptedCursor.predecessorSegmentId\",\"pathHint\":\"acceptedCursor.pathHint\",\"device\":\"acceptedCursor.device\",\"inode\":\"acceptedCursor.inode\",\"integrity\":\"acceptedCursor.integrity\",\"components\":{\"acceptedCursor.components.key\":1}},\"checkpoint\":{\"schemaVersion\":1,\"podiumSessionId\":\"checkpoint.podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"checkpoint.providerSessionId\",\"bindingVersion\":1,\"lifecycleObservationGeneration\":1,\"providerCursor\":{\"segmentId\":\"checkpoint.providerCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.providerCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.providerCursor.pathHint\",\"device\":\"checkpoint.providerCursor.device\",\"inode\":\"checkpoint.providerCursor.inode\",\"integrity\":\"checkpoint.providerCursor.integrity\",\"components\":{\"checkpoint.providerCursor.components.key\":1}},\"bootstrapCursor\":{\"segmentId\":\"checkpoint.bootstrapCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.bootstrapCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.bootstrapCursor.pathHint\",\"device\":\"checkpoint.bootstrapCursor.device\",\"inode\":\"checkpoint.bootstrapCursor.inode\",\"integrity\":\"checkpoint.bootstrapCursor.integrity\",\"components\":{\"checkpoint.bootstrapCursor.components.key\":1}},\"lastAcceptedLiveCursor\":{\"segmentId\":\"checkpoint.lastAcceptedLiveCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.lastAcceptedLiveCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.lastAcceptedLiveCursor.pathHint\",\"device\":\"checkpoint.lastAcceptedLiveCursor.device\",\"inode\":\"checkpoint.lastAcceptedLiveCursor.inode\",\"integrity\":\"checkpoint.lastAcceptedLiveCursor.integrity\",\"components\":{\"checkpoint.lastAcceptedLiveCursor.components.key\":1}},\"turnEpoch\":1,\"providerTurnId\":\"checkpoint.providerTurnId\",\"providerPromptId\":\"checkpoint.providerPromptId\",\"turnState\":{\"phase\":\"unknown\",\"since\":\"checkpoint.turnState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"checkpoint.turnState.nativeSubagents[0].id\",\"type\":\"checkpoint.turnState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"checkpoint.turnState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"checkpoint.turnState.need.summary\"},\"error\":{\"class\":\"checkpoint.turnState.error.class\",\"retryable\":true}},\"terminalFence\":{\"turnEpoch\":1,\"providerCursor\":{\"segmentId\":\"checkpoint.terminalFence.providerCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.terminalFence.providerCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.terminalFence.providerCursor.pathHint\",\"device\":\"checkpoint.terminalFence.providerCursor.device\",\"inode\":\"checkpoint.terminalFence.providerCursor.inode\",\"integrity\":\"checkpoint.terminalFence.providerCursor.integrity\",\"components\":{\"checkpoint.terminalFence.providerCursor.components.key\":1}},\"verdict\":\"done\",\"transitionId\":\"checkpoint.terminalFence.transitionId\",\"closing\":true},\"providerAt\":\"2026-01-02T03:04:05.000Z\",\"acceptedAt\":\"2026-01-02T03:04:05.000Z\",\"lastLiveReceiptAt\":\"2026-01-02T03:04:05.000Z\",\"lastTransitionId\":\"checkpoint.lastTransitionId\",\"acceptedTransitionIds\":[\"checkpoint.acceptedTransitionIds[0]\"]}}"
+    },
+    {
+      "schema": "AgentObservationMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentObservation",
+        "observation": {
+          "podiumSessionId": "observation.podiumSessionId",
+          "provider": "claude-code",
+          "providerSessionId": null,
+          "bindingVersion": 1,
+          "providerTurnId": null,
+          "providerPromptId": null,
+          "observerGeneration": 1,
+          "providerCursor": {
+            "segmentId": "observation.providerCursor.segmentId",
+            "components": {}
+          },
+          "providerAt": null,
+          "receivedAt": "2026-01-02T03:04:05.000Z",
+          "sourceEventKind": "observation.sourceEventKind",
+          "transitionKind": "turn_opened",
+          "provenance": "bootstrap",
+          "inputOrigin": "human",
+          "turnEpoch": 1,
+          "priorPhase": "unknown",
+          "nextPhase": "unknown",
+          "transitionId": "observation.transitionId",
+          "state": {
+            "phase": "unknown",
+            "since": "observation.state.since",
+            "nativeSubagentCount": 1
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservation\",\"observation\":{\"podiumSessionId\":\"observation.podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":null,\"bindingVersion\":1,\"providerTurnId\":null,\"providerPromptId\":null,\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"observation.providerCursor.segmentId\",\"components\":{}},\"providerAt\":null,\"receivedAt\":\"2026-01-02T03:04:05.000Z\",\"sourceEventKind\":\"observation.sourceEventKind\",\"transitionKind\":\"turn_opened\",\"provenance\":\"bootstrap\",\"inputOrigin\":\"human\",\"turnEpoch\":1,\"priorPhase\":\"unknown\",\"nextPhase\":\"unknown\",\"transitionId\":\"observation.transitionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"observation.state.since\",\"nativeSubagentCount\":1}}}"
+    },
+    {
+      "schema": "AgentObservationMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentObservation",
+        "observation": {
+          "podiumSessionId": "observation.podiumSessionId",
+          "provider": "claude-code",
+          "providerSessionId": "observation.providerSessionId",
+          "bindingVersion": 1,
+          "providerTurnId": "observation.providerTurnId",
+          "providerPromptId": "observation.providerPromptId",
+          "observerGeneration": 1,
+          "providerCursor": {
+            "segmentId": "observation.providerCursor.segmentId",
+            "predecessorSegmentId": "observation.providerCursor.predecessorSegmentId",
+            "pathHint": "observation.providerCursor.pathHint",
+            "device": "observation.providerCursor.device",
+            "inode": "observation.providerCursor.inode",
+            "integrity": "observation.providerCursor.integrity",
+            "components": {
+              "observation.providerCursor.components.key": 1
+            }
+          },
+          "providerAt": "2026-01-02T03:04:05.000Z",
+          "receivedAt": "2026-01-02T03:04:05.000Z",
+          "sourceEventKind": "observation.sourceEventKind",
+          "transitionKind": "turn_opened",
+          "provenance": "bootstrap",
+          "inputOrigin": "human",
+          "turnEpoch": 1,
+          "priorPhase": "unknown",
+          "nextPhase": "unknown",
+          "transitionId": "observation.transitionId",
+          "state": {
+            "phase": "unknown",
+            "since": "observation.state.since",
+            "workingMsTotal": 1,
+            "nativeSubagentCount": 1,
+            "nativeSubagents": [
+              {
+                "id": "observation.state.nativeSubagents[0].id",
+                "type": "observation.state.nativeSubagents[0].type"
+              }
+            ],
+            "awaitingSubagents": true,
+            "idle": {
+              "kind": "done",
+              "summary": "observation.state.idle.summary"
+            },
+            "need": {
+              "kind": "question",
+              "summary": "observation.state.need.summary"
+            },
+            "error": {
+              "class": "observation.state.error.class",
+              "retryable": true
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservation\",\"observation\":{\"podiumSessionId\":\"observation.podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"observation.providerSessionId\",\"bindingVersion\":1,\"providerTurnId\":\"observation.providerTurnId\",\"providerPromptId\":\"observation.providerPromptId\",\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"observation.providerCursor.segmentId\",\"predecessorSegmentId\":\"observation.providerCursor.predecessorSegmentId\",\"pathHint\":\"observation.providerCursor.pathHint\",\"device\":\"observation.providerCursor.device\",\"inode\":\"observation.providerCursor.inode\",\"integrity\":\"observation.providerCursor.integrity\",\"components\":{\"observation.providerCursor.components.key\":1}},\"providerAt\":\"2026-01-02T03:04:05.000Z\",\"receivedAt\":\"2026-01-02T03:04:05.000Z\",\"sourceEventKind\":\"observation.sourceEventKind\",\"transitionKind\":\"turn_opened\",\"provenance\":\"bootstrap\",\"inputOrigin\":\"human\",\"turnEpoch\":1,\"priorPhase\":\"unknown\",\"nextPhase\":\"unknown\",\"transitionId\":\"observation.transitionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"observation.state.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"observation.state.nativeSubagents[0].id\",\"type\":\"observation.state.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"observation.state.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"observation.state.need.summary\"},\"error\":{\"class\":\"observation.state.error.class\",\"retryable\":true}}}}"
+    },
+    {
+      "schema": "AgentObservationRebindAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentObservationRebindAck",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "rebindId": "rebindId",
+        "priorObserverGeneration": 1,
+        "priorBindingVersion": 1,
+        "nextProviderSessionId": "nextProviderSessionId",
+        "providerSessionId": null,
+        "result": "accepted",
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "checkpoint": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationRebindAck\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"rebindId\":\"rebindId\",\"priorObserverGeneration\":1,\"priorBindingVersion\":1,\"nextProviderSessionId\":\"nextProviderSessionId\",\"providerSessionId\":null,\"result\":\"accepted\",\"observerGeneration\":1,\"bindingVersion\":1,\"checkpoint\":null}"
+    },
+    {
+      "schema": "AgentObservationRebindAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentObservationRebindAck",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "rebindId": "rebindId",
+        "priorObserverGeneration": 1,
+        "priorBindingVersion": 1,
+        "nextProviderSessionId": "nextProviderSessionId",
+        "providerSessionId": "providerSessionId",
+        "result": "accepted",
+        "rejectionReason": "stale_observer_generation",
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "checkpoint": {
+          "schemaVersion": 1,
+          "podiumSessionId": "checkpoint.podiumSessionId",
+          "provider": "claude-code",
+          "providerSessionId": "checkpoint.providerSessionId",
+          "bindingVersion": 1,
+          "lifecycleObservationGeneration": 1,
+          "providerCursor": {
+            "segmentId": "checkpoint.providerCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.providerCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.providerCursor.pathHint",
+            "device": "checkpoint.providerCursor.device",
+            "inode": "checkpoint.providerCursor.inode",
+            "integrity": "checkpoint.providerCursor.integrity",
+            "components": {
+              "checkpoint.providerCursor.components.key": 1
+            }
+          },
+          "bootstrapCursor": {
+            "segmentId": "checkpoint.bootstrapCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.bootstrapCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.bootstrapCursor.pathHint",
+            "device": "checkpoint.bootstrapCursor.device",
+            "inode": "checkpoint.bootstrapCursor.inode",
+            "integrity": "checkpoint.bootstrapCursor.integrity",
+            "components": {
+              "checkpoint.bootstrapCursor.components.key": 1
+            }
+          },
+          "lastAcceptedLiveCursor": {
+            "segmentId": "checkpoint.lastAcceptedLiveCursor.segmentId",
+            "predecessorSegmentId": "checkpoint.lastAcceptedLiveCursor.predecessorSegmentId",
+            "pathHint": "checkpoint.lastAcceptedLiveCursor.pathHint",
+            "device": "checkpoint.lastAcceptedLiveCursor.device",
+            "inode": "checkpoint.lastAcceptedLiveCursor.inode",
+            "integrity": "checkpoint.lastAcceptedLiveCursor.integrity",
+            "components": {
+              "checkpoint.lastAcceptedLiveCursor.components.key": 1
+            }
+          },
+          "turnEpoch": 1,
+          "providerTurnId": "checkpoint.providerTurnId",
+          "providerPromptId": "checkpoint.providerPromptId",
+          "turnState": {
+            "phase": "unknown",
+            "since": "checkpoint.turnState.since",
+            "workingMsTotal": 1,
+            "nativeSubagentCount": 1,
+            "nativeSubagents": [
+              {
+                "id": "checkpoint.turnState.nativeSubagents[0].id",
+                "type": "checkpoint.turnState.nativeSubagents[0].type"
+              }
+            ],
+            "awaitingSubagents": true,
+            "idle": {
+              "kind": "done",
+              "summary": "checkpoint.turnState.idle.summary"
+            },
+            "need": {
+              "kind": "question",
+              "summary": "checkpoint.turnState.need.summary"
+            },
+            "error": {
+              "class": "checkpoint.turnState.error.class",
+              "retryable": true
+            }
+          },
+          "terminalFence": {
+            "turnEpoch": 1,
+            "providerCursor": {
+              "segmentId": "checkpoint.terminalFence.providerCursor.segmentId",
+              "predecessorSegmentId": "checkpoint.terminalFence.providerCursor.predecessorSegmentId",
+              "pathHint": "checkpoint.terminalFence.providerCursor.pathHint",
+              "device": "checkpoint.terminalFence.providerCursor.device",
+              "inode": "checkpoint.terminalFence.providerCursor.inode",
+              "integrity": "checkpoint.terminalFence.providerCursor.integrity",
+              "components": {
+                "checkpoint.terminalFence.providerCursor.components.key": 1
+              }
+            },
+            "verdict": "done",
+            "transitionId": "checkpoint.terminalFence.transitionId",
+            "closing": true
+          },
+          "providerAt": "2026-01-02T03:04:05.000Z",
+          "acceptedAt": "2026-01-02T03:04:05.000Z",
+          "lastLiveReceiptAt": "2026-01-02T03:04:05.000Z",
+          "lastTransitionId": "checkpoint.lastTransitionId",
+          "acceptedTransitionIds": ["checkpoint.acceptedTransitionIds[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationRebindAck\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"rebindId\":\"rebindId\",\"priorObserverGeneration\":1,\"priorBindingVersion\":1,\"nextProviderSessionId\":\"nextProviderSessionId\",\"providerSessionId\":\"providerSessionId\",\"result\":\"accepted\",\"rejectionReason\":\"stale_observer_generation\",\"observerGeneration\":1,\"bindingVersion\":1,\"checkpoint\":{\"schemaVersion\":1,\"podiumSessionId\":\"checkpoint.podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"checkpoint.providerSessionId\",\"bindingVersion\":1,\"lifecycleObservationGeneration\":1,\"providerCursor\":{\"segmentId\":\"checkpoint.providerCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.providerCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.providerCursor.pathHint\",\"device\":\"checkpoint.providerCursor.device\",\"inode\":\"checkpoint.providerCursor.inode\",\"integrity\":\"checkpoint.providerCursor.integrity\",\"components\":{\"checkpoint.providerCursor.components.key\":1}},\"bootstrapCursor\":{\"segmentId\":\"checkpoint.bootstrapCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.bootstrapCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.bootstrapCursor.pathHint\",\"device\":\"checkpoint.bootstrapCursor.device\",\"inode\":\"checkpoint.bootstrapCursor.inode\",\"integrity\":\"checkpoint.bootstrapCursor.integrity\",\"components\":{\"checkpoint.bootstrapCursor.components.key\":1}},\"lastAcceptedLiveCursor\":{\"segmentId\":\"checkpoint.lastAcceptedLiveCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.lastAcceptedLiveCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.lastAcceptedLiveCursor.pathHint\",\"device\":\"checkpoint.lastAcceptedLiveCursor.device\",\"inode\":\"checkpoint.lastAcceptedLiveCursor.inode\",\"integrity\":\"checkpoint.lastAcceptedLiveCursor.integrity\",\"components\":{\"checkpoint.lastAcceptedLiveCursor.components.key\":1}},\"turnEpoch\":1,\"providerTurnId\":\"checkpoint.providerTurnId\",\"providerPromptId\":\"checkpoint.providerPromptId\",\"turnState\":{\"phase\":\"unknown\",\"since\":\"checkpoint.turnState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"checkpoint.turnState.nativeSubagents[0].id\",\"type\":\"checkpoint.turnState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"checkpoint.turnState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"checkpoint.turnState.need.summary\"},\"error\":{\"class\":\"checkpoint.turnState.error.class\",\"retryable\":true}},\"terminalFence\":{\"turnEpoch\":1,\"providerCursor\":{\"segmentId\":\"checkpoint.terminalFence.providerCursor.segmentId\",\"predecessorSegmentId\":\"checkpoint.terminalFence.providerCursor.predecessorSegmentId\",\"pathHint\":\"checkpoint.terminalFence.providerCursor.pathHint\",\"device\":\"checkpoint.terminalFence.providerCursor.device\",\"inode\":\"checkpoint.terminalFence.providerCursor.inode\",\"integrity\":\"checkpoint.terminalFence.providerCursor.integrity\",\"components\":{\"checkpoint.terminalFence.providerCursor.components.key\":1}},\"verdict\":\"done\",\"transitionId\":\"checkpoint.terminalFence.transitionId\",\"closing\":true},\"providerAt\":\"2026-01-02T03:04:05.000Z\",\"acceptedAt\":\"2026-01-02T03:04:05.000Z\",\"lastLiveReceiptAt\":\"2026-01-02T03:04:05.000Z\",\"lastTransitionId\":\"checkpoint.lastTransitionId\",\"acceptedTransitionIds\":[\"checkpoint.acceptedTransitionIds[0]\"]}}"
+    },
+    {
+      "schema": "AgentObservationRebindMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentObservationRebind",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "providerSessionId": null,
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "nextProviderSessionId": "nextProviderSessionId",
+        "resumeKind": "resumeKind",
+        "rebindId": "rebindId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationRebind\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"providerSessionId\":null,\"observerGeneration\":1,\"bindingVersion\":1,\"nextProviderSessionId\":\"nextProviderSessionId\",\"resumeKind\":\"resumeKind\",\"rebindId\":\"rebindId\"}"
+    },
+    {
+      "schema": "AgentObservationRebindMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentObservationRebind",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "providerSessionId": "providerSessionId",
+        "observerGeneration": 1,
+        "bindingVersion": 1,
+        "nextProviderSessionId": "nextProviderSessionId",
+        "resumeKind": "resumeKind",
+        "rebindId": "rebindId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObservationRebind\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"providerSessionId\",\"observerGeneration\":1,\"bindingVersion\":1,\"nextProviderSessionId\":\"nextProviderSessionId\",\"resumeKind\":\"resumeKind\",\"rebindId\":\"rebindId\"}"
+    },
+    {
+      "schema": "AgentObserverLiveConfirmationMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentObserverLiveConfirmation",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "providerSessionId": null,
+        "bindingVersion": 1,
+        "observerGeneration": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "components": {}
+        },
+        "livePollSequence": 1,
+        "confirmedAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObserverLiveConfirmation\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"providerSessionId\":null,\"bindingVersion\":1,\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"components\":{}},\"livePollSequence\":1,\"confirmedAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "AgentObserverLiveConfirmationMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentObserverLiveConfirmation",
+        "sessionId": "sessionId",
+        "provider": "claude-code",
+        "providerSessionId": "providerSessionId",
+        "bindingVersion": 1,
+        "observerGeneration": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "predecessorSegmentId": "providerCursor.predecessorSegmentId",
+          "pathHint": "providerCursor.pathHint",
+          "device": "providerCursor.device",
+          "inode": "providerCursor.inode",
+          "integrity": "providerCursor.integrity",
+          "components": {
+            "providerCursor.components.key": 1
+          }
+        },
+        "livePollSequence": 1,
+        "confirmedAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentObserverLiveConfirmation\",\"sessionId\":\"sessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"providerSessionId\",\"bindingVersion\":1,\"observerGeneration\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"predecessorSegmentId\":\"providerCursor.predecessorSegmentId\",\"pathHint\":\"providerCursor.pathHint\",\"device\":\"providerCursor.device\",\"inode\":\"providerCursor.inode\",\"integrity\":\"providerCursor.integrity\",\"components\":{\"providerCursor.components.key\":1}},\"livePollSequence\":1,\"confirmedAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "AgentPhase",
+      "variant": "minimal",
+      "wire": "unknown",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unknown\""
+    },
+    {
+      "schema": "AgentPhase",
+      "variant": "full",
+      "wire": "unknown",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unknown\""
+    },
+    {
+      "schema": "AgentRuntimeState",
+      "variant": "minimal",
+      "wire": {
+        "phase": "unknown",
+        "since": "since",
+        "nativeSubagentCount": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"phase\":\"unknown\",\"since\":\"since\",\"nativeSubagentCount\":1}"
+    },
+    {
+      "schema": "AgentRuntimeState",
+      "variant": "full",
+      "wire": {
+        "phase": "unknown",
+        "since": "since",
+        "workingMsTotal": 1,
+        "nativeSubagentCount": 1,
+        "nativeSubagents": [
+          {
+            "id": "nativeSubagents[0].id",
+            "type": "nativeSubagents[0].type"
+          }
+        ],
+        "awaitingSubagents": true,
+        "idle": {
+          "kind": "done",
+          "summary": "idle.summary"
+        },
+        "need": {
+          "kind": "question",
+          "summary": "need.summary"
+        },
+        "error": {
+          "class": "error.class",
+          "retryable": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"phase\":\"unknown\",\"since\":\"since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"nativeSubagents[0].id\",\"type\":\"nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"need.summary\"},\"error\":{\"class\":\"error.class\",\"retryable\":true}}"
+    },
+    {
+      "schema": "AgentStateMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "agentState",
+        "sessionId": "sessionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "nativeSubagentCount": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentState\",\"sessionId\":\"sessionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"nativeSubagentCount\":1}}"
+    },
+    {
+      "schema": "AgentStateMessage",
+      "variant": "full",
+      "wire": {
+        "type": "agentState",
+        "sessionId": "sessionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "state.nativeSubagents[0].id",
+              "type": "state.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "state.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "state.need.summary"
+          },
+          "error": {
+            "class": "state.error.class",
+            "retryable": true
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"agentState\",\"sessionId\":\"sessionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"state.nativeSubagents[0].id\",\"type\":\"state.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"state.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"state.need.summary\"},\"error\":{\"class\":\"state.error.class\",\"retryable\":true}}}"
+    },
+    {
+      "schema": "IdleVerdict",
+      "variant": "minimal",
+      "wire": {
+        "kind": "done"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"done\"}"
+    },
+    {
+      "schema": "IdleVerdict",
+      "variant": "full",
+      "wire": {
+        "kind": "done",
+        "summary": "summary"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"done\",\"summary\":\"summary\"}"
+    },
+    {
+      "schema": "NativeSubagent",
+      "variant": "minimal",
+      "wire": {
+        "id": "id"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\"}"
+    },
+    {
+      "schema": "NativeSubagent",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "type": "type"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"type\":\"type\"}"
+    },
+    {
+      "schema": "ObservationAcceptanceKind",
+      "variant": "minimal",
+      "wire": "snapshot_applied",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"snapshot_applied\""
+    },
+    {
+      "schema": "ObservationAcceptanceKind",
+      "variant": "full",
+      "wire": "snapshot_applied",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"snapshot_applied\""
+    },
+    {
+      "schema": "ObservationInputOrigin",
+      "variant": "minimal",
+      "wire": "human",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"human\""
+    },
+    {
+      "schema": "ObservationInputOrigin",
+      "variant": "full",
+      "wire": "human",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"human\""
+    },
+    {
+      "schema": "ObservationProvenance",
+      "variant": "minimal",
+      "wire": "bootstrap",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"bootstrap\""
+    },
+    {
+      "schema": "ObservationProvenance",
+      "variant": "full",
+      "wire": "bootstrap",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"bootstrap\""
+    },
+    {
+      "schema": "ObservationProvider",
+      "variant": "minimal",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "ObservationProvider",
+      "variant": "full",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "ObservationRejectionReason",
+      "variant": "minimal",
+      "wire": "stale_observer_generation",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"stale_observer_generation\""
+    },
+    {
+      "schema": "ObservationRejectionReason",
+      "variant": "full",
+      "wire": "stale_observer_generation",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"stale_observer_generation\""
+    },
+    {
+      "schema": "ObservationTransitionKind",
+      "variant": "minimal",
+      "wire": "turn_opened",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"turn_opened\""
+    },
+    {
+      "schema": "ObservationTransitionKind",
+      "variant": "full",
+      "wire": "turn_opened",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"turn_opened\""
+    },
+    {
+      "schema": "ProviderCursor",
+      "variant": "minimal",
+      "wire": {
+        "segmentId": "segmentId",
+        "components": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"segmentId\":\"segmentId\",\"components\":{}}"
+    },
+    {
+      "schema": "ProviderCursor",
+      "variant": "full",
+      "wire": {
+        "segmentId": "segmentId",
+        "predecessorSegmentId": "predecessorSegmentId",
+        "pathHint": "pathHint",
+        "device": "device",
+        "inode": "inode",
+        "integrity": "integrity",
+        "components": {
+          "components.key": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"segmentId\":\"segmentId\",\"predecessorSegmentId\":\"predecessorSegmentId\",\"pathHint\":\"pathHint\",\"device\":\"device\",\"inode\":\"inode\",\"integrity\":\"integrity\",\"components\":{\"components.key\":1}}"
+    },
+    {
+      "schema": "SessionAgentStateChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionAgentStateChanged",
+        "sessionId": "sessionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "nativeSubagentCount": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAgentStateChanged\",\"sessionId\":\"sessionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"nativeSubagentCount\":1}}"
+    },
+    {
+      "schema": "SessionAgentStateChangedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionAgentStateChanged",
+        "sessionId": "sessionId",
+        "state": {
+          "phase": "unknown",
+          "since": "state.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "state.nativeSubagents[0].id",
+              "type": "state.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "state.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "state.need.summary"
+          },
+          "error": {
+            "class": "state.error.class",
+            "retryable": true
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAgentStateChanged\",\"sessionId\":\"sessionId\",\"state\":{\"phase\":\"unknown\",\"since\":\"state.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"state.nativeSubagents[0].id\",\"type\":\"state.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"state.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"state.need.summary\"},\"error\":{\"class\":\"state.error.class\",\"retryable\":true}}}"
+    },
+    {
+      "schema": "SessionMeta",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "title": "title",
+        "cwd": "cwd",
+        "status": "starting",
+        "controllerId": null,
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "epoch": 1,
+        "clientCount": 1,
+        "createdAt": "createdAt",
+        "lastActiveAt": "lastActiveAt",
+        "origin": {
+          "kind": "spawn"
+        },
+        "archived": true
+      },
+      "parseAdded": {
+        "readAt": null,
+        "unread": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"cwd\":\"cwd\",\"status\":\"starting\",\"controllerId\":null,\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"origin\":{\"kind\":\"spawn\"},\"archived\":true,\"readAt\":null,\"unread\":false}"
+    },
+    {
+      "schema": "SessionMeta",
+      "variant": "full/arm0",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "claude-code",
+        "title": "title",
+        "name": "name",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "nameSource": "user",
+        "cwd": "cwd",
+        "status": "starting",
+        "exitCode": 1,
+        "spawnFailure": "spawnFailure",
+        "controllerId": "controllerId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "epoch": 1,
+        "clientCount": 1,
+        "createdAt": "createdAt",
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "origin": {
+          "kind": "spawn"
+        },
+        "agentState": {
+          "phase": "unknown",
+          "since": "agentState.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": true
+          }
+        },
+        "archived": true,
+        "readAt": "readAt",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "self",
+        "unread": true,
+        "workState": "planning",
+        "resumable": true,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptAvailable": true,
+        "busy": true,
+        "agentColor": "agentColor",
+        "observedModel": "observedModel",
+        "observedEffort": "observedEffort",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "snoozedUntil": "snoozedUntil",
+        "draftUpdatedAt": "draftUpdatedAt",
+        "draftSyncEngine": true,
+        "queuedMessageCount": 1,
+        "offer": {
+          "message": "offer.message",
+          "actions": [
+            {
+              "label": "offer.actions[0].label",
+              "prompt": "offer.actions[0].prompt",
+              "input": true
+            }
+          ],
+          "artifacts": ["offer.artifacts[0]"],
+          "createdAt": "offer.createdAt"
+        },
+        "handoffTarget": "handoffTarget",
+        "conversationPodiumId": "conversationPodiumId",
+        "spawnedBy": "spawnedBy",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "issueId": "issueId",
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 1,
+        "displayRef": "displayRef",
+        "headless": true,
+        "viaHub": true,
+        "upstreamStale": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"user\",\"cwd\":\"cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true}},\"archived\":true,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptAvailable\":true,\"busy\":true,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":true,\"queuedMessageCount\":1,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":1,\"displayRef\":\"displayRef\",\"headless\":true,\"viaHub\":true,\"upstreamStale\":true}"
+    },
+    {
+      "schema": "SessionMeta",
+      "variant": "full/arm1",
+      "wire": {
+        "sessionId": "sessionId",
+        "agentKind": "codex",
+        "title": "title",
+        "name": "name",
+        "model": "model",
+        "effort": "effort",
+        "accountId": "accountId",
+        "nameSource": "agent",
+        "cwd": "cwd",
+        "status": "live",
+        "exitCode": 2,
+        "spawnFailure": "spawnFailure",
+        "controllerId": "controllerId",
+        "geometry": {
+          "cols": 2,
+          "rows": 2
+        },
+        "epoch": 2,
+        "clientCount": 2,
+        "createdAt": "createdAt",
+        "lastActiveAt": "lastActiveAt",
+        "lastInputAt": "lastInputAt",
+        "origin": {
+          "kind": "resume",
+          "conversationId": "origin.conversationId"
+        },
+        "agentState": {
+          "phase": "working",
+          "since": "agentState.since",
+          "workingMsTotal": 2,
+          "nativeSubagentCount": 2,
+          "nativeSubagents": [
+            {
+              "id": "agentState.nativeSubagents[0].id",
+              "type": "agentState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": false,
+          "idle": {
+            "kind": "question",
+            "summary": "agentState.idle.summary"
+          },
+          "need": {
+            "kind": "permission",
+            "summary": "agentState.need.summary"
+          },
+          "error": {
+            "class": "agentState.error.class",
+            "retryable": false
+          }
+        },
+        "archived": false,
+        "readAt": "readAt",
+        "stoppedAt": "stoppedAt",
+        "stopReason": "parent",
+        "unread": false,
+        "workState": "implementing",
+        "resumable": false,
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "transcriptAvailable": false,
+        "busy": false,
+        "agentColor": "agentColor",
+        "observedModel": "observedModel",
+        "observedEffort": "observedEffort",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "snoozedUntil": "snoozedUntil",
+        "draftUpdatedAt": "draftUpdatedAt",
+        "draftSyncEngine": false,
+        "queuedMessageCount": 2,
+        "offer": {
+          "message": "offer.message",
+          "actions": [
+            {
+              "label": "offer.actions[0].label",
+              "prompt": "offer.actions[0].prompt",
+              "input": false
+            }
+          ],
+          "artifacts": ["offer.artifacts[0]"],
+          "createdAt": "offer.createdAt"
+        },
+        "handoffTarget": "handoffTarget",
+        "conversationPodiumId": "conversationPodiumId",
+        "spawnedBy": "spawnedBy",
+        "workflowRunId": "workflowRunId",
+        "workflowStepId": "workflowStepId",
+        "executionProfileId": "executionProfileId",
+        "issueId": "issueId",
+        "refIssueId": "refIssueId",
+        "refLetter": "refLetter",
+        "refDraft": 2,
+        "displayRef": "displayRef",
+        "headless": false,
+        "viaHub": false,
+        "upstreamStale": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"title\":\"title\",\"name\":\"name\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"nameSource\":\"agent\",\"cwd\":\"cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"spawnFailure\",\"controllerId\":\"controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"clientCount\":2,\"createdAt\":\"createdAt\",\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\"},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":false}},\"archived\":false,\"readAt\":\"readAt\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptAvailable\":false,\"busy\":false,\"agentColor\":\"agentColor\",\"observedModel\":\"observedModel\",\"observedEffort\":\"observedEffort\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"snoozedUntil\":\"snoozedUntil\",\"draftUpdatedAt\":\"draftUpdatedAt\",\"draftSyncEngine\":false,\"queuedMessageCount\":2,\"offer\":{\"message\":\"offer.message\",\"actions\":[{\"label\":\"offer.actions[0].label\",\"prompt\":\"offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"offer.artifacts[0]\"],\"createdAt\":\"offer.createdAt\"},\"handoffTarget\":\"handoffTarget\",\"conversationPodiumId\":\"conversationPodiumId\",\"spawnedBy\":\"spawnedBy\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\",\"issueId\":\"issueId\",\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":2,\"displayRef\":\"displayRef\",\"headless\":false,\"viaHub\":false,\"upstreamStale\":false}"
+    },
+    {
+      "schema": "SessionObservationCheckpointV1",
+      "variant": "minimal",
+      "wire": {
+        "schemaVersion": 1,
+        "podiumSessionId": "podiumSessionId",
+        "provider": "claude-code",
+        "providerSessionId": null,
+        "bindingVersion": 1,
+        "lifecycleObservationGeneration": 1,
+        "providerCursor": null,
+        "bootstrapCursor": null,
+        "lastAcceptedLiveCursor": null,
+        "turnEpoch": 1,
+        "providerTurnId": null,
+        "providerPromptId": null,
+        "turnState": {
+          "phase": "unknown",
+          "since": "turnState.since",
+          "nativeSubagentCount": 1
+        },
+        "terminalFence": null,
+        "providerAt": null,
+        "acceptedAt": "2026-01-02T03:04:05.000Z",
+        "lastLiveReceiptAt": null,
+        "lastTransitionId": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"schemaVersion\":1,\"podiumSessionId\":\"podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":null,\"bindingVersion\":1,\"lifecycleObservationGeneration\":1,\"providerCursor\":null,\"bootstrapCursor\":null,\"lastAcceptedLiveCursor\":null,\"turnEpoch\":1,\"providerTurnId\":null,\"providerPromptId\":null,\"turnState\":{\"phase\":\"unknown\",\"since\":\"turnState.since\",\"nativeSubagentCount\":1},\"terminalFence\":null,\"providerAt\":null,\"acceptedAt\":\"2026-01-02T03:04:05.000Z\",\"lastLiveReceiptAt\":null,\"lastTransitionId\":null}"
+    },
+    {
+      "schema": "SessionObservationCheckpointV1",
+      "variant": "full",
+      "wire": {
+        "schemaVersion": 1,
+        "podiumSessionId": "podiumSessionId",
+        "provider": "claude-code",
+        "providerSessionId": "providerSessionId",
+        "bindingVersion": 1,
+        "lifecycleObservationGeneration": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "predecessorSegmentId": "providerCursor.predecessorSegmentId",
+          "pathHint": "providerCursor.pathHint",
+          "device": "providerCursor.device",
+          "inode": "providerCursor.inode",
+          "integrity": "providerCursor.integrity",
+          "components": {
+            "providerCursor.components.key": 1
+          }
+        },
+        "bootstrapCursor": {
+          "segmentId": "bootstrapCursor.segmentId",
+          "predecessorSegmentId": "bootstrapCursor.predecessorSegmentId",
+          "pathHint": "bootstrapCursor.pathHint",
+          "device": "bootstrapCursor.device",
+          "inode": "bootstrapCursor.inode",
+          "integrity": "bootstrapCursor.integrity",
+          "components": {
+            "bootstrapCursor.components.key": 1
+          }
+        },
+        "lastAcceptedLiveCursor": {
+          "segmentId": "lastAcceptedLiveCursor.segmentId",
+          "predecessorSegmentId": "lastAcceptedLiveCursor.predecessorSegmentId",
+          "pathHint": "lastAcceptedLiveCursor.pathHint",
+          "device": "lastAcceptedLiveCursor.device",
+          "inode": "lastAcceptedLiveCursor.inode",
+          "integrity": "lastAcceptedLiveCursor.integrity",
+          "components": {
+            "lastAcceptedLiveCursor.components.key": 1
+          }
+        },
+        "turnEpoch": 1,
+        "providerTurnId": "providerTurnId",
+        "providerPromptId": "providerPromptId",
+        "turnState": {
+          "phase": "unknown",
+          "since": "turnState.since",
+          "workingMsTotal": 1,
+          "nativeSubagentCount": 1,
+          "nativeSubagents": [
+            {
+              "id": "turnState.nativeSubagents[0].id",
+              "type": "turnState.nativeSubagents[0].type"
+            }
+          ],
+          "awaitingSubagents": true,
+          "idle": {
+            "kind": "done",
+            "summary": "turnState.idle.summary"
+          },
+          "need": {
+            "kind": "question",
+            "summary": "turnState.need.summary"
+          },
+          "error": {
+            "class": "turnState.error.class",
+            "retryable": true
+          }
+        },
+        "terminalFence": {
+          "turnEpoch": 1,
+          "providerCursor": {
+            "segmentId": "terminalFence.providerCursor.segmentId",
+            "predecessorSegmentId": "terminalFence.providerCursor.predecessorSegmentId",
+            "pathHint": "terminalFence.providerCursor.pathHint",
+            "device": "terminalFence.providerCursor.device",
+            "inode": "terminalFence.providerCursor.inode",
+            "integrity": "terminalFence.providerCursor.integrity",
+            "components": {
+              "terminalFence.providerCursor.components.key": 1
+            }
+          },
+          "verdict": "done",
+          "transitionId": "terminalFence.transitionId",
+          "closing": true
+        },
+        "providerAt": "2026-01-02T03:04:05.000Z",
+        "acceptedAt": "2026-01-02T03:04:05.000Z",
+        "lastLiveReceiptAt": "2026-01-02T03:04:05.000Z",
+        "lastTransitionId": "lastTransitionId",
+        "acceptedTransitionIds": ["acceptedTransitionIds[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"schemaVersion\":1,\"podiumSessionId\":\"podiumSessionId\",\"provider\":\"claude-code\",\"providerSessionId\":\"providerSessionId\",\"bindingVersion\":1,\"lifecycleObservationGeneration\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"predecessorSegmentId\":\"providerCursor.predecessorSegmentId\",\"pathHint\":\"providerCursor.pathHint\",\"device\":\"providerCursor.device\",\"inode\":\"providerCursor.inode\",\"integrity\":\"providerCursor.integrity\",\"components\":{\"providerCursor.components.key\":1}},\"bootstrapCursor\":{\"segmentId\":\"bootstrapCursor.segmentId\",\"predecessorSegmentId\":\"bootstrapCursor.predecessorSegmentId\",\"pathHint\":\"bootstrapCursor.pathHint\",\"device\":\"bootstrapCursor.device\",\"inode\":\"bootstrapCursor.inode\",\"integrity\":\"bootstrapCursor.integrity\",\"components\":{\"bootstrapCursor.components.key\":1}},\"lastAcceptedLiveCursor\":{\"segmentId\":\"lastAcceptedLiveCursor.segmentId\",\"predecessorSegmentId\":\"lastAcceptedLiveCursor.predecessorSegmentId\",\"pathHint\":\"lastAcceptedLiveCursor.pathHint\",\"device\":\"lastAcceptedLiveCursor.device\",\"inode\":\"lastAcceptedLiveCursor.inode\",\"integrity\":\"lastAcceptedLiveCursor.integrity\",\"components\":{\"lastAcceptedLiveCursor.components.key\":1}},\"turnEpoch\":1,\"providerTurnId\":\"providerTurnId\",\"providerPromptId\":\"providerPromptId\",\"turnState\":{\"phase\":\"unknown\",\"since\":\"turnState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"turnState.nativeSubagents[0].id\",\"type\":\"turnState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"turnState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"turnState.need.summary\"},\"error\":{\"class\":\"turnState.error.class\",\"retryable\":true}},\"terminalFence\":{\"turnEpoch\":1,\"providerCursor\":{\"segmentId\":\"terminalFence.providerCursor.segmentId\",\"predecessorSegmentId\":\"terminalFence.providerCursor.predecessorSegmentId\",\"pathHint\":\"terminalFence.providerCursor.pathHint\",\"device\":\"terminalFence.providerCursor.device\",\"inode\":\"terminalFence.providerCursor.inode\",\"integrity\":\"terminalFence.providerCursor.integrity\",\"components\":{\"terminalFence.providerCursor.components.key\":1}},\"verdict\":\"done\",\"transitionId\":\"terminalFence.transitionId\",\"closing\":true},\"providerAt\":\"2026-01-02T03:04:05.000Z\",\"acceptedAt\":\"2026-01-02T03:04:05.000Z\",\"lastLiveReceiptAt\":\"2026-01-02T03:04:05.000Z\",\"lastTransitionId\":\"lastTransitionId\",\"acceptedTransitionIds\":[\"acceptedTransitionIds[0]\"]}"
+    },
+    {
+      "schema": "SessionOffer",
+      "variant": "minimal",
+      "wire": {
+        "message": "message",
+        "actions": [],
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"message\":\"message\",\"actions\":[],\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "SessionOffer",
+      "variant": "full",
+      "wire": {
+        "message": "message",
+        "actions": [
+          {
+            "label": "actions[0].label",
+            "prompt": "actions[0].prompt",
+            "input": true
+          }
+        ],
+        "artifacts": ["artifacts[0]"],
+        "createdAt": "createdAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"message\":\"message\",\"actions\":[{\"label\":\"actions[0].label\",\"prompt\":\"actions[0].prompt\",\"input\":true}],\"artifacts\":[\"artifacts[0]\"],\"createdAt\":\"createdAt\"}"
+    },
+    {
+      "schema": "SessionOrigin",
+      "variant": "minimal",
+      "wire": {
+        "kind": "spawn"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"spawn\"}"
+    },
+    {
+      "schema": "SessionOrigin",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "spawn"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"spawn\"}"
+    },
+    {
+      "schema": "SessionOrigin",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "resume",
+        "conversationId": "conversationId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"resume\",\"conversationId\":\"conversationId\"}"
+    },
+    {
+      "schema": "SessionsChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionsChanged",
+        "sessions": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionsChanged\",\"sessions\":[]}"
+    },
+    {
+      "schema": "SessionsChangedMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "sessionsChanged",
+        "sessions": [
+          {
+            "sessionId": "sessions[0].sessionId",
+            "agentKind": "claude-code",
+            "title": "sessions[0].title",
+            "name": "sessions[0].name",
+            "model": "sessions[0].model",
+            "effort": "sessions[0].effort",
+            "accountId": "sessions[0].accountId",
+            "nameSource": "user",
+            "cwd": "sessions[0].cwd",
+            "status": "starting",
+            "exitCode": 1,
+            "spawnFailure": "sessions[0].spawnFailure",
+            "controllerId": "sessions[0].controllerId",
+            "geometry": {
+              "cols": 1,
+              "rows": 1
+            },
+            "epoch": 1,
+            "clientCount": 1,
+            "createdAt": "sessions[0].createdAt",
+            "lastActiveAt": "sessions[0].lastActiveAt",
+            "lastInputAt": "sessions[0].lastInputAt",
+            "origin": {
+              "kind": "spawn"
+            },
+            "agentState": {
+              "phase": "unknown",
+              "since": "sessions[0].agentState.since",
+              "workingMsTotal": 1,
+              "nativeSubagentCount": 1,
+              "nativeSubagents": [
+                {
+                  "id": "sessions[0].agentState.nativeSubagents[0].id",
+                  "type": "sessions[0].agentState.nativeSubagents[0].type"
+                }
+              ],
+              "awaitingSubagents": true,
+              "idle": {
+                "kind": "done",
+                "summary": "sessions[0].agentState.idle.summary"
+              },
+              "need": {
+                "kind": "question",
+                "summary": "sessions[0].agentState.need.summary"
+              },
+              "error": {
+                "class": "sessions[0].agentState.error.class",
+                "retryable": true
+              }
+            },
+            "archived": true,
+            "readAt": "sessions[0].readAt",
+            "stoppedAt": "sessions[0].stoppedAt",
+            "stopReason": "self",
+            "unread": true,
+            "workState": "planning",
+            "resumable": true,
+            "resume": {
+              "kind": "sessions[0].resume.kind",
+              "value": "sessions[0].resume.value"
+            },
+            "transcriptAvailable": true,
+            "busy": true,
+            "agentColor": "sessions[0].agentColor",
+            "observedModel": "sessions[0].observedModel",
+            "observedEffort": "sessions[0].observedEffort",
+            "machineId": "sessions[0].machineId",
+            "machineName": "sessions[0].machineName",
+            "snoozedUntil": "sessions[0].snoozedUntil",
+            "draftUpdatedAt": "sessions[0].draftUpdatedAt",
+            "draftSyncEngine": true,
+            "queuedMessageCount": 1,
+            "offer": {
+              "message": "sessions[0].offer.message",
+              "actions": [
+                {
+                  "label": "sessions[0].offer.actions[0].label",
+                  "prompt": "sessions[0].offer.actions[0].prompt",
+                  "input": true
+                }
+              ],
+              "artifacts": ["sessions[0].offer.artifacts[0]"],
+              "createdAt": "sessions[0].offer.createdAt"
+            },
+            "handoffTarget": "sessions[0].handoffTarget",
+            "conversationPodiumId": "sessions[0].conversationPodiumId",
+            "spawnedBy": "sessions[0].spawnedBy",
+            "workflowRunId": "sessions[0].workflowRunId",
+            "workflowStepId": "sessions[0].workflowStepId",
+            "executionProfileId": "sessions[0].executionProfileId",
+            "issueId": "sessions[0].issueId",
+            "refIssueId": "sessions[0].refIssueId",
+            "refLetter": "sessions[0].refLetter",
+            "refDraft": 1,
+            "displayRef": "sessions[0].displayRef",
+            "headless": true,
+            "viaHub": true,
+            "upstreamStale": true
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionsChanged\",\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"agentKind\":\"claude-code\",\"title\":\"sessions[0].title\",\"name\":\"sessions[0].name\",\"model\":\"sessions[0].model\",\"effort\":\"sessions[0].effort\",\"accountId\":\"sessions[0].accountId\",\"nameSource\":\"user\",\"cwd\":\"sessions[0].cwd\",\"status\":\"starting\",\"exitCode\":1,\"spawnFailure\":\"sessions[0].spawnFailure\",\"controllerId\":\"sessions[0].controllerId\",\"geometry\":{\"cols\":1,\"rows\":1},\"epoch\":1,\"clientCount\":1,\"createdAt\":\"sessions[0].createdAt\",\"lastActiveAt\":\"sessions[0].lastActiveAt\",\"lastInputAt\":\"sessions[0].lastInputAt\",\"origin\":{\"kind\":\"spawn\"},\"agentState\":{\"phase\":\"unknown\",\"since\":\"sessions[0].agentState.since\",\"workingMsTotal\":1,\"nativeSubagentCount\":1,\"nativeSubagents\":[{\"id\":\"sessions[0].agentState.nativeSubagents[0].id\",\"type\":\"sessions[0].agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"done\",\"summary\":\"sessions[0].agentState.idle.summary\"},\"need\":{\"kind\":\"question\",\"summary\":\"sessions[0].agentState.need.summary\"},\"error\":{\"class\":\"sessions[0].agentState.error.class\",\"retryable\":true}},\"archived\":true,\"readAt\":\"sessions[0].readAt\",\"stoppedAt\":\"sessions[0].stoppedAt\",\"stopReason\":\"self\",\"unread\":true,\"workState\":\"planning\",\"resumable\":true,\"resume\":{\"kind\":\"sessions[0].resume.kind\",\"value\":\"sessions[0].resume.value\"},\"transcriptAvailable\":true,\"busy\":true,\"agentColor\":\"sessions[0].agentColor\",\"observedModel\":\"sessions[0].observedModel\",\"observedEffort\":\"sessions[0].observedEffort\",\"machineId\":\"sessions[0].machineId\",\"machineName\":\"sessions[0].machineName\",\"snoozedUntil\":\"sessions[0].snoozedUntil\",\"draftUpdatedAt\":\"sessions[0].draftUpdatedAt\",\"draftSyncEngine\":true,\"queuedMessageCount\":1,\"offer\":{\"message\":\"sessions[0].offer.message\",\"actions\":[{\"label\":\"sessions[0].offer.actions[0].label\",\"prompt\":\"sessions[0].offer.actions[0].prompt\",\"input\":true}],\"artifacts\":[\"sessions[0].offer.artifacts[0]\"],\"createdAt\":\"sessions[0].offer.createdAt\"},\"handoffTarget\":\"sessions[0].handoffTarget\",\"conversationPodiumId\":\"sessions[0].conversationPodiumId\",\"spawnedBy\":\"sessions[0].spawnedBy\",\"workflowRunId\":\"sessions[0].workflowRunId\",\"workflowStepId\":\"sessions[0].workflowStepId\",\"executionProfileId\":\"sessions[0].executionProfileId\",\"issueId\":\"sessions[0].issueId\",\"refIssueId\":\"sessions[0].refIssueId\",\"refLetter\":\"sessions[0].refLetter\",\"refDraft\":1,\"displayRef\":\"sessions[0].displayRef\",\"headless\":true,\"viaHub\":true,\"upstreamStale\":true}]}"
+    },
+    {
+      "schema": "SessionsChangedMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "sessionsChanged",
+        "sessions": [
+          {
+            "sessionId": "sessions[0].sessionId",
+            "agentKind": "codex",
+            "title": "sessions[0].title",
+            "name": "sessions[0].name",
+            "model": "sessions[0].model",
+            "effort": "sessions[0].effort",
+            "accountId": "sessions[0].accountId",
+            "nameSource": "agent",
+            "cwd": "sessions[0].cwd",
+            "status": "live",
+            "exitCode": 2,
+            "spawnFailure": "sessions[0].spawnFailure",
+            "controllerId": "sessions[0].controllerId",
+            "geometry": {
+              "cols": 2,
+              "rows": 2
+            },
+            "epoch": 2,
+            "clientCount": 2,
+            "createdAt": "sessions[0].createdAt",
+            "lastActiveAt": "sessions[0].lastActiveAt",
+            "lastInputAt": "sessions[0].lastInputAt",
+            "origin": {
+              "kind": "resume",
+              "conversationId": "sessions[0].origin.conversationId"
+            },
+            "agentState": {
+              "phase": "working",
+              "since": "sessions[0].agentState.since",
+              "workingMsTotal": 2,
+              "nativeSubagentCount": 2,
+              "nativeSubagents": [
+                {
+                  "id": "sessions[0].agentState.nativeSubagents[0].id",
+                  "type": "sessions[0].agentState.nativeSubagents[0].type"
+                }
+              ],
+              "awaitingSubagents": false,
+              "idle": {
+                "kind": "question",
+                "summary": "sessions[0].agentState.idle.summary"
+              },
+              "need": {
+                "kind": "permission",
+                "summary": "sessions[0].agentState.need.summary"
+              },
+              "error": {
+                "class": "sessions[0].agentState.error.class",
+                "retryable": false
+              }
+            },
+            "archived": false,
+            "readAt": "sessions[0].readAt",
+            "stoppedAt": "sessions[0].stoppedAt",
+            "stopReason": "parent",
+            "unread": false,
+            "workState": "implementing",
+            "resumable": false,
+            "resume": {
+              "kind": "sessions[0].resume.kind",
+              "value": "sessions[0].resume.value"
+            },
+            "transcriptAvailable": false,
+            "busy": false,
+            "agentColor": "sessions[0].agentColor",
+            "observedModel": "sessions[0].observedModel",
+            "observedEffort": "sessions[0].observedEffort",
+            "machineId": "sessions[0].machineId",
+            "machineName": "sessions[0].machineName",
+            "snoozedUntil": "sessions[0].snoozedUntil",
+            "draftUpdatedAt": "sessions[0].draftUpdatedAt",
+            "draftSyncEngine": false,
+            "queuedMessageCount": 2,
+            "offer": {
+              "message": "sessions[0].offer.message",
+              "actions": [
+                {
+                  "label": "sessions[0].offer.actions[0].label",
+                  "prompt": "sessions[0].offer.actions[0].prompt",
+                  "input": false
+                }
+              ],
+              "artifacts": ["sessions[0].offer.artifacts[0]"],
+              "createdAt": "sessions[0].offer.createdAt"
+            },
+            "handoffTarget": "sessions[0].handoffTarget",
+            "conversationPodiumId": "sessions[0].conversationPodiumId",
+            "spawnedBy": "sessions[0].spawnedBy",
+            "workflowRunId": "sessions[0].workflowRunId",
+            "workflowStepId": "sessions[0].workflowStepId",
+            "executionProfileId": "sessions[0].executionProfileId",
+            "issueId": "sessions[0].issueId",
+            "refIssueId": "sessions[0].refIssueId",
+            "refLetter": "sessions[0].refLetter",
+            "refDraft": 2,
+            "displayRef": "sessions[0].displayRef",
+            "headless": false,
+            "viaHub": false,
+            "upstreamStale": false
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionsChanged\",\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"agentKind\":\"codex\",\"title\":\"sessions[0].title\",\"name\":\"sessions[0].name\",\"model\":\"sessions[0].model\",\"effort\":\"sessions[0].effort\",\"accountId\":\"sessions[0].accountId\",\"nameSource\":\"agent\",\"cwd\":\"sessions[0].cwd\",\"status\":\"live\",\"exitCode\":2,\"spawnFailure\":\"sessions[0].spawnFailure\",\"controllerId\":\"sessions[0].controllerId\",\"geometry\":{\"cols\":2,\"rows\":2},\"epoch\":2,\"clientCount\":2,\"createdAt\":\"sessions[0].createdAt\",\"lastActiveAt\":\"sessions[0].lastActiveAt\",\"lastInputAt\":\"sessions[0].lastInputAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"sessions[0].origin.conversationId\"},\"agentState\":{\"phase\":\"working\",\"since\":\"sessions[0].agentState.since\",\"workingMsTotal\":2,\"nativeSubagentCount\":2,\"nativeSubagents\":[{\"id\":\"sessions[0].agentState.nativeSubagents[0].id\",\"type\":\"sessions[0].agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":false,\"idle\":{\"kind\":\"question\",\"summary\":\"sessions[0].agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"sessions[0].agentState.need.summary\"},\"error\":{\"class\":\"sessions[0].agentState.error.class\",\"retryable\":false}},\"archived\":false,\"readAt\":\"sessions[0].readAt\",\"stoppedAt\":\"sessions[0].stoppedAt\",\"stopReason\":\"parent\",\"unread\":false,\"workState\":\"implementing\",\"resumable\":false,\"resume\":{\"kind\":\"sessions[0].resume.kind\",\"value\":\"sessions[0].resume.value\"},\"transcriptAvailable\":false,\"busy\":false,\"agentColor\":\"sessions[0].agentColor\",\"observedModel\":\"sessions[0].observedModel\",\"observedEffort\":\"sessions[0].observedEffort\",\"machineId\":\"sessions[0].machineId\",\"machineName\":\"sessions[0].machineName\",\"snoozedUntil\":\"sessions[0].snoozedUntil\",\"draftUpdatedAt\":\"sessions[0].draftUpdatedAt\",\"draftSyncEngine\":false,\"queuedMessageCount\":2,\"offer\":{\"message\":\"sessions[0].offer.message\",\"actions\":[{\"label\":\"sessions[0].offer.actions[0].label\",\"prompt\":\"sessions[0].offer.actions[0].prompt\",\"input\":false}],\"artifacts\":[\"sessions[0].offer.artifacts[0]\"],\"createdAt\":\"sessions[0].offer.createdAt\"},\"handoffTarget\":\"sessions[0].handoffTarget\",\"conversationPodiumId\":\"sessions[0].conversationPodiumId\",\"spawnedBy\":\"sessions[0].spawnedBy\",\"workflowRunId\":\"sessions[0].workflowRunId\",\"workflowStepId\":\"sessions[0].workflowStepId\",\"executionProfileId\":\"sessions[0].executionProfileId\",\"issueId\":\"sessions[0].issueId\",\"refIssueId\":\"sessions[0].refIssueId\",\"refLetter\":\"sessions[0].refLetter\",\"refDraft\":2,\"displayRef\":\"sessions[0].displayRef\",\"headless\":false,\"viaHub\":false,\"upstreamStale\":false}]}"
+    },
+    {
+      "schema": "SessionViewDeltaMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionViewDelta",
+        "removedSessionIds": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionViewDelta\",\"removedSessionIds\":[]}"
+    },
+    {
+      "schema": "SessionViewDeltaMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionViewDelta",
+        "removedSessionIds": ["removedSessionIds[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionViewDelta\",\"removedSessionIds\":[\"removedSessionIds[0]\"]}"
+    },
+    {
+      "schema": "TerminalFence",
+      "variant": "minimal",
+      "wire": {
+        "turnEpoch": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "components": {}
+        },
+        "verdict": "done",
+        "transitionId": "transitionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"turnEpoch\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"components\":{}},\"verdict\":\"done\",\"transitionId\":\"transitionId\"}"
+    },
+    {
+      "schema": "TerminalFence",
+      "variant": "full",
+      "wire": {
+        "turnEpoch": 1,
+        "providerCursor": {
+          "segmentId": "providerCursor.segmentId",
+          "predecessorSegmentId": "providerCursor.predecessorSegmentId",
+          "pathHint": "providerCursor.pathHint",
+          "device": "providerCursor.device",
+          "inode": "providerCursor.inode",
+          "integrity": "providerCursor.integrity",
+          "components": {
+            "providerCursor.components.key": 1
+          }
+        },
+        "verdict": "done",
+        "transitionId": "transitionId",
+        "closing": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"turnEpoch\":1,\"providerCursor\":{\"segmentId\":\"providerCursor.segmentId\",\"predecessorSegmentId\":\"providerCursor.predecessorSegmentId\",\"pathHint\":\"providerCursor.pathHint\",\"device\":\"providerCursor.device\",\"inode\":\"providerCursor.inode\",\"integrity\":\"providerCursor.integrity\",\"components\":{\"providerCursor.components.key\":1}},\"verdict\":\"done\",\"transitionId\":\"transitionId\",\"closing\":true}"
+    },
+    {
+      "schema": "WorkState",
+      "variant": "minimal",
+      "wire": "planning",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"planning\""
+    },
+    {
+      "schema": "WorkState",
+      "variant": "full",
+      "wire": "planning",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"planning\""
+    }
+  ]
+}

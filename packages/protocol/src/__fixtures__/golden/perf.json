@@ -1,0 +1,129 @@
+{
+  "family": "perf",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "clientSwitchTraceSchema",
+      "variant": "minimal",
+      "wire": {
+        "switchId": "switchId",
+        "startedAt": 1,
+        "sessionId": "sessionId",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 1,
+        "timedOut": true,
+        "marks": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":1,\"sessionId\":\"sessionId\",\"mode\":\"chat\",\"cold\":true,\"totalMs\":1,\"timedOut\":true,\"marks\":[]}"
+    },
+    {
+      "schema": "clientSwitchTraceSchema",
+      "variant": "full/arm0",
+      "wire": {
+        "switchId": "switchId",
+        "startedAt": 1,
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 1,
+        "timedOut": true,
+        "marks": [
+          {
+            "name": "marks[0].name",
+            "atMs": 1
+          }
+        ],
+        "meta": {
+          "meta.key": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":1,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"chat\",\"cold\":true,\"totalMs\":1,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":1}],\"meta\":{\"meta.key\":1}}"
+    },
+    {
+      "schema": "clientSwitchTraceSchema",
+      "variant": "full/arm1",
+      "wire": {
+        "switchId": "switchId",
+        "startedAt": 2,
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 2,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "marks[0].name",
+            "atMs": 2
+          }
+        ],
+        "meta": {
+          "meta.key": "meta.meta.key"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":2,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"native\",\"cold\":false,\"totalMs\":2,\"timedOut\":false,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":2}],\"meta\":{\"meta.key\":\"meta.meta.key\"}}"
+    },
+    {
+      "schema": "clientSwitchTraceSchema",
+      "variant": "full/arm2",
+      "wire": {
+        "switchId": "switchId",
+        "startedAt": 3,
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "mode": "unknown",
+        "cold": true,
+        "totalMs": 3,
+        "timedOut": true,
+        "marks": [
+          {
+            "name": "marks[0].name",
+            "atMs": 3
+          }
+        ],
+        "meta": {
+          "meta.key": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"switchId\":\"switchId\",\"startedAt\":3,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"unknown\",\"cold\":true,\"totalMs\":3,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":3}],\"meta\":{\"meta.key\":true}}"
+    },
+    {
+      "schema": "switchMarkSchema",
+      "variant": "minimal",
+      "wire": {
+        "name": "name",
+        "atMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"atMs\":1}"
+    },
+    {
+      "schema": "switchMarkSchema",
+      "variant": "full",
+      "wire": {
+        "name": "name",
+        "atMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"name\":\"name\",\"atMs\":1}"
+    }
+  ]
+}

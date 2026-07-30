@@ -1,0 +1,231 @@
+{
+  "family": "workspace",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "WorkspaceCleanRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceCleanRequest",
+        "requestId": "requestId",
+        "repoPath": "repoPath"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceCleanRequest\",\"requestId\":\"requestId\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "WorkspaceCleanRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceCleanRequest",
+        "requestId": "requestId",
+        "repoPath": "repoPath"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceCleanRequest\",\"requestId\":\"requestId\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "WorkspaceCleanResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceCleanResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceCleanResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "WorkspaceCleanResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceCleanResult",
+        "requestId": "requestId",
+        "ok": true,
+        "removed": ["removed[0]"],
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceCleanResult\",\"requestId\":\"requestId\",\"ok\":true,\"removed\":[\"removed[0]\"],\"error\":\"error\"}"
+    },
+    {
+      "schema": "WorkspaceExportRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceExportRequest",
+        "requestId": "requestId",
+        "fetchId": "fetchId",
+        "cwd": "cwd",
+        "baseShas": [],
+        "repoId": "repoId",
+        "sourceMachineId": "sourceMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceExportRequest\",\"requestId\":\"requestId\",\"fetchId\":\"fetchId\",\"cwd\":\"cwd\",\"baseShas\":[],\"repoId\":\"repoId\",\"sourceMachineId\":\"sourceMachineId\"}"
+    },
+    {
+      "schema": "WorkspaceExportRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceExportRequest",
+        "requestId": "requestId",
+        "fetchId": "fetchId",
+        "cwd": "cwd",
+        "baseShas": ["baseShas[0]"],
+        "repoId": "repoId",
+        "sourceMachineId": "sourceMachineId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceExportRequest\",\"requestId\":\"requestId\",\"fetchId\":\"fetchId\",\"cwd\":\"cwd\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"sourceMachineId\":\"sourceMachineId\"}"
+    },
+    {
+      "schema": "WorkspaceExportResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceExportResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceExportResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "WorkspaceExportResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceExportResult",
+        "requestId": "requestId",
+        "ok": true,
+        "manifest": {
+          "format": 1,
+          "fetchId": "manifest.fetchId",
+          "repoId": "manifest.repoId",
+          "branch": "manifest.branch",
+          "headSha": "manifest.headSha",
+          "snapshotSha": "manifest.snapshotSha",
+          "worktreeName": "manifest.worktreeName",
+          "bundleBase": ["manifest.bundleBase[0]"],
+          "sourceMachineId": "manifest.sourceMachineId",
+          "exportedAt": "manifest.exportedAt"
+        },
+        "sizeBytes": 1,
+        "stagePath": "stagePath",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"fetchId\":\"manifest.fetchId\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"worktreeName\":\"manifest.worktreeName\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "WorkspaceImportRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceImportRequest",
+        "requestId": "requestId",
+        "fetchId": "fetchId",
+        "repoPath": "repoPath"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceImportRequest\",\"requestId\":\"requestId\",\"fetchId\":\"fetchId\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "WorkspaceImportRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceImportRequest",
+        "requestId": "requestId",
+        "fetchId": "fetchId",
+        "repoPath": "repoPath"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceImportRequest\",\"requestId\":\"requestId\",\"fetchId\":\"fetchId\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "WorkspaceImportResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "workspaceImportResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceImportResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "WorkspaceImportResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "workspaceImportResult",
+        "requestId": "requestId",
+        "ok": true,
+        "path": "path",
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"workspaceImportResult\",\"requestId\":\"requestId\",\"ok\":true,\"path\":\"path\",\"error\":\"error\"}"
+    },
+    {
+      "schema": "WorkspaceManifest",
+      "variant": "minimal",
+      "wire": {
+        "format": 1,
+        "fetchId": "fetchId",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": null,
+        "worktreeName": "worktreeName",
+        "bundleBase": [],
+        "sourceMachineId": "sourceMachineId",
+        "exportedAt": "exportedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":1,\"fetchId\":\"fetchId\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":null,\"worktreeName\":\"worktreeName\",\"bundleBase\":[],\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
+    },
+    {
+      "schema": "WorkspaceManifest",
+      "variant": "full",
+      "wire": {
+        "format": 1,
+        "fetchId": "fetchId",
+        "repoId": "repoId",
+        "branch": "branch",
+        "headSha": "headSha",
+        "snapshotSha": "snapshotSha",
+        "worktreeName": "worktreeName",
+        "bundleBase": ["bundleBase[0]"],
+        "sourceMachineId": "sourceMachineId",
+        "exportedAt": "exportedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"format\":1,\"fetchId\":\"fetchId\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"worktreeName\":\"worktreeName\",\"bundleBase\":[\"bundleBase[0]\"],\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
+    }
+  ]
+}

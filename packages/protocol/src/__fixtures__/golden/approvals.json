@@ -1,0 +1,746 @@
+{
+  "family": "approvals",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "update"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"update\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "update"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"update\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "channel",
+          "target": "edge"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"channel\",\"target\":\"edge\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "stop"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"stop\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "set-server",
+          "target": "op.target"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"set-server\",\"target\":\"op.target\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "workflow-publish",
+          "revisionId": "op.revisionId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"workflow-publish\",\"revisionId\":\"op.revisionId\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "workflow-set-default",
+          "targetKind": "repository",
+          "targetId": "op.targetId",
+          "revisionId": "op.revisionId"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"op.targetId\",\"revisionId\":\"op.revisionId\"}}"
+    },
+    {
+      "schema": "ApprovalExecRequestMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "approvalExecRequest",
+        "requestId": "requestId",
+        "op": {
+          "kind": "automation-schedule",
+          "name": "op.name",
+          "runAt": "2026-01-02T03:04:05.000Z",
+          "prompt": "op.prompt",
+          "target": {
+            "kind": "fresh",
+            "repoPath": "op.target.repoPath",
+            "agentKind": "shell",
+            "model": "op.target.model",
+            "effort": "op.target.effort"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}}}"
+    },
+    {
+      "schema": "ApprovalExecResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "approvalExecResult",
+        "requestId": "requestId",
+        "ok": true,
+        "exitCode": null,
+        "output": "output"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecResult\",\"requestId\":\"requestId\",\"ok\":true,\"exitCode\":null,\"output\":\"output\"}"
+    },
+    {
+      "schema": "ApprovalExecResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "approvalExecResult",
+        "requestId": "requestId",
+        "ok": true,
+        "exitCode": 1,
+        "output": "output"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalExecResult\",\"requestId\":\"requestId\",\"ok\":true,\"exitCode\":1,\"output\":\"output\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "minimal",
+      "wire": {
+        "kind": "update"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"update\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "update"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"update\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "channel",
+        "target": "edge"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"channel\",\"target\":\"edge\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "stop"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"stop\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "set-server",
+        "target": "target"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"set-server\",\"target\":\"target\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "workflow-publish",
+        "revisionId": "revisionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"workflow-publish\",\"revisionId\":\"revisionId\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "workflow-set-default",
+        "targetKind": "repository",
+        "targetId": "targetId",
+        "revisionId": "revisionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"targetId\",\"revisionId\":\"revisionId\"}"
+    },
+    {
+      "schema": "ApprovalOp",
+      "variant": "full/arm6",
+      "wire": {
+        "kind": "automation-schedule",
+        "name": "name",
+        "runAt": "2026-01-02T03:04:05.000Z",
+        "prompt": "prompt",
+        "target": {
+          "kind": "fresh",
+          "repoPath": "target.repoPath",
+          "agentKind": "shell",
+          "model": "target.model",
+          "effort": "target.effort"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"automation-schedule\",\"name\":\"name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"target.repoPath\",\"agentKind\":\"shell\",\"model\":\"target.model\",\"effort\":\"target.effort\"}}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 1,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "update"
+            },
+            "status": "pending",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":1,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"update\"},\"status\":\"pending\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 2,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "channel",
+              "target": "edge"
+            },
+            "status": "denied",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":2,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"channel\",\"target\":\"edge\"},\"status\":\"denied\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 3,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "stop"
+            },
+            "status": "executing",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":3,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"stop\"},\"status\":\"executing\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 4,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "set-server",
+              "target": "pending[0].op.target"
+            },
+            "status": "succeeded",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":4,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"set-server\",\"target\":\"pending[0].op.target\"},\"status\":\"succeeded\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 5,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "workflow-publish",
+              "revisionId": "pending[0].op.revisionId"
+            },
+            "status": "failed",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":5,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"workflow-publish\",\"revisionId\":\"pending[0].op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 6,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "workflow-set-default",
+              "targetKind": "repository",
+              "targetId": "pending[0].op.targetId",
+              "revisionId": "pending[0].op.revisionId"
+            },
+            "status": "failed",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":6,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"pending[0].op.targetId\",\"revisionId\":\"pending[0].op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalsChangedMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "approvalsChanged",
+        "pending": [
+          {
+            "id": "pending[0].id",
+            "machineId": "pending[0].machineId",
+            "machineName": "pending[0].machineName",
+            "sessionId": "pending[0].sessionId",
+            "issueId": "pending[0].issueId",
+            "issueSeq": 7,
+            "issueDisplayRef": "pending[0].issueDisplayRef",
+            "issueTitle": "pending[0].issueTitle",
+            "op": {
+              "kind": "automation-schedule",
+              "name": "pending[0].op.name",
+              "runAt": "2026-01-02T03:04:05.000Z",
+              "prompt": "pending[0].op.prompt",
+              "target": {
+                "kind": "fresh",
+                "repoPath": "pending[0].op.target.repoPath",
+                "agentKind": "shell",
+                "model": "pending[0].op.target.model",
+                "effort": "pending[0].op.target.effort"
+              }
+            },
+            "status": "failed",
+            "createdAt": "pending[0].createdAt",
+            "decidedAt": "pending[0].decidedAt",
+            "resultText": "pending[0].resultText"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"approvalsChanged\",\"pending\":[{\"id\":\"pending[0].id\",\"machineId\":\"pending[0].machineId\",\"machineName\":\"pending[0].machineName\",\"sessionId\":\"pending[0].sessionId\",\"issueId\":\"pending[0].issueId\",\"issueSeq\":7,\"issueDisplayRef\":\"pending[0].issueDisplayRef\",\"issueTitle\":\"pending[0].issueTitle\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"pending[0].op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"pending[0].op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"pending[0].op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"pending[0].op.target.model\",\"effort\":\"pending[0].op.target.effort\"}},\"status\":\"failed\",\"createdAt\":\"pending[0].createdAt\",\"decidedAt\":\"pending[0].decidedAt\",\"resultText\":\"pending[0].resultText\"}]}"
+    },
+    {
+      "schema": "ApprovalStatus",
+      "variant": "minimal",
+      "wire": "pending",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"pending\""
+    },
+    {
+      "schema": "ApprovalStatus",
+      "variant": "full",
+      "wire": "pending",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"pending\""
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "sessionId": "sessionId",
+        "issueId": null,
+        "issueSeq": null,
+        "issueTitle": null,
+        "op": {
+          "kind": "update"
+        },
+        "status": "pending",
+        "createdAt": "createdAt",
+        "decidedAt": null,
+        "resultText": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":null,\"issueSeq\":null,\"issueTitle\":null,\"op\":{\"kind\":\"update\"},\"status\":\"pending\",\"createdAt\":\"createdAt\",\"decidedAt\":null,\"resultText\":null}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 1,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "update"
+        },
+        "status": "pending",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":1,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"update\"},\"status\":\"pending\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 2,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "channel",
+          "target": "edge"
+        },
+        "status": "denied",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":2,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"channel\",\"target\":\"edge\"},\"status\":\"denied\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 3,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "stop"
+        },
+        "status": "executing",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":3,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"stop\"},\"status\":\"executing\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 4,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "set-server",
+          "target": "op.target"
+        },
+        "status": "succeeded",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":4,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"set-server\",\"target\":\"op.target\"},\"status\":\"succeeded\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 5,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "workflow-publish",
+          "revisionId": "op.revisionId"
+        },
+        "status": "failed",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":5,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"workflow-publish\",\"revisionId\":\"op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm5",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 6,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "workflow-set-default",
+          "targetKind": "repository",
+          "targetId": "op.targetId",
+          "revisionId": "op.revisionId"
+        },
+        "status": "failed",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":6,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"workflow-set-default\",\"targetKind\":\"repository\",\"targetId\":\"op.targetId\",\"revisionId\":\"op.revisionId\"},\"status\":\"failed\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    },
+    {
+      "schema": "ApprovalWire",
+      "variant": "full/arm6",
+      "wire": {
+        "id": "id",
+        "machineId": "machineId",
+        "machineName": "machineName",
+        "sessionId": "sessionId",
+        "issueId": "issueId",
+        "issueSeq": 7,
+        "issueDisplayRef": "issueDisplayRef",
+        "issueTitle": "issueTitle",
+        "op": {
+          "kind": "automation-schedule",
+          "name": "op.name",
+          "runAt": "2026-01-02T03:04:05.000Z",
+          "prompt": "op.prompt",
+          "target": {
+            "kind": "fresh",
+            "repoPath": "op.target.repoPath",
+            "agentKind": "shell",
+            "model": "op.target.model",
+            "effort": "op.target.effort"
+          }
+        },
+        "status": "failed",
+        "createdAt": "createdAt",
+        "decidedAt": "decidedAt",
+        "resultText": "resultText"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":7,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"status\":\"failed\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+    }
+  ]
+}
