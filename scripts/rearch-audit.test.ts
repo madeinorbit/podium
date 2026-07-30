@@ -5,6 +5,7 @@ import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/
 import {
   entityShapedDeclarations,
   ISSUE_VOCABULARY,
+  physicalTableColumns,
   SESSION_VOCABULARY,
 } from './representation-audit'
 import {
@@ -571,6 +572,20 @@ describe('against the live repo', () => {
     // defaulted at the seam) and its role note records why it is filed R3 rather
     // than inventing an ADR 4 role.
     expect(RETAINED_REPRESENTATIONS.length).toBe(44)
+  })
+
+  it('the physical-table parser still binds to the live schema', () => {
+    // `instance-partitions` is zero-by-design on BOTH its syntax forms, so each
+    // one needs its own population anchor: a parser that stopped seeing drizzle
+    // tables would report the same zero as a schema with no partition column.
+    // These are floors, not pins — adding a table or a column must not red the
+    // suite, only losing the ability to see them.
+    const cols = physicalTableColumns(loadContext(repoRoot))
+    expect(new Set(cols.map((c) => c.table)).size, 'parsed NO physical table').toBeGreaterThan(50)
+    expect(cols.length, 'parsed NO table column').toBeGreaterThan(400)
+    // And it reads the SQL name, not just the key — `machine_id` under
+    // `machineId` is the form a partition column would take.
+    expect(cols.some((c) => c.key === 'machineId' && c.column === 'machine_id')).toBe(true)
   })
 
   it('reports real files for every site', () => {

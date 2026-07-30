@@ -165,7 +165,7 @@ ADR 1 D5 stands; multi-user is not multi-tenancy.
 |---|---|---|
 | P4a | `instance_id` **field** on a session representation in the tree | **Fires**: `instance-partitions baseline 0 → now 1` |
 | P4b | `instanceId` on a **registered schema** (every arm of `HandoffManifest`) | **Fires**: `kind: "instance-partition"` |
-| P4c | `instance_id` **DDL column** on the `sessions` table | **DOES NOT FIRE** |
+| P4c | `instance_id` **DDL column** on the `sessions` table | **DID NOT FIRE** — closed by POD-1168, see below |
 
 ### P4c — missing guardrail, recorded explicitly
 
@@ -186,6 +186,22 @@ direction is guarded; the **column** direction is not.
 The claim in `docs/rearch-vocabulary-audit.md` §5 that there is "no `instance_id` column in any
 migration" is a true **observation**, but it is not backed by a guard — nothing would catch the next
 one.
+
+**CLOSED by POD-1168.** Two causes, both fixed. (1) `isFrozenFile` skipped all of `/migrations/`,
+which froze the live `apps/server/src/migrations/schema.ts` along with the immutable SQL history;
+narrowed to `/migrations/drizzle/` (2f648000). (2) Even unfrozen, the detector read only the KEYS of
+entity-shaped declarations, and a drizzle table is a call expression whose columns are never keys —
+so P4c stayed green after the unfreeze. `physicalTableColumns` now parses the `sqliteTable("<name>",
+{ … })` form itself (56 tables, 479 columns) and `instancePartitions` tests the TS key and the SQL
+column name against the same `INSTANCE_PARTITION_KEY`. Re-running P4c verbatim now yields:
+
+```
+instance-partitions (POD-302) — Instance/tenant partition on a representation or a physical table
+    baseline 0 → now 1   [one instance_id/tenant_id-shaped key or table column]
+    apps/server/src/migrations/schema.ts:22  sessions.instance_id (column)
+```
+
+exit 1; reverted, exit 0 and `25 items, 222 sites (baseline exact)`.
 
 ---
 

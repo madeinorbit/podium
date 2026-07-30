@@ -486,10 +486,14 @@ export const CHECKS: AuditCheck[] = [
     // instance and the dimension it adds is OWNER, not tenant. Zero, as a
     // guard — "multi-user" and "multi-tenant" are the two words this programme
     // most needs kept apart.
+    // POD-1168 widened it from "a key on a representation" to "or a column on a
+    // physical table": a drizzle table is a call expression, so its columns were
+    // never enumerated and POD-1162's P4 plant of `instance_id` on `sessions`
+    // was green everywhere. One concept, two syntax forms, one pattern.
     id: 'instance-partitions',
-    title: 'Instance/tenant partition on a session or issue representation',
+    title: 'Instance/tenant partition on a representation or a physical table',
     phase: 'POD-302',
-    unit: 'one instance_id/tenant_id-shaped key on one session/issue representation',
+    unit: 'one instance_id/tenant_id-shaped key or table column',
     collect: (ctx) => instancePartitions(ctx),
   },
   {
