@@ -842,3 +842,52 @@ GATES; it does not block the leaves underneath them.
 > being blocked says nothing about its children.
 
 Wave 6 runs POD-371, POD-372, POD-380, POD-381 alongside POD-362, taking the fleet to five.
+
+### Two rules from POD-1151, one of which its own gate taught it
+
+**A NEW NAMED SHAPE IS A NEW DECLARATION EVEN WHEN EVERY KEY IN IT IS BORROWED.** POD-1151's first
+design named the issue storage gap as an `IssueStorageLocal` z.object with `StoredIssue` extending it.
+It read well, typechecked, and every test passed — and the per-user-singleton ratchet went **8 → 11**.
+It had written a *second* declaration of the per-user trio while claiming to collapse a restatement, so
+the debt would have doubled rather than moved. Re-spelling it as a `Pick` **type alias did not help
+either**, because the detector reads the picked key literals and is right to. The only real fix was
+accepting that R1 must not carry them: the trio and the derived `repoPath` moved to *argument* position,
+and `IssueRow` stays their one declaration.
+
+That ratchet deliberately has **no registry escape**, so POD-302 cannot close by laundering someone
+else's re-key. Relayed to POD-380, which is touching the same members now.
+
+**Read the audit's last line; do not pattern-match it.** POD-1151 also reported that `rearch-audit`
+exits 0 when items grow. **It does not** — I forced a regression (lowered a baseline below the live
+count) and got `Deletion audit: 1 item(s) GREW` with **exit 1**. The likely cause of its reading is the
+pipe trap: `bun scripts/rearch-audit.ts | tail` returns *tail's* status, so `echo $?` reports 0 for a
+failing gate. I hit that same trap myself earlier today checking this very script.
+
+What POD-1151 got right and is worth keeping: the failure wording is printed **below** a block of
+per-site output that looks exactly like passing output, so scanning for `OK` finds nothing either way.
+Second instance of this class (POD-366 hit "baseline has 1 unknown item").
+
+### Two agents co-authoring one framework, resolved without a duplicate
+
+POD-380 extended the existing `packages/protocol/src/commands.ts` rather than creating
+`packages/commands`, because POD-311 owns creating that package and its brief *folds in* the protocol
+file — so a second framework beside it is what that instruction forbids. Every facet optional (absent
+`exposure` = served nowhere, default-closed).
+
+POD-381 was working the same seam simultaneously. I authorised the narrow exception — **POD-381 may
+merge POD-380's branch** — because they are co-authoring one framework and two rival `CommandDef`
+shapes would be the drift POD-302 exists to end, arriving inside the phase meant to end it. They settle
+facet names between themselves and escalate only on non-convergence.
+
+### The oracle beats my brief, and my brief was wrong
+
+POD-380's brief (mine) called the whole presence family offline-eligible. POD-379's outbox oracle —
+tagged **must-not-change** — says seven writes are enqueued (rename, setArchived, setWorkState,
+markRead, markUnread, snoozes.set/clear) while **pins and tab order are deliberate exclusions**, and
+`setIssueId` is not in the covered set either, so it is direct-only. POD-380 followed the oracle.
+
+> A characterization oracle pins what the product ACTUALLY does; a brief is a plan. When they disagree
+> the oracle wins, and the brief was wrong.
+
+Recorded as my error rather than POD-380's deviation, and the specific set relayed to POD-381 so it does
+not re-derive it.
