@@ -1,14 +1,24 @@
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import type {
+  AgentObservation,
+  AgentObservationAckMessage,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
+import type { HarnessObserverHost } from '../harness/adapter'
+import { grokAdapter } from '../harness/adapters/grok'
+import { acceptAgentObservation, type ObservationLease } from './causal'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
   grokStateProvider,
+  normalizeGrokProviderTimestamp,
   observeGrokState,
   translateGrokUpdatePayload,
 } from './grok'
+import { GrokCausalObserver } from './grok-causal'
 import { initialAgentState, reduceAgentState } from './reducer'
 import type { AgentStateEvent } from './types'
 
@@ -140,6 +150,25 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     expect(events[0]?.at).toBe('2026-06-12T14:00:00.000Z')
   })
 
+  it('normalizes ISO and numeric provider timestamps without restamping them', async () => {
+    expect(normalizeGrokProviderTimestamp('2026-06-12T16:00:00+02:00')).toBe(
+      '2026-06-12T14:00:00.000Z',
+    )
+    expect(normalizeGrokProviderTimestamp(1_717_680_000)).toBe('2024-06-06T13:20:00.000Z')
+    expect(normalizeGrokProviderTimestamp(1_717_680_000_000)).toBe('2024-06-06T13:20:00.000Z')
+    expect(normalizeGrokProviderTimestamp(Number.NaN)).toBeUndefined()
+    expect(normalizeGrokProviderTimestamp('not-a-date')).toBeUndefined()
+
+    for (const timestamp of [1_717_680_000, 1_717_680_000_000]) {
+      const events = await translateGrokUpdatePayload({
+        timestamp,
+        method: 'session/update',
+        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+      })
+      expect(events[0]?.at).toBe('2024-06-06T13:20:00.000Z')
+    }
+  })
+
   it('classifies Grok chat history idle verdicts', () => {
     expect(
       classifyGrokIdleTranscript([
@@ -242,21 +271,201 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
 })
 
 describe('observeGrokState', () => {
+  it('frozen history and observer restart emit zero live edges', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-frozen-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-frozen' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-frozen', cwd } }))
+    await writeFile(
+      paths.updatesPath,
+      `{"timestamp":1700000000,"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","prompt_id":"prompt-old"}}}\n{"timestamp":1700000001000,"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","turn_id":"turn-old"}}}\n{"timestamp":1700000002,"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n`,
+    )
+
+    for (let generation = 0; generation < 2; generation += 1) {
+      const events: AgentStateEvent[] = []
+      let bootstrapped = false
+      const observer = observeGrokState({
+        homeDir: home,
+        cwd,
+        resumeValue: 'g-frozen',
+        pollMs: 10,
+        onBootstrap: () => {
+          bootstrapped = true
+        },
+        onEvents: (next) => events.push(...next),
+      })
+      try {
+        await waitFor(() => bootstrapped)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        expect(events).toEqual([])
+      } finally {
+        observer.stop()
+      }
+    }
+  })
+
+  it('rereads a torn suffix after restart and emits it only when completed live', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-torn-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-torn' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-torn', cwd } }))
+    await writeFile(
+      paths.updatesPath,
+      '{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_',
+    )
+
+    const firstEvents: AgentStateEvent[] = []
+    let firstBoundary: number | undefined
+    const first = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-torn',
+      pollMs: 10,
+      onBootstrap: (boundary) => {
+        firstBoundary = boundary
+      },
+      onEvents: (events) => firstEvents.push(...events),
+    })
+    try {
+      await waitFor(() => firstBoundary !== undefined)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(firstBoundary).toBe(0)
+      expect(firstEvents).toEqual([])
+    } finally {
+      first.stop()
+    }
+
+    const restartedEvents: AgentStateEvent[] = []
+    let restartedBoundary: number | undefined
+    const restarted = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-torn',
+      pollMs: 10,
+      onBootstrap: (boundary) => {
+        restartedBoundary = boundary
+      },
+      onEvents: (events) => restartedEvents.push(...events),
+    })
+    try {
+      await waitFor(() => restartedBoundary !== undefined)
+      expect(restartedBoundary).toBe(0)
+      await appendFile(paths.updatesPath, 'chunk"}}}\n')
+      await waitFor(() => restartedEvents.length === 1)
+      expect(restartedEvents).toEqual([{ kind: 'prompt_submitted' }])
+    } finally {
+      restarted.stop()
+    }
+  })
+
+  it('accepts a valid final non-newline JSON record into the frozen bootstrap boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-final-json-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-final-json' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-final-json', cwd } }))
+    const record = JSON.stringify({
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'user_message_chunk' } },
+    })
+    await writeFile(paths.updatesPath, record)
+
+    const events: AgentStateEvent[] = []
+    let boundary: number | undefined
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-final-json',
+      pollMs: 10,
+      onBootstrap: (value) => {
+        boundary = value
+      },
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      await waitFor(() => boundary !== undefined)
+      expect(boundary).toBe(Buffer.byteLength(record))
+      expect(events).toEqual([])
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('truncation re-bootstrap is silent and the next real turn has one working and terminal edge', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-truncate-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-truncate' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-truncate', cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const events: AgentStateEvent[] = []
+    let bootstraps = 0
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-truncate',
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstraps += 1
+      },
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      await waitFor(() => bootstraps === 1)
+      await appendFile(
+        paths.updatesPath,
+        `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n`,
+      )
+      await waitFor(() => events.length === 1)
+
+      await writeFile(
+        paths.updatesPath,
+        `{"timestamp":1600000000,"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n`,
+      )
+      await waitFor(() => bootstraps === 2)
+      expect(events).toEqual([{ kind: 'prompt_submitted' }])
+
+      await appendFile(
+        paths.updatesPath,
+        `{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"tool_result_update"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"hook_execution","event_name":"task_created"}}}\n`,
+      )
+      await waitFor(() => events.length === 3)
+      expect(events.map((event) => event.kind)).toEqual([
+        'prompt_submitted',
+        'prompt_submitted',
+        'turn_completed',
+      ])
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('infers turn completion when Grok returns to available commands without a stop hook', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-observe-'))
     const cwd = '/repo/grok'
     const events: unknown[] = []
+    let bootstrapped = false
+    const livePolls: unknown[] = []
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+      onLivePollComplete: (cursor) => livePolls.push(cursor),
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-hookless' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-hookless', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           JSON.stringify({
@@ -292,17 +501,23 @@ describe('observeGrokState', () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-turn-'))
     const cwd = '/repo/grok'
     const events: AgentStateEvent[] = []
+    let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-turn' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-turn', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           {
@@ -372,18 +587,24 @@ describe('observeGrokState', () => {
     const cwd = '/repo/grok'
     const seenSessions: string[] = []
     const events: unknown[] = []
+    let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
       onSession: (sessionId) => seenSessions.push(sessionId),
+      onBootstrap: () => {
+        bootstrapped = true
+      },
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-new' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-new', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           JSON.stringify({
@@ -399,6 +620,1350 @@ describe('observeGrokState', () => {
 
       await waitFor(() => seenSessions.includes('g-new') && events.length >= 2)
       expect(events).toEqual([{ kind: 'prompt_submitted' }, { kind: 'turn_completed' }])
+    } finally {
+      observer.stop()
+    }
+  })
+})
+
+describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
+  it('does no chat-history verdict I/O while folding historical terminal rows', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-bootstrap-io-'))
+    const cwd = '/repo/grok-bootstrap-io'
+    const sessionId = 'g-bootstrap-io'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    const records: string[] = []
+    for (let index = 0; index < 100; index += 1) {
+      records.push(
+        JSON.stringify({
+          method: 'session/update',
+          params: {
+            update: { sessionUpdate: 'user_message_chunk', prompt_id: 'prompt-' + index },
+          },
+        }),
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+        }),
+      )
+    }
+    await writeFile(paths.updatesPath, records.join('\n') + '\n')
+    let bootstrapped = false
+    let verdictReads = 0
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+      onVerdictRead: () => {
+        verdictReads += 1
+      },
+      onEvents: () => {},
+    })
+    try {
+      await waitFor(() => bootstrapped)
+      expect(verdictReads).toBe(0)
+      await appendFile(
+        paths.updatesPath,
+        [
+          JSON.stringify({
+            method: 'session/update',
+            params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'live' } },
+          }),
+          JSON.stringify({
+            method: 'session/update',
+            params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+          }),
+        ].join('\n') + '\n',
+      )
+      await waitFor(() => verdictReads === 1)
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('bootstraps a successor after a same-inode rewrite while stopped', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-restart-rewrite-'))
+    const cwd = '/repo/grok-restart-rewrite'
+    const sessionId = 'g-restart-rewrite'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    const stable = JSON.stringify({ type: 'metadata', padding: 'x'.repeat(70 * 1024) })
+    const initial =
+      [
+        stable,
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'owned' } },
+        }),
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+        }),
+      ].join('\n') + '\n'
+    await writeFile(paths.updatesPath, initial)
+    const before = await stat(paths.updatesPath)
+    const firstObservations: AgentObservation[] = []
+    const first = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-restart-rewrite',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => firstObservations.push(observation),
+      },
+    })
+    await waitFor(() => firstObservations.length === 1)
+    const accepted = acceptAgentObservation(
+      null,
+      {
+        provider: 'grok',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observationGeneration: 1,
+      },
+      firstObservations[0]!,
+      '2026-07-19T12:00:00.000Z',
+    )
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+    first.onObservationAck?.({
+      type: 'agentObservationAck',
+      sessionId: 'podium-restart-rewrite',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: firstObservations[0]!.transitionId,
+      result: accepted.kind,
+      acceptedCursor: accepted.checkpoint.providerCursor,
+      checkpoint: accepted.checkpoint,
+    })
+    first.stop()
+
+    const rewritten =
+      [
+        stable,
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'foreign' } },
+        }),
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'agent_message_chunk', text: 'y'.repeat(900) } },
+        }),
+        JSON.stringify({
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+        }),
+      ].join('\n') + '\n'
+    await writeFile(paths.updatesPath, rewritten)
+    const after = await stat(paths.updatesPath)
+    expect(after.ino).toBe(before.ino)
+    expect(after.size).toBeGreaterThan(accepted.checkpoint.providerCursor?.components.updates ?? 0)
+
+    const restartedObservations: AgentObservation[] = []
+    const restarted = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-restart-rewrite',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 2,
+        acceptedCheckpoint: accepted.checkpoint,
+        onObservation: (observation) => restartedObservations.push(observation),
+      },
+    })
+    try {
+      await waitFor(() => restartedObservations.length === 1)
+      expect(restartedObservations).toHaveLength(1)
+      expect(restartedObservations[0]).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        providerCursor: {
+          predecessorSegmentId: accepted.checkpoint.providerCursor?.segmentId,
+        },
+      })
+      expect(restartedObservations.filter((value) => value.provenance === 'live')).toEqual([])
+    } finally {
+      restarted.stop()
+    }
+  })
+
+  it('buffers behind ack, preserves numeric provider time, and restarts frozen at zero edges', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-causal-'))
+    const cwd = '/repo/grok'
+    const sessionId = 'g-causal'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const observations: AgentObservation[] = []
+    const livePolls: unknown[] = []
+    let bootstrapped = false
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
+      onLivePollComplete: (cursor) => livePolls.push(cursor),
+      causal: {
+        podiumSessionId: 'podium-grok',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        now: () => '2026-07-19T10:00:00.000Z',
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+
+    const accept = (observation: AgentObservation): AgentObservationAckMessage => {
+      const result = acceptAgentObservation(
+        checkpoint,
+        {
+          provider: 'grok',
+          providerSessionId: sessionId,
+          bindingVersion: 1,
+          observationGeneration: 1,
+        },
+        observation,
+        '2026-07-19T10:00:00.000Z',
+      )
+      expect(result.kind).not.toBe('rejected')
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      return {
+        type: 'agentObservationAck',
+        sessionId: 'podium-grok',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+      }
+    }
+
+    try {
+      await waitFor(() => bootstrapped && observations.length === 1)
+      expect(observations[0]?.provenance).toBe('bootstrap')
+      observer.onObservationAck?.(accept(observations[0]!))
+
+      const promptAtSeconds = 1_717_680_000
+      await appendFile(
+        paths.updatesPath,
+        `${[
+          {
+            timestamp: promptAtSeconds,
+            method: 'session/update',
+            params: {
+              update: {
+                sessionUpdate: 'user_message_chunk',
+                prompt_id: 'prompt-native',
+              },
+            },
+          },
+          {
+            timestamp: 1_717_680_000_500,
+            method: 'session/update',
+            params: {
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                turn_id: 'turn-native',
+              },
+            },
+          },
+          {
+            timestamp: 1_717_680_001,
+            method: 'session/update',
+            params: {
+              update: {
+                sessionUpdate: 'turn_completed',
+                stop_reason: 'end_turn',
+                turn_id: 'turn-native',
+              },
+            },
+          },
+        ]
+          .map((record) => JSON.stringify(record))
+          .join('\n')}\n`,
+      )
+
+      await waitFor(() => observations.length >= 2)
+      const opened = observations[1]!
+      expect(opened).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_opened',
+        nextPhase: 'working',
+        providerPromptId: 'prompt-native',
+        providerAt: '2024-06-06T13:20:00.000Z',
+      })
+      expect(opened.state.since).toBe('2024-06-06T13:20:00.000Z')
+      const openedAck = accept(opened)
+
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(observations).toHaveLength(2)
+      observer.onObservationAck?.(openedAck)
+
+      await waitFor(() => observations.length === 3)
+      const terminal = observations[2]!
+      expect(terminal).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_terminal',
+        nextPhase: 'idle',
+        providerTurnId: 'turn-native',
+        providerAt: '2024-06-06T13:20:01.000Z',
+      })
+      observer.onObservationAck?.(accept(terminal))
+      await waitFor(() => livePolls.length > 0)
+      expect(observations.filter((value) => value.provenance === 'live')).toHaveLength(2)
+      const afterTerminal = livePolls.length
+      await appendFile(
+        paths.updatesPath,
+        `${JSON.stringify({
+          timestamp: 1_717_680_001_500,
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'agent_message_chunk', turn_id: 'turn-native' } },
+        })}\n`,
+      )
+      await waitFor(() => livePolls.length > afterTerminal)
+      const afterLateOutput = livePolls.length
+      await appendFile(
+        paths.updatesPath,
+        `${JSON.stringify({
+          timestamp: 1_717_680_002,
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'prompt-next' } },
+        })}\n`,
+      )
+      await waitFor(() => observations.length === 4)
+      const afterPromptObserved = livePolls.length
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(afterPromptObserved).toBeGreaterThanOrEqual(afterLateOutput)
+      expect(livePolls).toHaveLength(afterPromptObserved)
+    } finally {
+      observer.stop()
+    }
+
+    if (!checkpoint) throw new Error('missing accepted checkpoint')
+    const restarted: AgentObservation[] = []
+    let restartedBootstrap = false
+    const restart = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      onBootstrap: () => {
+        restartedBootstrap = true
+      },
+      causal: {
+        podiumSessionId: 'podium-grok',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 2,
+        acceptedCheckpoint: checkpoint,
+        now: () => '2026-07-19T11:00:00.000Z',
+        onObservation: (observation) => restarted.push(observation),
+      },
+    })
+    try {
+      await waitFor(() => restartedBootstrap)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(restarted).toHaveLength(1)
+      expect(restarted[0]).toMatchObject({ provenance: 'bootstrap', transitionKind: 'snapshot' })
+      expect(restarted.filter((observation) => observation.provenance === 'live')).toEqual([])
+    } finally {
+      restart.stop()
+    }
+  })
+
+  it('reconciles an accepted edge to a foreign authoritative epoch', async () => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-grok-foreign-ack',
+      providerSessionId: 'g-foreign-ack',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:foreign-ack',
+      pathHint: '/tmp/foreign-ack.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.enqueue({
+      record: { prompt_id: 'local-prompt', turn_id: 'local-turn' },
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    await waitFor(() => observations.length === 1)
+    const accepted = acceptAgentObservation(
+      null,
+      {
+        provider: 'grok',
+        providerSessionId: 'g-foreign-ack',
+        bindingVersion: 1,
+        observationGeneration: 1,
+      },
+      observations[0]!,
+      '2026-07-19T12:00:00.000Z',
+    )
+    if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+    const authoritative = {
+      ...accepted.checkpoint,
+      turnEpoch: 5,
+      providerTurnId: 'foreign-turn',
+      providerPromptId: 'foreign-prompt',
+    }
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-grok-foreign-ack',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: observations[0]!.transitionId,
+      result: 'live_transition_accepted',
+      acceptedCursor: authoritative.providerCursor,
+      checkpoint: authoritative,
+    })
+    causal.enqueue({
+      record: { turn_id: 'foreign-turn' },
+      cursor: causal.cursorFor(segment, 20),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    await waitFor(() => observations.length === 2)
+    expect(observations[1]).toMatchObject({
+      turnEpoch: 5,
+      providerTurnId: 'foreign-turn',
+      providerPromptId: 'foreign-prompt',
+      transitionKind: 'turn_terminal',
+    })
+  })
+
+  it('delivers every ordered phase edge from one provider record', async () => {
+    const observations: AgentObservation[] = []
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-multi-edge',
+      providerSessionId: 'g-multi-edge',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:multi-edge',
+      pathHint: '/tmp/multi-edge.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.enqueue({
+      record: { prompt_id: 'prompt-1', turn_id: 'turn-1' },
+      cursor: causal.cursorFor(segment, 100),
+      events: [
+        { kind: 'prompt_submitted' },
+        { kind: 'compaction', phase: 'start' },
+        { kind: 'compaction', phase: 'end' },
+        { kind: 'turn_completed' },
+      ],
+      sourceEventKind: 'update:multi_edge',
+      providerAt: null,
+    })
+    for (let index = 0; index < 4; index += 1) {
+      await waitFor(() => observations.length === index + 1)
+      const observation = observations[index]!
+      const outcome = acceptAgentObservation(
+        checkpoint,
+        {
+          provider: 'grok',
+          providerSessionId: 'g-multi-edge',
+          bindingVersion: 1,
+          observationGeneration: 1,
+        },
+        observation,
+        '2026-07-19T12:00:00.000Z',
+      )
+      if (outcome.kind === 'rejected') throw new Error(outcome.rejectionReason)
+      checkpoint = outcome.checkpoint
+      causal.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-multi-edge',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: outcome.kind,
+        acceptedCursor: outcome.checkpoint.providerCursor,
+        checkpoint: outcome.checkpoint,
+      })
+    }
+    expect(observations.map((value) => value.nextPhase)).toEqual([
+      'working',
+      'compacting',
+      'working',
+      'idle',
+    ])
+    expect(observations.map((value) => value.providerCursor.components.transition)).toEqual([
+      1, 2, 3, 4,
+    ])
+  })
+
+  it('mints an accepted successor cursor for same-inode truncation', () => {
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-truncate',
+      providerSessionId: 'g-truncate-causal',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const lease = {
+      provider: 'grok' as const,
+      providerSessionId: 'g-truncate-causal',
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    const acknowledgeLatest = (): void => {
+      const observation = observations.at(-1)
+      if (!observation) throw new Error('missing observation')
+      const result = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observation,
+        '2026-07-19T12:00:00.000Z',
+      )
+      expect(result.kind).not.toBe('rejected')
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      causal.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-truncate',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+      })
+    }
+
+    const original = {
+      segmentId: 'grok:g-truncate-causal:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    expect(causal.beginSegment(original, 0)).toBe(0)
+    causal.finishBootstrap(causal.cursorFor(original, 0))
+    acknowledgeLatest()
+    causal.enqueue({
+      record: {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            prompt_id: 'prompt-before-truncate',
+          },
+        },
+      },
+      cursor: causal.cursorFor(original, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    acknowledgeLatest()
+    causal.enqueue({
+      record: {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'turn_completed',
+            turn_id: 'turn-before-truncate',
+          },
+        },
+      },
+      cursor: causal.cursorFor(original, 20),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    acknowledgeLatest()
+
+    const acceptedBefore = (checkpoint as SessionObservationCheckpointV1 | null)?.providerCursor
+    if (!acceptedBefore) throw new Error('missing pre-truncation cursor')
+    expect(causal.beginSegment({ ...original }, 20)).toBe(20)
+    const successor = { ...original }
+    expect(causal.beginSegment(successor, 5, true)).toBe(0)
+    expect(successor.segmentId).not.toBe(acceptedBefore.segmentId)
+    const successorCursor = causal.cursorFor(successor, 5)
+    expect(successorCursor.predecessorSegmentId).toBe(acceptedBefore.segmentId)
+    causal.finishBootstrap(successorCursor)
+
+    const replacement = observations.at(-1)
+    if (!replacement) throw new Error('missing replacement snapshot')
+    expect(replacement).toMatchObject({
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      turnEpoch: 1,
+      nextPhase: 'idle',
+    })
+    const accepted = acceptAgentObservation(
+      checkpoint,
+      lease,
+      replacement,
+      '2026-07-19T12:00:00.000Z',
+    )
+    expect(accepted.kind).toBe('snapshot_applied')
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('adopts an authoritative checkpoint after %s and emits one later real turn', (rejectionReason) => {
+    const segment = {
+      segmentId: 'grok:g-authoritative-recovery:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    const lease: ObservationLease = {
+      provider: 'grok',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const seedObservations: AgentObservation[] = []
+    const seed = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-recovery',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T13:30:00.000Z',
+      onObservation: (observation) => seedObservations.push(observation),
+    })
+    const acceptLatest = (causal: GrokCausalObserver, observation: AgentObservation) => {
+      const outcome = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observation,
+        '2026-07-19T13:30:00.000Z',
+      )
+      if (outcome.kind === 'rejected') throw new Error(outcome.rejectionReason)
+      checkpoint = outcome.checkpoint
+      causal.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-authoritative-recovery',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: outcome.kind,
+        acceptedCursor: outcome.checkpoint.providerCursor,
+        checkpoint: outcome.checkpoint,
+      })
+      return outcome.checkpoint
+    }
+
+    seed.finishBootstrap(seed.cursorFor(segment, 0))
+    acceptLatest(seed, seedObservations.at(-1)!)
+    seed.enqueue({
+      record: { prompt_id: 'closed-prompt' },
+      cursor: seed.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const workingCheckpoint = acceptLatest(seed, seedObservations.at(-1)!)
+    seed.enqueue({
+      record: { turn_id: 'closed-turn' },
+      cursor: seed.cursorFor(segment, 20),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const terminalCheckpoint = acceptLatest(seed, seedObservations.at(-1)!)
+    expect(terminalCheckpoint.terminalFence).not.toBeNull()
+
+    const observations: AgentObservation[] = []
+    const recovery = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-recovery',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: {
+        ...terminalCheckpoint,
+        turnState: workingCheckpoint.turnState,
+        terminalFence: null,
+      },
+      now: () => '2026-07-19T13:31:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    recovery.enqueue({
+      record: { turn_id: 'rejected-terminal' },
+      cursor: recovery.cursorFor(segment, 30),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const rejected = observations[0]!
+    recovery.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-recovery',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: rejected.transitionId,
+      result: 'rejected',
+      rejectionReason,
+      acceptedCursor: terminalCheckpoint.providerCursor,
+      checkpoint: terminalCheckpoint,
+    })
+    expect(observations).toHaveLength(1)
+    expect(recovery.hasPendingDelivery).toBe(false)
+    expect(recovery.acceptedProviderCursor).toEqual(terminalCheckpoint.providerCursor)
+
+    recovery.enqueue({
+      record: {},
+      cursor: recovery.cursorFor(segment, 40),
+      events: [{ kind: 'activity' }],
+      sourceEventKind: 'update:agent_message_chunk',
+      providerAt: null,
+    })
+    expect(observations).toHaveLength(1)
+    recovery.enqueue({
+      record: { prompt_id: 'later-real-prompt' },
+      cursor: recovery.cursorFor(segment, 50),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const opened = observations[1]!
+    expect(opened).toMatchObject({
+      transitionKind: 'turn_opened',
+      nextPhase: 'working',
+      turnEpoch: terminalCheckpoint.turnEpoch + 1,
+    })
+    const acceptedOpen = acceptAgentObservation(
+      terminalCheckpoint,
+      lease,
+      opened,
+      '2026-07-19T13:32:00.000Z',
+    )
+    if (acceptedOpen.kind === 'rejected') throw new Error(acceptedOpen.rejectionReason)
+    recovery.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-recovery',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: opened.transitionId,
+      result: acceptedOpen.kind,
+      acceptedCursor: acceptedOpen.checkpoint.providerCursor,
+      checkpoint: acceptedOpen.checkpoint,
+    })
+    recovery.enqueue({
+      record: { turn_id: 'later-real-turn' },
+      cursor: recovery.cursorFor(segment, 60),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const terminal = observations[2]!
+    expect(terminal).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'idle',
+      turnEpoch: terminalCheckpoint.turnEpoch + 1,
+    })
+    expect(observations.slice(1).map((observation) => observation.nextPhase)).toEqual([
+      'working',
+      'idle',
+    ])
+  })
+
+  it('retains an in-flight record across file rotation before folding the successor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-pending-rotation-'))
+    const cwd = '/repo/grok-rotation'
+    const sessionId = 'g-pending-rotation'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+    const observations: AgentObservation[] = []
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-pending-rotation',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+
+    const ack = (observation: AgentObservation): void =>
+      observer.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: 'podium-pending-rotation',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result:
+          observation.provenance === 'bootstrap' ? 'snapshot_applied' : 'live_transition_accepted',
+        acceptedCursor: observation.providerCursor,
+      })
+    const update = (sessionUpdate: string, extra: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        method: 'session/update',
+        params: { update: { sessionUpdate, ...extra } },
+      }) + '\n'
+
+    try {
+      await waitFor(() => observations.length === 1)
+      ack(observations[0]!)
+      await appendFile(paths.updatesPath, update('user_message_chunk', { prompt_id: 'before' }))
+      await waitFor(() => observations.length === 2)
+      const pending = observations[1]!
+      expect(pending.transitionKind).toBe('turn_opened')
+
+      await rename(paths.updatesPath, paths.updatesPath + '.old')
+      await writeFile(
+        paths.updatesPath,
+        update('user_message_chunk', { prompt_id: 'replacement' }) +
+          update('turn_completed', { turn_id: 'replacement-turn' }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(observations).toHaveLength(2)
+
+      ack(pending)
+      await waitFor(() => observations.length === 3)
+      expect(observations[2]).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        nextPhase: 'idle',
+      })
+      expect(observations[2]?.providerCursor.predecessorSegmentId).toBe(
+        pending.providerCursor.segmentId,
+      )
+      expect(observations.filter((value) => value.provenance === 'live')).toEqual([pending])
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('retries lost bootstrap and live acknowledgements with bounded backpressure', () => {
+    let retryNow = 0
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-retry-bounded',
+      providerSessionId: 'g-retry-bounded',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:20:00.000Z',
+      retryMs: 10,
+      retryNow: () => retryNow,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-retry-bounded:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    const bootstrap = observations[0]!
+    expect(causal.retryPending()).toBe(true)
+    expect(observations).toHaveLength(1)
+    retryNow = 10
+    expect(causal.retryPending()).toBe(true)
+    expect(observations).toHaveLength(2)
+    expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
+
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-retry-bounded',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: bootstrap.providerCursor,
+    })
+    causal.enqueue({
+      record: { prompt_id: 'prompt-live' },
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const live = observations.at(-1)!
+    expect(live.transitionKind).toBe('turn_opened')
+
+    const accepted = Array.from({ length: 65 }, (_, index) =>
+      causal.enqueue({
+        record: {},
+        cursor: causal.cursorFor(segment, 20 + index),
+        events: [{ kind: 'activity' }],
+        sourceEventKind: 'update:agent_message_chunk',
+        providerAt: null,
+      }),
+    )
+    expect(accepted.filter(Boolean)).toHaveLength(64)
+    expect(accepted.at(-1)).toBe(false)
+    expect(causal.bufferedRecordCount).toBe(64)
+
+    retryNow = 20
+    causal.retryPending()
+    expect(observations.at(-1)?.transitionId).toBe(live.transitionId)
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-retry-bounded',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: live.transitionId,
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+      acceptedCursor: bootstrap.providerCursor,
+    })
+    expect(observations.at(-1)?.transitionId).toBe(live.transitionId)
+    expect(causal.hasPendingDelivery).toBe(true)
+    expect(causal.bufferedRecordCount).toBe(64)
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('retries %s without advancing an authoritative cursor', (rejectionReason) => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-rejected-without-cursor',
+      providerSessionId: 'g-rejected-without-cursor',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:30:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-rejected-without-cursor:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    causal.enqueue({
+      record: {},
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+
+    const bootstrap = observations[0]!
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-rejected-without-cursor',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason,
+    })
+
+    expect(observations).toHaveLength(2)
+    expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
+    expect(causal.hasPendingDelivery).toBe(true)
+  })
+
+  it('releases an ack-lost duplicate only when the accepted cursor is exact', () => {
+    const makeObserver = (podiumSessionId: string) => {
+      const observations: AgentObservation[] = []
+      const causal = new GrokCausalObserver({
+        podiumSessionId,
+        providerSessionId: 'g-duplicate',
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        now: () => '2026-07-19T12:45:00.000Z',
+        onObservation: (observation) => observations.push(observation),
+      })
+      const segment = {
+        segmentId: 'grok:g-duplicate:1:2:/tmp/updates.jsonl',
+        pathHint: '/tmp/updates.jsonl',
+        device: '1',
+        inode: '2',
+      }
+      causal.finishBootstrap(causal.cursorFor(segment, 0))
+      causal.enqueue({
+        record: {},
+        cursor: causal.cursorFor(segment, 10),
+        events: [{ kind: 'prompt_submitted' }],
+        sourceEventKind: 'update:user_message_chunk',
+        providerAt: null,
+      })
+      return { causal, observations, segment }
+    }
+
+    const exact = makeObserver('podium-exact-duplicate')
+    const exactBootstrap = exact.observations[0]!
+    exact.causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-exact-duplicate',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: exactBootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: exactBootstrap.providerCursor,
+    })
+    expect(exact.observations).toHaveLength(2)
+    expect(exact.observations[1]).toMatchObject({ transitionKind: 'turn_opened' })
+
+    const stale = makeObserver('podium-stale-duplicate')
+    const staleBootstrap = stale.observations[0]!
+    stale.causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-stale-duplicate',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: staleBootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: stale.causal.cursorFor(stale.segment, 10),
+    })
+    expect(stale.observations).toHaveLength(2)
+    expect(stale.observations[1]?.transitionId).toBe(staleBootstrap.transitionId)
+    expect(stale.causal.hasPendingDelivery).toBe(true)
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('retains %s even when rejection reports the current cursor', (rejectionReason) => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-cursor',
+      providerSessionId: 'g-authoritative-cursor',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T13:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-authoritative-cursor:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    causal.enqueue({
+      record: {},
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+
+    const bootstrap = observations[0]!
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-cursor',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason,
+      acceptedCursor: bootstrap.providerCursor,
+    })
+
+    expect(observations).toHaveLength(2)
+    expect(observations[1]).toMatchObject({
+      transitionId: bootstrap.transitionId,
+      transitionKind: 'snapshot',
+    })
+    expect(causal.hasPendingDelivery).toBe(true)
+  })
+
+  it.each([
+    { name: 'null fresh binding', priorSessionId: null },
+    { name: 'A to discovered B', priorSessionId: 'g-old-a' },
+  ])('accepts exact rebind for $name before publishing B', async ({ priorSessionId }) => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-rebind-accepted-'))
+    const cwd = '/repo/grok'
+    const candidate = 'g-new-b'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: candidate })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: candidate, cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const observations: AgentObservation[] = []
+    const onResumeValue = vi.fn()
+    const tailFile = vi.fn()
+    const onExactProviderRebind = vi.fn()
+    const host: HarnessObserverHost = {
+      tailFile,
+      onResumeValue,
+      onTitle: vi.fn(),
+      onStateEvents: vi.fn(),
+      onObservation: (observation) => observations.push(observation),
+      onExactProviderRebind,
+      onTranscriptItems: vi.fn(),
+    }
+    const observer = grokAdapter.observer?.(
+      {
+        cwd,
+        homeDir: home,
+        resumeValue: candidate,
+        podiumSessionId: 'podium-rebind',
+        observationLease: {
+          provider: 'grok',
+          providerSessionId: priorSessionId,
+          bindingVersion: 1,
+          observerGeneration: 7,
+          acceptedCheckpoint: null,
+        },
+      },
+      host,
+    )
+    if (!observer) throw new Error('missing Grok adapter observer')
+
+    try {
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+      const request = onExactProviderRebind.mock.calls[0]?.[0]
+      expect(request).toMatchObject({
+        nextProviderSessionId: candidate,
+        resumeKind: 'grok-session',
+      })
+      expect(onResumeValue).not.toHaveBeenCalled()
+      expect(tailFile).not.toHaveBeenCalled()
+      expect(observations).toEqual([])
+
+      observer.onProviderRebindAck?.({
+        type: 'agentObservationRebindAck',
+        sessionId: 'podium-rebind',
+        provider: 'grok',
+        rebindId: request!.rebindId,
+        priorObserverGeneration: 7,
+        priorBindingVersion: 1,
+        nextProviderSessionId: candidate,
+        providerSessionId: candidate,
+        result: 'accepted',
+        observerGeneration: 8,
+        bindingVersion: 2,
+        checkpoint: null,
+      })
+
+      await waitFor(() => observations.length === 1)
+      expect(onResumeValue).toHaveBeenCalledWith(candidate)
+      expect(tailFile).toHaveBeenCalledWith(paths.chatHistoryPath)
+      expect(observations[0]).toMatchObject({
+        provenance: 'bootstrap',
+        providerSessionId: candidate,
+        observerGeneration: 8,
+        bindingVersion: 2,
+      })
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('keeps old A authoritative when exact rebind to B is rejected', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-rebind-rejected-'))
+    const cwd = '/repo/grok'
+    const oldSessionId = 'g-old-a'
+    const candidate = 'g-new-b'
+    const oldPaths = grokSessionPaths({ homeDir: home, cwd, sessionId: oldSessionId })
+    const candidatePaths = grokSessionPaths({ homeDir: home, cwd, sessionId: candidate })
+    for (const paths of [oldPaths, candidatePaths]) {
+      await mkdir(paths.sessionDir, { recursive: true })
+      await writeFile(paths.summaryPath, JSON.stringify({ info: { id: paths.sessionId, cwd } }))
+      await writeFile(paths.updatesPath, '')
+    }
+
+    const observations: AgentObservation[] = []
+    const onResumeValue = vi.fn()
+    const tailFile = vi.fn()
+    const onExactProviderRebind = vi.fn()
+    const host: HarnessObserverHost = {
+      tailFile,
+      onResumeValue,
+      onTitle: vi.fn(),
+      onStateEvents: vi.fn(),
+      onObservation: (observation) => observations.push(observation),
+      onExactProviderRebind,
+      onTranscriptItems: vi.fn(),
+    }
+    const observer = grokAdapter.observer?.(
+      {
+        cwd,
+        homeDir: home,
+        resumeValue: candidate,
+        podiumSessionId: 'podium-rebind-rejected',
+        observationLease: {
+          provider: 'grok',
+          providerSessionId: oldSessionId,
+          bindingVersion: 3,
+          observerGeneration: 9,
+          acceptedCheckpoint: null,
+        },
+      },
+      host,
+    )
+    if (!observer) throw new Error('missing Grok adapter observer')
+
+    try {
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+      const request = onExactProviderRebind.mock.calls[0]?.[0]
+      expect(onResumeValue).not.toHaveBeenCalled()
+      expect(tailFile).not.toHaveBeenCalled()
+      expect(observations).toEqual([])
+
+      observer.onProviderRebindAck?.({
+        type: 'agentObservationRebindAck',
+        sessionId: 'podium-rebind-rejected',
+        provider: 'grok',
+        rebindId: request!.rebindId,
+        priorObserverGeneration: 9,
+        priorBindingVersion: 3,
+        nextProviderSessionId: candidate,
+        providerSessionId: oldSessionId,
+        result: 'rejected',
+        rejectionReason: 'provider_binding_mismatch',
+        observerGeneration: 9,
+        bindingVersion: 3,
+        checkpoint: null,
+      })
+
+      await waitFor(() => observations.length === 1)
+      expect(onResumeValue).toHaveBeenCalledWith(oldSessionId)
+      expect(onResumeValue).not.toHaveBeenCalledWith(candidate)
+      expect(tailFile).toHaveBeenCalledWith(oldPaths.chatHistoryPath)
+      expect(tailFile).not.toHaveBeenCalledWith(candidatePaths.chatHistoryPath)
+      expect(observations[0]).toMatchObject({
+        provenance: 'bootstrap',
+        providerSessionId: oldSessionId,
+        observerGeneration: 9,
+        bindingVersion: 3,
+      })
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(2)
+      expect(onExactProviderRebind.mock.calls[1]?.[0]).toEqual(request)
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('routes the adapter lease and durable ack without legacy state effects', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-adapter-'))
+    const cwd = '/repo/grok'
+    const sessionId = 'g-adapter'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const observations: AgentObservation[] = []
+    const onStateEvents = vi.fn()
+    const host: HarnessObserverHost = {
+      tailFile: vi.fn(),
+      onResumeValue: vi.fn(),
+      onTitle: vi.fn(),
+      onStateEvents,
+      onObservation: (observation) => observations.push(observation),
+      onExactProviderRebind: vi.fn(),
+      onTranscriptItems: vi.fn(),
+    }
+    const observer = grokAdapter.observer?.(
+      {
+        cwd,
+        homeDir: home,
+        resumeValue: sessionId,
+        podiumSessionId: 'podium-adapter',
+        observationLease: {
+          provider: 'grok',
+          providerSessionId: sessionId,
+          bindingVersion: 3,
+          observerGeneration: 4,
+          acceptedCheckpoint: null,
+        },
+      },
+      host,
+    )
+    if (!observer) throw new Error('missing Grok adapter observer')
+
+    try {
+      await waitFor(() => observations.length === 1)
+      const bootstrap = observations[0]!
+      const lease = {
+        provider: 'grok' as const,
+        providerSessionId: sessionId,
+        bindingVersion: 3,
+        observationGeneration: 4,
+      }
+      const accepted = acceptAgentObservation(null, lease, bootstrap, '2026-07-19T13:00:00.000Z')
+      expect(accepted.kind).toBe('snapshot_applied')
+      if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+      observer.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: 'podium-adapter',
+        observerGeneration: 4,
+        bindingVersion: 3,
+        transitionId: bootstrap.transitionId,
+        result: accepted.kind,
+        acceptedCursor: accepted.checkpoint.providerCursor,
+      })
+
+      await appendFile(
+        paths.updatesPath,
+        `${JSON.stringify({
+          timestamp: 1_717_680_000,
+          method: 'session/update',
+          params: {
+            update: {
+              sessionUpdate: 'user_message_chunk',
+              prompt_id: 'adapter-prompt',
+            },
+          },
+        })}\n`,
+      )
+      await waitFor(() => observations.length === 2)
+      expect(observations[1]).toMatchObject({
+        provider: 'grok',
+        providerSessionId: sessionId,
+        bindingVersion: 3,
+        observerGeneration: 4,
+        providerPromptId: 'adapter-prompt',
+        transitionKind: 'turn_opened',
+      })
+      expect(onStateEvents).not.toHaveBeenCalled()
     } finally {
       observer.stop()
     }

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -69,49 +69,130 @@ describe('registerWebStatic', () => {
       rmSync(mobile, { recursive: true, force: true })
     }
   })
-  it('serves the web shell at / to phone user agents (no redirect) [spec:SP-902c]', async () => {
+  it('redirects phone user agents at / to /mobile [POD-102]', async () => {
     const app = new Hono()
-    registerMobileRouting(app, { expoMobileServed: true })
+    registerMobileRouting(app, { expoMobilePresent: () => true })
     app.get('/', (c) => c.text('web shell'))
     const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
 
     const root = await app.request('/?server=wss://x&e2e=1', {
       headers: { 'user-agent': iphone },
     })
-    expect(root.status).toBe(200)
-    expect(await root.text()).toBe('web shell')
+    expect(root.status).toBe(302)
+    expect(root.headers.get('location')).toBe('/mobile?server=wss://x&e2e=1')
   })
-  it('redirects /desktop to / preserving the query string', async () => {
+  it('can serve Expo without redirecting the phone root (dual-client browser harness)', async () => {
     const app = new Hono()
-    registerMobileRouting(app, { expoMobileServed: true })
+    registerMobileRouting(app, { expoMobilePresent: () => true, redirectPhoneRoot: false })
+    app.get('/', (c) => c.text('web shell'))
+    app.get('/mobile', (c) => c.text('mobile shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+    expect(await (await app.request('/', { headers: { 'user-agent': iphone } })).text()).toBe(
+      'web shell',
+    )
+    expect(await (await app.request('/mobile', { headers: { 'user-agent': iphone } })).text()).toBe(
+      'mobile shell',
+    )
+  })
+  it('keeps the web shell at / for desktop UAs, ?desktop, and deep links', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => true })
+    app.get('/', (c) => c.text('web shell'))
+    app.get('/session/s1', (c) => c.text('deep link'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15'
+
+    expect(await (await app.request('/', { headers: { 'user-agent': mac } })).text()).toBe(
+      'web shell',
+    )
+    expect(
+      await (await app.request('/?desktop=1', { headers: { 'user-agent': iphone } })).text(),
+    ).toBe('web shell')
+    expect(
+      await (await app.request('/session/s1', { headers: { 'user-agent': iphone } })).text(),
+    ).toBe('deep link')
+  })
+  it('redirects /desktop to /?desktop=1 preserving the query string', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => true })
 
     const res = await app.request('/desktop?server=wss://x&e2e=1')
     expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('/?server=wss://x&e2e=1')
+    expect(res.headers.get('location')).toBe('/?server=wss://x&e2e=1&desktop=1')
   })
-  it('redirects /mobile to / with the query when the Expo build is absent', async () => {
+  it('redirects /desktop to the marked root when the Expo build is absent', async () => {
     const app = new Hono()
-    registerMobileRouting(app, { expoMobileServed: false })
+    registerMobileRouting(app, { expoMobilePresent: () => false })
+
+    const res = await app.request('/desktop?e2e=1')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/?e2e=1&desktop=1')
+  })
+  it('bounces /mobile to the MARKED root when the Expo build is absent [POD-359]', async () => {
+    // The ?desktop marker is what stops apps/web's browser-side redirect (which
+    // cannot probe for the Expo build) from bouncing straight back to /mobile.
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => false })
 
     const root = await app.request('/mobile?server=wss://x')
     expect(root.status).toBe(302)
-    expect(root.headers.get('location')).toBe('/?server=wss://x')
+    expect(root.headers.get('location')).toBe('/?server=wss://x&desktop=1')
 
     const deep = await app.request('/mobile/session/s1?e2e=1')
     expect(deep.status).toBe(302)
-    expect(deep.headers.get('location')).toBe('/?e2e=1')
+    expect(deep.headers.get('location')).toBe('/?e2e=1&desktop=1')
+
+    // And that landing must not be redirected onward by the phone rule, even
+    // once the build reappears — otherwise the two ping-pong.
+    const withMobile = new Hono()
+    registerMobileRouting(withMobile, { expoMobilePresent: () => true })
+    withMobile.get('/', (c) => c.text('web shell'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+    const landing = await withMobile.request('/?server=wss://x&desktop=1', {
+      headers: { 'user-agent': iphone },
+    })
+    expect(await landing.text()).toBe('web shell')
   })
   it('leaves /mobile to the Expo static handler when the build is present', async () => {
     const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-'))
     try {
       writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
       const app = new Hono()
-      const expoMobileServed = registerWebStatic(app, mobile, { basePath: '/mobile' })
-      registerMobileRouting(app, { expoMobileServed })
+      registerMobileRouting(app, { expoMobilePresent: () => true })
+      registerWebStatic(app, mobile, { basePath: '/mobile', lazy: true })
 
       const res = await app.request('/mobile?server=wss://x')
       expect(res.status).toBe(200)
       expect(await res.text()).toContain('Podium Mobile')
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+  it('starts serving /mobile and the phone redirect when the build appears after boot', async () => {
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-'))
+    rmSync(mobile, { recursive: true, force: true })
+    try {
+      const index = join(mobile, 'index.html')
+      const app = new Hono()
+      registerMobileRouting(app, { expoMobilePresent: () => existsSync(index) })
+      registerWebStatic(app, mobile, { basePath: '/mobile', lazy: true })
+      app.get('/', (c) => c.text('web shell'))
+      const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+      // Absent: phones stay on /, /mobile bounces home.
+      expect(await (await app.request('/', { headers: { 'user-agent': iphone } })).text()).toBe(
+        'web shell',
+      )
+      expect((await app.request('/mobile')).status).toBe(302)
+
+      mkdirSync(mobile, { recursive: true })
+      writeFileSync(index, '<!doctype html><title>Podium Mobile</title>')
+
+      const root = await app.request('/', { headers: { 'user-agent': iphone } })
+      expect(root.status).toBe(302)
+      expect(root.headers.get('location')).toBe('/mobile')
+      expect(await (await app.request('/mobile')).text()).toContain('Podium Mobile')
     } finally {
       rmSync(mobile, { recursive: true, force: true })
     }

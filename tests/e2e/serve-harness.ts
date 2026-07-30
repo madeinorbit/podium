@@ -37,6 +37,7 @@ import {
   applyRealAgentCodexEnv,
   harnessPidFile,
   reapHarnessSessions,
+  reapStaleHarnessDirs,
 } from './harness-env'
 
 /**
@@ -89,6 +90,10 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$
 // abduco/tmux sockets in a per-port dir (never touches the user's ~/.podium or
 // real sessions). globalTeardown reaps the same dir after the suite.
 reapHarnessSessions(PORT)
+// Also sweep ABANDONED sibling ports (an ad-hoc run SIGKILLed days ago leaves its
+// abduco masters parked under /tmp/podium-e2e-<other-port> that no same-port run
+// will ever revisit) — POD-107.
+reapStaleHarnessDirs()
 const { stateDir } = applyHarnessEnv(PORT)
 
 // A scratch repo WITH a linked worktree, at a deterministic per-port path so specs
@@ -115,7 +120,7 @@ writeFileSync(join(SCRATCH_REPO, 'README.md'), 'e2e scratch repo\n')
 git(['add', '.'], SCRATCH_REPO)
 git(['commit', '-q', '-m', 'init'], SCRATCH_REPO)
 git(['worktree', 'add', '-q', SCRATCH_FEAT, '-b', 'e2e-feat'], SCRATCH_REPO)
-if (process.env.PODIUM_E2E_HANDOFF === '1') {
+if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   git(['remote', 'add', 'origin', E2E_ORIGIN], SCRATCH_REPO)
   git(['clone', '-q', SCRATCH_REPO, E2E_TARGET_REPO], SCRATCH_REPO)
 }
@@ -124,7 +129,23 @@ writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT, SCRATCH_R
 // Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
 // needsSetup) doesn't block the workspace: the harness IS an all-in-one server.
 // Without this every browser spec lands on the first-run SetupView.
-writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+// Browser specs exercise these pre-release surfaces directly, so the isolated
+// harness locks them on without changing their production default-off behavior.
+const E2E_FEATURES = {
+  'command-palette': true,
+  'git-panel': true,
+  'messages-panel': true,
+  'tab-splitting': true,
+  'session-handoff': true,
+  workflows: true,
+  specs: true,
+  automations: true,
+  notifications: true,
+}
+writeFileSync(
+  join(stateDir, 'config.json'),
+  JSON.stringify({ mode: 'all-in-one', features: E2E_FEATURES }),
+)
 
 // shell -> real shell (wide output for reflow tests); everything else -> keyecho jig.
 // PODIUM_E2E_REAL_AGENTS=1 launches the REAL claude/codex CLI instead (opt-in,
@@ -168,9 +189,64 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   }
 }
 
-let server = await startServer({ port: PORT })
+let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
 
-if (process.env.PODIUM_E2E_HANDOFF === '1') {
+// The ordinary harness must never read authenticated provider quota just to paint
+// a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
+// the explicitly opt-in real-agent lane is running.
+if (!REAL_AGENTS) {
+  server.registry.modules.rpc.agentQuotaAll = async () => {
+    const now = Date.now()
+    return [
+      {
+        machineId: LOCAL_MACHINE_ID,
+        machineName: 'podium-e2e',
+        hostname: 'podium-e2e',
+        agents: [
+          {
+            agent: 'claude-code',
+            status: 'ok',
+            account: { email: 'claude@example.com', plan: 'max' },
+            windows: [
+              {
+                key: '5h',
+                label: '5-hour',
+                usedPercent: 3,
+                resetsAt: new Date(now + 4.6 * 60 * 60_000).toISOString(),
+                windowMinutes: 300,
+              },
+              {
+                key: 'weekly-scoped:model:fable',
+                label: 'Fable',
+                usedPercent: 98,
+                resetsAt: new Date(now + 5 * 24 * 60 * 60_000).toISOString(),
+                windowMinutes: 10080,
+              },
+            ],
+            fetchedAt: new Date(now).toISOString(),
+          },
+          {
+            agent: 'codex',
+            status: 'ok',
+            account: { email: 'codex@example.com', plan: 'plus' },
+            windows: [
+              {
+                key: 'weekly',
+                label: 'Weekly',
+                usedPercent: 10,
+                resetsAt: new Date(now + 6.9 * 24 * 60 * 60_000).toISOString(),
+                windowMinutes: 10080,
+              },
+            ],
+            fetchedAt: new Date(now).toISOString(),
+          },
+        ],
+      },
+    ]
+  }
+}
+
+if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHINE === '1') {
   // A second online machine with the same repo identity. It answers discovery only;
   // execution remains covered by the coordinated live two-host E2E.
   const harnessStore = (server.registry as unknown as { store: SessionStore }).store
@@ -229,6 +305,118 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Finished delegate decay',
+    startNow: false,
+  })
+  const { sessionId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Finished relay delegate A' })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'bind',
+    sessionId,
+    cmd: 'codex',
+    cwd: REPO_ROOT,
+    agentKind: 'codex',
+    geometry: { cols: 80, rows: 24 },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'sessionResumeRef',
+    sessionId,
+    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate' },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  server.registry.modules.sessions.hibernateSession({ sessionId })
+  const { sessionId: secondId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  server.registry.modules.sessions.renameSession({
+    sessionId: secondId,
+    name: 'Finished relay delegate B',
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'bind',
+    sessionId: secondId,
+    cmd: 'codex',
+    cwd: REPO_ROOT,
+    agentKind: 'codex',
+    geometry: { cols: 80, rows: 24 },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'sessionResumeRef',
+    sessionId: secondId,
+    resume: { kind: 'codex-thread', value: 'e2e-finished-delegate-2' },
+  })
+  server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+    type: 'agentState',
+    sessionId: secondId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  server.registry.modules.sessions.hibernateSession({ sessionId: secondId })
+  server.registry.modules.issues.close(issue.id, 'done')
+}
+if (process.env.PODIUM_E2E_OFFER === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Native offer layout',
+    startNow: false,
+  })
+  const { sessionId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  setTimeout(() => {
+    // Match the real review-offer lifecycle: the turn has completed, while the
+    // offer it produced still needs a human decision.
+    server.registry.modules.sessions.onDaemonMessageFrom(LOCAL_MACHINE_ID, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        idle: { kind: 'done' },
+        since: new Date().toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    server.registry.modules.sessions.setOffer({
+      sessionId,
+      message: 'Native offer layout check',
+      actions: [
+        { label: 'Keep it', prompt: 'Keep the verified layout' },
+        {
+          label: 'Request changes',
+          prompt: 'Revise the layout per this feedback:',
+          input: true,
+        },
+      ],
+    })
+  }, 2_000)
+}
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   server.registry.modules.sessions.createSession({
     agentKind: 'claude-code',
@@ -261,7 +449,7 @@ const restartServer = async (): Promise<void> => {
     await server.close()
     await new Promise((resolve) => setTimeout(resolve, 750))
     if (shuttingDown) return
-    server = await startServer({ port: PORT })
+    server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
     restartSerial += 1
     writeFileSync(restartSerialFile, String(restartSerial))
   } finally {

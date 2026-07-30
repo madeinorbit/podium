@@ -106,4 +106,100 @@ describe('LoginView', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent?.toLowerCase()).toContain('too many')
   })
+
+  it('clears the error on the next keystroke', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
+    )
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    typePasswordAndSubmit('wrong')
+    await screen.findByRole('alert')
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'wrong2' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('walks the status line: waiting → press ⏎ → verifying → signed in', async () => {
+    let release: (v: { ok: boolean; status: number; json: () => Promise<unknown> }) => void =
+      () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          release = resolve
+        }),
+      ),
+    )
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    const status = screen.getByRole('status')
+    expect(status.textContent).toContain('waiting on you')
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
+    expect(status.textContent).toContain('press ⏎ to sign in')
+    fireEvent.click(screen.getByRole('button', { name: /log in/i }))
+    expect(status.textContent).toContain('verifying')
+    release({ ok: true, status: 200, json: async () => ({ ok: true }) })
+    await waitFor(() => expect(status.textContent).toContain('signed in'))
+  })
+
+  it('shows the caps-lock pill while CapsLock is on', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    const input = screen.getByLabelText(/password/i)
+    // happy-dom ignores the modifierCapsLock init flag, so stub getModifierState directly.
+    const capsEvent = (type: string, on: boolean) => {
+      const e = new KeyboardEvent(type, { key: 'a', bubbles: true })
+      Object.defineProperty(e, 'getModifierState', { value: () => on })
+      return e
+    }
+    fireEvent(input, capsEvent('keydown', true))
+    expect(screen.getByText(/caps lock on/i)).toBeTruthy()
+    fireEvent(input, capsEvent('keyup', false))
+    expect(screen.queryByText(/caps lock on/i)).toBeNull()
+  })
+
+  it('renders the ASCII wordmark', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    expect(screen.getByLabelText('Podium')).toBeTruthy()
+  })
+})
+
+describe('LoginGate success reveal', () => {
+  it('mounts the app behind the login layer on success, then removes the layer', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi
+        .fn()
+        // auth/status probe → login required
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ needsAuth: true, authed: false }),
+        })
+        // auth/login → success
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) })
+      vi.stubGlobal('fetch', fetchMock)
+      render(<LoginGate>{child}</LoginGate>)
+      const input = await vi.waitFor(() => {
+        const el = screen.queryByLabelText(/password/i)
+        if (!el) throw new Error('no input yet')
+        return el
+      })
+      expect(screen.queryByText('APP-READY')).toBeNull()
+
+      fireEvent.change(input, { target: { value: 'pw' } })
+      fireEvent.click(screen.getByRole('button', { name: /log in/i }))
+      // App mounts behind the still-visible login layer at t=0…
+      await vi.waitFor(() => {
+        if (!screen.queryByText('APP-READY')) throw new Error('app not mounted')
+      })
+      expect(screen.getByLabelText(/password/i)).toBeTruthy()
+      // …and the layer unmounts after the reveal completes.
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(screen.queryByLabelText(/password/i)).toBeNull()
+      expect(screen.getByText('APP-READY')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

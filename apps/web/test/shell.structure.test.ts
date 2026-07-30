@@ -33,12 +33,14 @@ describe('web shell structure', () => {
     expect(src).not.toContain('ConnectScreen')
   })
 
-  it('sidebar renders always-on project groups and pin controls (#41)', () => {
+  it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = read('features/worklist/SidebarUnified.tsx')
     expect(src).toContain('sidebarSections')
     expect(src).toContain('groupUnifiedWorkRows')
     expect(src).toContain('ProjectGroupLabel')
-    expect(src).toContain('setPinned')
+    // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
+    expect(src).toContain('splitPinnedWork')
+    expect(src).not.toContain('setPinned')
   })
 
   it('workspace tabs keep the fixed actions outside the sortable scrolling strip', () => {
@@ -50,13 +52,9 @@ describe('web shell structure', () => {
     expect(src).toContain('activationConstraint')
   })
 
-  it('repo add flow uses the scan flow on desktop and mobile (#227)', () => {
-    // SidebarUnified owns AppToolsRow and the scan flow; both desktop and mobile
-    // compose that same sidebar rather than duplicating the flow.
-    const sidebar = read('features/worklist/SidebarUnified.tsx')
-    expect(sidebar).toContain('AppToolsRow')
-    expect(sidebar).toContain('RepoScanFlow')
-    expect(read('app/MobileApp.tsx')).toContain('SidebarUnified')
+  it('repo add flow uses the scan flow (#227)', () => {
+    // AppToolsRow owns the scan flow; desktop composes it into the sidebar.
+    expect(read('features/worklist/SidebarUnified.tsx')).toContain('RepoScanFlow')
   })
 
   it('initial store load does not block on a conversation scan', () => {

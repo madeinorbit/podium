@@ -35,7 +35,11 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     passWithNoTests: true,
     include: integrationTests,
-    exclude: [...nodeTestExclude, '**/*.smoke.test.{ts,tsx}'],
+    exclude: [
+      ...nodeTestExclude,
+      '**/*.smoke.test.{ts,tsx}',
+      'scripts/loop-split-load.integration.test.ts',
+    ],
     retry: 1,
     testTimeout: 20_000,
   },

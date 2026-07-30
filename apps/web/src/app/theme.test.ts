@@ -4,8 +4,8 @@ import { applyTheme, readStoredTheme, resolveDark, THEME_MODE_KEY, THEME_PRESET_
 afterEach(() => localStorage.clear())
 
 describe('readStoredTheme', () => {
-  it('defaults to podium/dark when nothing stored', () => {
-    expect(readStoredTheme()).toEqual({ preset: 'podium', mode: 'dark' })
+  it('defaults to superade/dark when nothing stored', () => {
+    expect(readStoredTheme()).toEqual({ preset: 'superade', mode: 'dark' })
   })
   it('reads stored valid values', () => {
     localStorage.setItem(THEME_PRESET_KEY, 'shadcn')
@@ -18,7 +18,7 @@ describe('readStoredTheme', () => {
   })
   it('falls back on garbage', () => {
     localStorage.setItem(THEME_PRESET_KEY, 'bogus')
-    expect(readStoredTheme().preset).toBe('podium')
+    expect(readStoredTheme().preset).toBe('superade')
   })
 })
 

@@ -1,7 +1,11 @@
+import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { lastTimestampedRecordIso } from './boot-time.js'
+import type {
+  AgentObservation,
+  AgentRuntimeState,
+  ObservationInputOrigin,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 import {
   type ClaudeTranscriptFeatures,
   classifyClaudeTranscriptDeterministically,
@@ -9,6 +13,7 @@ import {
 } from './claude-code-classifier.js'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
+import { reduceAgentState } from './reducer.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -95,35 +100,7 @@ export async function claudeBootEvents(opts: {
     })
     if (!transcript) return [{ kind: 'session_started' }]
     try {
-      const state = classifyClaudeTranscriptDeterministically(
-        await readTranscriptTail(transcript),
-        'default',
-      )
-      // Stamp the last DATED record's time, NOT the file mtime: Claude appends
-      // timestamp-less metadata (bridge-session/mode/…) on resume/reattach, which
-      // bumps the mtime to "now" though no real activity happened. Using mtime here
-      // restamped idle sessions to "now" on every redeploy.
-      const at = await lastTimestampedRecordIso(transcript)
-      // A still-pending AskUserQuestion menu must seed the SAME wire shape as the
-      // live hook path (needs_user/question, see translate() and
-      // deterministicStateToEvents), not a turn_completed 'question' verdict:
-      // the idle/question form made restarted sessions invisible to the
-      // superagent's answer_question gate and to NEEDS-ATTENTION grouping.
-      if (state.status === 'resolved' && state.label === 'idle.needs_input.ask_user_tool') {
-        return deterministicStateToEvents(state).map((e) => (at ? { ...e, at } : e))
-      }
-      const verdict = idleClassificationFromState(state)
-      if (verdict) {
-        return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
-      }
-      // No verdict (the transcript is real but doesn't classify deterministically —
-      // e.g. autonomous-continuation text). Still seed idle, but carry the real
-      // last-activity time so a reattach NEVER restamps recency to "now" and jumps
-      // the session to the top of NEEDS YOUR ATTENTION. Only when even that is
-      // unknown do we fall through to the bare (now-stamped) boot event.
-      if (at) {
-        return [{ kind: 'session_started', at }]
-      }
+      return (await captureClaudeTranscript(transcript)).bootEvents
     } catch {
       // transcript missing or unreadable — fall through to the bare boot event
     }
@@ -222,16 +199,779 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       return [{ kind: 'compaction', phase: 'end' }]
     case 'SessionEnd':
       return [{ kind: 'session_ended' }]
+
     default:
       return []
   }
 }
+export interface ClaudeCausalObserverOptions {
+  podiumSessionId: string
+  observerGeneration: number
+  bindingVersion: number
+  providerSessionId: string
+  transcriptPath: string
+  transcriptSegmentId?: string
+  bootstrapState: AgentRuntimeState
+  bootstrapOffset: number
+  acceptedCheckpoint?: SessionObservationCheckpointV1
+  bootstrapAdvanced?: boolean
+  bootstrapPromptOrigin?: ObservationInputOrigin
+  bootstrapPromptCount?: number
+  now?: () => string
+}
+
+export interface ClaudePromptHookIdentity {
+  recordBoundary: number
+  payloadFingerprint: string
+}
+
+/**
+ * Claude's provider-owned causal barrier. Hook receipt is not itself a turn:
+ * only an exact-binding UserPromptSubmit opens an epoch, and Stop/StopFailure
+ * closes it absorbingly except for matching child-stop bookkeeping.
+ * [spec:SP-cdb2]
+ */
+export class ClaudeCausalObserver {
+  private segmentId: string
+  private predecessorSegmentId: string | null = null
+  private readonly now: () => string
+  private state: AgentRuntimeState
+  private turnEpoch = 0
+  private providerPromptId: string | null = null
+  private lastOffset: number
+  private readonly bootstrapOffset: number
+  private hookSequence = 0
+  private bootstrapped = false
+  private epochOpen = false
+  private closing = false
+  private currentOrigin: ObservationInputOrigin = 'unknown'
+  private readonly pendingOrigins: ObservationInputOrigin[] = []
+  private readonly seen = new Set<string>()
+  private readonly seenOrder: string[] = []
+  private readonly activeChildren = new Set<string>()
+  constructor(private readonly options: ClaudeCausalObserverOptions) {
+    const checkpoint = options.acceptedCheckpoint
+    const reconciledEpochs = checkpoint ? (options.bootstrapPromptCount ?? 0) : 0
+    const reconciledNewEpoch = reconciledEpochs > 0
+    const reconciledState =
+      checkpoint &&
+      options.bootstrapAdvanced &&
+      (checkpoint.terminalFence === null || reconciledNewEpoch)
+    this.state = reconciledState
+      ? options.bootstrapState
+      : (checkpoint?.turnState ?? options.bootstrapState)
+    this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + reconciledEpochs
+    this.providerPromptId = reconciledNewEpoch ? null : (checkpoint?.providerPromptId ?? null)
+    if (options.bootstrapPromptOrigin !== undefined) {
+      this.currentOrigin = options.bootstrapPromptOrigin
+    }
+    this.now = options.now ?? (() => new Date().toISOString())
+    this.segmentId =
+      options.transcriptSegmentId ?? `claude:${options.providerSessionId}:${options.transcriptPath}`
+    this.bootstrapOffset = options.bootstrapOffset
+    this.lastOffset = options.bootstrapOffset
+    const acceptedCursor = checkpoint?.providerCursor
+    const acceptedHook = acceptedCursor?.components.hook
+    if (Number.isSafeInteger(acceptedHook)) this.hookSequence = acceptedHook ?? 0
+    if (acceptedCursor?.segmentId === this.segmentId) {
+      const offset = acceptedCursor.components.transcript
+      if (Number.isSafeInteger(offset)) {
+        this.bootstrapOffset = Math.max(this.bootstrapOffset, offset ?? 0)
+        this.lastOffset = this.bootstrapOffset
+      }
+    } else if (acceptedCursor) {
+      this.predecessorSegmentId = acceptedCursor.segmentId
+    }
+    if (checkpoint?.terminalFence?.closing && !reconciledNewEpoch && this.state.awaitingSubagents) {
+      this.closing = true
+      for (const child of this.state.nativeSubagents ?? []) {
+        this.activeChildren.add(child.id)
+      }
+    } else if (
+      checkpoint &&
+      this.turnEpoch > 0 &&
+      (this.state.phase === 'working' ||
+        this.state.phase === 'compacting' ||
+        this.state.phase === 'needs_user')
+    ) {
+      this.epochOpen = true
+    }
+  }
+  get pendingInputOriginCount(): number {
+    return this.pendingOrigins.length
+  }
+
+  get seenRecordCount(): number {
+    return this.seen.size
+  }
+
+  /** Rebase after the server's durable ack (including replay rejection, whose
+   * acceptedCursor is the already-committed fence) before releasing hooks. */
+  acknowledgeCursor(cursor: AgentObservation['providerCursor'] | null | undefined): void {
+    if (!cursor) return
+    const hook = cursor.components.hook
+    if (Number.isSafeInteger(hook)) this.hookSequence = Math.max(this.hookSequence, hook ?? 0)
+    if (cursor.segmentId !== this.segmentId) {
+      this.predecessorSegmentId = cursor.segmentId
+      this.lastOffset = 0
+      return
+    }
+    const offset = cursor.components.transcript
+    if (Number.isSafeInteger(offset)) this.lastOffset = Math.max(this.lastOffset, offset ?? 0)
+  }
+
+  /** Hooks sharing a transcript byte boundary still need distinct cursor
+   * positions; the ack-rebased fence makes the local suffix restart-safe. */
+  nextHookOffset(observedOffset: number): number {
+    return Number.isSafeInteger(observedOffset) ? observedOffset : this.lastOffset
+  }
+  recordInputOrigin(origin: ObservationInputOrigin): void {
+    if (origin === 'provider' || origin === 'unknown') return
+    if (this.pendingOrigins.length === MAX_PENDING_INPUT_ORIGINS) this.pendingOrigins.shift()
+    this.pendingOrigins.push(origin)
+  }
+
+  bootstrap(): AgentObservation | null {
+    if (this.bootstrapped) return null
+    this.bootstrapped = true
+    return this.observation({
+      sourceEventKind: 'bootstrap',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      priorPhase: 'unknown',
+      state: this.state,
+      offset: this.bootstrapOffset,
+      identity: `bootstrap:${this.bootstrapOffset}`,
+    })
+  }
+
+  async observeHook(
+    payload: unknown,
+    transcriptOffset: number,
+    inputOrigin?: ObservationInputOrigin,
+    transcriptSegmentId?: string,
+    promptIdentity?: ClaudePromptHookIdentity,
+  ): Promise<AgentObservation | null> {
+    if (typeof payload !== 'object' || payload === null || !this.bootstrapped) return null
+    const p = payload as Record<string, unknown>
+    if (
+      p.session_id !== this.options.providerSessionId ||
+      p.transcript_path !== this.options.transcriptPath ||
+      !Number.isSafeInteger(transcriptOffset) ||
+      transcriptOffset < 0
+    ) {
+      return null
+    }
+
+    const hook = str(p.hook_event_name)
+    if (!hook) return null
+
+    if (transcriptSegmentId) {
+      const identity = parseClaudeTranscriptSegmentId(transcriptSegmentId)
+      if (
+        !identity ||
+        identity.path !== this.options.transcriptPath ||
+        !transcriptSegmentId.startsWith(`claude:${this.options.providerSessionId}:`)
+      ) {
+        return null
+      }
+      const compatible =
+        this.segmentId === transcriptSegmentId ||
+        this.segmentId.startsWith(`${transcriptSegmentId}:after:`)
+      if (!compatible || transcriptOffset < this.lastOffset) {
+        const predecessor = this.segmentId
+        this.predecessorSegmentId = predecessor
+        this.segmentId = compatible
+          ? `${transcriptSegmentId}:after:${createHash('sha256')
+              .update(`${predecessor}:${this.lastOffset}:${transcriptOffset}`)
+              .digest('hex')}`
+          : transcriptSegmentId
+        this.lastOffset = 0
+      }
+    }
+    if (transcriptOffset < this.lastOffset) return null
+
+    const hookPromptId = str(p.prompt_id) ?? null
+    if (
+      hook !== 'UserPromptSubmit' &&
+      this.providerPromptId !== null &&
+      hookPromptId &&
+      hookPromptId !== this.providerPromptId
+    ) {
+      return null
+    }
+    const promptFingerprint =
+      hook === 'UserPromptSubmit' ? claudePromptHookFingerprint(payload) : null
+    const baseIdentity =
+      hook === 'UserPromptSubmit' && !hookPromptId
+        ? promptIdentity &&
+          Number.isSafeInteger(promptIdentity.recordBoundary) &&
+          promptIdentity.recordBoundary >= 0 &&
+          promptIdentity.recordBoundary <= transcriptOffset
+          ? `UserPromptSubmit:record:${promptIdentity.recordBoundary}:${promptIdentity.payloadFingerprint}`
+          : promptFingerprint
+            ? `UserPromptSubmit:hook:${transcriptOffset}:${promptFingerprint}`
+            : null
+        : this.hookIdentity(hook, p)
+    if (!baseIdentity) return null
+    const identity =
+      hook === 'UserPromptSubmit' ? baseIdentity : `${this.turnEpoch}:${baseIdentity}`
+    if (this.seen.has(identity)) return null
+    // Cursor/segment/prompt validation must precede dedupe insertion: invalid
+    // evidence cannot poison a later valid hook with the same native identity.
+    this.seen.add(identity)
+    this.seenOrder.push(identity)
+    if (this.seenOrder.length > MAX_SEEN_HOOK_RECORDS) {
+      const evictedIdentity = this.seenOrder.shift()
+      if (evictedIdentity !== undefined) this.seen.delete(evictedIdentity)
+    }
+    this.lastOffset = Math.max(this.lastOffset, transcriptOffset)
+    this.hookSequence += 1
+
+    if (hook === 'SessionStart') return null
+    if (hook === 'UserPromptSubmit') {
+      this.turnEpoch += 1
+      this.providerPromptId =
+        str(p.prompt_id) ?? (promptFingerprint ? `fingerprint:${promptFingerprint}` : null)
+      this.epochOpen = true
+      this.closing = false
+      this.activeChildren.clear()
+      const origin =
+        inputOrigin ??
+        this.pendingOrigins.shift() ??
+        (p.promptSource === 'system' || p.prompt_source === 'system' ? 'system' : 'unknown')
+      this.currentOrigin = origin
+      const prior = this.state
+      this.state = reduceAgentState(prior, { kind: 'prompt_submitted' }, this.now())
+      return this.observation({
+        sourceEventKind: hook,
+        transitionKind: 'turn_opened',
+        provenance: 'live',
+        inputOrigin: origin,
+        priorPhase: prior.phase,
+        state: this.state,
+        offset: transcriptOffset,
+        identity,
+      })
+    }
+
+    if (!this.epochOpen && !this.closing) return null
+    if (this.closing) {
+      if (hook !== 'SubagentStop') return null
+      const agentId = str(p.agent_id)
+      if (!agentId || !this.activeChildren.has(agentId)) return null
+    }
+
+    let events = await translateClaudeHookPayload(payload)
+    const scheduledSelfWake =
+      hook === 'Stop' &&
+      (p.scheduled_self_wake === true || (events.length === 1 && events[0]?.kind === 'activity'))
+    if (scheduledSelfWake) {
+      events = [{ kind: 'turn_completed' }]
+      this.pendingOrigins.unshift('auto_continue')
+    }
+    if (events.length !== 1) return null
+    const event = events[0]!
+    if (hook === 'SubagentStart') {
+      const agentId = str(p.agent_id)
+      if (agentId) this.activeChildren.add(agentId)
+    } else if (hook === 'SubagentStop') {
+      const agentId = str(p.agent_id)
+      if (agentId) this.activeChildren.delete(agentId)
+    }
+
+    const prior = this.state
+    const next = reduceAgentState(prior, event, this.now())
+    if (next === prior) return null
+    this.state = next
+
+    const terminal = hook === 'Stop' || hook === 'StopFailure' || hook === 'SessionEnd'
+    let transitionKind: AgentObservation['transitionKind'] =
+      hook === 'SubagentStop' ? 'subagent_bookkeeping' : 'activity'
+    if (terminal) {
+      transitionKind = 'turn_terminal'
+      this.epochOpen = false
+      this.closing = next.awaitingSubagents === true && this.activeChildren.size > 0
+    } else if (this.closing && this.activeChildren.size === 0) {
+      this.closing = false
+    }
+
+    return this.observation({
+      sourceEventKind: hook,
+      transitionKind,
+      provenance: 'live',
+      inputOrigin: this.currentOrigin,
+      priorPhase: prior.phase,
+      state: next,
+      offset: transcriptOffset,
+      identity,
+      providerAt: str(p.timestamp) ?? null,
+    })
+  }
+
+  private hookIdentity(hook: string, p: Record<string, unknown>): string {
+    const native =
+      str(p.agent_id) ??
+      str(p.tool_use_id) ??
+      str(p.tool_use?.toString()) ??
+      str(p.error_type) ??
+      str(p.prompt_id) ??
+      ''
+    return [hook, native, str(p.tool_name) ?? '', str(p.stop_hook_active) ?? ''].join(':')
+  }
+
+  private observation(input: {
+    sourceEventKind: string
+    transitionKind: AgentObservation['transitionKind']
+    provenance: AgentObservation['provenance']
+    inputOrigin: ObservationInputOrigin
+    priorPhase: AgentRuntimeState['phase']
+    state: AgentRuntimeState
+    offset: number
+    identity: string
+    providerAt?: string | null
+  }): AgentObservation {
+    const receivedAt = this.now()
+    const transitionId = createHash('sha256')
+      .update(
+        [this.segmentId, this.turnEpoch, input.identity, input.priorPhase, input.state.phase].join(
+          '|',
+        ),
+      )
+      .digest('hex')
+    return {
+      podiumSessionId: this.options.podiumSessionId,
+      provider: 'claude-code',
+      providerSessionId: this.options.providerSessionId,
+      bindingVersion: this.options.bindingVersion,
+      providerTurnId: null,
+      providerPromptId: this.providerPromptId,
+      observerGeneration: this.options.observerGeneration,
+      providerCursor: {
+        segmentId: this.segmentId,
+        components: { transcript: input.offset, hook: this.hookSequence },
+        ...(this.predecessorSegmentId ? { predecessorSegmentId: this.predecessorSegmentId } : {}),
+      },
+      providerAt:
+        input.providerAt && Number.isFinite(Date.parse(input.providerAt)) ? input.providerAt : null,
+      receivedAt,
+      sourceEventKind: input.sourceEventKind,
+      transitionKind: input.transitionKind,
+      provenance: input.provenance,
+      inputOrigin: input.inputOrigin,
+      turnEpoch: this.turnEpoch,
+      priorPhase: input.priorPhase,
+      nextPhase: input.state.phase,
+      transitionId,
+      state: input.state,
+    }
+  }
+}
 
 const TAIL_BYTES = 128 * 1024
+const MAX_PENDING_INPUT_ORIGINS = 64
+const MAX_SEEN_HOOK_RECORDS = 256
 
 type IdleClassification = {
   kind: 'done' | 'question' | 'approval' | 'interrupted'
   summary?: string
+}
+
+function promptText(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (typeof value !== 'object' || value === null) return null
+  const block = value as Record<string, unknown>
+  if (block.type === 'tool_result') return null
+  if (block.type === 'text' && typeof block.text === 'string') return block.text.trim() || null
+  return null
+}
+
+function isInterruptMarker(text: string): boolean {
+  return /^\[Request interrupted by user(?: for tool use)?\]$/i.test(text.trim())
+}
+
+function stripInjectedContext(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+}
+
+export interface ClaudePromptEvidence {
+  offset: number
+  recordBoundary: number
+  payloadFingerprint: string
+  origin: ObservationInputOrigin
+  hasAssistantOutputAfter: boolean
+}
+
+export interface ClaudeTranscriptCapture {
+  boundary: number
+  capturedSize: number
+  path: string
+  device: string
+  inode: string
+  fileIdentity: string
+  bootEvents: AgentStateEvent[]
+  prompts: ClaudePromptEvidence[]
+  promptCount: number
+  firstPrompt: ClaudePromptEvidence | null
+  latestPrompt: ClaudePromptEvidence | null
+}
+
+export interface ClaudeTranscriptCaptureOptions {
+  /** Scan prompt evidence only in the accepted checkpoint gap. The bounded
+   * classification tail remains independent of this potentially large scan. */
+  promptScanStart?: number
+  promptScanIdentity?: ClaudeTranscriptFileIdentity
+}
+
+export interface ClaudeTranscriptFileIdentity {
+  path: string
+  device: string
+  inode: string
+}
+
+export function claudeTranscriptSegmentId(
+  providerSessionId: string,
+  identity: ClaudeTranscriptFileIdentity,
+): string {
+  const encoded = Buffer.from(
+    JSON.stringify({
+      path: identity.path,
+      device: identity.device,
+      inode: identity.inode,
+    }),
+  ).toString('base64url')
+  return `claude:${providerSessionId}:${encoded}`
+}
+
+export function parseClaudeTranscriptSegmentId(
+  segmentId: string | undefined,
+): ClaudeTranscriptFileIdentity | null {
+  if (!segmentId?.startsWith('claude:')) return null
+  const encoded = segmentId.split(':', 3)[2]
+  if (!encoded) return null
+  try {
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const record = parsed as Record<string, unknown>
+    return typeof record.path === 'string' &&
+      typeof record.device === 'string' &&
+      typeof record.inode === 'string'
+      ? { path: record.path, device: record.device, inode: record.inode }
+      : null
+  } catch {
+    return null
+  }
+}
+
+const READ_CHUNK_BYTES = 64 * 1024
+const MAX_JSONL_RECORD_BYTES = 2 * 1024 * 1024
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+    .join(',')}}`
+}
+
+function fingerprintPromptPayload(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+}
+
+export function claudePromptHookFingerprint(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const p = payload as Record<string, unknown>
+  const prompt = p.prompt ?? p.message ?? p.content
+  if (prompt === undefined) return null
+  if (typeof prompt === 'string') {
+    const raw = prompt.trim()
+    if (!raw) return null
+    return fingerprintPromptPayload(stripInjectedContext(raw) || raw)
+  }
+  if (Array.isArray(prompt)) {
+    const rawTexts = prompt.map(promptText).filter((value): value is string => value !== null)
+    const visibleTexts = rawTexts.map(stripInjectedContext).filter(Boolean)
+    const texts = visibleTexts.length > 0 ? visibleTexts : rawTexts
+    return texts.length > 0 ? fingerprintPromptPayload(texts.join('\n')) : null
+  }
+  return fingerprintPromptPayload(prompt)
+}
+
+function parseRecord(text: string): Record<string, unknown> | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+function promptPayload(record: Record<string, unknown>): {
+  payload: unknown
+  origin: ObservationInputOrigin
+} | null {
+  if (record.type !== 'user') return null
+  const message = record.message
+  if (typeof message !== 'object' || message === null) return null
+  const m = message as Record<string, unknown>
+  if (m.role !== 'user') return null
+  const content = Array.isArray(m.content) ? m.content : [m.content]
+  const rawTexts = content.map(promptText).filter((value): value is string => value !== null)
+  if (rawTexts.length === 0 || rawTexts.every(isInterruptMarker)) return null
+  const visibleTexts = rawTexts.map(stripInjectedContext).filter(Boolean)
+  // Metadata/system-reminder turns are invisible in chat, but Claude still
+  // executes them. Preserve a causal fingerprint so a daemon-gap bootstrap can
+  // reconcile the epoch without replaying it as a live user edge.
+  const payload: unknown = (visibleTexts.length > 0 ? visibleTexts : rawTexts).join('\n')
+  const provablySystem =
+    record.isMeta === true ||
+    visibleTexts.length === 0 ||
+    record.promptSource === 'system' ||
+    record.prompt_source === 'system' ||
+    record.source === 'system'
+  return { payload, origin: provablySystem ? 'system' : 'unknown' }
+}
+
+interface ClaudePromptAccumulator {
+  count: number
+  first: ClaudePromptEvidence | null
+  latest: ClaudePromptEvidence | null
+  collected: ClaudePromptEvidence[]
+  collectAll: boolean
+}
+
+function collectClaudePromptEvidence(
+  record: Record<string, unknown>,
+  offset: number,
+  recordBoundary: number,
+  accumulator: ClaudePromptAccumulator,
+): void {
+  const message = record.message
+  if (typeof message === 'object' && message !== null) {
+    const m = message as Record<string, unknown>
+    if (record.type === 'assistant' && m.role === 'assistant') {
+      if (accumulator.latest) accumulator.latest.hasAssistantOutputAfter = true
+      return
+    }
+  }
+  const prompt = promptPayload(record)
+  if (!prompt) return
+  const evidence: ClaudePromptEvidence = {
+    offset,
+    recordBoundary,
+    payloadFingerprint: fingerprintPromptPayload(prompt.payload),
+    origin: prompt.origin,
+    hasAssistantOutputAfter: false,
+  }
+  accumulator.count += 1
+  accumulator.first ??= evidence
+  accumulator.latest = evidence
+  if (accumulator.collectAll) accumulator.collected.push(evidence)
+}
+
+type ClaudeRecordRow = { record: Record<string, unknown>; offset: number; boundary: number }
+
+async function scanDescriptorRange(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  boundary: number,
+  discardInitialPartial = false,
+  onRecord: (row: ClaudeRecordRow) => void,
+): Promise<void> {
+  let position = start
+  let lineOffset = start
+  let carry = Buffer.alloc(0)
+  let skipLine = discardInitialPartial
+  let dropOversizedLine = false
+  while (position < boundary) {
+    const length = Math.min(READ_CHUNK_BYTES, boundary - position)
+    const chunk = Buffer.allocUnsafe(length)
+    const { bytesRead } = await handle.read(chunk, 0, length, position)
+    if (bytesRead === 0) break
+    position += bytesRead
+    const data =
+      carry.length === 0
+        ? chunk.subarray(0, bytesRead)
+        : Buffer.concat([carry, chunk.subarray(0, bytesRead)])
+    let cursor = 0
+    if (dropOversizedLine) {
+      const newline = data.indexOf(0x0a)
+      if (newline < 0) {
+        lineOffset += data.length
+        continue
+      }
+      cursor = newline + 1
+      dropOversizedLine = false
+    }
+    for (;;) {
+      const newline = data.indexOf(0x0a, cursor)
+      if (newline < 0) break
+      const recordBoundary = lineOffset + newline + 1
+      if (skipLine) {
+        skipLine = false
+      } else {
+        const record = parseRecord(data.subarray(cursor, newline).toString('utf8'))
+        if (record) onRecord({ record, offset: lineOffset + cursor, boundary: recordBoundary })
+      }
+      cursor = newline + 1
+    }
+    const remainder = data.subarray(cursor)
+    if (remainder.length > MAX_JSONL_RECORD_BYTES) {
+      lineOffset += data.length
+      carry = Buffer.alloc(0)
+      dropOversizedLine = true
+    } else {
+      lineOffset += cursor
+      carry = Buffer.from(remainder)
+    }
+  }
+  if (carry.length > 0 && lineOffset < boundary) {
+    const record = parseRecord(carry.toString('utf8'))
+    if (record) onRecord({ record, offset: lineOffset, boundary })
+  }
+}
+
+async function readDescriptorRange(
+  handle: Awaited<ReturnType<typeof open>>,
+  start: number,
+  boundary: number,
+  discardInitialPartial = false,
+): Promise<ClaudeRecordRow[]> {
+  const output: ClaudeRecordRow[] = []
+  await scanDescriptorRange(handle, start, boundary, discardInitialPartial, (row) => {
+    output.push(row)
+  })
+  return output
+}
+
+async function previousNewlineBoundary(
+  handle: Awaited<ReturnType<typeof open>>,
+  before: number,
+): Promise<number> {
+  let end = before
+  while (end > 0) {
+    const start = Math.max(0, end - READ_CHUNK_BYTES)
+    const chunk = Buffer.allocUnsafe(end - start)
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, start)
+    const newline = chunk.subarray(0, bytesRead).lastIndexOf(0x0a)
+    if (newline >= 0) return start + newline + 1
+    end = start
+  }
+  return 0
+}
+
+function bootEventsForClaudeRecords(records: unknown[]): AgentStateEvent[] {
+  const state = classifyClaudeTranscriptDeterministically(records, 'default')
+  const at = [...records].reverse().find((record) => {
+    if (typeof record !== 'object' || record === null) return false
+    const timestamp = (record as Record<string, unknown>).timestamp
+    return typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
+  }) as Record<string, unknown> | undefined
+  const timestamp = typeof at?.timestamp === 'string' ? at.timestamp : undefined
+  if (state.status === 'resolved' && state.label === 'idle.needs_input.ask_user_tool') {
+    return deterministicStateToEvents(state).map((event) =>
+      timestamp ? { ...event, at: timestamp } : event,
+    )
+  }
+  const verdict = idleClassificationFromState(state)
+  if (verdict)
+    return [
+      {
+        kind: 'turn_completed',
+        verdict,
+        ...(timestamp ? { at: timestamp } : {}),
+      },
+    ]
+  return [{ kind: 'session_started', ...(timestamp ? { at: timestamp } : {}) }]
+}
+
+/** Capture classification, prompt evidence, exact file identity, and the last
+ * complete JSONL boundary from one descriptor/fstat snapshot. */
+export async function captureClaudeTranscript(
+  path: string,
+  options: ClaudeTranscriptCaptureOptions = {},
+): Promise<ClaudeTranscriptCapture> {
+  const handle = await open(path, 'r')
+  try {
+    const info = await handle.stat({ bigint: true })
+    if (info.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`Claude transcript is too large to address safely: ${path}`)
+    }
+    const capturedSize = Number(info.size)
+    const tailStart = Math.max(0, capturedSize - TAIL_BYTES)
+    const tail = Buffer.allocUnsafe(capturedSize - tailStart)
+    const { bytesRead } = await handle.read(tail, 0, tail.length, tailStart)
+    const capturedTail = tail.subarray(0, bytesRead)
+    const lastNewline = capturedTail.lastIndexOf(0x0a)
+    let boundary =
+      lastNewline < 0
+        ? await previousNewlineBoundary(handle, tailStart)
+        : tailStart + lastNewline + 1
+    const trailing = capturedTail.subarray(lastNewline + 1).toString('utf8')
+    if ((lastNewline >= 0 || tailStart === 0) && parseRecord(trailing)) {
+      boundary = tailStart + bytesRead
+    }
+
+    const classificationStart = Math.max(0, boundary - TAIL_BYTES)
+    const classificationRows = await readDescriptorRange(
+      handle,
+      classificationStart,
+      boundary,
+      classificationStart > 0,
+    )
+    const records = classificationRows.map(({ record }) => record)
+    const promptAccumulator: ClaudePromptAccumulator = {
+      count: 0,
+      first: null,
+      latest: null,
+      collected: [],
+      collectAll: options.promptScanStart === undefined,
+    }
+    const device = String(info.dev)
+    const inode = String(info.ino)
+    const samePromptScanIdentity =
+      options.promptScanIdentity === undefined ||
+      (options.promptScanIdentity.path === path &&
+        options.promptScanIdentity.device === device &&
+        options.promptScanIdentity.inode === inode)
+    const promptStart = samePromptScanIdentity ? options.promptScanStart : 0
+    if (
+      promptStart !== undefined &&
+      Number.isSafeInteger(promptStart) &&
+      promptStart >= 0 &&
+      promptStart <= boundary
+    ) {
+      await scanDescriptorRange(handle, promptStart, boundary, false, (row) => {
+        collectClaudePromptEvidence(row.record, row.offset, row.boundary, promptAccumulator)
+      })
+    } else {
+      for (const row of classificationRows) {
+        collectClaudePromptEvidence(row.record, row.offset, row.boundary, promptAccumulator)
+      }
+    }
+    return {
+      boundary,
+      capturedSize,
+      path,
+      device,
+      inode,
+      fileIdentity: `${device}:${inode}`,
+      bootEvents: bootEventsForClaudeRecords(records),
+      prompts: promptAccumulator.collected,
+      promptCount: promptAccumulator.count,
+      firstPrompt: promptAccumulator.first,
+      latestPrompt: promptAccumulator.latest,
+    }
+  } finally {
+    await handle.close()
+  }
 }
 
 /** Last `maxBytes` of a JSONL file as parsed records (first partial line dropped). */

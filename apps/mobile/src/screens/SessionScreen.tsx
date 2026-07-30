@@ -10,17 +10,22 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { MoreVertical, SquareTerminal } from 'lucide-react-native'
+import { MoreVertical } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text } from 'react-native'
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
-import { TranscriptList } from '../components/TranscriptList'
+import { TaskPeekSheet } from '../components/TaskPeekSheet'
+import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
+import { TrayCard, type TrayCardActions } from '../components/TrayCard'
 import { EmptyState } from '../components/ui'
-import { color, font, space } from '../theme/theme'
+import { TerminalPane } from '../terminal/TerminalPane'
+import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
+import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -40,8 +45,15 @@ export function SessionScreen() {
 
   const [items, setItems] = useState<TranscriptItem[]>([])
   const [loaded, setLoaded] = useState(false)
+  // Turns sent from this screen, painted until the server echoes them into the
+  // transcript (POD-338). A parked session queues the message and answers
+  // minutes later — without this the composer reads as if it never sent.
+  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
+  const [view, setView] = useState<'chat' | 'native'>('chat')
+  const [peekIssue, setPeekIssue] = useState<import('@podium/protocol').IssueWire | null>(null)
   const { readTranscript, subscribeTranscript } = client
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onEndReached can fire in bursts.
@@ -56,6 +68,7 @@ export function SessionScreen() {
     let unsubscribe: (() => void) | null = null
     setItems([])
     setLoaded(false)
+    setPendingTurns([])
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
@@ -82,6 +95,26 @@ export function SessionScreen() {
     }
   }, [readTranscript, subscribeTranscript, sessionId])
 
+  useEffect(() => {
+    if (pendingTurns.length === 0) return
+    const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
+    setPendingTurns((prev) => {
+      const next = prev.filter((turn) => !echoed.has(turn.text.trim()))
+      return next.length === prev.length ? prev : next
+    })
+  }, [items, pendingTurns.length])
+
+  const send = useCallback(
+    (text: string) => {
+      if (!sessionId) return
+      const trimmed = text.trim()
+      if (!trimmed) return
+      setPendingTurns((prev) => [...prev, { id: `${Date.now()}:${prev.length}`, text: trimmed }])
+      void client.sendMessage(sessionId, trimmed)
+    },
+    [client.sendMessage, sessionId],
+  )
+
   const loadOlder = useCallback(() => {
     const p = paging.current
     if (!sessionId || !p.hasMore || p.loading || !p.head) return
@@ -106,6 +139,9 @@ export function SessionScreen() {
   }, [client.focusSessionIds, router, sessionId])
 
   const title = session ? sessionTitle(session) : 'Session'
+  const issue = session?.issueId ? client.issueById(session.issueId) : undefined
+  // The issue colour flows through the chrome; slate when the issue is uncoloured.
+  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!session) return []
@@ -154,6 +190,14 @@ export function SessionScreen() {
     return actions
   }, [client, session])
 
+  const offerActions: TrayCardActions = {
+    onOfferAction: (target, prompt) => void client.sendMessage(target.sessionId, prompt),
+    onOpenSession: () => {},
+    onOpenIssue: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
+    onResolve: (target) => void client.trpc.issues.clearNeedsHuman.mutate({ id: target.id }),
+    onOpenArtifact: (target) => router.push(`/issue/${encodeURIComponent(target.id)}`),
+  }
+
   if (!sessionId || !session) {
     return (
       <Screen title="Session" onBack={() => router.back()}>
@@ -179,6 +223,19 @@ export function SessionScreen() {
       }
       onBack={() => router.back()}
       backLabel="Back"
+      accent={accent}
+      leading={
+        issue ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Task POD-${issue.seq} — peek`}
+            onPress={() => issue && setPeekIssue(issue)}
+            hitSlop={8}
+          >
+            <IdSquare issue={issue} state="working" size={18} />
+          </Pressable>
+        ) : undefined
+      }
       right={
         <>
           <Pressable
@@ -190,12 +247,36 @@ export function SessionScreen() {
             <Text style={styles.nextText}>Next</Text>
           </Pressable>
           {Platform.OS === 'web' ? (
-            <HeaderButton
-              label="Open terminal"
-              onPress={() => router.push(`/session/${sessionId}/terminal`)}
-            >
-              <Icon as={SquareTerminal} size={17} color={color.textDim} />
-            </HeaderButton>
+            <View style={styles.segment}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Chat view"
+                accessibilityState={view === 'chat' ? { selected: true } : {}}
+                onPress={() => setView('chat')}
+                style={[styles.segmentCell, view === 'chat' && styles.segmentCellActive]}
+              >
+                <Text style={[styles.segmentText, view === 'chat' && styles.segmentTextActive]}>
+                  Chat
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Native agent view"
+                accessibilityState={view === 'native' ? { selected: true } : {}}
+                onPress={() => setView('native')}
+                style={[styles.segmentCell, view === 'native' && styles.segmentCellActive]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    styles.segmentTextTerminal,
+                    view === 'native' && styles.segmentTextNative,
+                  ]}
+                >
+                  {'>_'}
+                </Text>
+              </Pressable>
+            </View>
           ) : null}
           <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
             <Icon as={MoreVertical} size={17} color={color.textDim} />
@@ -207,14 +288,24 @@ export function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {loaded && items.length === 0 ? (
-          <EmptyState title="No transcript yet" body="Send a message to get things moving." />
+        {view === 'native' ? (
+          <View style={styles.terminalWrap}>
+            <TerminalPane sessionId={sessionId} />
+          </View>
+        ) : loaded && items.length === 0 && pendingTurns.length === 0 ? (
+          <EmptyState fill title="No transcript yet" body="Send a message to get things moving." />
         ) : (
           <TranscriptList
             items={items}
             live={session?.status === 'live'}
+            pendingTurns={pendingTurns}
             onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
             onLoadOlder={loadOlder}
+            onRefPress={(ref) => {
+              const seq = Number(ref.slice(4))
+              const target = client.issues.find((i) => i.seq === seq)
+              if (target) setPeekIssue(target)
+            }}
           />
         )}
         {(() => {
@@ -228,11 +319,26 @@ export function SessionScreen() {
             </Text>
           )
         })()}
-        <Composer
-          placeholder="Message the agent…"
-          onSend={(text) => void client.sendMessage(sessionId, text)}
-        />
+        {view === 'chat' && session.offer && issue ? (
+          <View style={styles.offerWrap}>
+            <TrayCard
+              item={{
+                kind: 'offer',
+                issue,
+                session,
+                offer: session.offer,
+                since: session.offer.createdAt,
+              }}
+              issues={client.issues}
+              httpOrigin={client.serverConfig.httpOrigin}
+              actions={offerActions}
+              now={Date.now()}
+            />
+          </View>
+        ) : null}
+        {view === 'chat' ? <Composer placeholder="Message the agent…" onSend={send} /> : null}
       </KeyboardAvoidingView>
+      <TaskPeekSheet issue={peekIssue} session={session} onClose={() => setPeekIssue(null)} />
       <ActionSheet
         visible={menuOpen}
         title={title}
@@ -257,20 +363,72 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activity: {
+    ...monoLabel(9),
     color: color.working,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.lg,
     paddingBottom: space.xs,
   },
   activityAttention: {
     color: color.needsYou,
   },
   nextText: {
+    ...sans(600),
     color: color.accent,
-    fontSize: font.body,
-    fontWeight: '600',
+    fontSize: font.small,
+  },
+  segment: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: color.borderStrong,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    height: 28,
+  },
+  segmentCell: {
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentCellActive: {
+    backgroundColor: color.elevated,
+  },
+  segmentText: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.tiny + 0.5,
+  },
+  segmentTextActive: {
+    color: color.text,
+  },
+  /**
+   * The `>_` terminal mark (POD-355). Two things kept it from lining up with
+   * the "Chat" label beside it:
+   *  - it asked for `mono(600)` FIRST in the style array, so `segmentText`'s
+   *    `sans(600)` silently won (later styles override earlier ones) and the
+   *    terminal mark rendered in the proportional face;
+   *  - the cell centres each label's LINE BOX, but `>_` has no ascender and its
+   *    underscore sits below the baseline, so its ink lands ~1.5px lower than a
+   *    cap-height word in the same box. Lift it back onto Chat's optical centre
+   *    with a transform, which nudges the glyph without reflowing the 28px strip.
+   */
+  segmentTextTerminal: {
+    ...mono(600),
+    transform: [{ translateY: -1.5 }],
+  },
+  segmentTextNative: {
+    color: color.accent,
+  },
+  terminalWrap: {
+    flex: 1,
+    // minHeight 0 is what keeps the native pane INSIDE the viewport: without it
+    // the terminal's flex child can only grow, and a tall agent frame pushes the
+    // pane past the bottom of the screen (POD-338).
+    minHeight: 0,
+    overflow: 'hidden',
+    backgroundColor: color.bgSunken,
+  },
+  offerWrap: {
+    paddingHorizontal: space.sm + 2,
+    paddingBottom: space.xs,
   },
 })

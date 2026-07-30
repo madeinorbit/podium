@@ -5,7 +5,9 @@
  */
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useFeaturesState } from '@/lib/use-feature'
 import { Section } from './shared'
@@ -31,10 +33,15 @@ function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boo
 export function ExperimentalSection({
   settings,
   patch,
+  onReset,
 }: {
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
+  /** Replaces the whole local blob with DEFAULT_SETTINGS; the change still rides
+   *  the dirty-bar Save, so it is reviewable and discardable (POD-127 F4). */
+  onReset: () => void
 }): JSX.Element {
+  const [confirmingReset, setConfirmingReset] = useState(false)
   // Shared module cache (same as useFeature) — one features.state fetch per app load;
   // re-fetched after settings Save via invalidateFeatures [spec:SP-f4b9].
   const state = useFeaturesState()
@@ -56,9 +63,7 @@ export function ExperimentalSection({
         </p>
       )}
       {listed.map((flag) => {
-        const checked = flag.locked
-          ? flag.enabled
-          : (settings.experimental?.[flag.id] ?? false)
+        const checked = flag.locked ? flag.enabled : (settings.experimental?.[flag.id] ?? false)
         const showDevBadge = Boolean(state?.devMode && isDevOnlyListed(flag, channel))
         return (
           <div key={flag.id} className="flex items-start gap-2.5 py-1.5 text-[13px]">
@@ -91,6 +96,45 @@ export function ExperimentalSection({
           </div>
         )
       })}
+      <div className="mt-6 border-hairline-soft border-t pt-4">
+        <h4 className="mb-0.5 font-semibold text-[12.5px] text-text-strong">Reset settings</h4>
+        <p className="mb-2 max-w-[58ch] text-[11.5px] text-text-dim">
+          Replaces every setting on this page and all others with Podium&apos;s defaults. Nothing is
+          saved until you confirm the change in the save bar.
+        </p>
+        {confirmingReset ? (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                onReset()
+                setConfirmingReset(false)
+              }}
+            >
+              Reset everything to defaults
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmingReset(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmingReset(true)}
+          >
+            Reset to defaults…
+          </Button>
+        )}
+      </div>
     </Section>
   )
 }

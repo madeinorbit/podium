@@ -1,12 +1,18 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { agentStateProviderFor } from '../harness/registry.js'
+import { acceptAgentObservation } from './causal'
 import {
+  ClaudeCausalObserver,
+  captureClaudeTranscript,
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
   claudeCodeStateProvider,
+  claudePromptHookFingerprint,
+  claudeTranscriptSegmentId,
+  parseClaudeTranscriptSegmentId,
   translateClaudeHookPayload,
 } from './claude-code'
 import { codexStateProvider } from './codex'
@@ -277,7 +283,465 @@ describe('translateClaudeHookPayload', () => {
     expect(await translateClaudeHookPayload({ hook_event_name: 'SomethingNew' })).toEqual([])
   })
 })
+describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
+  const at = '2026-07-18T12:00:00.000Z'
+  const idle = { phase: 'idle' as const, since: at, workingMsTotal: 0, nativeSubagentCount: 0 }
+  const observer = (state: Parameters<typeof reduceAgentState>[0] = idle, generation = 7) =>
+    new ClaudeCausalObserver({
+      podiumSessionId: 'podium-1',
+      observerGeneration: generation,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: state,
+      bootstrapOffset: 100,
+      now: () => at,
+    })
+  const hook = (hook_event_name: string, extra: Record<string, unknown> = {}) => ({
+    hook_event_name,
+    session_id: 'claude-1',
+    transcript_path: '/exact/claude-1.jsonl',
+    ...extra,
+  })
 
+  it('emits exactly one bootstrap snapshot with the exact binding and no live edge', () => {
+    const causal = observer()
+    expect(causal.bootstrap()).toMatchObject({
+      podiumSessionId: 'podium-1',
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observerGeneration: 7,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      turnEpoch: 0,
+      inputOrigin: 'provider',
+      providerCursor: {
+        segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+        components: { transcript: 100 },
+      },
+    })
+    expect(causal.bootstrap()).toBeNull()
+  })
+
+  it('folds frozen history and reconnect into snapshots, then emits one real working+terminal turn', async () => {
+    const first = observer()
+    expect(first.bootstrap()?.provenance).toBe('bootstrap')
+    expect(await first.observeHook(hook('Stop', { prompt_id: 'old' }), 100)).toBeNull()
+    const restarted = observer(idle, 8)
+    expect(restarted.bootstrap()).toMatchObject({
+      observerGeneration: 8,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+    })
+    expect(await restarted.observeHook(hook('SessionStart'), 100)).toBeNull()
+    restarted.recordInputOrigin('human')
+    expect(
+      await restarted.observeHook(hook('UserPromptSubmit', { prompt_id: 'prompt-1' }), 120),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      inputOrigin: 'human',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      providerPromptId: 'prompt-1',
+    })
+    expect(await restarted.observeHook(hook('Stop', { prompt_id: 'prompt-1' }), 180)).toMatchObject(
+      {
+        transitionKind: 'turn_terminal',
+        inputOrigin: 'human',
+        turnEpoch: 1,
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        state: { idle: { kind: 'done' } },
+      },
+    )
+  })
+
+  it('bounds pending input origins and seen hook identities', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    for (let index = 0; index < 100; index += 1) causal.recordInputOrigin('human')
+    expect(causal.pendingInputOriginCount).toBe(64)
+
+    for (let index = 0; index < 400; index += 1) {
+      await causal.observeHook(
+        hook('PreToolUse', { prompt_id: 'p1', tool_use_id: `tool-${index}` }),
+        100 + index,
+      )
+    }
+    expect(causal.seenRecordCount).toBe(256)
+  })
+
+  it('makes terminal absorbing: duplicate stop and late same-epoch hooks emit nothing', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110, 'controller')
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)).not.toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)).toBeNull()
+    expect(
+      await causal.observeHook(
+        hook('PreToolUse', { prompt_id: 'p1', tool_use_id: 'late-tool' }),
+        130,
+      ),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'late' }), 140),
+    ).toBeNull()
+  })
+
+  it('allows only matching child bookkeeping to close a terminal epoch', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'child-1' }), 120)
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'working',
+      state: { awaitingSubagents: true, nativeSubagentCount: 1 },
+    })
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'other' }), 140),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'child-1' }), 150),
+    ).toMatchObject({
+      transitionKind: 'subagent_bookkeeping',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: { nativeSubagentCount: 0, idle: { kind: 'done' } },
+    })
+  })
+
+  it('opens epochs only on exact-session provider-confirmed prompts and preserves input origins', async () => {
+    const causal = observer({ ...idle, idle: { kind: 'done' as const } })
+    causal.bootstrap()
+    causal.recordInputOrigin('mail')
+    expect(await causal.observeHook(hook('PostToolUse', { tool_use_id: 'noise' }), 110)).toBeNull()
+    expect(
+      await causal.observeHook(
+        { ...hook('UserPromptSubmit', { prompt_id: 'wrong' }), session_id: 'other' },
+        120,
+      ),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'mail-prompt' }), 130),
+    ).toMatchObject({ inputOrigin: 'mail', turnEpoch: 1 })
+    const system = observer()
+    system.bootstrap()
+    expect(
+      await system.observeHook(
+        hook('UserPromptSubmit', { prompt_id: 'system-prompt', promptSource: 'system' }),
+        110,
+      ),
+    ).toMatchObject({ inputOrigin: 'system' })
+  })
+
+  it('anchors no-ID prompts to physical records plus canonical payloads', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const firstPayload = hook('UserPromptSubmit', { prompt: 'first real prompt' })
+    const firstFingerprint = claudePromptHookFingerprint(firstPayload)
+    if (!firstFingerprint) throw new Error('expected prompt fingerprint')
+    const firstIdentity = { recordBoundary: 120, payloadFingerprint: firstFingerprint }
+    expect(
+      await causal.observeHook(firstPayload, 120, undefined, undefined, firstIdentity),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 1 })
+    expect(
+      await causal.observeHook(firstPayload, 120, undefined, undefined, firstIdentity),
+    ).toBeNull()
+    expect(await causal.observeHook(hook('Stop'), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+    })
+
+    const secondPayload = hook('UserPromptSubmit', { prompt: 'second real prompt' })
+    const secondFingerprint = claudePromptHookFingerprint(secondPayload)
+    if (!secondFingerprint) throw new Error('expected prompt fingerprint')
+    expect(
+      await causal.observeHook(secondPayload, 170, undefined, undefined, {
+        recordBoundary: 170,
+        payloadFingerprint: secondFingerprint,
+      }),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2 })
+  })
+
+  it('opens an unflushed reminder prompt from the live hook identity', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const payload = hook('UserPromptSubmit', {
+      promptSource: 'system',
+      prompt: '<system-reminder>You have new Podium mail.</system-reminder>',
+    })
+    const fingerprint = claudePromptHookFingerprint(payload)
+    if (!fingerprint) throw new Error('expected reminder fingerprint')
+
+    expect(await causal.observeHook(payload, 100)).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 1,
+      inputOrigin: 'system',
+      providerPromptId: 'fingerprint:' + fingerprint,
+      providerCursor: { components: { transcript: 100, hook: 1 } },
+    })
+    expect(await causal.observeHook(payload, 100)).toBeNull()
+    expect(await causal.observeHook(hook('Stop'), 100)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      providerCursor: { components: { transcript: 100, hook: 2 } },
+    })
+  })
+
+  it('rejects mismatched prompt IDs without poisoning the valid hook identity', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'current' }), 110)
+    const tool = {
+      prompt_id: 'wrong',
+      tool_use_id: 'tool-1',
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: 'Proceed?' }] },
+    }
+    expect(await causal.observeHook(hook('PreToolUse', tool), 120)).toBeNull()
+    expect(
+      await causal.observeHook(hook('PreToolUse', { ...tool, prompt_id: 'current' }), 120),
+    ).toMatchObject({
+      sourceEventKind: 'PreToolUse',
+      transitionKind: 'activity',
+      nextPhase: 'needs_user',
+    })
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'wrong' }), 130)).toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'current' }), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+    })
+  })
+
+  it('settles scheduled self-wake and attributes its next confirmed prompt to auto_continue', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'loop-1' }), 110, 'human')
+    expect(
+      await causal.observeHook(
+        hook('Stop', { prompt_id: 'loop-1', scheduled_self_wake: true }),
+        120,
+      ),
+    ).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'loop-2' }), 130),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, inputOrigin: 'auto_continue' })
+  })
+  it('links a fresh transcript segment to the accepted restart cursor and permits later epochs', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    causal.acknowledgeCursor({
+      segmentId: 'claude:claude-1:/previous/transcript.jsonl',
+      components: { transcript: 900 },
+    })
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'fresh-1' }),
+      causal.nextHookOffset(12),
+      'steward',
+    )
+    expect(opened).toMatchObject({
+      transitionKind: 'turn_opened',
+      providerCursor: {
+        segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+        predecessorSegmentId: 'claude:claude-1:/previous/transcript.jsonl',
+      },
+    })
+    await causal.observeHook(hook('Stop', { prompt_id: 'fresh-1' }), 14)
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'fresh-2' }), 15),
+    ).toMatchObject({ turnEpoch: 2, transitionKind: 'turn_opened' })
+    expect(await causal.observeHook(hook('Stop'), 16)).toMatchObject({
+      turnEpoch: 2,
+      transitionKind: 'turn_terminal',
+    })
+  })
+
+  it('links a same-file truncation as a successor segment', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const baseSegment = claudeTranscriptSegmentId('claude-1', {
+      path: '/exact/claude-1.jsonl',
+      device: '7',
+      inode: '11',
+    })
+    await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'before-truncate' }),
+      120,
+      undefined,
+      baseSegment,
+    )
+    const terminal = await causal.observeHook(
+      hook('Stop', { prompt_id: 'before-truncate' }),
+      10,
+      undefined,
+      baseSegment,
+    )
+    expect(terminal?.providerCursor).toMatchObject({
+      predecessorSegmentId: baseSegment,
+      components: { transcript: 10, hook: 2 },
+    })
+    expect(terminal?.providerCursor.segmentId.startsWith(`${baseSegment}:after:`)).toBe(true)
+  })
+
+  it('keeps same-EOF hooks strictly ordered across restart without advancing the byte boundary', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const bootstrap = causal.bootstrap()
+    if (!bootstrap) throw new Error('expected bootstrap observation')
+    const bootResult = acceptAgentObservation(null, lease, bootstrap, at)
+    if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'same-eof' }),
+      100,
+    )
+    expect(opened?.providerCursor.components).toEqual({ transcript: 100, hook: 1 })
+    if (!opened) throw new Error('expected opening observation')
+    const openResult = acceptAgentObservation(bootResult.checkpoint, lease, opened, at)
+    if (openResult.kind === 'rejected') throw new Error(openResult.rejectionReason)
+    const terminal = await causal.observeHook(hook('Stop', { prompt_id: 'same-eof' }), 100)
+    if (!terminal) throw new Error('expected terminal observation')
+    expect(terminal?.providerCursor.components).toEqual({ transcript: 100, hook: 2 })
+    const terminalResult = acceptAgentObservation(openResult.checkpoint, lease, terminal, at)
+    if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
+
+    const restarted = new ClaudeCausalObserver({
+      podiumSessionId: 'podium-1',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: terminal.state,
+      bootstrapOffset: 100,
+      acceptedCheckpoint: terminalResult.checkpoint,
+      now: () => at,
+    })
+    expect(restarted.bootstrap()?.providerCursor.components).toEqual({ transcript: 100, hook: 2 })
+    expect(
+      await restarted.observeHook(hook('UserPromptSubmit', { prompt_id: 'after-restart' }), 120),
+    ).toMatchObject({
+      turnEpoch: 2,
+      providerCursor: { components: { transcript: 120, hook: 3 } },
+    })
+  })
+
+  it('captures only complete JSONL boundaries and recognizes a prompt when a torn record completes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-capture-'))
+    const path = join(dir, 'claude.jsonl')
+    const prompt = `${JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'continue' },
+    })}\n`
+    const torn = '{"type":"assistant"'
+    await writeFile(path, `${prompt}${torn}`)
+    const first = await captureClaudeTranscript(path)
+    expect(first.boundary).toBe(Buffer.byteLength(prompt))
+    expect(first.prompts).toEqual([
+      expect.objectContaining({ offset: 0, origin: 'unknown', hasAssistantOutputAfter: false }),
+    ])
+
+    const completion =
+      ',"message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}\n'
+    await appendFile(path, completion)
+    const second = await captureClaudeTranscript(path)
+    expect(second.boundary).toBe(Buffer.byteLength(`${prompt}${torn}${completion}`))
+    expect(second.prompts).toEqual([
+      expect.objectContaining({ offset: 0, origin: 'unknown', hasAssistantOutputAfter: true }),
+    ])
+    expect(second.fileIdentity).toBe(first.fileIdentity)
+    expect(parseClaudeTranscriptSegmentId(claudeTranscriptSegmentId('claude-1', second))).toEqual({
+      path,
+      device: second.device,
+      inode: second.inode,
+    })
+    expect(second).toMatchObject({ path, device: expect.any(String), inode: expect.any(String) })
+  })
+
+  it('captures metadata and pure system reminders as causal prompt evidence', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-reminder-evidence-'))
+    const path = join(dir, 'claude.jsonl')
+    const reminder = '<system-reminder>You have new Podium mail.</system-reminder>'
+    const record = JSON.stringify({
+      type: 'user',
+      isMeta: true,
+      promptSource: 'system',
+      message: { role: 'user', content: reminder },
+    })
+    try {
+      await writeFile(path, record + '\n')
+      const capture = await captureClaudeTranscript(path)
+      const hookFingerprint = claudePromptHookFingerprint({ prompt: reminder })
+      expect(capture).toMatchObject({
+        promptCount: 1,
+        firstPrompt: { origin: 'system', payloadFingerprint: hookFingerprint },
+        latestPrompt: { origin: 'system', payloadFingerprint: hookFingerprint },
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('classifies a bounded tail while incrementally scanning only the accepted large-prefix gap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-large-gap-'))
+    const path = join(dir, 'claude.jsonl')
+    const prefix = `${'x'.repeat(2 * 1024 * 1024)}\n`
+    const promptRecord = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'gap prompt' },
+    })
+    await writeFile(path, `${prefix}${promptRecord}`)
+    const capture = await captureClaudeTranscript(path, {
+      promptScanStart: Buffer.byteLength(prefix),
+    })
+    expect(capture.boundary).toBe(Buffer.byteLength(`${prefix}${promptRecord}`))
+    expect(capture.promptCount).toBe(1)
+    expect(capture.prompts).toEqual([])
+    expect(capture.latestPrompt).toMatchObject({
+      offset: Buffer.byteLength(prefix),
+      recordBoundary: capture.boundary,
+      hasAssistantOutputAfter: false,
+    })
+
+    await appendFile(path, '\n{"type":"assistant"')
+    const torn = await captureClaudeTranscript(path, {
+      promptScanStart: capture.boundary,
+      promptScanIdentity: capture,
+    })
+    expect(torn.boundary).toBe(capture.boundary + 1)
+    expect(torn.prompts).toEqual([])
+    expect(torn.promptCount).toBe(0)
+  })
+
+  it('detects same-path replacement and scans the successor from byte zero', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-replacement-'))
+    const path = join(dir, 'claude.jsonl')
+    const replacement = join(dir, 'replacement.jsonl')
+    await writeFile(path, `${JSON.stringify({ type: 'bridge-session' })}\n`)
+    const accepted = await captureClaudeTranscript(path)
+    const prompt = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'replacement prompt' },
+    })
+    await writeFile(replacement, prompt)
+    await rename(replacement, path)
+
+    const captured = await captureClaudeTranscript(path, {
+      promptScanStart: accepted.boundary,
+      promptScanIdentity: accepted,
+    })
+    expect(captured.fileIdentity).not.toBe(accepted.fileIdentity)
+    expect(captured.promptCount).toBe(1)
+    expect(captured.latestPrompt).toMatchObject({ offset: 0, recordBoundary: captured.boundary })
+  })
+})
 const assistantLine = (blocks: unknown[]) =>
   JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: blocks } })
 const userLine = (content: unknown) =>

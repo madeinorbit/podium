@@ -1,8 +1,16 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import type {
+  AgentObservation,
+  AgentObservationAckMessage,
+  AgentRuntimeState,
+  ProviderCursor,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
   cleanCodexTitle,
@@ -10,12 +18,12 @@ import {
   isInteractiveCodexSource,
 } from '../discovery/providers/codex.js'
 import {
-  sharedCodexStateMetadataReaders,
   readCodexStateMetadata,
+  sharedCodexStateMetadataReaders,
 } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
-import { withEventTime } from './reducer.js'
+import { initialAgentState, reduceAgentState, withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -30,6 +38,8 @@ const PROCESS_SCAN_BATCH = 64
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
 const TAIL_BYTES = 128 * 1024
+const ROLLOUT_FOLD_CHUNK_BYTES = 64 * 1024
+const MAX_ROLLOUT_STATE_RECORD_BYTES = 4 * 1024 * 1024
 // PermissionRequest hooks do not say whether the request is routed to the user
 // or Codex's automatic reviewer. The effective reviewer lives in the rollout.
 // Bound the one-off prefix + tail reads so a long-running session never gets
@@ -216,6 +226,8 @@ async function translateCodexHookEvent(
       return [{ kind: 'session_started' }]
     case 'UserPromptSubmit':
       return [{ kind: 'prompt_submitted' }]
+    case 'SessionEnd':
+      return [{ kind: 'session_ended' }]
     case 'PreToolUse':
       if (isCodexQuestionTool(payload)) return codexQuestionEvent(payload)
       return [{ kind: 'activity' }]
@@ -409,6 +421,600 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
   return undefined
 }
 
+export interface CodexRolloutBootstrap {
+  providerSessionId: string | null
+  providerTurnId: string | null
+  providerPromptId: string | null
+  providerCursor: ProviderCursor
+  providerAt: string | null
+  turnEpoch: number
+  turnOpen: boolean
+  state: AgentRuntimeState
+  firstPromptTitle?: string
+}
+
+/** Find the descriptor-local boundary immediately after the last complete JSONL
+ * record. A torn suffix stays outside the bootstrap and becomes eligible only
+ * after a later append completes it. Reads are fixed-size regardless of file
+ * length. [spec:SP-cdb2] */
+async function completeRecordEnd(
+  handle: Awaited<ReturnType<typeof open>>,
+  capturedSize: number,
+): Promise<number> {
+  let end = capturedSize
+  while (end > 0) {
+    const start = Math.max(0, end - ROLLOUT_FOLD_CHUNK_BYTES)
+    const chunk = Buffer.alloc(end - start)
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, start)
+    const newline = chunk.lastIndexOf(0x0a, bytesRead - 1)
+    if (newline >= 0) return start + newline + 1
+    end = start
+  }
+  return 0
+}
+
+interface CodexCompleteRecord {
+  value: unknown
+  endOffset: number
+}
+
+async function readCodexCompleteRecord(
+  handle: Awaited<ReturnType<typeof open>>,
+  startOffset: number,
+  completeEnd: number,
+): Promise<CodexCompleteRecord | null> {
+  let position = startOffset
+  let recordBytes = 0
+  let recordParts: Buffer[] = []
+  let oversizedRecord = false
+  while (position < completeEnd) {
+    const length = Math.min(ROLLOUT_FOLD_CHUNK_BYTES, completeEnd - position)
+    const chunk = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(chunk, 0, length, position)
+    if (bytesRead === 0) break
+    const newline = chunk.indexOf(0x0a, 0)
+    if (newline >= 0) {
+      const part = chunk.subarray(0, newline)
+      if (!oversizedRecord && recordBytes + part.length <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+        recordParts.push(part)
+        recordBytes += part.length
+      }
+      const endOffset = position + newline + 1
+      if (oversizedRecord) return { value: null, endOffset }
+      const line = Buffer.concat(recordParts, recordBytes).toString('utf8').trim()
+      if (!line) return { value: null, endOffset }
+      try {
+        return { value: JSON.parse(line), endOffset }
+      } catch {
+        return { value: null, endOffset }
+      }
+    }
+    if (!oversizedRecord) {
+      if (recordBytes + bytesRead <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+        recordParts.push(chunk.subarray(0, bytesRead))
+        recordBytes += bytesRead
+      } else {
+        recordParts = []
+        recordBytes = 0
+        oversizedRecord = true
+      }
+    }
+    position += bytesRead
+  }
+  return null
+}
+
+/**
+ * Fold one exact Codex rollout through a captured complete-record EOF into a
+ * single state snapshot. Historical records never reach a live callback. The
+ * scan is memory bounded: fixed-size file reads plus a capped per-record buffer;
+ * oversized content records are discarded through their newline (Codex's state
+ * boundary records are small structured envelopes).
+ */
+export async function foldCodexRolloutBootstrap(
+  path: string,
+  checkpoint?: SessionObservationCheckpointV1 | null,
+  predecessorCursor?: ProviderCursor | null,
+): Promise<CodexRolloutBootstrap> {
+  const handle = await open(path, 'r')
+  try {
+    const info = await handle.stat()
+    const completeEnd = await completeRecordEnd(handle, info.size)
+    const device = String(info.dev)
+    const inode = String(info.ino)
+    const acceptedCursor = checkpoint?.provider === 'codex' ? checkpoint.providerCursor : null
+    const successionCursor = predecessorCursor ?? acceptedCursor
+    const acceptedOffset = acceptedCursor?.components.file ?? 0
+    const canResumeCheckpoint =
+      acceptedCursor !== null &&
+      acceptedCursor.device === device &&
+      acceptedCursor.inode === inode &&
+      acceptedOffset >= 0 &&
+      acceptedOffset <= completeEnd
+    const baseSegmentId = `codex-rollout:${device}:${inode}`
+    const predecessorFingerprint = successionCursor
+      ? createHash('sha256').update(JSON.stringify(successionCursor)).digest('hex').slice(0, 16)
+      : null
+    const providerCursor: ProviderCursor = {
+      segmentId: canResumeCheckpoint
+        ? acceptedCursor.segmentId
+        : successionCursor
+          ? `${baseSegmentId}:after:${predecessorFingerprint}`
+          : baseSegmentId,
+      ...(!canResumeCheckpoint && successionCursor
+        ? { predecessorSegmentId: successionCursor.segmentId }
+        : {}),
+      pathHint: path,
+      device,
+      inode,
+      components: { file: completeEnd },
+    }
+
+    let state =
+      checkpoint && canResumeCheckpoint
+        ? checkpoint.turnState
+        : initialAgentState(new Date(0).toISOString())
+    if (!canResumeCheckpoint) {
+      state = reduceAgentState(state, { kind: 'session_started', at: state.since }, state.since)
+    }
+    let providerSessionId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerSessionId : null
+    let providerTurnId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerTurnId : null
+    let providerPromptId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerPromptId : null
+    let providerAt: string | null = checkpoint && canResumeCheckpoint ? checkpoint.providerAt : null
+    let firstPromptTitle: string | undefined
+    let turnEpoch = checkpoint && canResumeCheckpoint ? checkpoint.turnEpoch : 0
+    let turnOpen =
+      checkpoint && canResumeCheckpoint
+        ? checkpoint.terminalFence === null &&
+          (state.phase === 'working' ||
+            state.phase === 'needs_user' ||
+            state.phase === 'compacting')
+        : false
+    let recordBytes = 0
+    let recordParts: Buffer[] = []
+    let oversizedRecord = false
+
+    const foldRecord = async (line: Buffer): Promise<void> => {
+      const trimmed = line.toString('utf8').trim()
+      if (!trimmed) return
+      let record: unknown
+      try {
+        record = JSON.parse(trimmed)
+      } catch {
+        return
+      }
+      if (!isRecord(record)) return
+      const payload = isRecord(record.payload) ? record.payload : undefined
+      const recordType = strField(record, 'type')
+      const payloadType = payload ? strField(payload, 'type') : undefined
+      const at = strField(record, 'timestamp')
+
+      if (recordType === 'session_meta' && payload) {
+        providerSessionId = strField(payload, 'id') ?? providerSessionId
+      }
+      if (recordType === 'turn_context' && payload) {
+        providerTurnId = strField(payload, 'turn_id') ?? providerTurnId
+      }
+      if (recordType === 'event_msg' && payload) {
+        if (payloadType === 'task_started') {
+          providerTurnId = strField(payload, 'turn_id') ?? providerTurnId
+        }
+        if (payloadType === 'task_started' || payloadType === 'user_message') {
+          if (!turnOpen) {
+            turnEpoch += 1
+            turnOpen = true
+          }
+          providerPromptId =
+            strField(payload, 'prompt_id') ?? strField(payload, 'id') ?? providerPromptId
+        } else if (payloadType === 'task_complete' || payloadType === 'turn_aborted') {
+          turnOpen = false
+        }
+      }
+
+      firstPromptTitle ??= codexPromptTitle(record)
+      const translated = await translateCodexEvent(record)
+      for (const event of translated) {
+        // Output belonging to a settled epoch is diagnostic history. Only a
+        // provider prompt/task-start above can open the next epoch.
+        if (
+          !turnOpen &&
+          (event.kind === 'activity' || event.kind === 'needs_user' || event.kind === 'compaction')
+        ) {
+          continue
+        }
+        state = reduceAgentState(state, event, event.at ?? state.since)
+        if (event.at) providerAt = event.at
+      }
+      if (at && translated.length === 0 && recordType === 'turn_context') providerAt ??= at
+    }
+
+    for (let offset = canResumeCheckpoint ? acceptedOffset : 0; offset < completeEnd; ) {
+      const length = Math.min(ROLLOUT_FOLD_CHUNK_BYTES, completeEnd - offset)
+      const chunk = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(chunk, 0, length, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+      let partStart = 0
+      for (let index = 0; index < bytesRead; index += 1) {
+        if (chunk[index] !== 0x0a) continue
+        const part = chunk.subarray(partStart, index)
+        if (!oversizedRecord && recordBytes + part.length <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+          recordParts.push(part)
+          recordBytes += part.length
+          await foldRecord(Buffer.concat(recordParts, recordBytes))
+        }
+        recordParts = []
+        recordBytes = 0
+        oversizedRecord = false
+        partStart = index + 1
+      }
+      const suffix = chunk.subarray(partStart, bytesRead)
+      if (!oversizedRecord) {
+        if (recordBytes + suffix.length <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+          recordParts.push(suffix)
+          recordBytes += suffix.length
+        } else {
+          recordParts = []
+          recordBytes = 0
+          oversizedRecord = true
+        }
+      }
+    }
+
+    return {
+      providerSessionId,
+      providerTurnId,
+      turnOpen,
+      providerPromptId,
+      providerCursor,
+      providerAt,
+      turnEpoch,
+      state,
+      ...(firstPromptTitle ? { firstPromptTitle } : {}),
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+export interface CodexCausalObserverConfig {
+  podiumSessionId: string
+  providerSessionId: string
+  onRebindRequired?: (providerSessionId: string, cursor: ProviderCursor) => void
+  observerGeneration: number
+  bindingVersion: number
+  now?: () => string
+}
+
+interface PendingCodexObservation {
+  observation: AgentObservation
+  next: CodexRolloutBootstrap
+}
+
+function codexTransitionId(parts: readonly (string | number | null)[]): string {
+  return `codex:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`
+}
+
+function validProviderAt(record: Record<string, unknown>): string | null {
+  const value = strField(record, 'timestamp')
+  return value && Number.isFinite(Date.parse(value)) ? value : null
+}
+
+function cursorAt(base: ProviderCursor, offset: number): ProviderCursor {
+  return { ...base, components: { ...base.components, file: offset } }
+}
+
+function sameProviderCursor(left: ProviderCursor | null, right: ProviderCursor): boolean {
+  return (
+    left !== null &&
+    left.segmentId === right.segmentId &&
+    left.pathHint === right.pathHint &&
+    left.device === right.device &&
+    left.inode === right.inode &&
+    JSON.stringify(left.components) === JSON.stringify(right.components)
+  )
+}
+
+function authoritativeCodexCheckpoint(
+  config: CodexCausalObserverConfig,
+  checkpoint: SessionObservationCheckpointV1 | null | undefined,
+): SessionObservationCheckpointV1 | null {
+  return checkpoint &&
+    checkpoint.podiumSessionId === config.podiumSessionId &&
+    checkpoint.provider === 'codex' &&
+    checkpoint.providerSessionId === config.providerSessionId &&
+    checkpoint.bindingVersion === config.bindingVersion &&
+    checkpoint.lifecycleObservationGeneration <= config.observerGeneration &&
+    checkpoint.providerCursor !== null
+    ? checkpoint
+    : null
+}
+
+function codexBootstrapFromCheckpoint(
+  checkpoint: SessionObservationCheckpointV1,
+  providerCursor: ProviderCursor,
+): CodexRolloutBootstrap {
+  const state = checkpoint.turnState
+  return {
+    providerSessionId: checkpoint.providerSessionId,
+    providerTurnId: checkpoint.providerTurnId,
+    providerPromptId: checkpoint.providerPromptId,
+    providerCursor,
+    providerAt: checkpoint.providerAt,
+    turnEpoch: checkpoint.turnEpoch,
+    turnOpen:
+      checkpoint.terminalFence === null &&
+      (state.phase === 'working' || state.phase === 'needs_user' || state.phase === 'compacting'),
+    state,
+  }
+}
+
+function sourceKind(record: Record<string, unknown>): string | undefined {
+  const payload = isRecord(record.payload) ? record.payload : undefined
+  return (
+    strField(record, 'hook_event_name') ??
+    (payload ? strField(payload, 'type') : undefined) ??
+    strField(record, 'type')
+  )
+}
+
+/** The sole historical envelope. Its provenance makes the folded records
+ * ineligible for live effects at the durable gate. [spec:SP-cdb2] */
+export function codexBootstrapObservation(
+  config: CodexCausalObserverConfig,
+  bootstrap: CodexRolloutBootstrap,
+): AgentObservation {
+  const receivedAt = config.now?.() ?? new Date().toISOString()
+  if (
+    bootstrap.providerSessionId !== null &&
+    bootstrap.providerSessionId !== config.providerSessionId
+  ) {
+    config.onRebindRequired?.(bootstrap.providerSessionId, bootstrap.providerCursor)
+    throw new Error(
+      `Codex rollout ${bootstrap.providerSessionId} does not match lease ${config.providerSessionId}`,
+    )
+  }
+  return {
+    podiumSessionId: config.podiumSessionId,
+    provider: 'codex',
+    providerSessionId: config.providerSessionId,
+    bindingVersion: config.bindingVersion,
+    providerTurnId: bootstrap.providerTurnId,
+    providerPromptId: bootstrap.providerPromptId,
+    observerGeneration: config.observerGeneration,
+    providerCursor: bootstrap.providerCursor,
+    providerAt: bootstrap.providerAt,
+    receivedAt,
+    sourceEventKind: 'rollout_bootstrap_fold',
+    transitionKind: 'snapshot',
+    provenance: 'bootstrap',
+    inputOrigin: 'provider',
+    turnEpoch: bootstrap.turnEpoch,
+    priorPhase: bootstrap.state.phase,
+    nextPhase: bootstrap.state.phase,
+    transitionId: codexTransitionId([
+      config.providerSessionId,
+      config.bindingVersion,
+      bootstrap.turnEpoch,
+      bootstrap.providerCursor.segmentId,
+      bootstrap.providerCursor.components.file ?? 0,
+      'bootstrap',
+      bootstrap.state.phase,
+    ]),
+    state: bootstrap.state,
+  }
+}
+
+/** Ack-gated Codex live reducer. The caller offers one complete record after
+ * the accepted cursor and reads no further records until its observation is
+ * acknowledged. Real prompt evidence alone opens epochs; late output is inert. */
+export class CodexCausalCursorObserver {
+  private accepted: CodexRolloutBootstrap
+  private pending: PendingCodexObservation | null = null
+  private physicalReadOffset: number
+  private recoveredCheckpoint: SessionObservationCheckpointV1 | null = null
+
+  constructor(
+    private readonly config: CodexCausalObserverConfig,
+    bootstrap: CodexRolloutBootstrap,
+  ) {
+    if (
+      bootstrap.providerSessionId !== null &&
+      bootstrap.providerSessionId !== config.providerSessionId
+    ) {
+      config.onRebindRequired?.(bootstrap.providerSessionId, bootstrap.providerCursor)
+      throw new Error(
+        `Codex rollout ${bootstrap.providerSessionId} does not match lease ${config.providerSessionId}`,
+      )
+    }
+    this.accepted = { ...bootstrap, providerSessionId: config.providerSessionId }
+    this.physicalReadOffset = bootstrap.providerCursor.components.file ?? 0
+  }
+
+  get acceptedSnapshot(): CodexRolloutBootstrap {
+    return this.accepted
+  }
+
+  get waitingForAck(): boolean {
+    return this.pending !== null
+  }
+
+  get pendingObservation(): AgentObservation | null {
+    return this.pending?.observation ?? null
+  }
+
+  get readOffset(): number {
+    return this.physicalReadOffset
+  }
+
+  takeRecoveredCheckpoint(): SessionObservationCheckpointV1 | null {
+    const checkpoint = this.recoveredCheckpoint
+    this.recoveredCheckpoint = null
+    return checkpoint
+  }
+
+  async observeRecord(record: unknown, endOffset: number): Promise<AgentObservation | null> {
+    if (this.pending) return null
+    if (!Number.isInteger(endOffset) || endOffset <= this.physicalReadOffset || !isRecord(record))
+      return null
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    const recordType = strField(record, 'type')
+    const sessionId =
+      (recordType === 'session_meta' && payload ? strField(payload, 'id') : undefined) ??
+      strField(record, 'session_id') ??
+      (payload ? strField(payload, 'session_id') : undefined)
+    if (sessionId && sessionId !== this.config.providerSessionId) {
+      this.config.onRebindRequired?.(sessionId, cursorAt(this.accepted.providerCursor, endOffset))
+      return null
+    }
+    this.physicalReadOffset = endOffset
+    const kind = sourceKind(record)
+    if (!kind) return null
+
+    const next: CodexRolloutBootstrap = {
+      ...this.accepted,
+      providerCursor: cursorAt(this.accepted.providerCursor, endOffset),
+    }
+    if (recordType === 'turn_context' && payload) {
+      next.providerTurnId = strField(payload, 'turn_id') ?? next.providerTurnId
+    }
+    if (recordType === 'event_msg' && payload) {
+      if (kind === 'task_started') {
+        next.providerTurnId = strField(payload, 'turn_id') ?? next.providerTurnId
+      }
+      if (kind === 'task_started' || kind === 'user_message') {
+        next.providerPromptId =
+          strField(payload, 'prompt_id') ?? strField(payload, 'id') ?? next.providerPromptId
+      }
+    }
+    if (kind === 'UserPromptSubmit') {
+      next.providerTurnId = strField(record, 'turn_id') ?? next.providerTurnId
+      next.providerPromptId = strField(record, 'prompt_id') ?? next.providerPromptId
+    }
+
+    const events = await translateCodexEvent(record)
+    const promptSignal =
+      kind === 'UserPromptSubmit' ||
+      (recordType === 'event_msg' && (kind === 'task_started' || kind === 'user_message'))
+    let transitionKind: AgentObservation['transitionKind'] | undefined
+    let event: AgentStateEvent | undefined
+    if (promptSignal) {
+      if (!this.accepted.turnOpen) {
+        next.turnEpoch += 1
+        next.turnOpen = true
+        transitionKind = 'turn_opened'
+        event = events.find((candidate) => candidate.kind === 'prompt_submitted')
+      } else {
+        transitionKind = 'activity'
+        const at = validProviderAt(record)
+        event = { kind: 'activity', ...(at ? { at } : {}) }
+      }
+    } else {
+      event = events[0]
+      if (!event) {
+        // Metadata-only records still carry causal identity used by the next
+        // phase edge. Retain it locally until an observation can durably advance.
+        this.accepted = { ...this.accepted, providerTurnId: next.providerTurnId }
+        return null
+      }
+      if (event.kind === 'session_ended') {
+        next.turnOpen = false
+        transitionKind = 'session_terminal'
+      } else if (event.kind === 'turn_completed' || event.kind === 'turn_failed') {
+        if (!this.accepted.turnOpen) return null
+        next.turnOpen = false
+        transitionKind = 'turn_terminal'
+      } else if (!this.accepted.turnOpen) {
+        return null
+      } else if (event.kind === 'needs_user') transitionKind = 'needs_user'
+      else if (event.kind === 'compaction') transitionKind = 'compaction'
+      else transitionKind = 'activity'
+    }
+    if (!event || !transitionKind) return null
+
+    const priorState = this.accepted.state
+    const now = this.config.now?.() ?? new Date().toISOString()
+    next.state = reduceAgentState(priorState, event, event.at ?? now)
+    next.providerAt = validProviderAt(record) ?? next.providerAt
+    const observation: AgentObservation = {
+      podiumSessionId: this.config.podiumSessionId,
+      provider: 'codex',
+      providerSessionId: next.providerSessionId,
+      bindingVersion: this.config.bindingVersion,
+      providerTurnId: next.providerTurnId,
+      providerPromptId: next.providerPromptId,
+      observerGeneration: this.config.observerGeneration,
+      providerCursor: next.providerCursor,
+      providerAt: validProviderAt(record),
+      receivedAt: now,
+      sourceEventKind: kind,
+      transitionKind,
+      provenance: 'live',
+      inputOrigin: 'provider',
+      turnEpoch: next.turnEpoch,
+      priorPhase: priorState.phase,
+      nextPhase: next.state.phase,
+      transitionId: codexTransitionId([
+        next.providerSessionId,
+        this.config.bindingVersion,
+        next.turnEpoch,
+        next.providerCursor.segmentId,
+        endOffset,
+        kind,
+        next.state.phase,
+      ]),
+      state: next.state,
+    }
+    this.pending = { observation, next }
+    return observation
+  }
+
+  acknowledge(ack: AgentObservationAckMessage): boolean {
+    const pending = this.pending
+    if (!pending) return false
+    const durableAck = ack as AgentObservationAckMessage & {
+      bindingVersion?: number
+      acceptedCursor?: ProviderCursor | null
+    }
+    if (
+      ack.sessionId !== this.config.podiumSessionId ||
+      ack.observerGeneration !== this.config.observerGeneration ||
+      ack.transitionId !== pending.observation.transitionId ||
+      (durableAck.bindingVersion !== undefined &&
+        durableAck.bindingVersion !== this.config.bindingVersion)
+    ) {
+      return false
+    }
+    const duplicate =
+      ack.result === 'rejected' &&
+      ack.rejectionReason === 'duplicate_transition' &&
+      sameProviderCursor(durableAck.acceptedCursor ?? null, pending.observation.providerCursor)
+    if (ack.result === 'rejected' && !duplicate) {
+      const checkpoint = authoritativeCodexCheckpoint(this.config, ack.checkpoint)
+      if (!checkpoint?.providerCursor) return true
+      const durableOffset = checkpoint.providerCursor.components.file ?? 0
+      this.accepted = codexBootstrapFromCheckpoint(checkpoint, checkpoint.providerCursor)
+      this.physicalReadOffset = durableOffset
+      this.pending = null
+      this.recoveredCheckpoint = checkpoint
+      return true
+    }
+    const checkpoint = authoritativeCodexCheckpoint(this.config, ack.checkpoint)
+    this.accepted = checkpoint?.providerCursor
+      ? codexBootstrapFromCheckpoint(checkpoint, checkpoint.providerCursor)
+      : pending.next
+    if (checkpoint?.providerCursor) {
+      this.physicalReadOffset = checkpoint.providerCursor.components.file ?? this.physicalReadOffset
+      this.recoveredCheckpoint = checkpoint
+    }
+    this.pending = null
+    return true
+  }
+}
+
 export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
   // spawn — see the daemon ensurePodiumCodexHooks. New sessions prefer the
@@ -435,6 +1041,24 @@ export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
 export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
 /** Instance-scoped directory containing at most one pending identity receipt per pane. */
 export const PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV = 'PODIUM_CODEX_HOOK_RECEIPT_DIR'
+
+export interface CodexCausalStateOptions {
+  podiumSessionId: string
+  providerSessionId: string | null
+  observerGeneration: number
+  bindingVersion: number
+  acceptedCheckpoint: SessionObservationCheckpointV1 | null
+  onObservation(observation: AgentObservation): void
+  onLivePollComplete?(providerCursor: ProviderCursor): void
+  onRebindRequired(providerSessionId: string): void
+  retryMs?: number
+  retryNow?: () => number
+}
+
+export interface CodexStateObservation {
+  stop(): void
+  onObservationAck(ack: AgentObservationAckMessage): void
+}
 
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
@@ -463,7 +1087,9 @@ export function observeCodexState(opts: {
   // first typed prompt — the same heuristic the history list uses.
   onTitle?: (title: string) => void
   onEvents: (events: AgentStateEvent[]) => void
-}): { stop(): void } {
+  causal?: CodexCausalStateOptions
+  onBootstrapFold?: () => void
+}): CodexStateObservation {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
@@ -510,9 +1136,27 @@ export function observeCodexState(opts: {
   let dropLeadingPartial = false
   const decoder = new LineDecoder()
   let reading = false
+  let causalObserver: CodexCausalCursorObserver | null = null
+  let causalPredecessorCursor: ProviderCursor | null = null
+  let causalBootstrapObservation: AgentObservation | null = null
+  let awaitingCausalBootstrapAck = false
+  let requestedRebindSessionId: string | null = null
+  let causalRebindRetryAt = 0
   // The hot path: re-read the native (state-DB) title on every ~700ms tick. The
   // reader skips the SQLite open+`SELECT *` while the state DB's mtime is unchanged,
   // returning the prior metadata, so an idle session no longer hits sqlite per tick.
+  let causalRetryAt = 0
+  let causalAcceptedCheckpoint = opts.causal?.acceptedCheckpoint ?? null
+  const causalRetryMs = opts.causal?.retryMs ?? 2_000
+  const causalRetryNow = opts.causal?.retryNow ?? Date.now
+  const sendCausalObservation = (observation: AgentObservation, force = false): void => {
+    const causal = opts.causal
+    if (!causal) return
+    const now = causalRetryNow()
+    if (!force && now < causalRetryAt) return
+    causalRetryAt = now + causalRetryMs
+    causal.onObservation(observation)
+  }
   const stateReader = sharedCodexStateMetadataReaders.acquire(codexHome)
   const readState = stateReader.read
 
@@ -533,6 +1177,14 @@ export function observeCodexState(opts: {
       readFromStart = false
       firstPromptTitled = false
       decoder.reset()
+      causalPredecessorCursor =
+        causalObserver?.acceptedSnapshot.providerCursor ?? causalPredecessorCursor
+      causalObserver = null
+      causalBootstrapObservation = null
+      awaitingCausalBootstrapAck = false
+      requestedRebindSessionId = null
+      causalRebindRetryAt = 0
+      causalRetryAt = 0
     }
     if (found.id && announcedThreadId !== found.id) {
       announcedThreadId = found.id
@@ -566,6 +1218,106 @@ export function observeCodexState(opts: {
     }
   }
 
+  const requestCausalRebind = (providerSessionId: string): void => {
+    const causal = opts.causal
+    if (!causal) return
+    const now = causalRetryNow()
+    if (requestedRebindSessionId === providerSessionId && now < causalRebindRetryAt) return
+    requestedRebindSessionId = providerSessionId
+    causalRebindRetryAt = now + causalRetryMs
+    causal.onRebindRequired(providerSessionId)
+  }
+
+  const ensureCausalObserver = async (): Promise<boolean> => {
+    const causal = opts.causal
+    if (!causal) return false
+    if (!threadId || !rolloutPath) return true
+    if (requestedRebindSessionId && causal.providerSessionId !== requestedRebindSessionId) {
+      requestCausalRebind(requestedRebindSessionId)
+      return true
+    }
+    if (causal.providerSessionId !== threadId) {
+      requestCausalRebind(threadId)
+      return true
+    }
+    if (causalObserver) return true
+    const activePath = rolloutPath
+    opts.onBootstrapFold?.()
+    const folded = await foldCodexRolloutBootstrap(
+      activePath,
+      causalAcceptedCheckpoint,
+      causalPredecessorCursor,
+    )
+    if (stopped || rolloutPath !== activePath) return true
+    const config: CodexCausalObserverConfig = {
+      podiumSessionId: causal.podiumSessionId,
+      providerSessionId: threadId,
+      observerGeneration: causal.observerGeneration,
+      bindingVersion: causal.bindingVersion,
+      onRebindRequired: requestCausalRebind,
+    }
+    causalObserver = new CodexCausalCursorObserver(config, folded)
+    causalBootstrapObservation = codexBootstrapObservation(config, folded)
+    awaitingCausalBootstrapAck = true
+    requestedRebindSessionId = null
+    causalRebindRetryAt = 0
+    causalRetryAt = 0
+    causalPredecessorCursor = null
+    if (!firstPromptTitled && lastEmittedTitle === undefined && folded.firstPromptTitle) {
+      firstPromptTitled = true
+      sendTitle(folded.firstPromptTitle)
+    }
+    return true
+  }
+
+  const drainCausalObserver = async (
+    handle: Awaited<ReturnType<typeof open>>,
+    info: { size: number; dev: number | bigint; ino: number | bigint },
+  ): Promise<ProviderCursor | null> => {
+    const causal = opts.causal
+    const observer = causalObserver
+    if (!causal || !observer) return null
+    if (awaitingCausalBootstrapAck) {
+      if (causalBootstrapObservation) sendCausalObservation(causalBootstrapObservation)
+      return null
+    }
+    if (observer.waitingForAck) {
+      const pending = observer.pendingObservation
+      if (pending) sendCausalObservation(pending)
+      return null
+    }
+    const cursor = observer.acceptedSnapshot.providerCursor
+    const device = String(info.dev)
+    const inode = String(info.ino)
+    if (cursor.device !== device || cursor.inode !== inode || info.size < observer.readOffset) {
+      causalObserver = null
+      causalBootstrapObservation = null
+      causalPredecessorCursor = observer.acceptedSnapshot.providerCursor
+      awaitingCausalBootstrapAck = false
+      return null
+    }
+    const completeEnd = await completeRecordEnd(handle, info.size)
+    while (!observer.waitingForAck && observer.readOffset < completeEnd) {
+      const startOffset = observer.readOffset
+      const complete = await readCodexCompleteRecord(handle, startOffset, completeEnd)
+      if (!complete) return null
+      const observation = await observer.observeRecord(complete.value, complete.endOffset)
+      if (!firstPromptTitled && lastEmittedTitle === undefined) {
+        const promptTitle = codexPromptTitle(complete.value)
+        if (promptTitle) {
+          firstPromptTitled = true
+          sendTitle(promptTitle)
+        }
+      }
+      if (observation) {
+        sendCausalObservation(observation, true)
+        return null
+      }
+      if (observer.readOffset <= startOffset) return null
+    }
+    const accepted = observer.acceptedSnapshot.providerCursor
+    return !observer.waitingForAck && observer.readOffset === completeEnd ? accepted : null
+  }
   const tick = async (): Promise<void> => {
     if (stopped || reading) return
     reading = true
@@ -629,9 +1381,17 @@ export function observeCodexState(opts: {
       // mutable while asynchronous work runs.
       const activeRolloutPath = rolloutPath
       if (!activeRolloutPath) return
+      const causalReady = await ensureCausalObserver()
+      if (causalReady && !causalObserver) return
       const handle = await open(activeRolloutPath, 'r')
       try {
-        const { size } = await handle.stat()
+        const info = await handle.stat()
+        if (causalReady) {
+          const unchanged = await drainCausalObserver(handle, info)
+          if (unchanged) opts.causal?.onLivePollComplete?.(unchanged)
+          return
+        }
+        const { size } = info
         if (first) {
           // Seed from the recent tail only — state cares about the latest event,
           // and bootEvents already classified the resumed turn.
@@ -691,12 +1451,80 @@ export function observeCodexState(opts: {
     }
   }
 
+  const onObservationAck = (ack: AgentObservationAckMessage): void => {
+    const causal = opts.causal
+    if (!causal) return
+    if (
+      ack.sessionId !== causal.podiumSessionId ||
+      ack.observerGeneration !== causal.observerGeneration ||
+      ack.bindingVersion !== causal.bindingVersion
+    )
+      return
+    if (awaitingCausalBootstrapAck) {
+      const bootstrap = causalBootstrapObservation
+      if (!bootstrap || ack.transitionId !== bootstrap.transitionId) return
+      const duplicateBootstrap =
+        ack.result === 'rejected' &&
+        ack.rejectionReason === 'duplicate_transition' &&
+        ack.acceptedCursor !== null &&
+        ack.acceptedCursor !== undefined &&
+        sameProviderCursor(ack.acceptedCursor, bootstrap.providerCursor)
+      const config: CodexCausalObserverConfig | null = causal.providerSessionId
+        ? {
+            podiumSessionId: causal.podiumSessionId,
+            providerSessionId: causal.providerSessionId,
+            observerGeneration: causal.observerGeneration,
+            bindingVersion: causal.bindingVersion,
+            onRebindRequired: requestCausalRebind,
+          }
+        : null
+      const checkpoint = config ? authoritativeCodexCheckpoint(config, ack.checkpoint) : null
+      const recoveredCheckpoint =
+        ack.result === 'rejected' && !duplicateBootstrap ? checkpoint : null
+      if (ack.result === 'rejected' && !duplicateBootstrap && !recoveredCheckpoint) {
+        sendCausalObservation(bootstrap, true)
+        return
+      }
+      if (checkpoint) causalAcceptedCheckpoint = checkpoint
+      if (recoveredCheckpoint?.providerCursor && config) {
+        causalObserver = new CodexCausalCursorObserver(
+          config,
+          codexBootstrapFromCheckpoint(recoveredCheckpoint, recoveredCheckpoint.providerCursor),
+        )
+      }
+      awaitingCausalBootstrapAck = false
+      causalBootstrapObservation = null
+      causalPredecessorCursor = causalObserver?.acceptedSnapshot.providerCursor ?? null
+      void tick()
+      return
+    }
+    if (causalObserver?.acknowledge(ack)) {
+      const recovered = causalObserver.takeRecoveredCheckpoint()
+      if (recovered) causalAcceptedCheckpoint = recovered
+      else if (causal.providerSessionId) {
+        const checkpoint = authoritativeCodexCheckpoint(
+          {
+            podiumSessionId: causal.podiumSessionId,
+            providerSessionId: causal.providerSessionId,
+            observerGeneration: causal.observerGeneration,
+            bindingVersion: causal.bindingVersion,
+          },
+          ack.checkpoint,
+        )
+        if (checkpoint) causalAcceptedCheckpoint = checkpoint
+      }
+      if (!causalObserver.waitingForAck) causalRetryAt = 0
+      causalPredecessorCursor = causalObserver.acceptedSnapshot.providerCursor
+      void tick()
+    }
+  }
   const stopPolling = scheduleStatPoll(() => void tick(), {
     statTick: opts.statTick,
     pollMs: opts.pollMs ?? POLL_MS,
   })
   void tick()
   return {
+    onObservationAck,
     stop() {
       stopped = true
       stopPolling()

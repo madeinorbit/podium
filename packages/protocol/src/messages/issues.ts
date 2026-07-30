@@ -109,6 +109,43 @@ export const IssueColor = z.enum([
 ])
 export type IssueColor = z.infer<typeof IssueColor>
 
+/** Git status of a task's checkout [POD-98] — derived server-side at
+ *  serialization (like `sessions`), never persisted. Two axes: the MERGE axis
+ *  (`ahead` vs parentBranch — only meaningful on a private issue branch) and
+ *  the TASK axis (`commits`/`dirtyOwn` — harness-attributed, the only truthful
+ *  counters on a shared checkout like main or a long-lived project branch).
+ *  Tolerant so payloads from newer peers parse rather than failing the issue. */
+export const IssueGitState = z.object({
+  /** ISO time of the last completed probe. */
+  updatedAt: z.string(),
+  /** A probe is in flight — clients render the stamp's loading shimmer. */
+  computing: z.boolean().optional(),
+  /** Branch the checkout is actually on (may differ from issue.branch). */
+  branch: z.string().nullable(),
+  /** True = multi-task checkout (repo root / long-lived branch): the merge
+   *  axis is suppressed and only attributed counters render. */
+  shared: z.boolean(),
+  /** Merge axis: commits on branch not on parentBranch. Absent when shared. */
+  ahead: z.number().int().optional(),
+  /** Working-tree dirty file count (whole checkout). */
+  dirtyFiles: z.number().int(),
+  /** Task axis: dirty files ∩ this task's harness-observed touched files.
+   *  Absent when the harness has no touched-file set (fallback mode). */
+  dirtyOwn: z.number().int().optional(),
+  /** Task axis: commit shas attributed to this task's sessions. */
+  commits: z.array(z.string()).optional(),
+  /** ISO committer date of the checkout's last commit. */
+  lastCommitAt: z.string().optional(),
+  /** Commits not yet on the upstream (@{u}..HEAD). Absent = no upstream. */
+  unpushed: z.number().int().optional(),
+  /** Branch fully contained in parentBranch (merge axis only). */
+  merged: z.boolean().optional(),
+  /** True when counters come from checkout-level fallback (no harness
+   *  attribution available) — the UI discloses this in the hover. */
+  fallback: z.boolean().optional(),
+})
+export type IssueGitState = z.infer<typeof IssueGitState>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -159,9 +196,24 @@ export const IssueWire = z.object({
   /** When the closed-predicate last flipped true — the stable completion-decay
    *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
   closedAt: z.string().optional(),
+  /** Tuck-away (POD-293/POD-333): ISO time the operator dismissed this finished
+   *  issue into the sidebar's Closed fold, or null while it has not been tucked.
+   *  SERVER-side and GLOBAL (single-operator, like `readAt`) — the state used to
+   *  live in each client's local ui-state, so it did not survive a different
+   *  browser and two clients disagreed. Cleared server-side when the issue
+   *  reopens, so a later close offers Tuck away again. Optional + tolerant so a
+   *  pre-field cached payload (or a malformed value from a newer peer) parses as
+   *  "not tucked" rather than failing the whole issue; a current server always
+   *  sends it, explicitly null when untucked. */
+  tuckedAt: z.string().nullable().optional().catch(undefined),
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),
+  /** Manual order (POD-168, POD-100 §4 R1): fractional sort key, lexicographic
+   *  ASCENDING = top of the scope. One key space per sibling scope — a project
+   *  group's top level, a parent's children, and PINNED sort independently.
+   *  Absent = legacy row (sorts after keyed rows, in creation order). */
+  sortKey: z.string().optional(),
   /** User-assigned colour slot [spec:SP-b4d1]; absent = no colour = the neutral
    *  slate flow. Additive + tolerant (an unknown value from a newer peer parses
    *  as unset rather than failing the whole issue). */
@@ -235,6 +287,8 @@ export const IssueWire = z.object({
    *  Additive/optional: absent = an authority from before ADR 2 D3 (or an issue
    *  mirrored from an upstream hub that does not assign one). */
   revision: Revision.optional(),
+  /** Ephemeral checkout state for review UX; absent until the first probe. */
+  gitState: IssueGitState.optional().catch(undefined),
   /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
    *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
    *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:

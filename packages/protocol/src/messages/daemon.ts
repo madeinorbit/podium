@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
+import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
   BrowseDirsResultMessage,
   ConversationsChangedMessage,
@@ -21,11 +22,6 @@ import {
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
 } from './handoff'
-import {
-  WorkspaceCleanResultMessage,
-  WorkspaceExportResultMessage,
-  WorkspaceImportResultMessage,
-} from './workspace'
 import { HarnessExecResultMessage } from './harness'
 import {
   HeadlessBindResultMessage,
@@ -40,10 +36,16 @@ import {
 } from './host'
 import { InventoryReportMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
-import { AgentStateMessage } from './runtime-state'
+import {
+  AgentObservationMessage,
+  AgentObservationRebindMessage,
+  AgentObserverLiveConfirmationMessage,
+  AgentStateMessage,
+} from './runtime-state'
 import {
   AgentColorMessage,
   AgentExitMessage,
+  AgentModelMessage,
   AgentFrameBatchMessage,
   AgentFrameMessage,
   BindMessage,
@@ -57,6 +59,11 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import {
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+} from './workspace'
 
 // The daemon learned how to resume this session later (e.g. the Claude session
 // uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
@@ -105,6 +112,19 @@ export const SessionCwdMessage = z.object({
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 
+// daemon -> server: git activity attributed to ONE session [POD-98] — commit
+// shas from the HEAD delta the hook ingest measured around the session's own
+// tool call, and/or files its edit tools touched. An empty message (SessionStart
+// baseline) still REGISTERS the session as attribution-capable: its issue's
+// git-state probes leave disclosed fallback mode.
+export const SessionGitActivityMessage = z.object({
+  type: z.literal('sessionGitActivity'),
+  sessionId: z.string(),
+  commits: z.array(z.string()).optional(),
+  touched: z.array(z.string()).optional(),
+})
+export type SessionGitActivityMessage = z.infer<typeof SessionGitActivityMessage>
+
 // daemon -> server: the native composer draft the daemon scraped from a flagged
 // session's PTY (Draft Sync v2, POD-859). The server sequences it as an
 // origin='native' versioned edit and broadcasts, so drafts reach every view/device
@@ -119,6 +139,8 @@ export type NativeDraftMessage = z.infer<typeof NativeDraftMessage>
 // ---- Daemon -> server ----
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
+  CredentialExportResultMessage,
+  CredentialInstallResultMessage,
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,
   HarnessExecResultMessage,
@@ -137,6 +159,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
+  SessionGitActivityMessage,
   NativeDraftMessage,
   InventoryReportMessage,
   BindMessage,
@@ -147,7 +170,11 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ReattachFailedMessage,
   TitleMessage,
   AgentStateMessage,
+  AgentObservationMessage,
+  AgentObserverLiveConfirmationMessage,
+  AgentObservationRebindMessage,
   AgentColorMessage,
+  AgentModelMessage,
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,

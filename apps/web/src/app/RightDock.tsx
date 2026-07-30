@@ -12,6 +12,7 @@ import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
+import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
@@ -26,26 +27,13 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   { id: 'issue', label: 'Task', icon: CircleDot },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
-  // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never
-  // a workspace agent tab.
+  // The dock hosts one persistent shell per worktree (#23) [spec:SP-75b1];
+  // additional shells can also be opened as workspace tabs from the "+" menu.
   { id: 'shell', label: 'Shell', icon: SquareTerminal },
   // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
 ]
-
-function GitPlaceholder(): JSX.Element {
-  return (
-    <div className="p-3 text-xs text-muted-foreground/70">
-      <div className="font-medium text-muted-foreground">Git — coming soon</div>
-      <ul className="mt-2 list-disc pl-4">
-        <li>Working-tree status</li>
-        <li>Diff view</li>
-        <li>Commit log</li>
-      </ul>
-    </div>
-  )
-}
 
 /** The right dock panel: Files / Git / Issue for the active worktree. Opened
  *  from the thin icon rail on the shell's right edge; one panel at a time. */
@@ -56,8 +44,13 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions } = useStoreSelector(
-    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions }),
+  const { paneA, fileTabs, sessions, selectedIssueId } = useStoreSelector(
+    (s) => ({
+      paneA: s.paneA,
+      fileTabs: s.fileTabs,
+      sessions: s.sessions,
+      selectedIssueId: s.selectedIssueId,
+    }),
     shallowEqual,
   )
   const issues = useReplicaIssues()
@@ -70,6 +63,12 @@ export function RightDock({
     label: 'Panel',
     icon: FolderTree,
   }
+  // Task navigation is issue-first: selecting a sidebar row must update this
+  // dock even when the issue has no live session to become the active pane.
+  // The other dock tabs remain pane/worktree-driven.
+  const selectedIssue = selectedIssueId
+    ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
+    : undefined
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
@@ -96,7 +95,22 @@ export function RightDock({
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
-      {tab === 'git' && <GitPlaceholder />}
+      {tab === 'git' &&
+        (active ? (
+          // Keyed by cwd: switching worktrees re-roots status/log/diff state.
+          <GitPanelView
+            key={active.cwd}
+            cwd={active.cwd}
+            machineId={active.machineId}
+            issue={
+              (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
+              issueForCwd(issues, active.cwd) ??
+              undefined
+            }
+          />
+        ) : (
+          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+        ))}
       {tab === 'mail' &&
         (active ? (
           <MessageLedgerView
@@ -111,7 +125,13 @@ export function RightDock({
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
       {tab === 'issue' &&
-        (active ? (
+        (selectedIssue ? (
+          <IssuePanelView
+            cwd={selectedIssue.worktreePath ?? selectedIssue.repoPath}
+            machineId={selectedIssue.machineId}
+            issueId={selectedIssue.id}
+          />
+        ) : active ? (
           <IssuePanelView
             cwd={active.cwd}
             machineId={active.machineId}

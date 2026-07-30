@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative, sep } from 'node:path'
 import {
   contentToText,
   dateField,
@@ -33,10 +33,35 @@ export function createClaudeCodeConversationProvider(): ConversationProvider {
     agentKind: 'claude-code',
     defaultRoots: ({ homeDir }) => [join(homeDir, '.claude')],
     listRoot,
+    listPathsWithinRoot,
     summarizeFile,
     scanRoot,
     loadConversation,
   }
+}
+
+/**
+ * Targeted listing (POD-196): a Claude listing entry is a pure function of the
+ * path shape — `projects/<project>/<name>.jsonl` for top-level conversations,
+ * `projects/<project>/<convId>/subagents/<name>.jsonl` for subagent transcripts
+ * (`parentConversationId` = the directory name, exactly as the full walk in
+ * `listClaudeConversationFiles` derives it). This keeps the every-append active
+ * refresh from readdir-walking the whole projects tree per flush.
+ */
+function listPathsWithinRoot(root: string, paths: readonly string[]): ProviderRootListing {
+  const projectsRoot = join(root, 'projects')
+  const files: ConversationProviderFile[] = []
+  for (const path of paths) {
+    const rel = relative(projectsRoot, path)
+    if (rel.startsWith('..') || !rel.endsWith('.jsonl')) continue
+    const parts = rel.split(sep)
+    if (parts.length === 2) {
+      files.push({ path })
+    } else if (parts.length === 4 && parts[2] === 'subagents') {
+      files.push({ path, parentConversationId: parts[1] })
+    }
+  }
+  return { files, diagnostics: [] }
 }
 
 async function scanRoot(root: string): Promise<ProviderScanResult> {

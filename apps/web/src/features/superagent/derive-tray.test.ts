@@ -1,7 +1,7 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveTrayItems, trayScopeIssues, workingSessionCount } from './derive-tray'
+import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './derive-tray'
 
 const session = (over: Partial<SessionMeta>): SessionMeta =>
   ({
@@ -15,90 +15,215 @@ const session = (over: Partial<SessionMeta>): SessionMeta =>
     ...over,
   }) as SessionMeta
 
-describe('trayScopeIssues', () => {
-  const parent = makeIssue({ id: 'p', seq: 1 })
-  const child = makeIssue({ id: 'c', seq: 2, parentId: 'p' })
-  const grandchild = makeIssue({ id: 'g', seq: 3, parentId: 'c' })
-  const stranger = makeIssue({ id: 'x', seq: 9 })
 
-  it('scopes to the selected issue and its descendants', () => {
-    const scope = trayScopeIssues([parent, child, grandchild, stranger], 'p')
-    expect(scope.map((i) => i.id).sort()).toEqual(['c', 'g', 'p'])
-  })
-
-  it('widens to all live issues when nothing (or an unknown id) is selected', () => {
-    expect(trayScopeIssues([parent, stranger], null).map((i) => i.id)).toEqual(['p', 'x'])
-    expect(trayScopeIssues([parent, stranger], 'gone').map((i) => i.id)).toEqual(['p', 'x'])
-  })
-
-  it('never includes archived or soft-deleted issues', () => {
-    const dead = makeIssue({ id: 'c', parentId: 'p', archived: true })
-    const tombstoned = makeIssue({ id: 'g', parentId: 'p', deletedAt: 't' })
-    expect(trayScopeIssues([parent, dead, tombstoned], 'p').map((i) => i.id)).toEqual(['p'])
-  })
-})
-
+const deriveTrayItems = (issues: ReturnType<typeof makeIssue>[], dismissed?: ReadonlySet<string>) => {
+  const sessions = issues.flatMap((issue) => issue.sessions ?? [])
+  const normalized = issues.map((issue) => ({
+    ...issue,
+    memberSessionIds: (issue.sessions ?? []).map((session) => session.sessionId),
+    sessions: undefined,
+  }))
+  return deriveTrayItemsCore(normalized, sessions, dismissed)
+}
 describe('deriveTrayItems', () => {
-  it('shows ONLY human-actionable items: questions and human-audience reviews', () => {
+  it('is GLOBAL (§5): items from every live issue, no scoping, dead issues out', () => {
     const asking = makeIssue({
       id: 'q',
-      parentId: 'p',
       needsHuman: true,
       humanQuestion: 'Ship with flag on?',
       updatedAt: '2026-07-14T10:00:00Z',
     })
+    const unrelated = makeIssue({
+      id: 'x',
+      parentId: 'elsewhere',
+      needsHuman: true,
+      updatedAt: '2026-07-14T09:00:00Z',
+    })
+    const archived = makeIssue({ id: 'dead', needsHuman: true, archived: true })
+    const tombstoned = makeIssue({ id: 'gone', needsHuman: true, deletedAt: 't' })
+    const items = deriveTrayItems([asking, unrelated, archived, tombstoned])
+    expect(items.map((i) => i.issue.id)).toEqual(['q', 'x'])
+  })
+
+  it('shows ONLY human-actionable items: questions, plus the review backstop', () => {
+    const asking = makeIssue({
+      id: 'q',
+      needsHuman: true,
+      humanQuestion: 'Ship with flag on?',
+      updatedAt: '2026-07-14T10:00:00Z',
+    })
+    // Review-ready work normally announces itself via a session offer, but the
+    // stage alone gets a deterministic backstop card [POD-118] — a hook-forced
+    // agent turn must not be able to make review work invisible.
     const review = makeIssue({
       id: 'r',
-      parentId: 'p',
       stage: 'review',
       suggestedReason: 'Tests green, ready to merge.',
       updatedAt: '2026-07-14T11:00:00Z',
     })
-    const working = makeIssue({ id: 'w', parentId: 'p', stage: 'in_progress' })
-    const internalReview = makeIssue({
-      id: 'i',
-      parentId: 'p',
-      stage: 'review',
-      audience: 'agent',
-    })
-    const items = deriveTrayItems(
-      [makeIssue({ id: 'p' }), asking, review, working, internalReview],
-      'p',
-    )
+    const working = makeIssue({ id: 'w', stage: 'in_progress' })
+    const items = deriveTrayItems([makeIssue({ id: 'p' }), asking, review, working])
     expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['review:r', 'question:q'])
   })
 
-  it('sorts newest first and falls back to placeholder texts', () => {
-    const older = makeIssue({ id: 'a', needsHuman: true, updatedAt: '2026-07-14T09:00:00Z' })
-    const newer = makeIssue({
-      id: 'b',
-      stage: 'review',
-      prUrl: 'https://pr/1',
-      updatedAt: '2026-07-14T12:00:00Z',
+  it('drops offers on closed/done issues so finished work cannot demand a decision (POD-290)', () => {
+    const offer = {
+      message: 'Merge to main?',
+      actions: [{ label: 'Merge', prompt: 'Merge it' }],
+      createdAt: '2026-07-14T12:00:00Z',
+    }
+    const closed = makeIssue({
+      id: 'closed',
+      stage: 'done',
+      closedReason: 'done',
+      sessions: [session({ sessionId: 'delegate', offer })] as SessionMeta[],
     })
-    const items = deriveTrayItems([older, newer], null)
-    expect(items.map((i) => i.issue.id)).toEqual(['b', 'a'])
-    expect(items[1]).toMatchObject({ kind: 'question', text: 'Needs your input.' })
-    expect(items[0]).toMatchObject({ kind: 'review', body: 'Ready for review — https://pr/1' })
+    const review = makeIssue({
+      id: 'review',
+      stage: 'review',
+      sessions: [session({ sessionId: 'live', offer })] as SessionMeta[],
+      updatedAt: '2026-07-14T13:00:00Z',
+    })
+    expect(deriveTrayItems([closed, review]).map((i) => `${i.kind}:${i.issue.id}`)).toEqual([
+      'offer:review',
+    ])
   })
 
-  it('an issue in review that also asks a question yields both cards', () => {
+  it('review backstop [POD-118]: yields to a live offer, a dismissed offer, or a question', () => {
+    const offer = { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' }
+    // No offer at all → the backstop card carries the review stage.
+    const bare = makeIssue({ id: 'bare', stage: 'review', updatedAt: '2026-07-14T11:00:00Z' })
+    expect(deriveTrayItems([bare]).map((i) => i.kind)).toEqual(['review'])
+    // A live offer is the richer announcement — no duplicate backstop.
+    const offered = makeIssue({
+      id: 'o',
+      stage: 'review',
+      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+    })
+    expect(deriveTrayItems([offered]).map((i) => i.kind)).toEqual(['offer'])
+    // An optimistically-dismissed offer means the user just acted — the
+    // backstop must not pop in for that beat.
+    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    expect(deriveTrayItems([offered], dismissed)).toHaveLength(0)
+    // A needsHuman question already gives the issue a card — don't double up.
+    const asking = makeIssue({
+      id: 'a',
+      stage: 'review',
+      needsHuman: true,
+      humanQuestion: 'Merge?',
+    })
+    expect(deriveTrayItems([asking]).map((i) => i.kind)).toEqual(['question'])
+  })
+
+  it('sorts newest-first, stable whatever is selected (§2.3-v3)', () => {
+    const oldQuestion = makeIssue({
+      id: 'q-old',
+      needsHuman: true,
+      humanQuestion: 'Which flag?',
+      updatedAt: '2026-07-14T09:00:00Z',
+    })
+    const newOffer = makeIssue({
+      id: 'o-new',
+      sessions: [
+        session({
+          sessionId: 'agent',
+          offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T11:00:00Z' },
+        }),
+      ] as SessionMeta[],
+    })
+    const items = deriveTrayItems([oldQuestion, newOffer])
+    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['offer:o-new', 'question:q-old'])
+  })
+
+  it('falls back to the question placeholder text', () => {
+    const bare = makeIssue({ id: 'a', needsHuman: true, updatedAt: '2026-07-14T09:00:00Z' })
+    expect(deriveTrayItems([bare])[0]).toMatchObject({
+      kind: 'question',
+      text: 'Needs your input.',
+    })
+  })
+
+  it('surfaces a session offer as a card, excluding shells/headless/archived', () => {
+    const offer = {
+      message: 'PR is up.',
+      actions: [{ label: 'Merge it', prompt: 'merge the PR' }],
+      createdAt: '2026-07-14T12:00:00Z',
+    }
+    const issue = makeIssue({
+      id: 'o',
+      updatedAt: '2026-07-14T10:00:00Z',
+      sessions: [
+        session({ sessionId: 'agent', offer }),
+        session({ sessionId: 'sh', agentKind: 'shell', offer }),
+        session({ sessionId: 'hl', headless: true, offer }),
+        session({ sessionId: 'dead', archived: true, offer }),
+        session({ sessionId: 'quiet' }),
+      ] as SessionMeta[],
+    })
+    const items = deriveTrayItems([issue])
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      kind: 'offer',
+      offer,
+      session: { sessionId: 'agent' },
+      since: offer.createdAt,
+    })
+  })
+
+  it('hides an offer optimistically via the dismissed set, keyed per offer instance', () => {
+    const offer = { message: 'm', actions: [], createdAt: '2026-07-14T12:00:00Z' }
+    const issue = makeIssue({
+      id: 'o',
+      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+    })
+    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    expect(deriveTrayItems([issue], dismissed)).toHaveLength(0)
+    // A NEW offer on the same session is a new key — it shows again.
+    const fresh = { ...offer, createdAt: '2026-07-14T13:00:00Z' }
+    const again = makeIssue({
+      id: 'o',
+      sessions: [session({ sessionId: 'agent', offer: fresh })] as SessionMeta[],
+    })
+    expect(deriveTrayItems([again], dismissed)).toHaveLength(1)
+  })
+
+  it('finished/done issues NEVER render — the tray is attention-only [POD-198]', () => {
+    // Archive cleanup is not attention: even a just-closed, never-read human
+    // issue gets no card. Archiving lives on the board/sidebar.
+    const fresh = makeIssue({
+      id: 'f',
+      stage: 'done',
+      closedAt: '2026-07-14T11:00:00Z',
+      closedReason: 'merged',
+      unread: true,
+    })
+    const reasonOnly = makeIssue({ id: 'r', closedReason: 'superseded' })
+    expect(deriveTrayItems([fresh, reasonOnly])).toHaveLength(0)
+  })
+
+  it('an issue with both a question and a session offer yields both cards', () => {
     const both = makeIssue({
       id: 'b',
       stage: 'review',
       needsHuman: true,
       humanQuestion: 'Merge strategy?',
+      sessions: [
+        session({
+          sessionId: 'agent',
+          offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
+        }),
+      ] as SessionMeta[],
     })
     expect(
-      deriveTrayItems([both], null)
+      deriveTrayItems([both])
         .map((i) => i.kind)
         .sort(),
-    ).toEqual(['question', 'review'])
+    ).toEqual(['offer', 'question'])
   })
 })
 
 describe('workingSessionCount', () => {
-  it('counts working agent sessions in scope, excluding shells/headless/archived', () => {
+  it('counts working agent sessions globally, excluding shells/headless/archived', () => {
     const sessions = [
       session({ sessionId: 'w1' }),
       session({
@@ -114,7 +239,7 @@ describe('workingSessionCount', () => {
     const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: ['w1', 'w2', 'w3', 'w4', 'w5'] }
     const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: ['w6'] }
     const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: ['w7'] }
-    expect(workingSessionCount([issue, child, outside], 'p', sessions)).toBe(2)
-    expect(workingSessionCount([issue, child, outside], null, sessions)).toBe(3)
+    expect(workingSessionCount([issue, child, outside], sessions)).toBe(3)
+    expect(workingSessionCount([issue, child, outside], sessions)).toBe(3)
   })
 })

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Closed Fold — quiet by default</title>
+<style>
+  :root {
+    --bg:#0a0f1c; --panel:#121b30; --panel-hi:#16223c; --rail:#0e1626;
+    --seam:#243356; --hairline:#1e2a4c; --border-strong:#364a78;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --muted:#9a9aa8; --dim:#6c7690; --faint:#525c78; --label:#7a84a0;
+    --yellow:#f5c518; --blue:#2f6bff; --live:#6f9dff; --slate:#94a3b8;
+    --violet:#8b5cf6; --teal:#14b8a6; --pblue:#3b82f6; --terracotta:#d97757;
+    --sans:"Geist Variable",Geist,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"Geist Mono Variable","Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.6 var(--sans); -webkit-font-smoothing:antialiased; }
+  button { font:inherit; }
+  .page { max-width:1080px; margin:0 auto; padding:52px 24px 110px; }
+  h1 { max-width:23ch; margin:10px 0 14px; color:var(--ink-strong); font-size:clamp(30px,5vw,44px); font-weight:650; letter-spacing:-.035em; line-height:1.04; text-wrap:balance; }
+  h2 { margin:0 0 12px; color:var(--ink-strong); font-size:clamp(20px,3vw,26px); letter-spacing:-.025em; line-height:1.15; }
+  h3 { margin:4px 0 5px; color:var(--ink-strong); font-size:14px; letter-spacing:-.01em; }
+  p { max-width:74ch; margin:0 0 13px; color:var(--muted); }
+  p b, li b, td b { color:var(--ink); font-weight:600; }
+  section { margin-top:64px; }
+  .doclabel,.kicker,.eyebrow { color:var(--label); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  .doclabel .y,.rec { color:var(--yellow); }
+  .standfirst { max-width:67ch; color:var(--muted); font-size:16.5px; line-height:1.56; }
+  .standfirst b { color:var(--ink); }
+  .kicker { display:flex; align-items:center; gap:10px; margin-bottom:11px; }
+  .kicker::after { content:""; flex:1; height:1px; background:var(--hairline); }
+  .mono { color:var(--ink); font:500 .92em var(--mono); }
+
+  .verdict { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:center; margin-top:28px; padding:17px 18px; border:1px solid color-mix(in srgb,var(--teal) 42%,var(--hairline)); border-radius:11px; background:color-mix(in srgb,var(--teal) 5%,var(--panel)); }
+  .verdict p { margin:3px 0 0; font-size:13px; }
+  .stamp { padding:5px 8px; border:1px solid color-mix(in srgb,var(--teal) 42%,var(--hairline)); border-radius:5px; color:var(--teal); font:650 9px var(--mono); letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; }
+  @media (max-width:660px){ .verdict { grid-template-columns:1fr; } .stamp { width:max-content; } }
+
+  .laws { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:22px; }
+  .law { padding:14px 15px 13px; border:1px solid var(--hairline); border-radius:10px; background:var(--panel); }
+  .law-n { color:var(--yellow); font:700 10px var(--mono); letter-spacing:.1em; }
+  .law p { margin:4px 0 0; font-size:12.5px; line-height:1.5; }
+
+  .demo { display:grid; grid-template-columns:286px 1fr; gap:24px; align-items:start; margin-top:22px; }
+  @media (max-width:780px){ .demo { grid-template-columns:1fr; } }
+  .sbframe { overflow:hidden; padding:7px 0 11px; border:1px solid var(--seam); border-radius:12px; background:var(--panel); box-shadow:0 18px 50px rgba(0,0,0,.18); }
+  .sb { padding:0 8px; }
+  .sb-label { display:flex; align-items:center; gap:7px; padding:8px 6px 5px; color:var(--label); font:550 8.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .sb-label .count { color:var(--faint); letter-spacing:0; }
+  .sb-label::after { content:""; flex:1; height:1px; background:var(--hairline); }
+  .row { --issue:var(--slate); position:relative; display:flex; align-items:center; gap:8px; width:100%; margin:1.5px 0; padding:5px 8px 5px 6px; border:0; border-radius:7px; background:transparent; color:inherit; text-align:left; cursor:pointer; user-select:none; }
+  .row:hover { background:color-mix(in srgb,var(--issue) 6%,var(--panel)); }
+  .idsq { display:grid; place-items:center; width:28px; height:28px; flex:none; border:1px solid var(--border-strong); border-radius:7px; background:var(--panel-hi); color:var(--muted); font:600 6.5px/1 var(--mono); }
+  .idsq.c { border:0; background:var(--issue); color:color-mix(in srgb,var(--issue) 27%,#000); }
+  .copy { min-width:0; flex:1; }
+  .t { display:block; overflow:hidden; color:var(--ink); font-size:11.5px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+  .sub { display:flex; align-items:center; gap:5px; margin-top:1px; overflow:hidden; color:var(--dim); font-size:10px; white-space:nowrap; }
+  .row.unread .t { font-weight:500; }
+  .udot { width:6px; height:6px; flex:none; border-radius:50%; background:var(--blue); }
+  .done-glyph { color:var(--live); font:650 10px var(--mono); }
+  .spin { display:inline-flex; align-items:center; gap:4px; color:var(--live); font:500 9px var(--mono); }
+  .spin::before { content:"⠋"; animation:spin .8s steps(1,end) infinite; }
+  @keyframes spin { 0%{content:"⠋"} 16%{content:"⠙"} 32%{content:"⠹"} 48%{content:"⠸"} 64%{content:"⠼"} 80%{content:"⠴"} 100%{content:"⠦"} }
+
+  .fold { display:flex; align-items:center; gap:7px; width:100%; min-height:31px; margin-top:4px; padding:3px 8px; border:0; background:transparent; color:var(--faint); font:550 10px var(--mono); letter-spacing:.035em; text-align:left; cursor:pointer; }
+  .fold:hover,.fold:focus-visible { color:var(--muted); }
+  .fold:focus-visible { outline:1px solid var(--border-strong); outline-offset:-2px; border-radius:5px; }
+  .chv { transition:transform .16s ease; }
+  .fold[aria-expanded="true"] .chv { transform:rotate(90deg); }
+  .fline { flex:1; height:1px; background:var(--hairline); }
+  .closed-set[hidden] { display:none; }
+  .closed-set { overflow:hidden; }
+  .closed-set .row { opacity:.5; }
+  .closed-set .row:hover { opacity:.8; }
+  .closed-set .idsq { filter:saturate(.4); }
+  .closed-set .t { color:var(--muted); }
+  .settle { animation:settle .34s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes settle { from { opacity:1; transform:translateY(0); } to { opacity:0; transform:translateY(3px); } }
+  @media (prefers-reduced-motion:reduce){ .spin::before { animation:none; content:"⠿"; } .chv { transition:none; } .settle { animation:none; } }
+
+  .controls { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .btn { padding:6px 9px; border:1px solid var(--border-strong); border-radius:6px; background:var(--panel-hi); color:var(--ink); font:550 10px var(--mono); cursor:pointer; }
+  .btn:hover { border-color:var(--live); }
+  .btn.secondary { background:transparent; color:var(--muted); }
+  .notes { display:flex; flex-direction:column; gap:11px; }
+  .note { padding:12px 14px; border:1px solid var(--hairline); border-radius:10px; background:var(--panel); color:var(--muted); font-size:12.5px; line-height:1.5; }
+  .note b { color:var(--ink); }
+  .note .eyebrow { display:block; margin-bottom:5px; color:var(--yellow); font-size:9px; }
+
+  table { width:100%; margin-top:15px; border-collapse:collapse; font-size:12.5px; }
+  th,td { padding:9px 10px; border-bottom:1px solid var(--hairline); color:var(--muted); text-align:left; vertical-align:top; }
+  th { color:var(--label); font:600 9.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+  td.good { color:var(--teal); }
+  td.bad { color:var(--terracotta); }
+  .caption { margin-top:11px; color:var(--faint); font-size:11.5px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="doclabel">POD-183 · CONCEPT REV 2 · <span class="y">POD-100 FINAL GRAMMAR</span></div>
+    <h1>The Closed Fold — quiet without erasing history</h1>
+    <p class="standfirst">Tillmann types <b>“close and archive”</b> because closing the work does not quiet its row. That second command is presentation debt. Closed top-level issues should settle into one restrained disclosure; <b>close becomes enough</b>, while archive keeps its precise meaning.</p>
+    <div class="verdict">
+      <div><div class="eyebrow rec">Recommended policy</div><p><b>Auto-fold, never auto-archive.</b> Folding changes the sidebar projection only. Archiving remains an explicit record-lifecycle action for the rare moment someone actually wants removal from every list.</p></div>
+      <div class="stamp">visual decay · no data decay</div>
+    </div>
+  </header>
+
+  <section>
+    <div class="kicker">01 · The four laws</div>
+    <h2>Closed exits the conversation, not the record</h2>
+    <div class="laws">
+      <article class="law"><span class="law-n">F1</span><h3>Closed folds; done does not</h3><p>Only <b>closed top-level issues</b> enter the strip. POD-100 decision 15 remains intact for done children and their shipped decay.</p></article>
+      <article class="law"><span class="law-n">F2</span><h3>Unread resists folding</h3><p>A closed issue with an unseen result keeps its full row and plain blue beacon. Age never overrides attention.</p></article>
+      <article class="law"><span class="law-n">F3</span><h3>Selection finishes the handoff</h3><p>Opening the result marks it read, but the selected row stays put. It folds only after focus moves away, so the interface never disappears under the pointer.</p></article>
+      <article class="law"><span class="law-n">F4</span><h3>Archive stays explicit</h3><p>The strip has no timer and performs no background mutation. Manual archive still means immediate removal everywhere; routine sidebar cleanup no longer needs it.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">02 · Live state model</div>
+    <h2>One quiet line carries four settled issues</h2>
+    <div class="demo">
+      <div>
+        <div class="sbframe">
+          <div class="sb">
+            <div class="sb-label">Work <span class="count">· 7</span></div>
+            <button class="row" style="--issue:var(--teal)" type="button">
+              <span class="idsq c">147</span><span class="copy"><span class="t">Mobile tray polish</span><span class="sub">agent working · 12m</span></span><span class="spin">12:04</span>
+            </button>
+            <button class="row unread" style="--issue:var(--violet)" type="button">
+              <span class="idsq c">162</span><span class="copy"><span class="t">Offer card redesign</span><span class="sub">done · result unseen</span></span><span class="udot"></span><span class="done-glyph">✓</span>
+            </button>
+            <button class="row unread" id="unreadRow" style="--issue:var(--pblue)" type="button">
+              <span class="idsq c">158</span><span class="copy"><span class="t">Session header cleanup</span><span class="sub" id="unreadSub">closed 2h ago · result unseen</span></span><span class="udot" id="unreadDot"></span>
+            </button>
+            <button class="fold" id="fold" type="button" aria-expanded="false" aria-controls="closedSet">
+              <span class="chv">›</span><span id="foldLabel">Closed · 4</span><span class="fline"></span>
+            </button>
+            <div class="closed-set" id="closedSet" hidden>
+              <button class="row" style="--issue:var(--terracotta)" type="button"><span class="idsq c">141</span><span class="copy"><span class="t">Login gate fix</span><span class="sub">closed 3d</span></span></button>
+              <button class="row" type="button"><span class="idsq">139</span><span class="copy"><span class="t">Font subset pipeline</span><span class="sub">closed 4d</span></span></button>
+              <button class="row" style="--issue:var(--teal)" type="button"><span class="idsq c">128</span><span class="copy"><span class="t">Clipboard chord shim</span><span class="sub">closed 5d</span></span></button>
+              <button class="row" style="--issue:var(--violet)" type="button"><span class="idsq c">119</span><span class="copy"><span class="t">Motion spec tokens</span><span class="sub">closed 5d</span></span></button>
+              <button class="row" id="movedRow" style="--issue:var(--pblue);display:none" type="button"><span class="idsq c">158</span><span class="copy"><span class="t">Session header cleanup</span><span class="sub">closed 2h</span></span></button>
+            </div>
+          </div>
+        </div>
+        <div class="controls">
+          <button class="btn" id="reviewResult" type="button">Review POD-158</button>
+          <button class="btn secondary" id="reset" type="button">Reset state</button>
+        </div>
+      </div>
+      <div class="notes">
+        <div class="note"><span class="eyebrow">Read it cold</span>One issue is working, one done result and one closed result await attention, and four settled closures occupy one line. <b>Sidebar loudness now matches unfinished conversation.</b></div>
+        <div class="note"><span class="eyebrow">Try the handoff</span>Click <span class="mono">Review POD-158</span>. Its unread beacon clears while the row remains selected; click <span class="mono">Finish review</span> and it settles into <span class="mono">Closed · 5</span>. The group stays <span class="mono">Work · 7</span> throughout.</div>
+        <div class="note"><span class="eyebrow">Placement</span>The fold sits at <b>each project group’s tail</b>, preserving provenance and group arithmetic. A global graveyard would make the user re-discover which project each issue belonged to.</div>
+        <div class="note"><span class="eyebrow">Visual grammar</span>Superade navy, tint-never-fill rows, static unread blue, and rail-navy-adjacent seams come directly from POD-100 final rev 2. The fold adds no attention color and no ambient motion.</div>
+      </div>
+    </div>
+    <p class="caption">Expand/collapse is local UI state. Expanded rows remain navigable and manually archivable; collapsing them changes neither order nor identity.</p>
+  </section>
+
+  <section>
+    <div class="kicker">03 · Archive policy</div>
+    <h2>The fold should replace the chore, not invent a clock</h2>
+    <table>
+      <thead><tr><th>Policy</th><th>What it buys</th><th>What it costs</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td><b>Auto-fold only</b></td><td>Immediate quiet; stable history; counts and ownership unchanged; no scheduled job</td><td>Closed records remain searchable until explicitly archived</td><td class="good">recommend</td></tr>
+        <tr><td>Auto-archive after grace</td><td>Eventually removes records from all lists</td><td>Silent lifecycle mutation, changing counts and potentially session provenance; timer UI and background job required</td><td class="bad">reject</td></tr>
+        <tr><td>Manual archive only</td><td>Current semantics stay literal</td><td>Keeps “close and archive” as required cleanup vocabulary</td><td class="bad">reject</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div class="kicker">04 · Implementation boundary</div>
+    <h2>A projection rule after POD-100 lands</h2>
+    <table>
+      <tbody>
+        <tr><th>Fold membership</th><td><span class="mono">top-level ∧ closed ∧ read ∧ not-selected</span>. Closed unread and the currently selected closed issue remain full rows above the strip.</td></tr>
+        <tr><th>Arithmetic</th><td>The project-group count includes every issue exactly once. Expanding the strip changes rendered rows, never totals. <span class="mono">Closed · N</span> counts only rows currently inside the fold.</td></tr>
+        <tr><th>Order</th><td>Folded rows retain their POD-168 manual <span class="mono">sortKey</span>; expansion uses that stable order. Folding never rewrites order.</td></tr>
+        <tr><th>Mutation</th><td>None. No implicit archive timestamp, grace-period worker, ownership rewrite, or session decay is introduced.</td></tr>
+        <tr><th>Dependency</th><td>Implementation waits for POD-100’s sidebar rollout, then lands as derived grouping in <span class="mono">derive.ts</span> plus a disclosure in <span class="mono">SidebarUnified.tsx</span>.</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+<script>
+  const fold = document.getElementById('fold');
+  const set = document.getElementById('closedSet');
+  const review = document.getElementById('reviewResult');
+  const reset = document.getElementById('reset');
+  const unreadRow = document.getElementById('unreadRow');
+  const unreadSub = document.getElementById('unreadSub');
+  const unreadDot = document.getElementById('unreadDot');
+  const movedRow = document.getElementById('movedRow');
+  const foldLabel = document.getElementById('foldLabel');
+  let phase = 0;
+
+  fold.addEventListener('click', () => {
+    const open = fold.getAttribute('aria-expanded') !== 'true';
+    fold.setAttribute('aria-expanded', String(open));
+    set.hidden = !open;
+  });
+
+  review.addEventListener('click', () => {
+    if (phase === 0) {
+      phase = 1;
+      unreadRow.classList.remove('unread');
+      unreadDot.hidden = true;
+      unreadSub.textContent = 'closed 2h ago · reviewing';
+      review.textContent = 'Finish review';
+      return;
+    }
+    if (phase === 1) {
+      phase = 2;
+      unreadRow.classList.add('settle');
+      review.textContent = 'POD-158 folded';
+      review.disabled = true;
+      setTimeout(() => {
+        unreadRow.hidden = true;
+        movedRow.style.display = 'flex';
+        foldLabel.textContent = 'Closed · 5';
+      }, 340);
+    }
+  });
+
+  reset.addEventListener('click', () => {
+    phase = 0;
+    unreadRow.hidden = false;
+    unreadRow.classList.remove('settle');
+    unreadRow.classList.add('unread');
+    unreadDot.hidden = false;
+    unreadSub.textContent = 'closed 2h ago · result unseen';
+    movedRow.style.display = 'none';
+    foldLabel.textContent = 'Closed · 4';
+    review.textContent = 'Review POD-158';
+    review.disabled = false;
+  });
+</script>
+</body>
+</html>

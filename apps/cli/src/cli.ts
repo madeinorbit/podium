@@ -11,13 +11,21 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import { type ApprovalOp, isAgentKind } from '@podium/protocol'
+import {
+  type ApprovalOp,
+  FEATURES,
+  type FeatureId,
+  isAgentKind,
+  type LocalDaemonLink,
+  resolveFeatureState,
+} from '@podium/protocol'
 import {
   loadConfig,
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
   resolveAgentRelay,
+  resolveFeatureOverrides,
   resolveInstanceId,
   resolvePort,
   resolveRunRecordMode,
@@ -132,6 +140,7 @@ export type LaunchPlan =
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
+  | { kind: 'quota'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
@@ -331,6 +340,7 @@ export function resolvePlan(
     // Renders its own usage, and `podium telemetry --help` should answer the
     // privacy question in front of the user, not bury it in the top-level help.
     'telemetry',
+    'quota',
   ])
   if (
     argv[0] === 'help' ||
@@ -396,6 +406,8 @@ export function resolvePlan(
   // Deliberately NOT an approval-brokered op: it only touches config.json, and a
   // user (or their agent) must always be able to turn it off without asking anyone.
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
+  // `podium quota`: the same live harness plan limits shown in the web panel.
+  if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -596,7 +608,7 @@ export function versionText(): string {
 }
 
 /** Top-level `podium --help`. Sub-CLIs (issue/session/spec/worktree) render their own. */
-export function helpText(): string {
+export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): string {
   return [
     'podium — self-hosted multi-agent workspace (server + daemon + web UI)',
     '',
@@ -636,10 +648,13 @@ export function helpText(): string {
     '  telemetry on|off [--usage] [--crash]',
     '                        Turn anonymous reporting on or off',
     '  telemetry show        Print the exact pending + last-sent payloads',
+    '  quota [--json]         Show live harness plan usage limits',
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
-    '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
+    ...(enabledFeatures.has('specs')
+      ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
+      : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
     '                        Request a one-off session wake (agent sessions only)',
@@ -648,7 +663,9 @@ export function helpText(): string {
     '  worktree [path]       Declare the worktree this agent session works in',
     "  workspace <command>   Fetch another agent's working state; clean up peeks",
     '',
-    '  workflow <command>    Follow and manage versioned agent workflows',
+    ...(enabledFeatures.has('workflows')
+      ? ['  workflow <command>    Follow and manage versioned agent workflows']
+      : []),
     'Agent sessions: lifecycle changes and automation schedules need operator approval —',
     'the command BLOCKS until they approve (runs it) or deny (exits non-zero).',
     '',
@@ -661,6 +678,58 @@ export function helpText(): string {
   ].join('\n')
 }
 
+interface CliFeaturesClient {
+  features?: {
+    state: {
+      query(): Promise<{ flags: Array<{ id: string; enabled: boolean }> }>
+    }
+  }
+}
+
+/** Resolve top-level CLI discovery through the same server state as the UI.
+ * Transport failure falls back to config-only resolution and stays fail-closed. */
+export async function resolveCliFeatures(
+  config: PodiumConfig,
+  env: EnvSnapshot = process.env,
+  providedClient?: CliFeaturesClient,
+): Promise<ReadonlySet<FeatureId>> {
+  let client = providedClient
+  if (!client) {
+    const { makeIssueClient, makeRelayIssueClient } = await import('@podium/issue-client')
+    const relay = resolveAgentRelay(env)
+    client = (
+      relay
+        ? makeRelayIssueClient(relay)
+        : makeIssueClient(`http://localhost:${resolvePort(config, env)}`)
+    ) as unknown as CliFeaturesClient
+  }
+  try {
+    const features = client.features
+    if (!features) throw new Error('feature state is unavailable')
+    const state = await features.state.query()
+    const known = new Set<FeatureId>(FEATURES.map((feature) => feature.id))
+    return new Set(
+      state.flags
+        .filter((flag) => flag.enabled && known.has(flag.id as FeatureId))
+        .map((flag) => flag.id as FeatureId),
+    )
+  } catch {
+    const overrides = resolveFeatureOverrides(config)
+    const channel = resolveUpdateChannel(config, env)
+    const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
+    return new Set(
+      FEATURES.filter(
+        (feature) =>
+          resolveFeatureState(feature, {
+            configValue: overrides[feature.id],
+            channel,
+            devMode: version === 'dev',
+          }).enabled,
+      ).map((feature) => feature.id),
+    )
+  }
+}
+
 export interface DaemonStartOptions {
   serverUrl: string
   bootstrapToken?: string
@@ -671,6 +740,8 @@ export interface DaemonStartOptions {
   installCodexHooks?: boolean
   /** Production daemons install env-gated Grok Build lifecycle hooks at boot. */
   installGrokHooks?: boolean
+  /** In-process daemon↔server channel [POD-196] — all-in-one mode only. */
+  localLink?: LocalDaemonLink
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -739,14 +810,23 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: { port: number }): Promise<{ port: number; bootstrapToken?: string }>
+  startServer(opts: { port: number }): Promise<{
+    port: number
+    bootstrapToken?: string
+    /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
+     *  so per-frame traffic skips the loopback WebSocket entirely. */
+    localDaemonLink?: LocalDaemonLink
+  }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
     opts: DaemonStartOptions & {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
-  startJanitor(opts: { serverUrl: string; token: string }): Promise<{ close(): void }>
+  startJanitor(opts: { serverUrl: string; token: string }): Promise<{
+    service: { progressVersion(): number }
+    close(): void
+  }>
 }
 
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
@@ -792,6 +872,7 @@ async function runInProcess(
 
   let serverPort = port
   let localBootstrapToken: string | undefined
+  let localDaemonLink: LocalDaemonLink | undefined
   const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
@@ -810,6 +891,7 @@ async function runInProcess(
     }
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
+    localDaemonLink = server.localDaemonLink
     console.log(`podium server up on http://localhost:${serverPort}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
@@ -835,6 +917,11 @@ async function runInProcess(
       } catch (e) {
         console.error((e as Error).message)
         process.exit(2)
+      }
+      // All-in-one: hand the daemon the server's in-process channel [POD-196]
+      // so per-frame traffic never touches the loopback WebSocket.
+      if (modePlan.mode === 'all-in-one' && localDaemonLink) {
+        daemonOptions.localLink = localDaemonLink
       }
     }
     const { startDaemon } = host
@@ -892,7 +979,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
 
   switch (plan.kind) {
     case 'help': {
-      console.log(helpText())
+      console.log(helpText(await resolveCliFeatures(config, process.env)))
       return
     }
     case 'version': {
@@ -950,6 +1037,11 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       const { telemetryCliMain } = await import('./telemetry-cli')
       const code = telemetryCliMain(plan.args)
       if (code !== 0) process.exit(code)
+      return
+    }
+    case 'quota': {
+      const { quotaCliMain } = await import('./quota-cli')
+      await quotaCliMain(plan.args)
       return
     }
     case 'join-config': {
@@ -1013,7 +1105,9 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       }
       console.log(`podium janitor up → ${plan.serverUrl}`)
       const { startWatchdog } = await import('@podium/runtime/sd-notify')
-      const stopWatchdog = startWatchdog()
+      // A live timer is not proof that maintenance advances: only completed
+      // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
+      const stopWatchdog = startWatchdog({ readProgress: () => handle.service.progressVersion() })
       const shutdown = (): void => {
         stopWatchdog?.()
         handle.close()

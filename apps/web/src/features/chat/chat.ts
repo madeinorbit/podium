@@ -1,26 +1,38 @@
+import { type ChatBlock, type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
 
 /**
- * Pure helpers for the chat view: tool-call/result pairing, transcript search,
- * and the birds-eye minimap geometry. Rendering stays in ChatView.tsx.
+ * Pure helpers for the chat view: transcript search and the birds-eye minimap
+ * geometry. Rendering stays in ChatView.tsx. The presentation-pure tool-call
+ * helpers (pairing, batching, verdicts) moved to @podium/client-core/viewmodels
+ * so the mobile TranscriptList shares them (POD-176); re-exported here so web
+ * call sites keep their import path.
  */
-
-export interface ChatBlock {
-  item: TranscriptItem
-  /** Result text paired onto a tool-call block (toolUseId match). */
-  result?: string
-}
+export {
+  buildChatRows,
+  type ChatBlock,
+  type ChatRow,
+  failLine,
+  isBatchableTool,
+  pairToolResults,
+  type SingleRow,
+  type ToolBatchRow,
+  type ToolVerdict,
+  toolBatchTitle,
+  toolVerdict,
+} from '@podium/client-core/viewmodels'
 
 /** Identity key for dedup/merge: the opaque cursor when present (stable across
  *  re-reads), else the synthesized `id` (a few items have no cursor). */
-function itemKey(item: TranscriptItem): string {
+export function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
 /**
  * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
  * whose key is already present REPLACES the held one in place (preserving its
- * position); a new key is appended (deltas are newer → appended). Order preserved.
+ * position); a new key lands at its CURSOR POSITION — normally the tail, since
+ * deltas are normally newer. Order preserved.
  * Returns `prev` unchanged (referentially) when nothing actually changed, so a
  * no-op delta doesn't trigger a re-render.
  *
@@ -29,6 +41,14 @@ function itemKey(item: TranscriptItem): string {
  * re-emits it at the SAME cursor once its newline lands with the complete content.
  * A skip-on-seen (first-wins) merge would pin the earlier, possibly truncated
  * version; replacing lets the completed record supersede it.
+ *
+ * Position-not-append is load-bearing too [POD-341]: a delta is NOT always newer
+ * than the held window. The server replays its whole per-session transcript cache
+ * when a (re)subscribing client's `since` cursor isn't in it — after a transcript
+ * file roll or a socket drop that is the common case — so a frame can carry items
+ * OLDER than the tail we already hold. Appending those put the superagent's answer
+ * ABOVE the prompt that produced it. `insertInCursorOrder` (shared with the mobile
+ * merge) keeps the held window in transcript order however the frames arrive.
  */
 export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
   if (delta.length === 0) return prev
@@ -41,6 +61,7 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
   for (const it of delta) {
     const key = itemKey(it)
     const at = indexByKey.get(key)
+    if (at === -1) continue // a duplicate WITHIN this delta — already taken as an addition
     if (at !== undefined) {
       const existing = (next ?? prev)[at]
       if (existing !== undefined && !sameItemContent(existing, it)) {
@@ -48,12 +69,15 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
         next[at] = it
       }
     } else {
-      indexByKey.set(key, prev.length + additions.length)
+      indexByKey.set(key, -1)
       additions.push(it)
     }
   }
   if (!next && additions.length === 0) return prev
-  return [...(next ?? prev), ...additions]
+  if (additions.length === 0) return next ?? prev
+  const out = [...(next ?? prev)]
+  for (const item of additions) insertInCursorOrder(out, item)
+  return out
 }
 
 /** Cheap content equality for the fields a re-emitted (growing) record changes —
@@ -132,154 +156,21 @@ export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
 }
 
 /**
- * Collapse the raw item stream into renderable blocks: tool results fold into
- * their originating tool call; everything else passes through in order.
+ * The genuinely-older part of a back-page, ready to PREPEND [POD-341].
+ *
+ * An anchored `before` read can come back as the NEWEST window instead of an
+ * older page: the disk reader falls back to the default window when the anchor's
+ * cursor names a transcript file that has rolled away (packages/transcript
+ * slice.ts — "losing the position is safe"), which is exactly what a client
+ * holding a pre-roll head cursor asks for. Prepending that window put newer items
+ * above older ones. Items the window already holds can never be "earlier", so
+ * filtering against them keeps the legitimate one-item paging seam working and
+ * turns the fallback window into an empty page (the caller then stops paging).
  */
-export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
-  const blocks: ChatBlock[] = []
-  const callByToolUseId = new Map<string, ChatBlock>()
-  for (const item of items) {
-    if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) {
-      const call = callByToolUseId.get(item.toolUseId)
-      if (call) {
-        call.result = item.toolResult
-        continue
-      }
-      // Orphan result (call scrolled out of the buffer) — show it standalone.
-      blocks.push({ item })
-      continue
-    }
-    const block: ChatBlock = { item }
-    if (item.role === 'tool' && item.toolUseId) callByToolUseId.set(item.toolUseId, block)
-    blocks.push(block)
-  }
-  return blocks
-}
-
-/**
- * A tool call quiet enough to fold into a batch. AskUserQuestion (the agent
- * prompting the human → interactive card) and SendUserFile (the agent surfacing
- * images/files → inline previews + lightbox) both render richly, so they break a
- * run like any text output instead of collapsing into a summary line.
- */
-export function isBatchableTool(item: TranscriptItem): boolean {
-  return (
-    item.role === 'tool' && item.toolName !== 'AskUserQuestion' && item.toolName !== 'SendUserFile'
-  )
-}
-
-/** A run of consecutive tool calls, shown collapsed under one summary title. */
-export interface ToolBatchRow {
-  kind: 'tools'
-  blocks: ChatBlock[]
-  /** Each child's index in the flat ChatBlock[] — lets search map a hit to its row. */
-  blockIndices: number[]
-  title: string
-}
-/** Anything that isn't a quiet tool call: prose, prompts, the AskUserQuestion card. */
-export interface SingleRow {
-  kind: 'block'
-  block: ChatBlock
-  blockIndex: number
-}
-export type ChatRow = SingleRow | ToolBatchRow
-
-/**
- * Group the flat block stream into renderable rows. Maximal runs of consecutive
- * quiet tool calls (no intervening text/prompt) collapse into one summarized
- * batch; every other block stays its own row and breaks a run. Mirrors how the
- * agent works in bursts of tools between bits of narration.
- */
-export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
-  const rows: ChatRow[] = []
-  let run: { blocks: ChatBlock[]; indices: number[] } | null = null
-  const flush = (): void => {
-    if (!run) return
-    rows.push({
-      kind: 'tools',
-      blocks: run.blocks,
-      blockIndices: run.indices,
-      title: toolBatchTitle(run.blocks),
-    })
-    run = null
-  }
-  blocks.forEach((block, i) => {
-    if (isBatchableTool(block.item)) {
-      run ??= { blocks: [], indices: [] }
-      run.blocks.push(block)
-      run.indices.push(i)
-    } else {
-      flush()
-      rows.push({ kind: 'block', block, blockIndex: i })
-    }
-  })
-  flush()
-  return rows
-}
-
-// Tool → the verb/noun the summary counts it under. Past tense to read as a log
-// of what happened ("Read 3 files", "Created 4 files", "Ran 5 commands").
-function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
-  switch (item.toolName) {
-    case 'Read':
-      return { verb: 'Read', noun: 'file' }
-    case 'Write':
-      return { verb: 'Created', noun: 'file' }
-    case 'Edit':
-    case 'MultiEdit':
-    case 'NotebookEdit':
-      return { verb: 'Edited', noun: 'file' }
-    case 'Bash':
-      return { verb: 'Ran', noun: 'command' }
-    case 'Task':
-      return { verb: 'Ran', noun: 'agent' }
-    case 'Grep':
-    case 'Glob':
-      return { verb: 'Ran', noun: 'search' }
-    default:
-      return { verb: 'Ran', noun: 'tool' }
-  }
-}
-
-const pluralizeNoun = (noun: string): string =>
-  /(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`
-const articleFor = (noun: string): string => (/^[aeiou]/i.test(noun) ? 'an' : 'a')
-const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1)
-const clauseFor = (verb: string, noun: string, count: number): string =>
-  count === 1 ? `${verb} ${articleFor(noun)} ${noun}` : `${verb} ${count} ${pluralizeNoun(noun)}`
-
-/**
- * Smart one-line summary for a tool batch: clauses per tool kind in first-
- * appearance order, the first capitalized and the rest lowercased
- * ("Read 2 files, ran a command"). A lone command quotes the agent's own intent
- * (the Bash `description`, falling back to the shell) rather than counting it:
- * `Ran "Render the three chat-view mockups to PNG"`.
- */
-export function toolBatchTitle(blocks: ChatBlock[]): string {
-  const only = blocks.length === 1 ? blocks[0] : undefined
-  if (only && only.item.toolName === 'Bash') {
-    const label = (only.item.toolTitle ?? only.item.toolInput ?? '').trim()
-    return label ? `Ran "${label}"` : 'Ran a command'
-  }
-  const order: string[] = []
-  const tally = new Map<string, { verb: string; noun: string; count: number }>()
-  for (const b of blocks) {
-    const { verb, noun } = toolCategory(b.item)
-    const key = `${verb}|${noun}`
-    const entry = tally.get(key)
-    if (entry) entry.count++
-    else {
-      tally.set(key, { verb, noun, count: 1 })
-      order.push(key)
-    }
-  }
-  return order
-    .map((key, i) => {
-      const { verb, noun, count } = tally.get(key)!
-      const clause = clauseFor(verb, noun, count)
-      return i === 0 ? clause : lowerFirst(clause)
-    })
-    .join(', ')
+export function freshOlderPage(page: TranscriptItem[], held: TranscriptItem[]): TranscriptItem[] {
+  if (page.length === 0) return page
+  const heldKeys = new Set(held.map(itemKey))
+  return page.filter((it) => !heldKeys.has(itemKey(it)))
 }
 
 /** Case-insensitive keyword match over everything a block shows. */
@@ -387,21 +278,88 @@ export interface PendingItem {
   id: string
   text: string
   at: number
-  state: 'sending' | 'sent' | 'failed'
+  state: 'sending' | 'queued' | 'sent' | 'failed'
   tags?: TranscriptTag[]
+  /** Uploaded paths encoded into the submitted prompt. Transcript providers
+   * normalize those paths out of `text`, so they are the stable identity used
+   * to reconcile attachment-bearing turns. */
+  toolPaths?: string[]
+}
+
+/** A human chat message durably held in the unified message ledger until the
+ * agent reaches its next turn boundary. These rows are separate from the
+ * sessions queued_messages outbox, so ChatView must restore them explicitly. */
+export interface QueuedChatMessage {
+  id: string
+  text: string
+  at: number
+}
+
+export function queuedOperatorMessages(rows: unknown, sessionId: string): QueuedChatMessage[] {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    .filter(
+      (row) =>
+        row.from === 'operator' &&
+        row.to === `session:${sessionId}` &&
+        row.status === 'queued' &&
+        typeof row.id === 'string' &&
+        typeof row.body === 'string' &&
+        typeof row.createdAt === 'string',
+    )
+    .map((row) => ({
+      id: row.id as string,
+      text: row.body as string,
+      at: Date.parse(row.createdAt as string) || 0,
+    }))
+    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+}
+
+/** Hide server-restored rows already represented by an optimistic bubble.
+ * Duplicate prompt text is consumed FIFO so two identical queued sends still
+ * render twice after refresh and only once each before it. */
+export function withoutOptimisticDuplicates(
+  queued: QueuedChatMessage[],
+  pending: PendingItem[],
+): QueuedChatMessage[] {
+  const optimisticTexts = pending
+    .filter((item) => item.state !== 'failed')
+    .map((item) => item.text.trim())
+  return queued.filter((item) => {
+    const index = optimisticTexts.indexOf(item.text.trim())
+    if (index === -1) return true
+    optimisticTexts.splice(index, 1)
+    return false
+  })
 }
 
 /**
  * Remove pending bubbles that the real transcript has now caught up with.
- * `newUserTexts` are the trimmed texts of user blocks that appeared *this* render
- * (caller diffs by block id). Each new occurrence consumes the oldest pending
- * entry with equal trimmed text (FIFO), so duplicate prompts reconcile one-by-one.
+ * `newUserItems` are user blocks that appeared *this* render (caller diffs by
+ * block id). Each new occurrence consumes the oldest matching pending entry
+ * (FIFO), so duplicate prompts reconcile one-by-one. Plain turns match by text;
+ * attachment turns match by their canonical upload paths because transcript
+ * providers normalize raw path-prefixed prompts into image/document blocks.
  */
-export function reconcilePending(pending: PendingItem[], newUserTexts: string[]): PendingItem[] {
+export function reconcilePending(
+  pending: PendingItem[],
+  newUserItems: TranscriptItem[],
+): PendingItem[] {
   if (pending.length === 0) return pending
-  const remaining = [...newUserTexts.map((t) => t.trim())]
+  const remaining = [...newUserItems]
   return pending.filter((p) => {
-    const i = remaining.indexOf(p.text.trim())
+    const pendingPaths = p.toolPaths ?? []
+    const i = remaining.findIndex((item) => {
+      const itemPaths = item.toolPaths ?? []
+      if (pendingPaths.length > 0) {
+        return (
+          itemPaths.length === pendingPaths.length &&
+          pendingPaths.every((path, index) => itemPaths[index] === path)
+        )
+      }
+      return item.text.trim() === p.text.trim()
+    })
     if (i === -1) return true
     remaining.splice(i, 1)
     return false

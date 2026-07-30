@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude'
+import {
+  claudeRecordColor,
+  claudeRecordModel,
+  claudeRecordToItems,
+  toolInputPreview,
+} from './claude'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {
@@ -14,6 +19,27 @@ describe('claudeRecordColor', () => {
   })
 })
 
+describe('claudeRecordModel', () => {
+  it('reads message.model from an assistant record', () => {
+    expect(claudeRecordModel({ type: 'assistant', message: { model: 'claude-fable-5' } })).toBe(
+      'claude-fable-5',
+    )
+  })
+  it('ignores non-assistant records and missing/synthetic models', () => {
+    expect(
+      claudeRecordModel({ type: 'user', message: { model: 'claude-fable-5' } }),
+    ).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant', message: {} })).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant', message: { model: '' } })).toBeUndefined()
+    // API-error placeholder records carry the '<synthetic>' sentinel — not a model.
+    expect(
+      claudeRecordModel({ type: 'assistant', message: { model: '<synthetic>' } }),
+    ).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant' })).toBeUndefined()
+    expect(claudeRecordModel(null)).toBeUndefined()
+  })
+})
+
 describe('claudeRecordToItems', () => {
   it('maps a plain string user prompt', () => {
     const items = claudeRecordToItems({
@@ -25,6 +51,65 @@ describe('claudeRecordToItems', () => {
     expect(items).toEqual([
       { id: 'u1', role: 'user', ts: '2026-06-12T10:00:00.000Z', text: 'fix the bug' },
     ])
+  })
+
+  it('harvests uploaded-image source markers into toolPaths + tag labels', () => {
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u2',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: '[Image #1]does this look right?\n[Image: source: /home/u/.podium/uploads/s1/abc.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: '[Image #1]does this look right?',
+      toolPaths: ['/home/u/.podium/uploads/s1/abc.png'],
+      tags: [{ kind: 'image', label: 'abc.png' }],
+    })
+  })
+
+  it('surfaces a marker-only isMeta record as a text-less media item', () => {
+    const items = claudeRecordToItems({
+      type: 'user',
+      isMeta: true,
+      uuid: 'm1',
+      timestamp: '2026-06-12T10:00:01.000Z',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: '[Image: source: /home/u/.podium/uploads/s1/shot.png]' }],
+      },
+    })
+    expect(items).toEqual([
+      {
+        id: 'm1',
+        role: 'user',
+        ts: '2026-06-12T10:00:01.000Z',
+        text: '',
+        toolPaths: ['/home/u/.podium/uploads/s1/shot.png'],
+        tags: [{ kind: 'image', label: 'shot.png' }],
+      },
+    ])
+  })
+
+  it('still drops isMeta records with any non-marker content', () => {
+    expect(
+      claudeRecordToItems({
+        type: 'user',
+        isMeta: true,
+        uuid: 'm2',
+        message: { role: 'user', content: 'Base directory for this skill: /x' },
+      }),
+    ).toEqual([])
   })
 
   it('maps an assistant turn with text + tool calls into separate items', () => {

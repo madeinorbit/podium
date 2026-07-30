@@ -191,6 +191,42 @@ describe('ChatView headless mode', () => {
     expect(textarea().disabled).toBe(false)
   })
 
+  it('starts gated for a late-joining client when the query says the turn is running', async () => {
+    act(() => {
+      root.render(
+        <ChatView
+          sessionId="h1"
+          superThread={{ threadId: 'global', kind: 'global' }}
+          compact
+          initialTurnRunning
+        />,
+      )
+    })
+    await flush()
+    expect(textarea().disabled).toBe(true)
+    expect(textarea().placeholder).toContain('Working')
+    expect(container.textContent).toContain('Working…')
+    expect(container.querySelector('[title="Stop this turn"]')).not.toBeNull()
+  })
+
+  it('keeps the first submitted prompt visible through the fresh-thread session swap', async () => {
+    act(() => {
+      root.render(
+        <ChatView
+          sessionId="h1"
+          superThread={{ threadId: 'global', kind: 'global' }}
+          compact
+          initialTurnRunning
+          initialPendingText="Plan the release"
+        />,
+      )
+    })
+    await flush()
+    expect(container.textContent).toContain('Plan the release')
+    expect(container.textContent).toContain('Working…')
+    expect(container.textContent).not.toContain('No transcript yet')
+  })
+
   it('shows a Stop control while a turn runs, wired to interruptTurn', async () => {
     mount()
     await flush()
@@ -206,7 +242,7 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'do the thing' } // draft lives in the store, keyed by session
     mount()
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })
@@ -223,7 +259,7 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'file an issue' }
     mount({ threadId: 'c1', kind: 'concierge' as never, repoPath: '/repo' } as never)
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })
@@ -240,11 +276,12 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'x' }
     mount()
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })
-    expect(container.textContent).toContain('a turn is already running on this thread')
+    expect(container.textContent).toContain('Super agent is still working on the previous message.')
+    expect(textarea().disabled).toBe(true)
   })
 
   it('collapses machine-authored [CONCIERGE CONTEXT] user blocks into a disclosure row', async () => {

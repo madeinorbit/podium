@@ -1,7 +1,7 @@
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import type { HeadlessActivityEvent } from '@podium/protocol'
+import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,11 +29,22 @@ import { renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
 import { ChatBlockView } from './ChatBlockView'
-import { blockMatches, type PendingItem, reconcilePending, searchBlocks } from './chat'
+import {
+  blockMatches,
+  type ChatRow,
+  type PendingItem,
+  type QueuedChatMessage,
+  queuedOperatorMessages,
+  reconcilePending,
+  searchBlocks,
+  withoutOptimisticDuplicates,
+} from './chat'
 import { hasImageItems } from './image-items'
 import { Minimap } from './Minimap'
+import { parseEnvelopeBatch } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { ToolBatchView } from './ToolBatchView'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
 
@@ -63,6 +74,21 @@ type Attachment = {
   state: 'uploading' | 'ready' | 'failed'
 }
 
+function isOperatorPrompt(item: TranscriptItem, collapseMachineContext: boolean): boolean {
+  const envelopeBatch = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
+  return (
+    item.role === 'user' &&
+    item.event !== 'interrupt' &&
+    !!item.text.trim() &&
+    !(collapseMachineContext && MACHINE_CONTEXT_RE.test(item.text)) &&
+    (envelopeBatch === null || envelopeBatch.operatorText !== '')
+  )
+}
+
+function isOperatorPromptRow(row: ChatRow, collapseMachineContext: boolean): boolean {
+  return row.kind === 'block' && isOperatorPrompt(row.block.item, collapseMachineContext)
+}
+
 /** The superagent thread an embedded (headless) ChatView fronts: sends route to
  *  superagent.sendTurn / conciergeTurn instead of sessions.sendText. */
 export interface SuperThreadRef {
@@ -76,6 +102,8 @@ export function ChatView({
   active = true,
   superThread,
   compact = false,
+  initialTurnRunning = false,
+  initialPendingText,
 }: {
   sessionId: string
   /** False when this panel is mounted but hidden (keep-mounted deck). On
@@ -87,6 +115,11 @@ export function ChatView({
   /** Narrow-dock mode (the superagent side panel): hides the search header,
    *  minimap + tl;dr. */
   compact?: boolean
+  /** Query-backed headless state for clients that mounted after turn-start. */
+  initialTurnRunning?: boolean
+  /** The first prompt shown optimistically while the freshly-created headless
+   * transcript catches up to the thread/session swap. */
+  initialPendingText?: string
 }): JSX.Element {
   const {
     hub,
@@ -100,6 +133,7 @@ export function ChatView({
     httpOrigin,
     tldrSession,
     getUserFocus,
+    issues,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -113,6 +147,7 @@ export function ChatView({
       httpOrigin: s.httpOrigin,
       tldrSession: s.tldrSession,
       getUserFocus: s.getUserFocus,
+      issues: s.issues,
     }),
     shallowEqual,
   )
@@ -124,14 +159,14 @@ export function ChatView({
   // and mid-turn partial text streams into an overlay row below the transcript.
   const headless = session?.headless === true
   // True while a headless turn runs (turn-start → turn-end).
-  const [turnRunning, setTurnRunning] = useState(false)
+  const [turnRunning, setTurnRunning] = useState(initialTurnRunning)
   // Streaming overlay: cumulative partial assistant text, or a status label
   // ("running Bash…"), whichever the driver last reported. Null = no overlay.
   const [overlay, setOverlay] = useState<{ text?: string; status?: string } | null>(null)
   // sendTurn rejection / turn error, surfaced inline above the composer.
   const [turnError, setTurnError] = useState<string | null>(null)
   useEffect(() => {
-    setTurnRunning(false)
+    setTurnRunning(initialTurnRunning)
     setOverlay(null)
     setTurnError(null)
     if (!headless) return
@@ -167,11 +202,13 @@ export function ChatView({
           break
       }
     })
-  }, [hub, sessionId, headless])
+  }, [hub, sessionId, headless, initialTurnRunning])
   // Full-screen image preview (SendUserFile / image tags), null when closed.
   const [lightbox, setLightbox] = useState<string | null>(null)
-  // Whether the last user prompt is stuck to the top (scrolled up past it).
-  const [showStickyUser, setShowStickyUser] = useState(false)
+  const stickyPrompts = useStickyPromptsPreference()
+  // The superagent side panel is too short to give a pinned prompt anywhere to
+  // go, so sticky questions are suppressed there regardless of the preference.
+  const stickyEnabled = stickyPrompts.enabled && !compact
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -186,7 +223,12 @@ export function ChatView({
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [atBottom, setAtBottom] = useState(true)
-  const [pending, setPending] = useState<PendingItem[]>([])
+  const initialPending = (): PendingItem[] =>
+    initialPendingText
+      ? [{ id: 'pending-first-turn', text: initialPendingText, at: Date.now(), state: 'sent' }]
+      : []
+  const [pending, setPending] = useState<PendingItem[]>(initialPending)
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   const pendingSeq = useRef(0)
   // Block ids seen on the previous render — lets us detect *newly arrived* user
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
@@ -201,6 +243,30 @@ export function ChatView({
   // then clears). Keyed by the offer's createdAt so a NEW offer re-shows. */
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Busy chat sends live in the unified message ledger until the agent reaches
+  // its next turn boundary. Reload those durable rows so an accepted message
+  // remains visible after refresh instead of existing only as a local bubble.
+  const refreshQueuedMessages = useCallback(() => {
+    if (headless) {
+      setQueuedMessages([])
+      return
+    }
+    Promise.resolve()
+      .then(() => trpc.messages.ledger.query({ sessionId, limit: 100 }))
+      .then((rows) => setQueuedMessages(queuedOperatorMessages(rows, sessionId)))
+      .catch(() => {
+        // Transcript/chat remains usable if the optional delivery-ledger read is
+        // temporarily unavailable. Keep the last confirmed queued snapshot.
+      })
+  }, [headless, sessionId, trpc])
+
+  useEffect(() => {
+    refreshQueuedMessages()
+    if (headless || !active) return
+    const timer = setInterval(refreshQueuedMessages, 5_000)
+    return () => clearInterval(timer)
+  }, [active, headless, refreshQueuedMessages])
 
   // The held transcript window (an initial disk read + live-delta subscription
   // + scroll-up back-paging) and its derived render pipeline — see
@@ -241,20 +307,16 @@ export function ChatView({
     })
     return last
   }, [blocks, session?.status])
-  // The most recent user prompt (block index → sticky header that keeps it in
-  // view while reading the answer; text → tl;dr context) and the latest answer.
-  const lastUserBlockIndex = useMemo(() => {
+  // Compact (superagent column): the latest ANSWER block carries the
+  // "· POD-x context" label suffix for the issue the turn rode in with.
+  const [ctxSeq, setCtxSeq] = useState<number | null>(null)
+  const lastAnswerBlockIndex = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const it = blocks[i]?.item
-      if (!it || it.role !== 'user' || it.event === 'interrupt' || !it.text.trim()) continue
-      // Headless: machine-authored context blocks render collapsed — they are
-      // not "the user's last prompt" for the sticky header / tl;dr context.
-      if (headless && MACHINE_CONTEXT_RE.test(it.text)) continue
-      return i
+      if (it?.role === 'assistant' && it.answer) return i
     }
     return -1
-  }, [blocks, headless])
-  const lastUserText = lastUserBlockIndex >= 0 ? (blocks[lastUserBlockIndex]?.item.text ?? '') : ''
+  }, [blocks])
   const lastAnswerText = useMemo(() => {
     let answer = ''
     for (const b of blocks)
@@ -279,13 +341,104 @@ export function ChatView({
   }, [rows])
   const activeRow = activeMatch !== undefined ? blockToRow.get(activeMatch) : undefined
 
+  // Keep the closest operator prompt above the bounded DOM window mounted as a
+  // one-row continuation. It participates in the same native sticky/push
+  // behavior as ordinary rows, preserving context for very long answers without
+  // expanding the full virtualized transcript.
+  const rowsToRender = useMemo(() => {
+    const out: { row: ChatRow; index: number }[] = []
+    if (stickyEnabled && renderStart > 0) {
+      for (let i = renderStart - 1; i >= 0; i--) {
+        const row = rows[i]
+        if (row && isOperatorPromptRow(row, headless)) {
+          out.push({ row, index: i })
+          break
+        }
+      }
+    }
+    visibleRows.forEach((row, ri) => {
+      out.push({ row, index: renderStart + ri })
+    })
+    return out
+  }, [headless, renderStart, rows, stickyEnabled, visibleRows])
+
+  // Native sticky positioning keeps the real prompt row in the transcript.
+  // As the next prompt approaches, translate the current row by exactly the
+  // overlap so the two turns hand off rather than stack on top of one another.
+  // Reading geometry before writing styles keeps the scroll path free of
+  // forced layout loops; transform intentionally has no transition because it
+  // must remain locked to the user's scroll position.
+  const syncStickyPromptPositions = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    const prompts = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+    )
+
+    if (!stickyEnabled) {
+      for (const prompt of prompts) {
+        prompt.style.removeProperty('transform')
+        prompt.style.removeProperty('visibility')
+        delete prompt.dataset.stuck
+      }
+      return
+    }
+
+    const scrollerTop = scroller.getBoundingClientRect().top
+    const firstPrompt = prompts[0]
+    const stickyOffset = firstPrompt ? Number.parseFloat(getComputedStyle(firstPrompt).top) || 0 : 0
+    const stickyTop =
+      scrollerTop + (Number.parseFloat(getComputedStyle(scroller).paddingTop) || 0) + stickyOffset
+    let activeIndex = -1
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i]
+      if (prompt && prompt.getBoundingClientRect().top <= stickyTop + 1) activeIndex = i
+    }
+
+    const activePrompt = activeIndex >= 0 ? prompts[activeIndex] : undefined
+    const nextPrompt = activeIndex >= 0 ? prompts[activeIndex + 1] : undefined
+    const activeBody = activePrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
+    const nextBody = nextPrompt?.querySelector<HTMLElement>(':scope > .transcript-body')
+    const currentPushY = activePrompt
+      ? Number.parseFloat(
+          /^translateY\((-?[\d.]+)px\)$/.exec(activePrompt.style.transform)?.[1] ?? '0',
+        )
+      : 0
+    const pushY =
+      activeBody && nextBody
+        ? Math.min(
+            0,
+            nextBody.getBoundingClientRect().top -
+              (activeBody.getBoundingClientRect().bottom - currentPushY),
+          )
+        : 0
+
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i]
+      if (!prompt) continue
+      const isActive = i === activeIndex
+      prompt.style.visibility = i < activeIndex ? 'hidden' : ''
+      prompt.style.transform = isActive && pushY < 0 ? `translateY(${pushY}px)` : ''
+      if (isActive) prompt.dataset.stuck = 'true'
+      else delete prompt.dataset.stuck
+    }
+  }, [stickyEnabled])
+
+  // Reconcile after row-window changes before paint, including when the
+  // continuation prompt is mounted for a virtualized long answer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: row-window and active-panel changes require a fresh DOM geometry pass
+  useLayoutEffect(() => {
+    syncStickyPromptPositions()
+  }, [active, rowsToRender, syncStickyPromptPositions])
+
   // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
   // keyed by sessionId like the desktop tabs are), so reset per-session local UI
   // state on a session switch — otherwise a stale optimistic bubble or "Sending…"
   // row from the previous session bleeds into the newly selected one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on session switch
   useEffect(() => {
-    setPending([])
+    setPending(initialPending())
+    setQueuedMessages([])
     setJustSent(false)
     seenUserIds.current = new Set()
     // The transcript window itself (items/older/headCursor/initialLoaded, the
@@ -297,19 +450,19 @@ export function ChatView({
   useEffect(() => {
     const prev = seenUserIds.current
     const next = new Set<string>()
-    const newUserTexts: string[] = []
+    const newUserItems: TranscriptItem[] = []
     for (const b of blocks) {
       if (b.item.role !== 'user') continue
       next.add(b.item.id)
-      if (!prev.has(b.item.id)) newUserTexts.push(b.item.text)
+      if (!prev.has(b.item.id)) newUserItems.push(b.item)
     }
     seenUserIds.current = next
-    if (newUserTexts.length > 0) {
+    if (newUserItems.length > 0) {
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
       // bubble verbatim — any new user item means the send landed; drop them all.
       if (headless) setPending([])
-      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserTexts)))
+      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
     }
   }, [blocks, headless])
 
@@ -351,8 +504,11 @@ export function ChatView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the block list grows
   useEffect(() => {
     const el = scrollerRef.current
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
-  }, [blocks.length])
+    if (el && pinnedToBottom.current) {
+      el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
+    }
+  }, [blocks.length, syncStickyPromptPositions])
   // Scroll-anchor for prepends: after older blocks are inserted at the top (window
   // widened or a disk page prepended), the content the user was reading shifts down
   // by the inserted height. Re-pin scrollTop by that delta BEFORE paint so the view
@@ -398,10 +554,11 @@ export function ChatView({
     if (!el) return
     const ro = new ResizeObserver(() => {
       if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [syncStickyPromptPositions])
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane
@@ -411,8 +568,11 @@ export function ChatView({
   useEffect(() => {
     if (!active) return
     const el = scrollerRef.current
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
-  }, [active])
+    if (el && pinnedToBottom.current) {
+      el.scrollTop = el.scrollHeight
+      syncStickyPromptPositions()
+    }
+  }, [active, syncStickyPromptPositions])
 
   const onScroll = () => {
     const el = scrollerRef.current
@@ -420,7 +580,7 @@ export function ChatView({
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     pinnedToBottom.current = near
     setAtBottom(near)
-    recomputeStickyUser()
+    syncStickyPromptPositions()
     // Near the TOP and more exists above → reveal/fetch older content.
     if (el.scrollTop < 200 && moreAbove) loadOlder()
   }
@@ -430,32 +590,8 @@ export function ChatView({
     pinnedToBottom.current = true
     el.scrollTop = el.scrollHeight
     setAtBottom(true)
+    syncStickyPromptPositions()
   }
-
-  // Sticky last-user header: keep the latest prompt pinned at the top while
-  // reading the answer below it. Show it ONLY once it has scrolled out the TOP of
-  // the viewport (you scrolled down toward newer content). If it's still visible,
-  // or scrolled out the BOTTOM (you scrolled up toward older content), hide it.
-  const recomputeStickyUser = () => {
-    const el = scrollerRef.current
-    if (!el || lastUserBlockIndex < 0) {
-      setShowStickyUser(false)
-      return
-    }
-    const node = el.querySelector<HTMLElement>(`[data-block="${lastUserBlockIndex}"]`)
-    if (!node) {
-      setShowStickyUser(false)
-      return
-    }
-    const top = el.getBoundingClientRect().top
-    setShowStickyUser(node.getBoundingClientRect().bottom <= top + 1)
-  }
-  // Re-evaluate stickiness when the list grows (new answer pushes the prompt up
-  // while pinned to bottom) or the active prompt changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute on list/prompt change
-  useEffect(() => {
-    recomputeStickyUser()
-  }, [blocks.length, lastUserBlockIndex, active])
 
   const processFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))
@@ -505,8 +641,25 @@ export function ChatView({
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
+    // Measure the content height at height:auto, then restore the previous
+    // pixel height and force a reflow BEFORE setting the target — the reflow
+    // pins the transition's start value to the old height (measuring at auto
+    // otherwise makes the start value 'auto', which cannot interpolate, so
+    // the height would snap instead of animate).
+    const prev = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = `${ta.scrollHeight}px`
+    // Cap in px (max-h-44 = 176px) so the animated height never fights the
+    // CSS clamp; past the cap the textarea scrolls. When empty, scrollHeight
+    // includes the (possibly wrapped) placeholder — size to one line instead.
+    const cs = getComputedStyle(ta)
+    const oneLine =
+      Number.parseFloat(cs.lineHeight) +
+      Number.parseFloat(cs.paddingTop) +
+      Number.parseFloat(cs.paddingBottom)
+    const target = ta.value ? Math.min(ta.scrollHeight, 176) : oneLine
+    ta.style.height = prev || `${target}px`
+    void ta.offsetHeight
+    ta.style.height = `${target}px`
   }, [draft])
 
   const scrollToBlock = (index: number) => {
@@ -554,6 +707,7 @@ export function ChatView({
         at: Date.now(),
         state: 'sending',
         tags: tags.length > 0 ? tags : undefined,
+        toolPaths: readyPaths.length > 0 ? readyPaths : undefined,
       },
     ])
     setJustSent(true)
@@ -567,6 +721,14 @@ export function ChatView({
           // Every turn carries what the user has on screen (#225), so the
           // orchestrator can resolve "this session"/"this issue" without asking.
           const focus = getUserFocus()
+          // Compact label context (mock S1): remember which issue this turn was
+          // answered with, so the arriving answer carries "· POD-x context".
+          if (compact) {
+            const seq = focus.issueId
+              ? ((issues ?? []).find((i) => i.id === focus.issueId)?.seq ?? null)
+              : null
+            setCtxSeq(seq)
+          }
           if (superThread.kind === 'concierge' && superThread.repoPath) {
             await trpc.superagent.concierge.mutate({
               repoPath: superThread.repoPath,
@@ -581,7 +743,13 @@ export function ChatView({
             })
           }
         } catch (e) {
-          setTurnError(e instanceof Error ? e.message : String(e))
+          const message = e instanceof Error ? e.message : String(e)
+          if (message.includes('turn is already running')) setTurnRunning(true)
+          setTurnError(
+            message.includes('turn is already running')
+              ? 'Super agent is still working on the previous message. Wait for it to finish or stop the turn before sending another.'
+              : message,
+          )
           throw e
         }
         return
@@ -591,11 +759,15 @@ export function ChatView({
       // Parked but recoverable → wake it and let the server deliver the text once
       // the resumed CLI is ready.
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({
+        const result = await trpc.sessions.sendText.mutate({
           sessionId,
           text: fullText,
           mutationId: randomUUID(),
         })
+        if (result.disposition === 'queued' || result.disposition === 'accepted') {
+          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x)))
+        }
+        refreshQueuedMessages()
       } else {
         await resumeAndSend(sessionId, fullText)
       }
@@ -616,13 +788,22 @@ export function ChatView({
     setAtBottom(true)
     try {
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
+        const result = await trpc.sessions.sendText.mutate({
+          sessionId,
+          text: prompt,
+          mutationId: randomUUID(),
+        })
+        if (result.disposition === 'queued' || result.disposition === 'accepted') {
+          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x)))
+        }
+        refreshQueuedMessages()
       } else {
         await resumeAndSend(sessionId, prompt)
       }
-    } catch {
+    } catch (cause) {
       setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
       setDismissedOfferAt(null) // send failed — let the offer reappear
+      throw cause
     }
   }
 
@@ -650,6 +831,11 @@ export function ChatView({
   // back (SessionMeta.queuedMessageCount, live via the sessions subscription) —
   // the honest state behind the optimistic pending bubbles.
   const queuedCount = session?.queuedMessageCount ?? 0
+  const restoredQueuedMessages = useMemo(
+    () => withoutOptimisticDuplicates(queuedMessages, pending),
+    [queuedMessages, pending],
+  )
+  const totalQueuedCount = queuedCount + queuedMessages.length
   // Agent action offer [spec:SP-c7f1]: the live offer for this session, unless
   // it was just consumed by a button click (optimistic hide until the server's
   // cleared meta arrives). Not shown for headless superagent threads.
@@ -678,28 +864,18 @@ export function ChatView({
     taRef.current?.focus()
   }, [sessionId, composerEnabled, loadingTranscript, isMobile])
 
-  // The composer's action cluster (stop / attach / voice / send). Compact
-  // (superagent dock) renders it INLINE on the input row with small plain
-  // icons — the mock's composer is a single ~36px-high row — while the regular
-  // chat composer keeps its own bottom row with the round primary send button.
+  // The composer's action cluster (stop / attach / voice / send), rendered
+  // INLINE on the input row (POD-178: a separate bottom row read as an
+  // unreachable empty line in the box). Compact keeps plain ghost icons; the
+  // regular chat composer keeps a primary send button, just inline and small.
   const composerActions = (
-    <div
-      className={cn(
-        'flex items-center',
-        compact ? 'flex-none gap-0.5 self-end' : 'justify-end gap-1',
-      )}
-    >
+    <div className="flex flex-none items-center gap-0.5 self-end">
       {headless && turnRunning && superThread && (
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className={cn(
-            'rounded-full text-destructive hover:bg-transparent hover:text-destructive',
-            compact
-              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-              : "[&_svg:not([class*='size-'])]:size-4",
-          )}
+          className="size-6 rounded-md text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
           title="Stop this turn"
           onClick={() => {
             trpc.superagent.interruptTurn
@@ -715,10 +891,8 @@ export function ChatView({
         variant="ghost"
         size="icon"
         className={cn(
-          'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
-          compact
-            ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-            : "[&_svg:not([class*='size-'])]:size-4",
+          'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+          "[&_svg:not([class*='size-'])]:size-3.5",
         )}
         title="Attach image"
         onClick={() => fileInputRef.current?.click()}
@@ -731,10 +905,8 @@ export function ChatView({
           variant="ghost"
           size="icon"
           className={cn(
-            'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
-            compact
-              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-              : "[&_svg:not([class*='size-'])]:size-4",
+            'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+            "[&_svg:not([class*='size-'])]:size-3.5",
             voice.listening && 'animate-pulse text-destructive hover:text-destructive',
           )}
           title={voice.listening ? 'Stop voice input' : 'Voice input'}
@@ -750,14 +922,14 @@ export function ChatView({
         className={cn(
           compact
             ? "size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:bg-transparent disabled:opacity-40 [&_svg:not([class*='size-'])]:size-3.5"
-            : "rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4",
+            : "size-7 rounded-md bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-3.5",
         )}
         disabled={
           !composerEnabled ||
           (!draft.trim() && attachments.length === 0) ||
           attachments.some((a) => a.state === 'uploading')
         }
-        title="Send (⌘/Ctrl+Enter)"
+        title="Send (Enter)"
         onClick={() => void send()}
       >
         <ArrowUp size={16} aria-hidden="true" />
@@ -766,7 +938,7 @@ export function ChatView({
   )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
       {/* Search + tl;dr header — hidden in the compact superagent dock
           (engraved-column.md §2.5: bar → feed → composer, no extra chrome). */}
       {!compact && (
@@ -826,29 +998,16 @@ export function ChatView({
         </div>
       )}
       <div className="relative flex min-h-0 flex-1">
-        {/* Sticky last-user prompt: stays pinned at the top while reading the
-            answer once it has scrolled out the top of the view. Click to jump. */}
-        {showStickyUser && lastUserText && (
-          <button
-            type="button"
-            onClick={() => scrollToBlock(lastUserBlockIndex)}
-            title="Jump to this message"
-            className="absolute top-0 right-[18px] left-0 z-[3] flex items-start gap-2 border-b border-border bg-card/95 px-5 py-1.5 text-left backdrop-blur supports-[backdrop-filter]:bg-card/80"
-          >
-            <span className="mt-px flex-none text-[10px] font-semibold tracking-[0.06em] text-blue-500 uppercase">
-              You
-            </span>
-            <span className="line-clamp-2 min-w-0 flex-1 text-xs whitespace-pre-wrap text-muted-foreground">
-              {lastUserText}
-            </span>
-          </button>
-        )}
         <div
-          className="flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto px-5 pt-5 pb-6"
+          className={cn(
+            'flex min-w-0 flex-1 flex-col gap-0 overflow-x-clip overflow-y-auto',
+            // §2.5 feed geometry: 12px/14px padding in the narrow column.
+            compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
+          )}
           ref={scrollerRef}
           onScroll={onScroll}
         >
-          {blocks.length === 0 && loadingTranscript && (
+          {blocks.length === 0 && loadingTranscript && pending.length === 0 && (
             <div
               className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
               role="status"
@@ -861,7 +1020,7 @@ export function ChatView({
               Loading transcript…
             </div>
           )}
-          {blocks.length === 0 && !loadingTranscript && (
+          {blocks.length === 0 && !loadingTranscript && pending.length === 0 && (
             <div className="mx-auto my-6 max-w-[52ch] text-center text-[13px] text-muted-foreground/70">
               No transcript yet. For Claude, Codex, and Grok sessions the feed starts with the first
               prompt; shells have no structured transcript.
@@ -873,6 +1032,7 @@ export function ChatView({
               scroll trigger is missed. */}
           {blocks.length > 0 && moreAbove && (
             <button
+              data-pressable
               type="button"
               onClick={loadOlder}
               disabled={loadingOlder}
@@ -892,10 +1052,9 @@ export function ChatView({
               )}
             </button>
           )}
-          {visibleRows.map((row, ri) => {
-            // Absolute row index into `rows` so the minimap/search (activeRow) and
-            // [data-block] line up with the full loaded list, not just the window.
-            const idx = renderStart + ri
+          {rowsToRender.map(({ row, index: idx }) => {
+            // Absolute row index into `rows` keeps minimap/search and
+            // [data-block] aligned even for the one-row sticky continuation.
             return row.kind === 'tools' ? (
               <ToolBatchView
                 // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
@@ -930,6 +1089,9 @@ export function ChatView({
                 askLivePending={row.blockIndex === livePendingAskIndex}
                 onAnswerAsk={answerAsk}
                 collapseContext={headless}
+                compact={compact}
+                ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
+                stickyOperator={stickyEnabled && isOperatorPromptRow(row, headless)}
               />
             )
           })}
@@ -941,14 +1103,20 @@ export function ChatView({
                 p.state === 'failed' && 'opacity-60',
               )}
             >
-              {/* User rail */}
-              <div className="transcript-rail transcript-rail--user" aria-hidden="true" />
-              <div className="transcript-body">
-                <div className="transcript-header">
-                  <span className="transcript-role">You</span>
-                  {p.state === 'sending' && <span className="transcript-meta">sending…</span>}
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body transcript-you">
+                <div className="transcript-you-label">
+                  You
+                  {p.state === 'sending' && (
+                    <span className="ml-2 tracking-normal normal-case opacity-60">sending…</span>
+                  )}
+                  {p.state === 'queued' && (
+                    <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
+                  )}
                   {p.state === 'failed' && (
-                    <span className="transcript-meta text-destructive">not delivered</span>
+                    <span className="ml-2 tracking-normal normal-case text-destructive">
+                      not delivered
+                    </span>
                   )}
                 </div>
                 <div className="chat-md whitespace-pre-wrap">{p.text}</div>
@@ -965,6 +1133,22 @@ export function ChatView({
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          ))}
+          {restoredQueuedMessages.map((message) => (
+            <div
+              key={message.id}
+              className="transcript-row mx-auto w-full max-w-[960px]"
+              data-testid="queued-chat-message"
+            >
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body transcript-you">
+                <div className="transcript-you-label">
+                  You
+                  <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
+                </div>
+                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
               </div>
             </div>
           ))}
@@ -989,7 +1173,7 @@ export function ChatView({
               </div>
             </div>
           )}
-          {activity && (
+          {activity && !overlay?.status && (
             <div
               role="status"
               aria-live="polite"
@@ -1025,6 +1209,7 @@ export function ChatView({
         {!compact && <Minimap rows={visibleRows} scrollerRef={scrollerRef} />}
         {!atBottom && (
           <button
+            data-pressable
             type="button"
             className="absolute bottom-3 left-1/2 z-[4] inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-muted px-3 py-[5px] text-xs text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:border-primary"
             onClick={jumpToBottom}
@@ -1040,12 +1225,13 @@ export function ChatView({
         // Bottom inset only when the keyboard is CLOSED. With it open (iOS), the home-
         // indicator safe area sits behind the keyboard, so keeping that padding just
         // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
-        // set from visualViewport in MobileApp; mirrors the native toolbar's handling.
+        // set from visualViewport by the shell when a soft keyboard is tracked.
         className={cn(
           'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
-          // The superagent dock composer mirrors the native Claude Code prompt
-          // box: mono, CLI `>` prefix, flat background.
-          compact ? 'bg-background px-3.5 font-mono' : 'bg-card',
+          // Flat Field (POD-159): every chat composer mirrors the native
+          // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
+          // caret, flat background.
+          'bg-background px-3.5 font-mono',
         )}
         onDragOver={(e) => {
           e.preventDefault()
@@ -1069,15 +1255,16 @@ export function ChatView({
             <OfferBar
               offer={offer}
               disabled={!composerEnabled}
-              onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+              onAction={sendOfferPrompt}
+              {...(session ? { session } : {})}
             />
           </div>
         )}
-        {queuedCount > 0 && (
+        {totalQueuedCount > 0 && (
           <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
             <Clock size={12} aria-hidden="true" />
-            {queuedCount === 1 ? '1 message queued' : `${queuedCount} messages queued`} — delivers
-            when the agent is back
+            {totalQueuedCount === 1 ? '1 message queued' : `${totalQueuedCount} messages queued`} —
+            delivers when the agent is ready
           </div>
         )}
         {turnError !== null && (
@@ -1093,10 +1280,7 @@ export function ChatView({
         )}
         <div
           className={cn(
-            'relative flex flex-col gap-0.5 border bg-background focus-within:border-primary',
-            compact
-              ? 'rounded-lg border-[#3a3a46] px-3 py-1.5'
-              : 'rounded-2xl border-input px-2.5 pt-2 pb-1.5',
+            'relative flex flex-col gap-0.5 rounded-lg border border-[#3a3a46] bg-background px-3 py-1.5 focus-within:border-primary',
           )}
         >
           {dragOver && (
@@ -1115,23 +1299,21 @@ export function ChatView({
               e.target.value = ''
             }}
           />
-          {compact && <BlockCaret taRef={taRef} value={draft} />}
+          <BlockCaret taRef={taRef} value={draft} />
           <div className="flex items-start gap-2">
-            {compact && (
-              <span
-                className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
-                aria-hidden="true"
-              >
-                &gt;
-              </span>
-            )}
+            <span
+              className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
+              aria-hidden="true"
+            >
+              &gt;
+            </span>
             <Textarea
               ref={taRef}
               rows={1}
               placeholder={
                 headless
                   ? turnRunning
-                    ? 'Working — stop the turn to interject…'
+                    ? 'Working — stop to interject…'
                     : compact
                       ? 'Ask Superagent to plan, delegate, or review — @ for context'
                       : 'Message the agent…'
@@ -1142,16 +1324,30 @@ export function ChatView({
                       : 'Session is not running.'
               }
               className={cn(
-                'max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
-                compact && 'min-h-0 text-[13px] caret-transparent placeholder:text-[#4d4d59]',
+                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-[13px] leading-[1.45] text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
               )}
               value={draft}
               disabled={!composerEnabled}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
-                // newline (the send button submits), matching the mobile keyboard.
+                // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
+                // still submits). Mobile keeps plain Enter as a newline — the
+                // send button submits there.
+                // Some browsers clear isComposing on the Enter keydown that
+                // confirms a candidate, but continue to report the legacy IME
+                // keyCode. In either case, let the composition finish untouched.
+                if (
+                  e.key === 'Enter' &&
+                  (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                ) {
+                  return
+                }
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void send()
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
                   e.preventDefault()
                   void send()
                 }
@@ -1172,7 +1368,7 @@ export function ChatView({
                 }
               }}
             />
-            {compact && composerActions}
+            {composerActions}
           </div>
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-0.5 pt-1">
@@ -1197,6 +1393,7 @@ export function ChatView({
                   )}
                   {att.state === 'failed' && <span className="text-destructive">!</span>}
                   <button
+                    data-pressable
                     type="button"
                     className="ml-0.5 text-muted-foreground/70 hover:text-foreground"
                     onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
@@ -1208,7 +1405,6 @@ export function ChatView({
               ))}
             </div>
           )}
-          {!compact && composerActions}
         </div>
         {compact && (
           <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">
@@ -1220,6 +1416,7 @@ export function ChatView({
       </div>
       {lightbox && (
         <button
+          data-pressable-exempt
           type="button"
           aria-label="Close image preview"
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6"

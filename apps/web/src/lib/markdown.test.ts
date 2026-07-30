@@ -81,9 +81,11 @@ describe('linkifyRefs (#474)', () => {
   it('linkifies issue, session and draft refs for registered prefixes', () => {
     setKnownRefPrefixes(['POD'])
     const out = linkifyRefs('POD-13 and POD-13-A and POD-DRAFT-3')
-    expect(out).toContain('<a class="ref-link" data-ref="POD-13">POD-13</a>')
-    expect(out).toContain('data-ref="POD-13-A"')
-    expect(out).toContain('data-ref="POD-DRAFT-3"')
+    expect(out).toContain('<a class="ref-link ref-link--issue" data-ref="POD-13">POD-13</a>')
+    expect(out).toContain('<a class="ref-link ref-link--session" data-ref="POD-13-A">POD-13-A</a>')
+    expect(out).toContain(
+      '<a class="ref-link ref-link--session" data-ref="POD-DRAFT-3">POD-DRAFT-3</a>',
+    )
   })
 
   it('leaves unknown prefixes as plain text (avoids UTF-8 false positives)', () => {
@@ -101,7 +103,7 @@ describe('linkifyRefs (#474)', () => {
   it('renderMarkdown wires the ref pass end-to-end', () => {
     setKnownRefPrefixes(['POD'])
     const html = renderMarkdown('fixed in POD-13')
-    expect(html).toContain('class="ref-link"')
+    expect(html).toContain('class="ref-link ref-link--issue"')
     expect(html).toContain('data-ref="POD-13"')
   })
 })

@@ -10,6 +10,7 @@
  * ride on the store's hub/trpc). Demo mode (`?demo=1`) stays a static fixture.
  */
 
+import type { SpawnTarget } from '@podium/client-core'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
@@ -19,14 +20,19 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ServerConfig } from '@podium/client-core/transport'
+import type { PinState } from '@podium/client-core/viewmodels'
 import type {
+  AgentKind,
   ConversationSummaryWire,
+  GitRepositoryWire,
   HeadlessActivityEvent,
   IssueWire,
+  MachineWire,
   SessionMeta,
   TranscriptItem,
   WorkState,
 } from '@podium/protocol'
+import type { SocketHub } from '@podium/terminal-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   createContext,
@@ -37,10 +43,11 @@ import {
   useMemo,
   useState,
 } from 'react'
+import { BootSplash } from '../components/BootSplash'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
-  DEMO_SUPERAGENT,
+  DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
@@ -49,12 +56,24 @@ import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage 
 export interface MobileClientValue {
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** Repo registry + pin state — the Work list derives the desktop sidebar's
+   *  project groups from exactly these (POD-338). */
+  repos: GitRepositoryWire[]
+  machines: MachineWire[]
+  pins: PinState
   conversations: ConversationSummaryWire[]
   connected: boolean
   cursor: number | null
   error: string | null
   serverConfig: ServerConfig
+  /** The app-wide transport hub; terminal views share it instead of opening another socket. */
+  hub: SocketHub | null
   trpc: MobileTrpc
+  /** The same optimistic draft-issue launch used by desktop's New Agent control. */
+  spawnDraftAgent(args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }): {
+    sessionId: string
+    issueId: string
+  }
   sessionById(sessionId: string): SessionMeta | undefined
   issueById(issueId: string): IssueWire | undefined
   readTranscript(sessionId: string, anchor?: string): Promise<TranscriptPage>
@@ -74,6 +93,10 @@ export interface MobileClientValue {
   renameSession(sessionId: string, name: string): Promise<void>
   snooze(sessionId: string, until: string | null): Promise<void>
   clearSnooze(sessionId: string): Promise<void>
+  /** Tuck a finished issue into the Work list's Closed fold, or bring it back
+   *  (POD-333): server state, so the fold agrees across every client. */
+  setIssueTucked(id: string, tucked: boolean): Promise<void>
+  markIssueRead(id: string): Promise<void>
   /** Round-robin triage order: needsYou, then idle, then working. */
   focusSessionIds: string[]
   outboxSize: number
@@ -89,21 +112,50 @@ function demoValue(config: ServerConfig): MobileClientValue {
   return {
     sessions,
     issues: DEMO_ISSUES,
+    repos: [],
+    machines: [],
+    pins: { panels: [], worktrees: [], repos: [] },
     conversations: [],
     connected: true,
     cursor: null,
     error: null,
     serverConfig: config,
+    hub: null,
     trpc: {
       superagent: {
-        listThreads: { query: async () => [] },
-        history: { query: async () => DEMO_SUPERAGENT },
+        // The screen reads this thread's session transcript, so the demo thread
+        // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
+        listThreads: {
+          query: async () => [
+            {
+              id: 'global',
+              kind: 'global' as const,
+              podiumSessionId: DEMO_SUPER_SESSION,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              archived: false,
+            },
+          ],
+        },
+        history: { query: async () => [] },
         sendTurn: { mutate: async () => ({ threadId: 'global' }) },
         interruptTurn: { mutate: noop },
         clear: { mutate: noop },
       },
       repos: { list: { query: async () => ['/home/dev/src/podium'] } },
+      // Demo mode has no backend: issue mutations resolve without changing the
+      // fixture, so screening/curation flows are drivable for design review.
+      issues: {
+        promote: { mutate: async () => ({}) },
+        start: { mutate: async () => ({}) },
+        close: { mutate: async () => ({}) },
+        update: { mutate: noop },
+        addComment: { mutate: noop },
+        clearNeedsHuman: { mutate: noop },
+        archive: { mutate: noop },
+      },
     } as unknown as MobileTrpc,
+    spawnDraftAgent: () => ({ sessionId: 'demo-session', issueId: 'demo-issue' }),
     sessionById: (id) => sessions.find((s) => s.sessionId === id),
     issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
     readTranscript: async (sessionId) => ({
@@ -121,6 +173,8 @@ function demoValue(config: ServerConfig): MobileClientValue {
     renameSession: noop,
     snooze: noop,
     clearSnooze: noop,
+    setIssueTucked: noop,
+    markIssueRead: noop,
     focusSessionIds: [...groups.needsYou, ...groups.idle, ...groups.working].map(
       (s) => s.sessionId,
     ),
@@ -160,7 +214,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error: (message) => setError(message), info: () => {} }),
     [],
   )
-  if (!replica) return null
+  if (!replica) return <BootSplash />
   return (
     <StoreProvider
       config={config}
@@ -188,7 +242,8 @@ function LiveBridge({
   children: ReactNode
 }) {
   const store = useStore<MobileTrpc>()
-  const { hub, trpc, replica, sessions, issues, conversations, outboxSize } = store
+  const { hub, trpc, replica, sessions, issues, repos, machines, pins, conversations, outboxSize } =
+    store
   const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
   useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
 
@@ -240,12 +295,17 @@ function LiveBridge({
     () => ({
       sessions,
       issues,
+      repos,
+      machines,
+      pins,
       conversations,
       connected,
       cursor: replica.getCursor(),
       error,
       serverConfig: config,
+      hub,
       trpc,
+      spawnDraftAgent: store.spawnDraftAgent,
       sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => issues.find((i) => i.id === issueId),
       focusSessionIds,
@@ -264,16 +324,23 @@ function LiveBridge({
       renameSession: store.renameSession,
       snooze: store.setSnooze,
       clearSnooze: store.clearSnooze,
+      setIssueTucked: store.setIssueTucked,
+      markIssueRead: store.markIssueRead,
     }),
     [
       sessions,
       issues,
+      repos,
+      machines,
+      pins,
       conversations,
       connected,
       replica,
       error,
       config,
+      hub,
       trpc,
+      store.spawnDraftAgent,
       focusSessionIds,
       outboxSize,
       readTranscript,
@@ -288,6 +355,8 @@ function LiveBridge({
       store.renameSession,
       store.setSnooze,
       store.clearSnooze,
+      store.setIssueTucked,
+      store.markIssueRead,
     ],
   )
 

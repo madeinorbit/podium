@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
+import { CredentialExportRequestMessage, CredentialInstallRequestMessage } from './credentials'
 import {
   BrowseDirsRequestMessage,
   RepoOpRequestMessage,
@@ -20,11 +21,6 @@ import {
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
 } from './handoff'
-import {
-  WorkspaceCleanRequestMessage,
-  WorkspaceExportRequestMessage,
-  WorkspaceImportRequestMessage,
-} from './workspace'
 import { HarnessExecRequestMessage } from './harness'
 import {
   HeadlessBindMessage,
@@ -39,6 +35,7 @@ import {
 } from './host'
 import { InventoryRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
+import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -51,10 +48,17 @@ import {
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
+import {
+  WorkspaceCleanRequestMessage,
+  WorkspaceExportRequestMessage,
+  WorkspaceImportRequestMessage,
+} from './workspace'
 
 // ---- Server -> daemon control frames ----
 export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
+  CredentialExportRequestMessage,
+  CredentialInstallRequestMessage,
   RepoOpRequestMessage,
   AgentRelayResultMessage,
   HarnessExecRequestMessage,
@@ -76,6 +80,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  AgentObservationAckMessage,
+  AgentObservationRebindAckMessage,
   DraftTargetMessage,
   SessionResumeRefAckMessage,
   TranscriptMirrorReadMessage,

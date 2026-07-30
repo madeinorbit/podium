@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveCursorBin, resolveOpencodeBin } from '@podium/agent-bridge'
 import type { ControlMessage, UsageBucketWire } from '@podium/protocol'
@@ -24,10 +24,17 @@ async function runRepoOp(
     return
   }
   try {
+    if (msg.op === 'clone' && msg.args?.path) {
+      mkdirSync(dirname(msg.args.path), { recursive: true, mode: 0o700 })
+    }
     const runArgs = cmd.bin === 'git' ? ['-C', msg.cwd, ...cmd.argv] : cmd.argv
     const opts =
       cmd.bin === 'git'
-        ? { timeout: 120_000, maxBuffer: 1024 * 1024 }
+        ? {
+            timeout: 120_000,
+            maxBuffer: 1024 * 1024,
+            ...(msg.op === 'clone' ? { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } } : {}),
+          }
         : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
     const { stdout, stderr } = await execFileAsync(cmd.bin, runArgs, opts)
     ctx.send({
@@ -66,7 +73,12 @@ async function runHarnessExec(
   try {
     // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
     // (refusing a silent tool-less run) — that must surface as a failed turn.
-    const { cmd, args, stdin } = buildHarnessExec(
+    const {
+      cmd,
+      args,
+      stdin,
+      env: execEnv,
+    } = buildHarnessExec(
       msg.agent,
       {
         prompt: msg.prompt,
@@ -82,10 +94,12 @@ async function runHarnessExec(
     // stdin (claude — variadic --allowedTools would eat an argv prompt) and
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
     // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
+    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
     const pending = execFileAsync(cmd, args, {
       timeout: msg.timeoutMs ?? 240_000,
       maxBuffer: 4 * 1024 * 1024,
       ...(msg.cwd ? { cwd: msg.cwd } : {}),
+      ...(execEnv ? { env: { ...process.env, ...execEnv } } : {}),
     })
     pending.child.stdin?.end(stdin ?? '')
     const { stdout } = await pending

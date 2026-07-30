@@ -5,14 +5,14 @@
  * navigation concern).
  *
  * Deep-linkable routes:
- *   /                       issues (a persisted-view restore may replace this)
+ *   /                       workspace (a persisted-view restore may replace this)
  *   /workspace[?wt=&pane=]  the worktree workspace, pane state in the query
  *   /issues                 the issues board
  *   /issues/:id             the board with an issue page open
  *   /settings[/:tab]        settings, optionally on a specific tab
  *   /usage  /automations  /specs  /workflows    the respective views
  *
- * Unknown URLs fall back to issues (replaceState, so back doesn't bounce).
+ * Unknown URLs fall back to workspace (replaceState, so back doesn't bounce).
  * Foreign query params (`?server=`, `?e2e`) are preserved across navigation.
  */
 
@@ -62,7 +62,7 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
     worktree: params.get('wt'),
     pane: params.get('pane'),
   }
-  if (segs.length === 0) return { view: 'issues', ...base }
+  if (segs.length === 0) return { view: 'workspace', ...base }
   const [head, second, ...rest] = segs
   if (rest.length > 0) return null
   switch (head) {
@@ -164,13 +164,13 @@ export function createRouter(init: RouterInit = {}): Router {
   const parsed = parseRoute(win.location.pathname, win.location.search)
   let route: RouteState
   if (parsed === null) {
-    // Unknown URL → fall back to issues (or the restored view) without leaving a
+    // Unknown URL → fall back to Work (or the restored view) without leaving a
     // dead history entry behind.
-    route = routeDefaults(init.fallbackView ?? 'issues')
+    route = routeDefaults(init.fallbackView ?? 'workspace')
     win.history.replaceState(null, '', routePath(route, win.location.search))
   } else if (
     init.fallbackView &&
-    init.fallbackView !== 'issues' &&
+    init.fallbackView !== 'workspace' &&
     win.location.pathname.replace(/\/+$/, '') === ''
   ) {
     // Plain `/` start: restore the persisted surface (reload lands where you
@@ -187,7 +187,7 @@ export function createRouter(init: RouterInit = {}): Router {
   const onPopState = (): void => {
     const next = parseRoute(win.location.pathname, win.location.search)
     if (next === null) {
-      route = routeDefaults('issues')
+      route = routeDefaults('workspace')
       win.history.replaceState(null, '', routePath(route, win.location.search))
     } else {
       route = next

@@ -182,6 +182,7 @@ export function SnoozeControl({
           <>
             {COARSE_POINTER && (
               <button
+                data-pressable-exempt
                 type="button"
                 aria-hidden="true"
                 tabIndex={-1}
@@ -213,6 +214,7 @@ export function SnoozeControl({
             >
               <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Snooze for</div>
               <button
+                data-pressable
                 type="button"
                 role="menuitem"
                 className={item}
@@ -221,6 +223,7 @@ export function SnoozeControl({
                 1 hour
               </button>
               <button
+                data-pressable
                 type="button"
                 role="menuitem"
                 className={item}
@@ -229,6 +232,7 @@ export function SnoozeControl({
                 Until tomorrow
               </button>
               <button
+                data-pressable
                 type="button"
                 role="menuitem"
                 className={item}
@@ -238,6 +242,7 @@ export function SnoozeControl({
               </button>
               {snoozed && (
                 <button
+                  data-pressable
                   type="button"
                   role="menuitem"
                   className={item}

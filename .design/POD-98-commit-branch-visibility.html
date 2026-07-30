@@ -1,0 +1,412 @@
+<title>Commit &amp; branch visibility — POD-98</title>
+<style>
+  :root {
+    --ink: #1a1a22;
+    --ink-dim: #5a5a66;
+    --ink-faint: #8a8a96;
+    --ground: #f7f7f9;
+    --panel: #ffffff;
+    --hairline: #e2e2e8;
+    --amber: #d97706;
+    --green: #059669;
+    --claude: #d97757;
+    --code-bg: #ececf0;
+    /* Mockup frames are ALWAYS podium-dark — they depict the real app. */
+    --m-bg: #0e0e12;
+    --m-card: #16161c;
+    --m-chip: #25252f;
+    --m-border: #2a2a34;
+    --m-fg: #d7d7e0;
+    --m-strong: #f3f3f8;
+    --m-muted: #9a9aa8;
+    --m-faint: #6c6c78;
+    --m-amber: #f59e0b;
+    --m-warn: #fbbf24;
+    --m-green: #34d399;
+    --m-live: #10b981;
+    --m-blue: #3b82f6;
+    --m-red: #f87171;
+    --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #d7d7e0; --ink-dim: #9a9aa8; --ink-faint: #6c6c78;
+      --ground: #0e0e12; --panel: #16161c; --hairline: #2a2a34;
+      --amber: #f59e0b; --green: #34d399; --code-bg: #1d1d25;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #d7d7e0; --ink-dim: #9a9aa8; --ink-faint: #6c6c78;
+    --ground: #0e0e12; --panel: #16161c; --hairline: #2a2a34;
+    --amber: #f59e0b; --green: #34d399; --code-bg: #1d1d25;
+  }
+  :root[data-theme="light"] {
+    --ink: #1a1a22; --ink-dim: #5a5a66; --ink-faint: #8a8a96;
+    --ground: #f7f7f9; --panel: #ffffff; --hairline: #e2e2e8;
+    --amber: #d97706; --green: #059669; --code-bg: #ececf0;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 880px; margin: 0 auto; padding: 56px 28px 96px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--amber); display: flex;
+    align-items: center; gap: 10px;
+  }
+  .eyebrow .ref {
+    border: 1px solid var(--hairline); border-radius: 5px; padding: 1px 7px;
+    color: var(--ink-dim); letter-spacing: 0.06em;
+  }
+  h1 {
+    font-family: var(--mono); font-size: clamp(24px, 4vw, 32px); font-weight: 600;
+    letter-spacing: -0.02em; margin: 14px 0 10px; text-wrap: balance; line-height: 1.2;
+  }
+  .lede { color: var(--ink-dim); max-width: 62ch; margin: 0 0 8px; }
+
+  h2 {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink);
+    margin: 64px 0 6px; display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .n { color: var(--amber); font-weight: 400; }
+  .sub { color: var(--ink-dim); font-size: 14px; max-width: 68ch; margin: 0 0 20px; }
+  p { max-width: 68ch; }
+  section p + p { margin-top: 10px; }
+
+  code, .code {
+    font-family: var(--mono); font-size: 0.86em;
+    background: var(--code-bg); border-radius: 4px; padding: 1px 5px;
+  }
+
+  /* ── the recommendation card ─────────────────────────── */
+  .verdict {
+    margin-top: 36px; border: 1px solid var(--hairline); border-left: 3px solid var(--amber);
+    border-radius: 8px; background: var(--panel); padding: 18px 22px;
+  }
+  .verdict b { font-weight: 600; }
+  .verdict .k {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--amber); display: block; margin-bottom: 6px;
+  }
+
+  /* ── mockup frames: always podium-dark ───────────────── */
+  .frame {
+    background: var(--m-bg); border: 1px solid var(--m-border); border-radius: 10px;
+    padding: 0; overflow: hidden; margin: 18px 0 10px; color: var(--m-fg);
+    font-family: var(--sans);
+  }
+  .frame-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 4px 2px 26px;
+  }
+  .frame-inner { padding: 18px; overflow-x: auto; }
+
+  /* chip specimens */
+  .spec-row {
+    display: grid; grid-template-columns: minmax(200px, auto) 1fr; gap: 8px 24px;
+    align-items: center; padding: 9px 4px; border-bottom: 1px solid color-mix(in srgb, var(--m-border) 60%, transparent);
+  }
+  .spec-row:last-child { border-bottom: 0; }
+  .spec-row .when { font-size: 12.5px; color: var(--m-muted); }
+  .spec-row .when b { color: var(--m-fg); font-weight: 500; }
+
+  .git-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 11px; line-height: 1;
+    background: var(--m-chip); border: 1px solid var(--m-border);
+    border-radius: 6px; padding: 4px 9px; color: var(--m-fg); white-space: nowrap;
+    width: fit-content;
+  }
+  .git-chip .branch { color: var(--m-muted); }
+  .git-chip .glyph { color: var(--m-faint); font-size: 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.none  { background: transparent; border: 1px dashed var(--m-faint); }
+  .dot.dirty { background: linear-gradient(90deg, var(--m-warn) 50%, transparent 50%); border: 1px solid var(--m-warn); }
+  .dot.clean { background: var(--m-green); border: 1px solid var(--m-green); }
+  .ahead { color: var(--m-green); font-weight: 600; }
+  .plus  { color: var(--m-warn); }
+  .merged { color: var(--m-blue); }
+  .danger { color: var(--m-red); }
+
+  /* pane-header mock */
+  .pane-head {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    background: var(--m-card); border-bottom: 1px solid var(--m-border);
+  }
+  .pane-head .sq {
+    width: 22px; height: 22px; border-radius: 6px; flex: none;
+    display: grid; place-items: center; font-family: var(--mono); font-size: 9px;
+    background: #1c2a4e; color: #a8bcf0; border: 1px solid #31437a;
+  }
+  .pane-head .title { font-size: 13px; font-weight: 550; color: var(--m-strong); }
+  .pane-head .who { font-size: 11px; color: var(--m-muted); }
+  .pane-head .who .d { color: var(--claude); }
+  .pane-head .git-chip { margin-left: auto; cursor: pointer; }
+  .pane-head .git-chip:hover { border-color: var(--m-faint); }
+  .pane-body { padding: 14px 16px 18px; font-size: 12.5px; color: var(--m-muted); }
+  .pane-body .bubble {
+    background: var(--m-card); border: 1px solid var(--m-border); border-radius: 8px;
+    padding: 8px 12px; max-width: 480px; margin-top: 8px; color: var(--m-fg);
+  }
+
+  /* sidebar mock */
+  .side-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+    border-radius: 8px; max-width: 340px;
+  }
+  .side-row.active { background: var(--m-card); border: 1px solid var(--m-border); }
+  .side-row .sq {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    display: grid; place-items: center; font-family: var(--mono); font-size: 9.5px;
+  }
+  .side-row .lines { min-width: 0; flex: 1; }
+  .side-row .l1 { font-size: 12.5px; font-weight: 550; color: var(--m-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-row .l2 { font-size: 10.5px; color: var(--m-muted); display: flex; align-items: center; gap: 6px; font-family: var(--mono); }
+  .side-row .l2 .sep { color: var(--m-faint); }
+  .side-row .timer { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--m-amber); flex: none; }
+
+  /* tray card mock */
+  .tray-card {
+    border-radius: 10px; padding: 9px 11px; max-width: 420px;
+    border: 1px solid color-mix(in srgb, #14b8a6 40%, transparent);
+    background: color-mix(in srgb, #14b8a6 10%, #0e0e12);
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .tray-card .head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; }
+  .tray-card .head .tick { width: 8px; height: 8px; border-radius: 3px; background: #14b8a6; flex: none; }
+  .tray-card .head b { color: #99e5db; font-weight: 600; }
+  .tray-card .head .ago { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--m-amber); }
+  .tray-card .msg { font-size: 11px; color: #c9f0ea; line-height: 1.5; }
+  .tray-card .gitline {
+    display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10px;
+    color: var(--m-muted); border-top: 1px solid color-mix(in srgb, #14b8a6 25%, transparent);
+    padding-top: 7px;
+  }
+  .tray-card .btns { display: flex; gap: 6px; }
+  .tray-card .btn {
+    font-size: 10.5px; font-weight: 500; color: #99e5db; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, #99e5db 30%, transparent);
+    background: color-mix(in srgb, #14b8a6 12%, transparent); padding: 3px 9px;
+  }
+
+  /* plumbing table */
+  .plumb { border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; margin-top: 16px; }
+  .plumb table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .plumb th {
+    text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 500;
+    padding: 10px 14px; border-bottom: 1px solid var(--hairline); background: var(--panel);
+  }
+  .plumb td { padding: 9px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  .plumb tr:last-child td { border-bottom: 0; }
+  .plumb .have { color: var(--green); font-family: var(--mono); font-size: 11px; }
+  .plumb .need { color: var(--amber); font-family: var(--mono); font-size: 11px; }
+
+  .footnote { color: var(--ink-faint); font-size: 12.5px; margin-top: 48px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+  ul { padding-left: 20px; } li { margin: 4px 0; max-width: 64ch; }
+  li::marker { color: var(--amber); }
+  @media (prefers-reduced-motion: no-preference) {
+    .pane-head .git-chip { transition: border-color 120ms ease; }
+  }
+</style>
+
+<div class="page">
+
+  <div class="eyebrow">Design proposal <span class="ref">POD-98</span> <span class="ref">2026-07-20</span></div>
+  <h1>Where a task shows its commits and its branch</h1>
+  <p class="lede">Every agent session should answer two questions at a glance, without opening a shell: <b>has it committed yet?</b> and <b>which branch is it sitting on?</b> Podium's model makes this simpler than it looks — issues own branches, sessions never do — so this is per-issue state, surfaced wherever the issue's sessions render.</p>
+
+  <div class="verdict">
+    <span class="k">Recommendation</span>
+    <b>One shared "git stamp" in two densities:</b> a full chip pinned to the right edge of the pane header (always visible for whatever you're looking at), and a micro-stamp appended to the sidebar row's existing status line (ambient, across every task at once). Clicking either opens the RightDock <b>Git</b> tab — which already exists as a placeholder. The tray's "finished / review" cards get the stamp as a footer line, because "done" without "committed" is exactly the moment the question matters most.
+  </div>
+
+  <!-- ───────────────────────── 1 · grammar ───────────────────────── -->
+  <section>
+    <h2><span class="n">01</span> One grammar, six states</h2>
+    <p class="sub">Whatever surface it lands on, the stamp reads the same way: a branch name in mono, an ahead-count, and one dot that encodes commit state. Learn it once, read it everywhere.</p>
+
+    <div class="frame"><div class="frame-inner">
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">pod/98-commit-viz</span><span class="dot none"></span><span style="color:var(--m-faint)">no commits</span></span>
+        <span class="when"><b>Fresh branch, clean tree.</b> Nothing committed, nothing pending — dashed hollow dot, everything muted.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">pod/98-commit-viz</span><span class="dot dirty"></span><span class="plus">+4 files</span></span>
+        <span class="when"><b>Uncommitted work.</b> The tree is dirty but nothing is committed yet — half-filled amber dot. This is the "agent says done but nothing is saved" tell.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">pod/98-commit-viz</span><span class="dot clean"></span><span class="ahead">↑3</span></span>
+        <span class="when"><b>Committed, clean.</b> Three commits ahead of the parent branch, working tree clean — solid green dot. The state you want to see before merging.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">pod/98-commit-viz</span><span class="dot dirty"></span><span class="ahead">↑3</span><span class="plus">+2</span></span>
+        <span class="when"><b>Committed <i>and</i> dirty.</b> Three ahead plus two modified files still uncommitted — both signals side by side, no ambiguity.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="merged">✓ merged</span><span class="glyph">→</span><span class="branch">main</span></span>
+        <span class="when"><b>Merged.</b> The branch landed on its parent — the chip relaxes to a quiet confirmation and stops demanding attention.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="danger">main</span><span class="dot dirty"></span><span class="plus">+7 files</span></span>
+        <span class="when"><b>Branch mismatch.</b> Red is reserved for one anomaly: the issue <i>has</i> a private branch, but its session is dirtying a shared branch instead. Deliberate shared-branch work (main, <code style="background:var(--m-chip);color:var(--m-fg)">v3</code>, …) is a first-class mode with its own grammar — section 05.</span>
+      </div>
+    </div></div>
+    <div class="frame-label">Chip specimens · podium-dark, Geist Mono 11px, existing --live / --warning / --destructive hues</div>
+  </section>
+
+  <!-- ───────────────────────── 2 · pane header ───────────────────────── -->
+  <section>
+    <h2><span class="n">02</span> Pane header — the always-on answer</h2>
+    <p class="sub">The full chip sits at the right edge of the session pane header, opposite the title. It's in your eye-line the entire time you read a session, updates live as the agent works, and is the click-through to the Git dock tab.</p>
+
+    <div class="frame">
+      <div class="pane-head">
+        <span class="sq">98</span>
+        <span class="title">Commit and branch visibility</span>
+        <span class="who"><span class="d">◆</span> Branch status placement design</span>
+        <span class="git-chip" title="pod/98-commit-viz · 3 ahead of main · 2 uncommitted — click for Git panel">
+          <span class="glyph">⎇</span><span class="branch">pod/98-commit-viz</span>
+          <span class="dot dirty"></span><span class="ahead">↑3</span><span class="plus">+2</span>
+        </span>
+      </div>
+      <div class="pane-body">
+        agent · 2m ago
+        <div class="bubble">Committed the wire-schema change and the poller. Two files still open — the sidebar stamp and its test.</div>
+      </div>
+    </div>
+    <div class="frame-label">Session pane header · chip is a button → opens RightDock “Git” tab (currently a placeholder at RightDock.tsx:39)</div>
+
+    <p>On narrow panes the chip degrades gracefully: drop the branch name first (the dot + counts survive at 60px), keep the full string in the hover title. The branch name itself truncates middle-out (<code>pod/98…viz</code>) since prefixes repeat.</p>
+  </section>
+
+  <!-- ───────────────────────── 3 · sidebar ───────────────────────── -->
+  <section>
+    <h2><span class="n">03</span> Sidebar rows — the ambient sweep</h2>
+    <p class="sub">Line 2 of each work row already speaks a status grammar ("working", "needs answer", "3 agents · done"). The git stamp joins it after a separator — dot plus ahead-count only, no branch name. One glance down the sidebar now answers "which of my six tasks actually committed anything?"</p>
+
+    <div class="frame"><div class="frame-inner" style="display:flex;flex-direction:column;gap:4px;">
+      <div class="side-row active">
+        <span class="sq" style="background:#1c2a4e;color:#a8bcf0;border:1px solid #31437a;">98</span>
+        <span class="lines">
+          <span class="l1">Commit and branch visibility</span>
+          <span class="l2">working <span class="sep">·</span> <span class="dot dirty"></span> <span class="ahead">↑3</span><span class="plus">+2</span></span>
+        </span>
+        <span class="timer">14m</span>
+      </div>
+      <div class="side-row">
+        <span class="sq" style="background:#252c1c;color:#c3d69a;border:1px solid #47542f;">96</span>
+        <span class="lines">
+          <span class="l1">Mail envelope rule badges</span>
+          <span class="l2">done <span class="sep">·</span> <span class="dot clean"></span> <span class="ahead">↑5</span> <span style="color:var(--m-faint)">clean</span></span>
+        </span>
+        <span class="timer">∑ 41m</span>
+      </div>
+      <div class="side-row">
+        <span class="sq" style="background:#33202a;color:#e0a8c0;border:1px solid #5e3a4d;">97</span>
+        <span class="lines">
+          <span class="l1">Splash wordmark timing fix</span>
+          <span class="l2">needs answer <span class="sep">·</span> <span class="dot none"></span> <span style="color:var(--m-faint)">no commits</span></span>
+        </span>
+        <span class="timer">1h</span>
+      </div>
+    </div></div>
+    <div class="frame-label">Unified sidebar rows · stamp extends rowStatusLine() in client-core derive.ts — same 10.5px mono line, no new row height</div>
+
+    <p>The row that matters most here is the middle one: <b>done · ↑5 clean</b> is the sidebar telling you a task is merge-ready without you opening it. And the third row's <b>needs answer · no commits</b> reframes the wait — an hour blocked and nothing saved yet.</p>
+  </section>
+
+  <!-- ───────────────────────── 4 · tray ───────────────────────── -->
+  <section>
+    <h2><span class="n">04</span> Tray cards — the moment of judgment</h2>
+    <p class="sub">When an agent moves its issue to review or finishes, the tray card is where you decide: merge, send back, archive. That decision needs the git facts <i>on the card</i>, as a quiet mono footer above the action buttons.</p>
+
+    <div class="frame"><div class="frame-inner">
+      <div class="tray-card">
+        <div class="head"><span class="tick"></span><b>#96 Mail envelope rule badges</b><span class="ago">6m</span></div>
+        <div class="msg">Badges render on all three rule types; tests green. Ready to merge.</div>
+        <div class="gitline">
+          <span class="glyph" style="color:var(--m-faint)">⎇</span>
+          <span>pod/96-rule-badges</span>
+          <span class="dot clean"></span><span class="ahead">↑5</span>
+          <span style="color:var(--m-faint)">· clean · last commit 8m ago</span>
+        </div>
+        <div class="btns"><span class="btn">Merge to main</span><span class="btn">Send back…</span></div>
+      </div>
+    </div></div>
+    <div class="frame-label">TrayCard footer · renders only when the issue has a branch; a dirty tree here is a visible contradiction of “ready to merge”</div>
+  </section>
+
+  <!-- ───────────────────────── 5 · on main ───────────────────────── -->
+  <section>
+    <h2><span class="n">05</span> Shared checkouts — attribution everywhere</h2>
+    <p class="sub">The split that matters is <b>not</b> main-vs-branch — it's <b>private worktree vs shared checkout</b>. A long-lived project branch like <code>v3</code> is main in all but name: multiple tasks sit on it directly, and checkout-level facts lie there exactly as they do on main — a neighbor's commit moves the head, a neighbor's half-done edits dirty the tree. So attribution is the <i>universal</i> substrate: every chip's counts describe <b>the task's own changes</b>, which Podium can pin precisely because it runs the harness. Podium already knows which mode a task is in — an issue-owned worktree has exactly one task; any other checkout is shared.</p>
+
+    <div class="frame"><div class="frame-inner">
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">v3</span><span class="dot dirty"></span><span class="plus">+4 yours</span></span>
+        <span class="when"><b>This task's files, uncommitted.</b> The count is the intersection of <i>files this task's sessions touched</i> with <code style="background:var(--m-chip);color:var(--m-fg)">git status</code> — a neighbor's dirty files never turn your chip amber. Their count lives in the hover ("+3 more from other sessions").</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">v3</span><span class="dot clean"></span><span class="ahead">✓ 2 commits</span><span style="color:var(--m-faint)">· 8m ago</span></span>
+        <span class="when"><b>This task committed.</b> Not inferred from head movement — these are commit shas <i>captured at the moment this task's session made them</i>. The answer to "did the agent commit?" is exact, however many tasks share <code style="background:var(--m-chip);color:var(--m-fg)">v3</code> or <code style="background:var(--m-chip);color:var(--m-fg)">main</code>.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">main</span><span class="dot clean"></span><span class="ahead">✓ 2 commits</span><span class="plus">⇡ unpushed</span></span>
+        <span class="when"><b>Committed but not pushed.</b> <code style="background:var(--m-chip);color:var(--m-fg)">⇡</code> lights when any of the task's own shas are still in <code style="background:var(--m-chip);color:var(--m-fg)">@{u}..HEAD</code> — committed locally isn't shared yet.</span>
+      </div>
+      <div class="spec-row">
+        <span class="git-chip"><span class="glyph">⎇</span><span class="branch">main</span><span class="dot none"></span><span style="color:var(--m-faint)">no changes</span></span>
+        <span class="when"><b>Nothing yet.</b> No touched files dirty, no captured commits. Same dashed-hollow dot as a fresh branch.</span>
+      </div>
+    </div></div>
+    <div class="frame-label">Shared-checkout grammar · per-TASK attribution: counts describe this task's changes, never the checkout's aggregate — same on main, v3, or any long-lived branch</div>
+
+    <p><b>How attribution works — three layers, cheapest first.</b> (1) <b>Commit capture:</b> the harness sees every tool call; a post-tool hook compares <code>HEAD</code> before/after each of the session's own shell commands, and any new sha is stamped into the task's <code>gitState.commits</code>. Interleaved agents can't cross-contaminate — each delta is measured around one session's own call (and git's index lock already serializes simultaneous commits in one checkout). (2) <b>Touched files:</b> the harness also sees every Edit/Write, so the task's touched-file set is known; dirty-for-<i>you</i> is that set ∩ porcelain output. (3) <b>Trailer as belt-and-braces:</b> agent commits carry a <code>Podium-Issue: POD-98</code> trailer, so attribution survives server restarts and covers commits made from a task's dock shell by hand — <code>git log --grep</code> re-derives the list from history alone.</p>
+    <p>The old baseline-sha comparison survives only as the fallback for checkouts Podium can't observe (a human terminal outside any session) — and when the chip is running on fallback data it says so in the hover rather than pretending to per-task precision.</p>
+    <p><b>Why not make every chip attribution-only, then?</b> Attribution runs everywhere — it's the substrate. But on a private issue branch there are <i>two different questions</i> and the chip keeps both: <span class="code">✓ 2 commits</span> (task axis: did the agent commit?) and <span class="code">↑3</span> (merge axis: what would land if you merged the branch now — including a commit the human pushed onto it by hand). On a private worktree the two usually coincide and the chip collapses to the ↑ form; they're shown together only when they disagree, which is itself information. On a shared checkout the merge axis doesn't exist (the branch isn't going to be merged into itself), so only the task axis renders. Two honest costs of strong-everywhere: rebases and amends rewrite shas, so captured commits are matched by <code>patch-id</code> and re-derived from the <code>Podium-Issue:</code> trailer rather than pinned to raw shas; and commits made outside any session remain visible only to the branch-level counters — which is exactly what the fallback disclosure is for.</p>
+  </section>
+
+  <!-- ───────────────────────── 6 · plumbing ───────────────────────── -->
+  <section>
+    <h2><span class="n">06</span> Data plumbing — small, mostly there</h2>
+    <p class="sub">The branch half already rides the wire. The commit half is one new object computed server-side per active worktree.</p>
+
+    <div class="plumb"><table>
+      <tr><th>Field</th><th>Status</th><th>Source</th></tr>
+      <tr><td><code>branch</code>, <code>parentBranch</code>, <code>worktreePath</code>, <code>prUrl</code></td><td><span class="have">ON THE WIRE</span></td><td><code>IssueWire</code> (protocol/messages/issues.ts:136–138) — every render site already has them via the replica.</td></tr>
+      <tr><td><code>gitState.ahead</code></td><td><span class="need">NEW</span></td><td><code>git rev-list --count parentBranch..branch</code> — the "has it committed" answer.</td></tr>
+      <tr><td><code>gitState.dirtyFiles</code></td><td><span class="need">NEW</span></td><td><code>git status --porcelain</code> line count in the worktree.</td></tr>
+      <tr><td><code>gitState.lastCommitAt</code>, <code>headSha</code></td><td><span class="need">NEW</span></td><td><code>git log -1 --format=%cI %H</code> — feeds the tray footer and future Git tab.</td></tr>
+      <tr><td><code>gitState.merged</code></td><td><span class="need">NEW</span></td><td><code>isMergedInto</code> after ahead-count drops to 0.</td></tr>
+      <tr><td><code>gitState.commits[]</code></td><td><span class="need">NEW</span></td><td>Shas this task's sessions produced — captured by the harness as a HEAD delta around each session's own tool call, re-derivable from the <code>Podium-Issue:</code> trailer. The exact "did it commit?" answer on shared branches.</td></tr>
+      <tr><td><code>gitState.dirtyOwn</code></td><td><span class="need">NEW</span></td><td>Task's touched-file set (harness-observed Edits/Writes) ∩ <code>status --porcelain</code> — "+N yours" on shared checkouts; plain porcelain count on private worktrees.</td></tr>
+      <tr><td><code>gitState.unpushed</code></td><td><span class="need">NEW</span></td><td>Task shas still in <code>@{u}..HEAD</code> — absent when there's no upstream; drives <code>⇡</code> on shared branches.</td></tr>
+      <tr><td><code>gitState.baselineSha</code></td><td><span class="need">NEW</span></td><td>Fallback anchor only, for checkouts the harness can't observe (manual terminals); the chip's hover discloses when it's running on fallback data.</td></tr>
+    </table></div>
+
+    <ul style="margin-top:18px;">
+      <li><b>No new git surface needed:</b> the daemon's allowlisted <code>RepoOp</code> set already includes <code>status</code>, <code>log</code>, and <code>isMergedInto</code> (discovery.ts:184) — today they're pull-on-demand; this feature just runs them proactively and stamps the result on the issue.</li>
+      <li><b>When to refresh:</b> no interval polling. Recompute when a session's agent turn ends (the only moment commits appear), on worktree create/merge, and on Git-tab open. Each probe is three subprocess calls, tens of milliseconds, only for issues with live sessions.</li>
+      <li><b>How it ships:</b> <code>gitState</code> becomes an optional field on <code>IssueWire</code> — additive and zod-optional, so legacy payloads parse; it rides the existing WS push / changesSince replica untouched.</li>
+      <li><b>Why per-issue (with a per-checkout fallback):</b> issues own branches, sessions never do — attaching state to the issue keeps one source of truth and lets the sidebar aggregate for free. On-main sessions without an issue worktree key their <code>gitState</code> by checkout path instead (the same cwd → worktree resolution <code>repoBranchForCwd</code> does today), so every session gets a chip either way.</li>
+      <li><b>Reuse the branch-lookup primitives:</b> <code>repoBranchForCwd()</code> (client-core derive.ts:368) already resolves a session's cwd to <code>{repo, branch}</code>, and <code>RepoBranchTag</code> renders a repo·branch stamp today — but only on <i>pinned</i> panels. The chip generalizes what that tag started.</li>
+      <li><b>Performance budget:</b> probes are event-driven (turn end, worktree lifecycle, tab open) — never interval-polled — and only for issues with live sessions; each is a few ms warm. HEAD-delta capture is <code>rev-parse</code> (sub-ms), fire-and-forget after the tool result, never in the tool call's latency path. The one trap: plain <code>git status</code> opportunistically takes the index lock and can collide with an agent's concurrent <code>git commit</code> in a shared checkout — all probes run with <code>--no-optional-locks</code>. Trailer re-derivation (<code>log --grep</code>) is reconcile-only and <code>--since</code>-bounded.</li>
+      <li><b>The detail view is free real estate:</b> the RightDock Git tab is already stubbed ("working-tree status, diff view, commit log"). Every stamp is a link to it — the chip answers <i>whether</i>, the tab will answer <i>what</i>.</li>
+    </ul>
+  </section>
+
+  <div class="footnote">
+    Mock frames are pinned to podium-dark because they depict the shipped preset; specimen hues are the existing tokens (--live, --warning, --destructive) — no new semantic colors introduced. Chip component would live once in <code>apps/web/src/components</code> with a <code>density: "chip" | "stamp" | "footer"</code> prop.
+  </div>
+
+</div>

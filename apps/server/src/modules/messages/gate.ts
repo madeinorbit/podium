@@ -618,27 +618,48 @@ export class MessageGate {
       // Exit without a fresh report: process gone, nothing for the parent to
       // re-prompt on this session (the other overnight-stall case).
       if (s.status === 'exited') {
-        return this.finishAwait(isParent, caller, input.sessionId, {
-          done: true,
-          result: 'gone',
-          snapshot: snap(s),
-        }, phase, s.status)
+        return this.finishAwait(
+          isParent,
+          caller,
+          input.sessionId,
+          {
+            done: true,
+            result: 'gone',
+            snapshot: snap(s),
+          },
+          phase,
+          s.status,
+        )
       }
       // Blocked: needs parent/human (question menu) or escalation (error).
       if (phase === 'needs_user' || phase === 'errored') {
-        return this.finishAwait(isParent, caller, input.sessionId, {
-          done: true,
-          result: 'blocked',
-          snapshot: snap(s),
-        }, phase, s.status)
+        return this.finishAwait(
+          isParent,
+          caller,
+          input.sessionId,
+          {
+            done: true,
+            result: 'blocked',
+            snapshot: snap(s),
+          },
+          phase,
+          s.status,
+        )
       }
       // Clean finish: idle/ended harness phase, or hibernated (parked cleanly).
       if (s.status === 'hibernated' || phase === 'idle' || phase === 'ended') {
-        return this.finishAwait(isParent, caller, input.sessionId, {
-          done: true,
-          result: 'done',
-          snapshot: snap(s),
-        }, phase, s.status)
+        return this.finishAwait(
+          isParent,
+          caller,
+          input.sessionId,
+          {
+            done: true,
+            result: 'done',
+            snapshot: snap(s),
+          },
+          phase,
+          s.status,
+        )
       }
       if (Date.now() >= deadline) {
         return { done: false, result: 'working', snapshot: snap(s) }
@@ -841,7 +862,8 @@ export class MessageGate {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = issues.getMeta(issueId)
-          if (issue) return `issue:#${issue.seq}`
+          // Nice-id form (#474), matching the envelope labels.
+          if (issue) return `issue:${issues.niceRef(issue)}`
           return issueId
         }
         if (sessionId) return `session:${sessionId}`

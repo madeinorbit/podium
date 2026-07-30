@@ -33,11 +33,13 @@ describe('PerfRegistry', () => {
 
   it('computes percentiles over recent samples at snapshot time', () => {
     const reg = new PerfRegistry()
-    // 1..100 ms — nearest-rank percentiles are exact: p50=50, p90=90, p99=99.
+    // 1..100 ms — nearest-rank percentiles are exact, including the POD-851
+    // interaction gate's p95 target.
     for (let i = 1; i <= 100; i++) reg.record('phase', 'op', i)
     const summary = reg.snapshot().phases.op!
     expect(summary.p50Ms).toBe(50)
     expect(summary.p90Ms).toBe(90)
+    expect(summary.p95Ms).toBe(95)
     expect(summary.p99Ms).toBe(99)
     expect(summary.maxMs).toBe(100)
   })

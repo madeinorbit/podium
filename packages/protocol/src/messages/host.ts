@@ -158,6 +158,11 @@ export const QuotaWindowWire = z.object({
   // 0 when a provider reports a new limit without enough metadata to infer its
   // rolling duration. The UI still shows it, but omits the pace marker.
   windowMinutes: z.number().int().nonnegative(),
+  // Set when the provider scopes this limit to one model (Claude's
+  // `weekly_scoped` + `scope.model`). Such a window is extra capacity for that
+  // model alone: spending it drops the model, not the harness, which falls back
+  // onto the unscoped pool. Absent means the window gates all work. [spec:SP-0610]
+  scopeModel: z.string().optional(),
 })
 export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
 

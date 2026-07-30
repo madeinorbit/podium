@@ -8,7 +8,7 @@
  *
  * Spectrum order is frozen design data (.design/podium-handoff.html 4b). The
  * amber/orange band is deliberately absent (amber #f59e0b = "waiting on you",
- * #D97757 = Claude, #10b981 = working — an issue colour must never be
+ * #D97757 = Claude, #6f9dff = working (calm blue, POD-166) — an issue colour must never be
  * confusable with a status); red is folded into rose; slate #94a3b8 is the
  * no-colour flow, not a pickable slot.
  *

@@ -17,6 +17,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Play,
   Tag,
   Trash2,
   X,
@@ -34,14 +35,19 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
+import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
+  type IssueMenuSurface,
   issueHandoffAvailability,
   issueMenuEligibility,
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import type { IssueCloseReason } from './issue-lifecycle'
+import { isIssueStartable } from './issue-startable'
 
 /** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
 type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer' | 'handoff'
@@ -62,6 +68,8 @@ export function IssueContextMenu({
   onClose,
   onOpen,
   onRename,
+  onRequestClose,
+  surface = 'board',
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
   issues: IssueViewModel[]
@@ -72,8 +80,13 @@ export function IssueContextMenu({
   /** Open the issue page for a single target. */
   onOpen: (id: string) => void
   /** Start an inline rename for a single target (#170). When omitted (e.g. the
-   *  board, which has no in-place editor) the item falls back to a prompt. */
+   *  board, which has no in-place editor) the Rename item is not offered. */
   onRename?: (id: string) => void
+  /** Compact/full-detail hosts can replace the menu's immediate close with the
+   * shared lifecycle guard while board rows retain their existing behavior. */
+  onRequestClose?: (reason: IssueCloseReason) => void
+  /** Host surface — gates per-surface items like "Duplicate of…" (POD-169). */
+  surface?: IssueMenuSurface
 }): JSX.Element | null {
   const { trpc, markIssueRead, markIssueUnread, sessions, repos, machines } = useStoreSelector(
     (s) => ({
@@ -86,6 +99,7 @@ export function IssueContextMenu({
     }),
     shallowEqual,
   )
+  const handoffEnabled = useFeature('session-handoff')
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: SubKind; top: number } | null>(null)
@@ -123,7 +137,7 @@ export function IssueContextMenu({
 
   const first = issues[0]
   if (!first) return null
-  const elig = issueMenuEligibility(issues)
+  const elig = issueMenuEligibility(issues, surface)
   const ids = issues.map((i) => i.id)
   // Single-issue only: the issue-row handoff picture — the chosen agent session's
   // availability, or an issue-level reason. Always shown with its reason (POD-850),
@@ -150,9 +164,14 @@ export function IssueContextMenu({
   const handoffTo = (machineId: string, machineName: string): void => {
     if (!handoffSession) return
     onClose()
+    // Same two lines as the session menu: the moving session's pane narrates the
+    // move itself, so this only has to reach an operator looking elsewhere.
     void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success('Handed off to ' + machineName),
-      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+      () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
+      (error: unknown) =>
+        toast.error(
+          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
+        ),
     )
   }
 
@@ -170,28 +189,25 @@ export function IssueContextMenu({
         ? trpc.issues.addSession.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id })
         : trpc.issues.start.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id }),
     )
-  const close = (reason: 'done' | 'wontfix'): void =>
+  const close = (reason: IssueCloseReason): void => {
+    if (onRequestClose) {
+      onClose()
+      onRequestClose(reason)
+      return
+    }
     run(() => trpc.issues.close.mutate({ id: first.id, reason }))
+  }
   const defer = (until: string | null): void =>
     run(() => trpc.issues.defer.mutate({ id: first.id, until }))
   // Unsnooze via the dedicated route (issue #133): ends the snooze and floats the
   // issue back to the TOP of WORK with the "Unsnoozed" tag, unlike defer(null) which
   // clears it silently into the middle of the list.
   const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
-  // Rename (#170): prefer the host's inline editor; fall back to a prompt where
-  // there's no in-place editor (e.g. the board). Empty/whitespace is a no-op.
+  // Rename (#170): the host's inline editor. Hosts without one (e.g. the board)
+  // pass no onRename and get no Rename item — the prompt() fallback is gone (POD-169).
   const rename = (): void => {
-    if (onRename) {
-      onRename(first.id)
-      onClose()
-      return
-    }
-    const next = window.prompt('Rename task', first.title)?.trim()
-    if (next && next !== first.title) {
-      run(() => trpc.issues.update.mutate({ id: first.id, patch: { title: next } }))
-    } else {
-      onClose()
-    }
+    onRename?.(first.id)
+    onClose()
   }
   const duplicateOf = (canonicalId: string): void =>
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
@@ -221,6 +237,7 @@ export function IssueContextMenu({
   /** A first-level item that opens a flat second-level flyout on hover/click. */
   const subTrigger = (kind: SubKind, icon: ReactNode, label: string): JSX.Element => (
     <button
+      data-pressable
       type="button"
       role="menuitem"
       aria-haspopup="menu"
@@ -238,13 +255,21 @@ export function IssueContextMenu({
 
   const subItems: Record<SubKind, JSX.Element[]> = {
     stage: ISSUE_STAGES.map((s) => (
-      <button key={s} type="button" role="menuitem" className={itemCls} onClick={() => setStage(s)}>
+      <button
+        data-pressable
+        key={s}
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => setStage(s)}
+      >
         <StageGlyph stage={s} />
         {STAGE_LABELS[s]}
       </button>
     )),
     priority: [0, 1, 2, 3, 4].map((p) => (
       <button
+        data-pressable
         key={p}
         type="button"
         role="menuitem"
@@ -256,6 +281,7 @@ export function IssueContextMenu({
     )),
     agent: issueAgentOptions(first.defaultAgent).map((o) => (
       <button
+        data-pressable
         key={o.value || '__default__'}
         type="button"
         role="menuitem"
@@ -277,6 +303,7 @@ export function IssueContextMenu({
             const allHave = issues.every((i) => i.labels.includes(l))
             return (
               <button
+                data-pressable
                 key={l}
                 type="button"
                 role="menuitem"
@@ -297,6 +324,7 @@ export function IssueContextMenu({
           ]
         : dupMates.map((i) => (
             <button
+              data-pressable
               key={i.id}
               type="button"
               role="menuitem"
@@ -309,6 +337,7 @@ export function IssueContextMenu({
           )),
     defer: [
       <button
+        data-pressable
         key="hour"
         type="button"
         role="menuitem"
@@ -318,6 +347,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> For 1 hour
       </button>,
       <button
+        data-pressable
         key="tomorrow"
         type="button"
         role="menuitem"
@@ -327,6 +357,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> Until tomorrow
       </button>,
       <button
+        data-pressable
         key="week"
         type="button"
         role="menuitem"
@@ -336,6 +367,7 @@ export function IssueContextMenu({
         <AlarmClock size={14} aria-hidden="true" /> For a week
       </button>,
       <button
+        data-pressable
         key="next-message"
         type="button"
         role="menuitem"
@@ -347,6 +379,7 @@ export function IssueContextMenu({
       ...(elig.canUndefer
         ? [
             <button
+              data-pressable
               key="undefer"
               type="button"
               role="menuitem"
@@ -371,6 +404,7 @@ export function IssueContextMenu({
       ...handoffCandidates.map(({ machine, rejection }) =>
         rejection ? (
           <button
+            data-pressable
             key={machine.id}
             type="button"
             role="menuitem"
@@ -385,6 +419,7 @@ export function IssueContextMenu({
           </button>
         ) : (
           <button
+            data-pressable
             key={machine.id}
             type="button"
             role="menuitem"
@@ -416,6 +451,7 @@ export function IssueContextMenu({
       )}
       {elig.canOpen && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -428,8 +464,15 @@ export function IssueContextMenu({
           <ExternalLink size={14} aria-hidden="true" /> Open
         </button>
       )}
-      {elig.canRename && (
-        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={rename}>
+      {elig.canRename && onRename && (
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={rename}
+        >
           <Pencil size={14} aria-hidden="true" /> Rename
         </button>
       )}
@@ -437,6 +480,7 @@ export function IssueContextMenu({
           read) — mutually exclusive, single-target. Store actions are optimistic. */}
       {elig.canMarkUnread && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -448,6 +492,7 @@ export function IssueContextMenu({
       )}
       {elig.canMarkRead && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -460,12 +505,25 @@ export function IssueContextMenu({
       {elig.canSetStage && subTrigger('stage', <StageGlyph stage={first.stage} />, 'Set stage')}
       {elig.canSetPriority &&
         subTrigger('priority', <PriorityGlyph priority={first.priority} />, 'Set priority')}
+      {/* ONE agent entry (POD-169 consolidation of POD-110's pair): a startable
+          issue reads "Run now" (Play), a started one "Assign agent" (Bot); both
+          open the same agent flyout, whose first option is the default agent —
+          the old one-click Run-now path. */}
       {elig.canAssignAgent &&
-        subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
+        subTrigger(
+          'agent',
+          isIssueStartable(first) ? (
+            <Play size={14} aria-hidden="true" />
+          ) : (
+            <Bot size={14} aria-hidden="true" />
+          ),
+          isIssueStartable(first) ? 'Run now' : 'Assign agent',
+        )}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
-      {/* [spec:SP-3f7a] Issue-row handoff — always shown for a single issue, with
-          the reason when it can't move (POD-850), mirroring the session-row menu. */}
-      {handoff &&
+      {/* [spec:SP-3f7a] When enabled, issue-row handoff shows for a single issue,
+          including the reason when it can't move (POD-850). */}
+      {handoffEnabled &&
+        handoff &&
         (() => {
           const reason =
             'blocker' in handoff
@@ -475,6 +533,7 @@ export function IssueContextMenu({
                 : null
           return reason ? (
             <button
+              data-pressable
               type="button"
               role="menuitem"
               disabled
@@ -496,6 +555,7 @@ export function IssueContextMenu({
       )}
       {elig.canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -507,6 +567,7 @@ export function IssueContextMenu({
       )}
       {elig.canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -527,6 +588,7 @@ export function IssueContextMenu({
         elig.canDelete) && <hr className="my-1 h-px border-0 bg-border" />}
       {elig.canPin && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -545,6 +607,7 @@ export function IssueContextMenu({
       )}
       {(elig.canArchive || elig.canUnarchive) && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -569,12 +632,20 @@ export function IssueContextMenu({
       {elig.canDuplicate &&
         subTrigger('duplicate', <Copy size={14} aria-hidden="true" />, 'Duplicate of')}
       {elig.canRestore && (
-        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={restore}>
+        <button
+          data-pressable
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={restore}
+        >
           <ArchiveRestore size={14} aria-hidden="true" /> Restore
         </button>
       )}
       {elig.canDelete && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}

@@ -133,6 +133,24 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
+  /** Exact, unbounded safety projection of work still pending for one session. */
+  pendingForSessionProof(sessionId: string, now: string): MessageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE (
+           (status = 'queued' AND ((to_kind = 'session' AND to_id = ?) OR delivered_to = ?))
+           OR
+           (status IN ('delivered','read') AND delivered_to = ?
+             AND acked_by IS NULL AND expects_response = 1
+             AND (expires_at IS NULL OR expires_at > ?))
+         )
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(sessionId, sessionId, sessionId, now) as Record<string, unknown>[]
+    return rows.map(mapMessage)
+  }
+
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */

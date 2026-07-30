@@ -21,7 +21,6 @@ import {
   sidebarSections,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
-  sortSessionsForPins,
   sortSessionsForSidebar,
 } from '../src/lib/derive'
 
@@ -281,7 +280,7 @@ describe('formatMemBytes', () => {
 })
 
 describe('pin-aware navigation derivation', () => {
-  it('lifts pinned worktrees/repos out of lower groups, but keeps pinned panels in their worktree too', () => {
+  it('lifts pinned worktrees/repos out of lower groups; panel pins are inert (POD-169)', () => {
     const sessions = [session('/src/app'), session('/src/app-feat')]
     const sections = sidebarSections([repo], sessions, {
       panels: ['s-/src/app-feat'],
@@ -289,9 +288,9 @@ describe('pin-aware navigation derivation', () => {
       repos: ['/src/app'],
     })
 
-    // A pinned panel is lifted into PINNED PANELS *and* still shown in its own
-    // worktree (so it appears in both places, selected in both).
-    expect(sections.pinnedPanels.map((panel) => panel.sessionId)).toEqual(['s-/src/app-feat'])
+    // Panel-pinning is retired (POD-169): persisted pins.panels entries are
+    // ignored — no PINNED PANELS section derives from them.
+    expect(sections.pinnedPanels).toBeUndefined()
     expect(sections.pinnedWorktrees.map((worktree) => worktree.path)).toEqual(['/src/app-feat'])
     expect(sections.pinnedWorktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
       's-/src/app-feat',
@@ -316,50 +315,39 @@ describe('pin-aware navigation derivation', () => {
     expect(sections.repos).toEqual([])
   })
 
-  it('orders pinned panels first in tab strips', () => {
-    const sessions = [session('/src/app'), { ...session('/src/app'), sessionId: 'pinned' }]
-
-    expect(
-      sortSessionsForPins(sessions, { panels: ['pinned'], worktrees: [], repos: [] }).map(
-        (s) => s.sessionId,
-      ),
-    ).toEqual(['pinned', 's-/src/app'])
-  })
 })
 
 describe('orderTabs', () => {
-  const noPins = { panels: [], worktrees: [], repos: [] }
   const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: id })
 
-  it('falls back to the pin-aware order when no manual order exists', () => {
-    const sessions = [named('a'), named('pinned')]
-    const pins = { panels: ['pinned'], worktrees: [], repos: [] }
-    expect(orderTabs(sessions, undefined, pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
-    expect(orderTabs(sessions, [], pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
+  it('keeps arrival order when no manual order exists (pin-first is retired, POD-169)', () => {
+    const sessions = [named('a'), named('b')]
+    expect(orderTabs(sessions, undefined).map((s) => s.sessionId)).toEqual(['a', 'b'])
+    expect(orderTabs(sessions, []).map((s) => s.sessionId)).toEqual(['a', 'b'])
   })
 
-  it('applies the manual order, beating pin order', () => {
+  it('applies the manual order', () => {
     const sessions = [named('a'), named('b'), named('c')]
-    const pins = { panels: ['c'], worktrees: [], repos: [] }
-    expect(orderTabs(sessions, ['b', 'a', 'c'], pins).map((s) => s.sessionId)).toEqual([
+    expect(orderTabs(sessions, ['b', 'a', 'c']).map((s) => s.sessionId)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('elevates the coordinator over a stale manual order', () => {
+    const sessions = [named('a'), named('b'), named('c')]
+    expect(orderTabs(sessions, ['b', 'a', 'c'], 'c').map((s) => s.sessionId)).toEqual([
+      'c',
       'b',
       'a',
-      'c',
     ])
   })
 
   it('appends sessions unknown to the manual order at the end', () => {
     const sessions = [named('new'), named('a'), named('b')]
-    expect(orderTabs(sessions, ['b', 'a'], noPins).map((s) => s.sessionId)).toEqual([
-      'b',
-      'a',
-      'new',
-    ])
+    expect(orderTabs(sessions, ['b', 'a']).map((s) => s.sessionId)).toEqual(['b', 'a', 'new'])
   })
 
   it('ignores manual entries whose sessions are gone', () => {
     const sessions = [named('a')]
-    expect(orderTabs(sessions, ['dead', 'a'], noPins).map((s) => s.sessionId)).toEqual(['a'])
+    expect(orderTabs(sessions, ['dead', 'a']).map((s) => s.sessionId)).toEqual(['a'])
   })
 })
 
@@ -605,6 +593,34 @@ describe('chatActivity', () => {
       chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), true),
     ).toEqual({ label: 'Sending…', tone: 'working' })
   })
+  it('never shows Working… for a parked session with a preserved working phase (#161)', () => {
+    for (const status of ['hibernated', 'exited'] as const) {
+      expect(
+        chatActivity(
+          base({ status, agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
+          false,
+        ),
+      ).toBeNull()
+    }
+    // The PTY-busy fallback is parked-guarded too.
+    expect(chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false)).toBeNull()
+  })
+  it('keeps last-state attention labels on a hibernated session', () => {
+    expect(
+      chatActivity(
+        base({
+          status: 'hibernated',
+          agentState: {
+            phase: 'needs_user',
+            since: '',
+            nativeSubagentCount: 0,
+            need: { kind: 'question' },
+          },
+        }),
+        false,
+      ),
+    ).toEqual({ label: 'needs answer', tone: 'attention' })
+  })
   it('shows nothing when idle and not just-sent', () => {
     expect(
       chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), false),
@@ -651,6 +667,9 @@ describe('sessionDotTone', () => {
         }),
       ),
     ).toBe('attention')
+  })
+
+  it('never reads a hibernated session as working (#161) — parked overrides the preserved phase', () => {
     expect(
       sessionDotTone(
         base({
@@ -658,7 +677,15 @@ describe('sessionDotTone', () => {
           agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
         }),
       ),
-    ).toBe('working')
+    ).toBe('ready')
+    expect(
+      sessionDotTone(
+        base({
+          status: 'hibernated',
+          agentState: { phase: 'compacting', since: '', nativeSubagentCount: 0 },
+        }),
+      ),
+    ).toBe('ready')
   })
 
   it('still drains an exited session to grey (phase is cleared server-side)', () => {
@@ -702,16 +729,16 @@ describe('pinned panel ordering & co-location', () => {
     agentState: { phase: 'needs_user', since: '', nativeSubagentCount: 0, need: { kind: 'question' } },
   })
 
-  it('orders pinned panels by agent state, not pin-insertion order (#105)', () => {
-    // Pin a working one first, then a needs-you one — the comparator should sink
-    // the working panel below the needs-you one regardless of pin order.
+  it('derives no pinned-panels section — panel pins are inert (POD-169)', () => {
+    // Panel-pinning is retired: persisted pins.panels must not resurrect the
+    // PINNED PANELS section, whatever the sessions' agent states.
     const sessions = [work('/src/app', 'w'), needs('/src/app', 'n')]
     const sections = sidebarSections([repo], sessions, {
       panels: ['w', 'n'],
       worktrees: [],
       repos: [],
     })
-    expect(sections.pinnedPanels.map((p) => p.sessionId)).toEqual(['n', 'w'])
+    expect(sections.pinnedPanels).toBeUndefined()
   })
 })
 

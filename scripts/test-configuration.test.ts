@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import acceptanceConfig from '../vitest.acceptance.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
@@ -45,6 +46,11 @@ describe('test lane configuration', () => {
     expect(config(integrationConfig).test?.include).toContain('apps/daemon/src/daemon.test.ts')
     expect(config(integrationConfig).test?.exclude).toContain('**/*.smoke.test.{ts,tsx}')
     expect(config(integrationConfig).test?.projects).toBeUndefined()
+    expect(config(acceptanceConfig).test?.include).toEqual([
+      'scripts/loop-split-load.integration.test.ts',
+    ])
+    expect(config(acceptanceConfig).test?.fileParallelism).toBe(false)
+    expect(config(acceptanceConfig).test?.maxWorkers).toBe(1)
     // The smoke config must NOT set PODIUM_REAL_CLI via test.env: vitest writes test.env
     // into worker process.env before files load, which would defeat the opt-in gate and
     // launch real agent CLIs on a bare `vitest run --config vitest.agent-smoke.config.ts`.
@@ -68,6 +74,10 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     expect(pkg.scripts['test:unit']).toContain('--project node')
+    expect(pkg.scripts['test:integration']).toContain('test:acceptance')
+    expect(pkg.scripts['test:acceptance:process']).toContain(
+      'loop-split-process.acceptance.bun.test.ts',
+    )
     expect(pkg.scripts.test).toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:integration')
     expect(pkg.scripts.test).not.toContain('test:smoke:agents')
@@ -123,14 +133,19 @@ describe('test lane configuration', () => {
   it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
     // The suite must exercise bun:sqlite and Bun process semantics, so a bare `vitest run`
     // (Node runtime) in any script is doctrine drift — POD-622 caught test:multi-instance
-    // regressing this way. Every vitest call must be spelled `bun --bun vitest`.
+    // regressing this way. `bun --bun vitest` (the bin) silently comes up on real
+    // Node too (POD-195), so every vitest call must invoke the entry module
+    // directly: `bun --bun node_modules/vitest/vitest.mjs`. The runtime itself is
+    // asserted in-worker by scripts/vitest-bun-runtime.test.ts.
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
     for (const [name, script] of Object.entries(pkg.scripts)) {
       for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
-        expect(match[1].trim(), `script "${name}" must run vitest via bun --bun`).toMatch(
-          /^(?:[A-Z_]+=\S+\s+)*bun --bun vitest\b/,
+        expect(
+          match[1].trim(),
+          `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
+        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/,
         )
       }
     }

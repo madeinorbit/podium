@@ -4,6 +4,7 @@ import {
   isUnstartedSession,
   rowMotionPhase,
   rowMotionTiming,
+  rowPendingDecision,
   rowStatusLine,
   rowWaitingCount,
   type UnifiedWorkRow,
@@ -41,14 +42,27 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
 
-function issueRow(sessions: SessionMeta[], draft = false): UnifiedWorkRow {
+const offered = () =>
+  sess({
+    offer: {
+      message: 'Ready for your decision',
+      actions: [{ label: 'Merge', prompt: 'Merge it' }],
+      createdAt: new Date(NOW - 30_000).toISOString(),
+    },
+    agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
+  })
+function issueRow(
+  sessions: SessionMeta[],
+  draft = false,
+  issueOver: Record<string, unknown> = {},
+): Extract<UnifiedWorkRow, { kind: 'issue' }> {
   return {
     kind: 'issue',
-    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft },
+    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft, ...issueOver },
     sessions,
     activityAt: NOW - 120_000,
     rank: 0,
-  } as unknown as UnifiedWorkRow
+  } as unknown as Extract<UnifiedWorkRow, { kind: 'issue' }>
 }
 
 describe('rowMotionPhase — aggregate row phase (#41)', () => {
@@ -56,6 +70,98 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
     expect(rowMotionPhase(issueRow([working(), waiting()]))).toBe('waiting')
     expect(rowMotionPhase(issueRow([working(), done()]))).toBe('working')
     expect(rowMotionPhase(issueRow([done(), done()]))).toBe('done')
+  })
+
+  it('finished branch delta becomes ready-to-merge attention until it lands', () => {
+    const closedAt = new Date(NOW - 3_600_000).toISOString()
+    const row = issueRow([done()], false, {
+      stage: 'done',
+      branch: 'issue/1-reviewable',
+      closedAt,
+      gitState: {
+        updatedAt: new Date(NOW).toISOString(),
+        branch: 'issue/1-reviewable',
+        shared: false,
+        ahead: 2,
+        dirtyFiles: 0,
+      },
+    })
+    expect(rowMotionPhase(row)).toBe('waiting')
+    expect(rowWaitingCount(row)).toBe(1)
+    expect(rowStatusLine(row, NOW)).toBe('ready to merge · 2')
+    expect(rowMotionTiming(row)).toMatchObject({ phase: 'waiting', sinceMs: NOW - 3_600_000 })
+
+    const landed = issueRow([done()], false, {
+      ...row.issue,
+      gitState: { ...row.issue.gitState, merged: true },
+    })
+    expect(rowMotionPhase(landed)).toBe('done')
+    const empty = issueRow([done()], false, {
+      ...row.issue,
+      gitState: { ...row.issue.gitState, ahead: 0 },
+    })
+    expect(rowMotionPhase(empty)).toBe('done')
+  })
+
+  // POD-279: a review queue is not one undifferentiated "needs you" — most of
+  // it is a branch waiting to land, and the row must say which.
+  describe('pending decision on a review-stage issue', () => {
+    const reviewIssue = (over: Record<string, unknown> = {}) => ({
+      stage: 'review',
+      branch: 'issue/9-reviewable',
+      gitState: {
+        updatedAt: new Date(NOW).toISOString(),
+        branch: 'issue/9-reviewable',
+        shared: false,
+        ahead: 3,
+        dirtyFiles: 0,
+      },
+      ...over,
+    })
+
+    it('reads "ready to merge" with its commit count when the branch has unlanded work', () => {
+      const row = issueRow([done()], false, reviewIssue())
+      expect(rowPendingDecision(row)).toBe('merge')
+      expect(rowMotionPhase(row)).toBe('waiting')
+      expect(rowWaitingCount(row)).toBe(1)
+      expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
+    })
+
+    it('reads "needs review" when there is nothing to land', () => {
+      // A design/doc/artifact deliverable, and work already merged: both are a
+      // review decision, neither is a merge.
+      for (const git of [
+        undefined,
+        { ...reviewIssue().gitState, merged: true },
+        { ...reviewIssue().gitState, ahead: 0 },
+      ]) {
+        const row = issueRow([done()], false, reviewIssue({ gitState: git }))
+        expect(rowPendingDecision(row)).toBe('review')
+        expect(rowStatusLine(row, NOW)).toBe('needs review')
+      }
+    })
+
+    it('survives a consumed offer — the decision is derived from stage + git, not the offer', () => {
+      // An offer is eaten by any user turn into that session; a merge queue
+      // that depended on it would silently empty itself (cf. POD-118).
+      const row = issueRow([done()], false, reviewIssue())
+      expect(row.sessions.every((s) => s.offer === undefined)).toBe(true)
+      expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
+    })
+
+    it('goes quiet while the agent is running again', () => {
+      // Sent back / follow-up turn: the decision returns when the turn settles.
+      const row = issueRow([working()], false, reviewIssue())
+      expect(rowPendingDecision(row)).toBeNull()
+      expect(rowMotionPhase(row)).toBe('working')
+      expect(rowStatusLine(row, NOW)).toBe('working')
+    })
+
+    it('leaves pre-review stages alone', () => {
+      for (const stage of ['backlog', 'planning', 'in_progress']) {
+        expect(rowPendingDecision(issueRow([done()], false, reviewIssue({ stage })))).toBeNull()
+      }
+    })
   })
 
   it('idle-ready or empty rows read queued (dimmed stillness)', () => {
@@ -69,6 +175,21 @@ describe('rowWaitingCount — the amber pill / rail badge number', () => {
     expect(rowWaitingCount(issueRow([waiting(), waiting(), working(), done()]))).toBe(2)
     expect(rowWaitingCount(issueRow([working()]))).toBe(0)
   })
+  it('counts a completed session with a pending offer as waiting', () => {
+    expect(rowWaitingCount(issueRow([offered()]))).toBe(1)
+  })
+
+  it('ignores a stale offer once the issue is closed (POD-290)', () => {
+    expect(
+      rowWaitingCount(
+        issueRow([offered()], false, {
+          stage: 'done',
+          closedReason: 'done',
+          closedAt: '2026-07-23T09:00:00.000Z',
+        }),
+      ),
+    ).toBe(0)
+  })
 })
 
 describe('rowStatusLine — the second line copy grammar', () => {
@@ -79,20 +200,44 @@ describe('rowStatusLine — the second line copy grammar', () => {
     )
   })
 
-  it('working, done and queued rows read as their phase', () => {
+  it('names the pending decision after the producing turn is done', () => {
+    expect(rowStatusLine(issueRow([offered()]), NOW)).toBe('waiting on decision')
+    expect(rowMotionTiming(issueRow([offered()]))).toMatchObject({
+      phase: 'waiting',
+      sinceMs: NOW - 30_000,
+    })
+  })
+
+  it('working, done and idle rows read as their phase words', () => {
     expect(rowStatusLine(issueRow([working()]), NOW)).toBe('working')
     expect(rowStatusLine(issueRow([done()]), NOW)).toBe('done')
-    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('queued')
+    // Quiet motion bucket is still `queued`; the status word is idle.
+    expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
+    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('idle')
     expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
   })
 
-  it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "queued"', () => {
+  it('child progress reads as subtasks; open subtasks override a bare "done" (POD-85)', () => {
+    // The old grammar produced "done · 0/1 done" — nonsense to a human.
+    expect(
+      rowStatusLine(issueRow([done()], false, { childCount: 1, childDoneCount: 0 }), NOW),
+    ).toBe('0/1 subtasks done')
+    expect(
+      rowStatusLine(issueRow([working()], false, { childCount: 3, childDoneCount: 1 }), NOW),
+    ).toBe('working · 1/3 subtasks')
+    // All subtasks done: plain "done", no redundant tally.
+    expect(
+      rowStatusLine(issueRow([done()], false, { childCount: 2, childDoneCount: 2 }), NOW),
+    ).toBe('done')
+  })
+
+  it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "idle"', () => {
     const fresh = sess({ title: '✳ Claude Code' })
     expect(rowStatusLine(issueRow([fresh], true), NOW)).toBe('awaiting first prompt')
-    // Same session under a REAL issue keeps the phase grammar.
-    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('queued')
-    // A draft whose session was actually prompted (meaningful title) stays queued.
-    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('queued')
+    // Same session under a REAL issue keeps the quiet grammar → idle.
+    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('idle')
+    // A draft whose session was actually prompted (meaningful title) is idle.
+    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('idle')
   })
 })
 

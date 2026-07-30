@@ -34,9 +34,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max))
 }
 
-/** Split the current display identifier into the square's two fixed lines. */
-export function idSquareLabel(issue: Pick<IssueWire, 'linearIdentifier' | 'seq'>): IdSquareLabel {
-  const identifier = issue.linearIdentifier?.trim()
+/** Split the current display identifier into the square's two fixed lines.
+ *  The server-derived `displayRef` ("POD-78") replaces the bare `#seq`
+ *  fallback (POD-85): the square is the row's ONE identity mark, so it must
+ *  carry the prefix humans actually cite. */
+export function idSquareLabel(
+  issue: Pick<IssueWire, 'linearIdentifier' | 'seq'> & { displayRef?: string },
+): IdSquareLabel {
+  const identifier = issue.linearIdentifier?.trim() || issue.displayRef?.trim()
   const match = identifier?.match(/^(.+?)[-_\s]+(\d+)$/)
   if (identifier && match?.[1] && match[2]) {
     return { prefix: match[1].toUpperCase(), number: match[2], full: identifier }
@@ -61,10 +66,14 @@ export function IdSquare({
   onPrimary,
   primaryOnly = false,
   onColorChange,
+  size = 26,
 }: {
   issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title'>
   state: IdSquareState
   selected?: boolean
+  /** Square edge in px. Desktop rows run 30 for a readable prefix/number
+   *  (POD-293); the rail, tray and mobile header pass their own smaller size. */
+  size?: number
   /** Corner status badge (waiting dot/count, working spinner, done check). */
   badge?: IdSquareBadge | null
   /** The surface the corner badge punches out of (sidebar vs rail background). */
@@ -174,26 +183,30 @@ export function IdSquare({
 
   const hex = displayColor ? ISSUE_COLOR_HEX[displayColor] : undefined
   const resting = state === 'queued' || state === 'idle'
+  // Neutral (uncoloured) square wears the concept's navy identity tones
+  // (POD-293): a deep-navy fill, a blue-grey seam and light ink read richer
+  // than the old flat grey, and let the coloured squares stay the exception.
   const border = hex
     ? '1px solid transparent'
     : selected
       ? '1px solid #c8d2e0'
       : resting
-        ? '1px dashed #6c6c78'
-        : '1px solid #8d8d9a'
+        ? '1px dashed #3a4a70'
+        : '1px solid #33456e'
   const squareStyle: CSSProperties = {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
+    width: size,
+    height: size,
+    borderRadius: Math.round((size / 26) * 7),
+    fontSize: Math.round((size / 26) * 7 * 10) / 10,
     border,
-    background: hex ?? '#25252f',
+    background: hex ?? (resting ? '#141d30' : '#182338'),
     color: hex
       ? `color-mix(in srgb, ${hex} 30%, #000)`
       : selected
-        ? '#e8edf5'
+        ? '#eef2f8'
         : resting
-          ? '#8d8d9a'
-          : '#c5c5d0',
+          ? '#7d88a4'
+          : '#c3cbe0',
     boxShadow: open
       ? '0 0 0 2px #f3f3f8'
       : selected
@@ -205,6 +218,7 @@ export function IdSquare({
   return (
     <>
       <button
+        data-pressable
         ref={triggerRef}
         type="button"
         data-testid="issue-id-square"
@@ -214,7 +228,7 @@ export function IdSquare({
         data-badge={badge?.kind ?? 'none'}
         data-prefix={label.prefix}
         data-number={label.number}
-        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[6.5px] leading-[1.3] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
+        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[7px] leading-[1.15] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
         style={squareStyle}
         aria-label={
           onPrimary && (primaryOnly || !selected)
@@ -237,8 +251,9 @@ export function IdSquare({
           setOpen((value) => !value)
         }}
       >
-        <span>{label.prefix}</span>
-        <span>{label.number}</span>
+        {/* The prefix recedes so the number — the part you cite — reads first. */}
+        <span className="opacity-[.72]">{label.prefix}</span>
+        <span className="tracking-[.02em]">{label.number}</span>
         {badge && <StatusBadge kind={badge.kind} count={badge.count} ringColor={ringColor} />}
       </button>
       {open &&
@@ -268,6 +283,7 @@ export function IdSquare({
                 const current = displayColor === slot
                 return (
                   <button
+                    data-pressable
                     key={slot}
                     type="button"
                     title={`${colorName(slot)}${current ? ' — current' : ''}`}
@@ -288,6 +304,7 @@ export function IdSquare({
             </div>
             <div className="mt-2.5 flex items-center border-t border-[#25252f] pt-2">
               <button
+                data-pressable
                 type="button"
                 className="flex cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-[#d7d7e0] focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
                 aria-label="No colour"

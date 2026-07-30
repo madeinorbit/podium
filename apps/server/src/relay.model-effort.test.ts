@@ -1,6 +1,7 @@
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 /**
  * The relay seam: a per-session model/effort override must ride the `spawn` control
@@ -12,7 +13,18 @@ function captureSpawn(over: {
   model?: string
   effort?: string
 }) {
-  const registry = new SessionRegistry()
+  const store = new SessionStore(':memory:')
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+  store.machines.setMachineInventory(
+    'm1',
+    JSON.stringify({
+      os: 'linux',
+      arch: 'x64',
+      agents: [{ kind: over.agentKind, installed: true, login: { state: 'in' } }],
+      tools: [],
+    }),
+  )
+  const registry = new SessionRegistry(store)
   const sent: ControlMessage[] = []
   registry.modules.sessions.attachDaemon('m1', (m) => sent.push(m))
   registry.modules.sessions.createSession({ cwd: '/wt', machineId: 'm1', ...over })

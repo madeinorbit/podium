@@ -125,6 +125,8 @@ export const CLIENT_MESSAGE_CLASS = {
  *  architecture.md §5's "Command RPCs" row); the transcript reads are the
  *  bulk channel. */
 export const CONTROL_MESSAGE_CLASS = {
+  credentialExportRequest: 'command',
+  credentialInstallRequest: 'command',
   repoOpRequest: 'command',
   handoffExportRequest: 'command',
   handoffChunkReadRequest: 'command',
@@ -144,6 +146,8 @@ export const CONTROL_MESSAGE_CLASS = {
   imageUploadRequest: 'command',
   spawn: 'command',
   reattach: 'command',
+  agentObservationAck: 'command',
+  agentObservationRebindAck: 'command',
   kill: 'command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'command',
@@ -174,6 +178,8 @@ export const CONTROL_MESSAGE_CLASS = {
  *  `bulk`; conversationsChanged is `durable` (shared with ServerMessage — the
  *  daemon's discovery push feeds the same durable conversation registry). */
 export const DAEMON_MESSAGE_CLASS = {
+  credentialExportResult: 'command',
+  credentialInstallResult: 'command',
   repoOpResult: 'command',
   handoffExportResult: 'command',
   handoffChunkReadResult: 'command',
@@ -192,6 +198,7 @@ export const DAEMON_MESSAGE_CLASS = {
   imageUploadResult: 'command',
   sessionResumeRef: 'command',
   sessionCwd: 'command',
+  sessionGitActivity: 'command',
   // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live runtime
   // stream the server sequences into a durable draft edit.
   nativeDraft: 'live',
@@ -204,7 +211,11 @@ export const DAEMON_MESSAGE_CLASS = {
   reattachFailed: 'command',
   title: 'live',
   agentState: 'live',
+  agentObservation: 'live',
+  agentObserverLiveConfirmation: 'live',
+  agentObservationRebind: 'command',
   agentColor: 'live',
+  agentModel: 'live',
   scanResult: 'command',
   conversationsChanged: 'durable',
   scanReposResult: 'command',

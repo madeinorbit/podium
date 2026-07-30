@@ -14,7 +14,7 @@
  * The pure resolve/reducer logic lives in ./ref-miniview; this only wires it up.
  */
 
-import { type MiniviewState, miniviewReducer } from './ref-miniview'
+import { type MiniviewAnchor, type MiniviewState, miniviewReducer } from './ref-miniview'
 
 // --- Single-instance miniview external store ------------------------------
 
@@ -34,8 +34,8 @@ export function getMiniviewState(): MiniviewState {
   return miniviewState
 }
 
-export function openMiniview(ref: string): void {
-  miniviewState = miniviewReducer(miniviewState, { type: 'open', ref })
+export function openMiniview(ref: string, anchor?: MiniviewAnchor): void {
+  miniviewState = miniviewReducer(miniviewState, { type: 'open', ref, anchor })
   emit()
 }
 
@@ -58,14 +58,18 @@ export interface RefActivateModifiers {
   direct: boolean
 }
 
-export type RefActivator = (ref: string, mods: RefActivateModifiers) => void
+export type RefActivator = (
+  ref: string,
+  mods: RefActivateModifiers,
+  anchor?: MiniviewAnchor,
+) => void
 
 // Plain default: just open the miniview. The host replaces this with a
 // navigation-aware activator once mounted (so Cmd/Ctrl-click can route).
-let activator: RefActivator = (ref) => openMiniview(ref)
+let activator: RefActivator = (ref, _mods, anchor) => openMiniview(ref, anchor)
 
 export function setRefActivator(fn: RefActivator | null): void {
-  activator = fn ?? ((ref) => openMiniview(ref))
+  activator = fn ?? ((ref, _mods, anchor) => openMiniview(ref, anchor))
 }
 
 /** Read the modifier that means "go straight to the full view" from a mouse event. */
@@ -74,7 +78,15 @@ export function directModifier(e: { metaKey?: boolean; ctrlKey?: boolean }): Ref
 }
 
 /** Activate a ref token (from markdown or the terminal). Single entry point so
- *  both surfaces share identical semantics. */
-export function activateRef(ref: string, e: { metaKey?: boolean; ctrlKey?: boolean }): void {
-  activator(ref, directModifier(e))
+ *  both surfaces share identical semantics. The click point (when the event has
+ *  one) anchors the preview card next to the clicked link. */
+export function activateRef(
+  ref: string,
+  e: { metaKey?: boolean; ctrlKey?: boolean; clientX?: number; clientY?: number },
+): void {
+  const anchor =
+    typeof e.clientX === 'number' && typeof e.clientY === 'number' && (e.clientX || e.clientY)
+      ? { x: e.clientX, y: e.clientY }
+      : undefined
+  activator(ref, directModifier(e), anchor)
 }

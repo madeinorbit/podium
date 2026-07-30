@@ -1,0 +1,533 @@
+<meta charset="utf-8">
+<title>POD-131 · Mobile app redesign — “The Pocket Queue”</title>
+<style>
+  :root{
+    --yellow:#f5c518; --navy:#0a0f1c; --panel:#121b30; --chip:#16223c;
+    --engraved:#070b16; --bar:#050912; --rail:#0e1626; --tabstrip:#0c1322;
+    --red:#e5303f; --blue:#2f6bff; --royal:#1d4ed8;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --ink-muted:#9a9aa8; --ink-dim:#6c7690;
+    --ink-faint:#525c78; --label:#7a84a0;
+    --seam:#243356; --hair:#1e2a4c; --hairbar:#283a66; --bstrong:#364a78;
+    --terra:#d97757; --slate:#94a3b8;
+    --violet:#8b5cf6; --teal:#14b8a6; --rose:#f43f5e; --lime:#84cc16; --cyan:#06b6d4;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05070d;color:var(--ink);font:400 13px/1.5 "Geist","Geist Variable",system-ui,sans-serif;padding:34px 20px 60px}
+  .mono{font-family:"Geist Mono","Geist Mono Variable",ui-monospace,Menlo,monospace}
+  h1{color:var(--ink-strong);font-size:19px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--ink-muted);font-size:12px;margin:6px 0 8px;max-width:72ch}
+  .doc{max-width:1560px;margin:0 auto}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 26px;color:var(--ink-dim);font-size10px}
+  .legend span{font-size:10.5px}
+  .legend b{color:var(--ink-muted);font-weight:500}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:2.5px;margin-right:5px;vertical-align:-1px}
+  .frames{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .frame{width:390px;flex:none}
+  .cap{margin:0 2px 8px;color:var(--ink-muted);font-size:11.5px;line-height:1.45}
+  .cap b{color:var(--ink-strong);font-weight:600;font-size:12px;display:block;margin-bottom:2px}
+  .phone{width:390px;height:780px;background:var(--navy);border:1px solid var(--seam);border-radius:22px;overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+  /* ————— shared chrome ————— */
+  .hdr{height:52px;padding:14px 14px 0;display:flex;align-items:center;gap:9px;flex:none}
+  .hdr .title{color:var(--ink-strong);font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .hdr .spacer{flex:1}
+  .hbtn{width:30px;height:30px;border:1px solid var(--seam);border-radius:7px;background:var(--chip);display:flex;align-items:center;justify-content:center;color:var(--ink-muted);font-size:13px}
+  .lbl{font-family:"Geist Mono",ui-monospace,monospace;font-size:8.5px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--label)}
+  .pill{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:14px;padding:0 4.5px;border-radius:99px;background:var(--yellow);color:var(--navy);font-family:"Geist Mono",monospace;font-size:9px;font-weight:700}
+  .tabbar{flex:none;height:64px;background:var(--bar);border-top:1px solid var(--hairbar);display:flex;align-items:stretch;padding-bottom:14px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink-faint);font-size:10px;position:relative}
+  .tab .glyph{font-size:15px;line-height:1}
+  .tab.on{color:var(--yellow)}
+  .tab.on::before{content:"";position:absolute;top:0;left:28%;right:28%;height:1px;background:var(--yellow)}
+  .tab .bdg{position:absolute;top:7px;right:26%;}
+  /* ————— tray (queue) ————— */
+  .traybar{flex:none;height:30px;background:var(--bar);border-top:1px solid var(--hairbar);border-bottom:1px solid var(--hairbar);display:flex;align-items:center;gap:8px;padding:0 13px;box-shadow:0 5px 10px -5px rgba(0,0,0,.9)}
+  .traybar .t{color:var(--ink-strong);font-size:11.5px;font-weight:600}
+  .traybar .g{color:var(--yellow);font-size:11px}
+  .queue{flex:1;overflow:hidden;background:
+      radial-gradient(340px 220px at 50% 0%, rgba(139,92,246,.09), rgba(139,92,246,0) 72%),
+      var(--engraved);
+    box-shadow:inset 0 3px 6px -3px rgba(0,0,0,.85), inset 3px 0 6px -3px rgba(0,0,0,.85), inset -3px 0 6px -3px rgba(0,0,0,.85);
+    padding:9px 10px 10px;display:flex;flex-direction:column;gap:7px}
+  .card{border-radius:10px;border:1px solid;padding:9px 11px;display:flex;flex-direction:column;gap:6px}
+  .ctop{display:flex;align-items:center;gap:7px;min-width:0}
+  .idsq{width:20px;height:20px;border-radius:6px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:"Geist Mono",monospace;font-weight:600;font-size:5px;line-height:1.15}
+  .cref{font-family:"Geist Mono",monospace;font-size:9px;color:var(--ink-dim)}
+  .ctitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--ink-muted)}
+  .cagent{font-size:9.5px;color:var(--ink-dim);flex:none}
+  .cagent b{color:var(--terra);font-weight:500}
+  .cago{font-family:"Geist Mono",monospace;font-size:9px;color:var(--yellow);flex:none}
+  .chead{color:var(--ink-strong);font-size:13px;font-weight:600;line-height:1.35;text-wrap:balance}
+  .cmeta{font-family:"Geist Mono",monospace;font-size:9.5px;color:var(--ink-dim)}
+  .cmeta .ok{color:var(--blue)} .cmeta .warn{color:var(--red)}
+  .cbody{font-size:11.5px;color:var(--ink-muted);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .cshots{display:flex;gap:6px}
+  .shot{width:70px;height:44px;border-radius:5px;border:1px solid var(--seam);background:linear-gradient(135deg,#101a33,#0b1226);display:flex;align-items:center;justify-content:center;color:var(--ink-faint);font-size:8px;font-family:"Geist Mono",monospace}
+  .cact{display:flex;gap:7px;align-items:center;margin-top:1px}
+  .b{height:30px;padding:0 12px;border-radius:6px;font-size:11.5px;font-weight:500;display:inline-flex;align-items:center;gap:5px;border:1px solid transparent}
+  .bpri{background:var(--yellow);color:var(--navy);font-weight:600}
+  .bsec{background:var(--chip);border-color:var(--bstrong);color:var(--ink)}
+  .bses{margin-left:auto;color:var(--ink-dim);font-size:10.5px;font-family:"Geist Mono",monospace}
+  .qopt{border:1px solid var(--bstrong);background:var(--chip);border-radius:7px;padding:7px 10px;font-size:11.5px;color:var(--ink)}
+  .qopt b{display:block;color:var(--ink-strong);font-weight:600;font-size:12px}
+  .qopt span{color:var(--ink-muted);font-size:10.5px}
+  /* composer */
+  .composer{flex:none;background:var(--bar);border-top:1px solid var(--hairbar);padding:8px 10px 10px;display:flex;gap:8px;align-items:flex-end}
+  .cfield{flex:1;border:1.5px solid var(--yellow);border-radius:9px;background:rgba(5,9,18,.7);padding:9px 11px;display:flex;align-items:center;gap:7px}
+  .cfield .prompt{color:var(--ink-muted);font-family:"Geist Mono",monospace;font-size:11px}
+  .cfield .ph{color:var(--ink-faint);font-size:11.5px;flex:1}
+  .cfield .cur{width:6px;height:13px;background:var(--yellow)}
+  .micbtn,.sendbtn{width:38px;height:38px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .micbtn{border:1px solid var(--bstrong);background:var(--chip);color:var(--ink-muted)}
+  .sendbtn{background:var(--yellow);color:var(--navy);font-weight:700}
+  .ctx{flex:none;background:var(--bar);padding:0 12px 6px;display:flex;justify-content:flex-end}
+  /* board rows */
+  .board{flex:1;overflow:hidden;padding:6px 10px;display:flex;flex-direction:column;gap:3px}
+  .seclbl{display:flex;align-items:center;gap:8px;padding:10px 4px 4px}
+  .seclbl .rule{flex:1;height:1px;background:var(--hair)}
+  .seclbl .n{font-family:"Geist Mono",monospace;font-size:9px;color:var(--ink-faint)}
+  .row{display:flex;align-items:center;gap:9px;border-radius:7px;padding:8px 9px;min-height:44px}
+  .row .idsq{width:26px;height:26px;border-radius:7px;font-size:6.5px}
+  .row .rt{flex:1;min-width:0}
+  .row .rt .t{font-size:12px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .rt .s{font-size:10px;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .right{flex:none;display:flex;align-items:center;gap:7px}
+  .spin{font-family:"Geist Mono",monospace;font-size:10px;color:var(--blue)}
+  .tmr{font-family:"Geist Mono",monospace;font-size:9px;color:var(--blue)}
+  .ago2{font-family:"Geist Mono",monospace;font-size:9px;color:var(--ink-faint)}
+  .udot{width:6px;height:6px;border-radius:99px;background:var(--yellow)}
+  /* issue detail */
+  .ihdr{flex:none;padding:12px 14px 10px;border-bottom:1px solid;display:flex;flex-direction:column;gap:8px}
+  .chiprow{display:flex;gap:6px;flex-wrap:wrap}
+  .mchip{height:20px;padding:0 8px;border-radius:5px;border:1px solid var(--seam);background:var(--chip);color:var(--ink-muted);font-size:10px;display:inline-flex;align-items:center;gap:4px}
+  .stagechip{border-color:rgba(245,197,24,.5);color:var(--yellow);background:rgba(245,197,24,.08)}
+  .fab{position:absolute;right:14px;bottom:88px;height:40px;padding:0 16px;border-radius:10px;background:var(--yellow);color:var(--navy);font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:7px;box-shadow:0 10px 26px rgba(0,0,0,.55)}
+  .gallery{display:flex;gap:7px;padding:2px 0}
+  .gallery .shot{width:86px;height:54px}
+  .note{font-size:11px;color:var(--ink-muted);line-height:1.5}
+  .band{background:var(--rail);border:1px solid var(--hair);border-radius:7px;padding:7px 9px;display:flex;align-items:center;gap:8px}
+  .scroll{flex:1;overflow:hidden;padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+  /* session */
+  .bub{max-width:86%;border-radius:10px;padding:8px 11px;font-size:12px;line-height:1.45}
+  .bub.you{align-self:flex-end;background:var(--royal);color:#eef2ff}
+  .bub.ag{align-self:flex-start;background:var(--panel);border:1px solid var(--hair);color:var(--ink)}
+  .toolline{font-family:"Geist Mono",monospace;font-size:9.5px;color:var(--ink-faint);padding-left:4px}
+  .offerbar{border:1px solid rgba(245,197,24,.45);background:rgba(245,197,24,.06);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:6px}
+  footnote{display:block;margin-top:26px;color:var(--ink-faint);font-size:10.5px}
+</style>
+<div class="doc">
+<h1>POD-131 · Mobile redesign — “The Pocket Queue”</h1>
+<p class="sub">The phone app is the <b>QUEUE</b> with a standing command line — an inbox with a command line, not a chat with an inbox (POD-129). Three tabs: <b>Tray</b> (decide &amp; unblock + the Voice), <b>Tasks</b> (the MAP, fire off work), <b>Agents</b> (the roster → STAGE). Superade language throughout: navy chassis, carved-not-floating, yellow = the one thing asking for you, blue = calm liveness, issue colour = identity, never state.</p>
+<div class="legend">
+  <span><span class="dot" style="background:var(--yellow)"></span><b>Yellow</b> — needs you / primary action</span>
+  <span><span class="dot" style="background:var(--blue)"></span><b>Blue</b> — working, calm liveness</span>
+  <span><span class="dot" style="background:var(--red)"></span><b>Red</b> — alerts &amp; destructive only</span>
+  <span><span class="dot" style="background:var(--violet)"></span><b>Issue colours</b> — identity tints, never fills</span>
+</div>
+<div class="frames">
+
+  <!-- ═════════ FRAME 1 · TRAY ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>1 · Tray — home</b> Decisions first, newest first, global. Offer cards carry headline, state line, artifact thumbs and inline actions — judged cold in 5 s. The composer never leaves: the Voice’s command line stands under the queue; mic first for dictation.</p>
+    <div class="phone">
+      <div class="hdr">
+        <span class="title">Tray</span><span class="pill">3</span>
+        <span class="lbl" style="margin-left:2px">All tasks · newest first</span>
+        <span class="spacer"></span>
+        <span class="spin">⠹</span><span class="tmr">2 working</span>
+      </div>
+      <div style="height:8px"></div>
+      <div class="queue">
+        <!-- offer card, violet issue -->
+        <div class="card" style="background:color-mix(in srgb,#8b5cf6 11%,var(--panel));border-color:color-mix(in srgb,#8b5cf6 34%,var(--seam))">
+          <div class="ctop">
+            <span class="idsq" style="background:#8b5cf6;color:#1e0b44"><span>POD</span><span>121</span></span>
+            <span class="cref">POD-121</span>
+            <span class="ctitle">Session header redesign</span>
+            <span class="cagent">◆ <b>claude</b></span>
+            <span class="cago">2m</span>
+          </div>
+          <div class="chead">Login screen ready to merge</div>
+          <div class="cmeta">review · ⎇ pod-121 · 2 ahead · <span class="ok">clean</span></div>
+          <div class="cshots"><span class="shot">shot 1</span><span class="shot">shot 2</span><span class="shot">+2</span></div>
+          <div class="cact">
+            <span class="b bpri">✓ Merge</span><span class="b bsec">Send back…</span>
+            <span class="bses">session →</span>
+          </div>
+        </div>
+        <!-- question card, teal issue -->
+        <div class="card" style="background:color-mix(in srgb,#14b8a6 9%,var(--panel));border-color:color-mix(in srgb,#14b8a6 30%,var(--seam))">
+          <div class="ctop">
+            <span class="idsq" style="background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+            <span class="cref">POD-87</span>
+            <span class="ctitle">OAuth refresh loop</span>
+            <span class="cagent">◆ <b>claude</b></span>
+            <span class="cago">14m</span>
+          </div>
+          <div class="chead">Rotate refresh tokens on every use, or only on expiry?</div>
+          <div class="qopt"><b>Rotate every use</b><span>Best security; needs the 30 s grace window.</span></div>
+          <div class="qopt"><b>Rotate on expiry only</b><span>Simpler; weaker against token theft.</span></div>
+          <div class="cact"><span class="bses" style="margin-left:auto">reply… · session →</span></div>
+        </div>
+        <!-- finished, rose -->
+        <div class="card" style="opacity:.8;background:color-mix(in srgb,#f43f5e 7%,var(--panel));border-color:var(--hair);padding:7px 11px">
+          <div class="ctop">
+            <span class="idsq" style="width:16px;height:16px;border-radius:5px;background:#f43f5e;color:#4a0413;font-size:4px"><span>POD</span><span>118</span></span>
+            <span class="cref">POD-118</span>
+            <span class="ctitle" style="color:var(--ink-dim)">merged to main · 52769669</span>
+            <span class="b bsec" style="height:22px;padding:0 9px;font-size:10px">Archive ✓</span>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="cfield"><span class="prompt">&gt;</span><span class="cur"></span><span class="ph">Tell the agents…</span></div>
+        <span class="micbtn">🎙</span><span class="sendbtn">↑</span>
+      </div>
+      <div class="ctx"><span class="lbl" style="font-size:8px">· all-tasks context</span></div>
+      <div class="tabbar">
+        <span class="tab on"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 2 · TASKS ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>2 · Tasks — the MAP</b> Stage-grouped rows in the sidebar grammar: ID squares, identity tints, signals only (yellow pill = waiting, blue spinner+timer = working, dot = unread). Yellow FAB fires off a task: title, dictated brief, “start agent now”.</p>
+    <div class="phone">
+      <div class="hdr">
+        <span class="title">Tasks</span>
+        <span class="spacer"></span>
+        <span class="hbtn">⌕</span><span class="hbtn">≔</span>
+      </div>
+      <div class="board">
+        <div class="seclbl"><span class="lbl">In progress</span><span class="n">3</span><span class="rule"></span></div>
+        <div class="row" style="background:color-mix(in srgb,#8b5cf6 12%,var(--panel))">
+          <span class="idsq" style="background:#8b5cf6;color:#1e0b44"><span>POD</span><span>121</span></span>
+          <div class="rt"><div class="t" style="color:#e9e2fb">Session header redesign</div><div class="s">claude · implementing</div></div>
+          <div class="right"><span class="pill">1</span></div>
+        </div>
+        <div class="row" style="background:color-mix(in srgb,#06b6d4 11%,var(--panel))">
+          <span class="idsq" style="background:#06b6d4;color:#062a33"><span>POD</span><span>130</span></span>
+          <div class="rt"><div class="t" style="color:#d9f4fb">Dock files in worktree-less issues</div><div class="s">claude · testing</div></div>
+          <div class="right"><span class="spin">⠧</span><span class="tmr">12:41</span></div>
+        </div>
+        <div class="row" style="background:color-mix(in srgb,#84cc16 10%,var(--panel))">
+          <span class="idsq" style="background:#84cc16;color:#1d2e04"><span>POD</span><span>127</span></span>
+          <div class="rt"><div class="t" style="color:#eef7dc">Settings redesign</div><div class="s">shell · planning</div></div>
+          <div class="right"><span class="udot"></span><span class="ago2">1h</span></div>
+        </div>
+        <div class="seclbl"><span class="lbl">Review</span><span class="n">2</span><span class="rule"></span></div>
+        <div class="row" style="background:color-mix(in srgb,#14b8a6 11%,var(--panel))">
+          <span class="idsq" style="background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+          <div class="rt"><div class="t" style="color:#d6f6f0">OAuth refresh loop logs users out</div><div class="s">review · needs you</div></div>
+          <div class="right"><span class="pill">1</span></div>
+        </div>
+        <div class="row" style="background:color-mix(in srgb,#f43f5e 10%,var(--panel))">
+          <span class="idsq" style="background:#f43f5e;color:#4a0413"><span>POD</span><span>129</span></span>
+          <div class="rt"><div class="t" style="color:#fbdde3">Attention surfaces: tray + superagent</div><div class="s">review · concept ready</div></div>
+          <div class="right"><span class="ago2">3h</span></div>
+        </div>
+        <div class="seclbl"><span class="lbl">Proposed</span><span class="n">2</span><span class="rule"></span></div>
+        <div class="row" style="background:var(--panel)">
+          <span class="idsq" style="background:var(--chip);border:1px dashed var(--ink-faint);color:var(--ink-muted)"><span>POD</span><span>135</span></span>
+          <div class="rt"><div class="t">Orphaned sessions of deleted issues</div><div class="s">from POD-133</div></div>
+          <div class="right"><span class="ago2">5h</span></div>
+        </div>
+        <div class="row" style="background:var(--panel);opacity:.75">
+          <span class="idsq" style="background:var(--chip);border:1px dashed var(--ink-faint);color:var(--ink-muted)"><span>POD</span><span>136</span></span>
+          <div class="rt"><div class="t">Board swimlane compaction</div><div class="s">from POD-127</div></div>
+          <div class="right"><span class="ago2">1d</span></div>
+        </div>
+      </div>
+      <span class="fab">＋ New task</span>
+      <div class="tabbar">
+        <span class="tab"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab on"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 3 · TASK DETAIL ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>3 · Task detail</b> Chrome tints with the issue colour (identity channel). Stage chip, brief, artifact gallery (tap → lightbox), agent roster band (rail-navy, per POD-100), activity. Primary action stays yellow.</p>
+    <div class="phone" style="background:color-mix(in srgb,#8b5cf6 6%,var(--navy))">
+      <div class="ihdr" style="background:color-mix(in srgb,#8b5cf6 14%,var(--panel));border-color:color-mix(in srgb,#8b5cf6 40%,var(--seam))">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="color:var(--ink-muted);font-size:15px">‹</span>
+          <span class="idsq" style="width:26px;height:26px;border-radius:7px;background:#8b5cf6;color:#1e0b44;font-size:6.5px"><span>POD</span><span>121</span></span>
+          <div style="flex:1;min-width:0">
+            <div style="color:var(--ink-strong);font-size:13.5px;font-weight:600;line-height:1.3">Session header redesign</div>
+            <div class="lbl" style="font-size:8px;margin-top:1px">podium · ⎇ issue/121-session-header</div>
+          </div>
+        </div>
+        <div class="chiprow">
+          <span class="mchip stagechip">review ▾</span><span class="mchip">feature</span><span class="mchip">P2</span>
+          <span class="mchip" style="border-color:rgba(245,197,24,.5);color:var(--yellow)">needs you</span>
+        </div>
+      </div>
+      <div class="scroll">
+        <div class="note">Segmented mode switch, model token, overflow menu. Observed effort in the model token; git chip on the header’s dark surface recipe.</div>
+        <div class="seclbl" style="padding-top:2px"><span class="lbl">Artifacts</span><span class="n">4</span><span class="rule"></span></div>
+        <div class="gallery"><span class="shot">header-v3</span><span class="shot">mode-sw</span><span class="shot">token</span><span class="shot">+1</span></div>
+        <div class="seclbl"><span class="lbl">Agents</span><span class="n">2</span><span class="rule"></span></div>
+        <div class="band">
+          <span style="color:var(--terra);font-size:11px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:11.5px;color:var(--ink)">claude — header polish</div><div class="lbl" style="font-size:7.5px">idle · 12m</div></div>
+          <span class="pill">1</span>
+        </div>
+        <div class="band">
+          <span style="color:var(--terra);font-size:11px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:11.5px;color:var(--ink)">claude — a11y sweep</div><div class="lbl" style="font-size:7.5px;color:var(--blue)">working · ⠹ 4:12</div></div>
+        </div>
+        <div class="seclbl"><span class="lbl">Sub-tasks</span><span class="n">1/2</span><span class="rule"></span></div>
+        <div class="row" style="background:color-mix(in srgb,#8b5cf6 9%,var(--panel));min-height:38px">
+          <span class="idsq" style="width:20px;height:20px;font-size:5px;background:#8b5cf6;color:#1e0b44"><span>POD</span><span>124</span></span>
+          <div class="rt"><div class="t" style="font-size:11.5px">Overflow menu keyboard nav</div><div class="s">done ✓</div></div>
+        </div>
+        <div class="seclbl"><span class="lbl">Activity</span><span class="rule"></span></div>
+        <div class="note" style="font-size:10.5px;color:var(--ink-dim)">agent · 2h — moved to review, posted offer “ready to merge”.<br>you · 5h — “keep the git chip on the dark recipe”.</div>
+        <div style="display:flex;gap:8px;margin-top:2px">
+          <span class="b bpri" style="flex:1;justify-content:center">▸ Start agent</span>
+          <span class="b bsec">Comment…</span>
+        </div>
+      </div>
+      <div class="tabbar">
+        <span class="tab"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab on"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 4 · SESSION ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>4 · Agent session — the STAGE (chat)</b> Chat is the default view. The segmented switch in the header (same control grammar as the web's POD-121 header) flips to the native agent; the offer renders at the source above the composer — one item, one fate.</p>
+    <div class="phone">
+      <div class="ihdr" style="background:color-mix(in srgb,#14b8a6 13%,var(--panel));border-color:color-mix(in srgb,#14b8a6 40%,var(--seam));padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="color:var(--ink-muted);font-size:15px">‹</span>
+          <span class="idsq" style="background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+          <div style="flex:1;min-width:0">
+            <div style="color:var(--ink-strong);font-size:12.5px;font-weight:600">claude — oauth fix</div>
+            <div class="lbl" style="font-size:7.5px">POD-87 · needs you · ⎇ issue/87</div>
+          </div>
+          <span style="display:inline-flex;border:1px solid var(--bstrong);border-radius:7px;overflow:hidden;height:28px">
+            <span style="display:flex;align-items:center;padding:0 9px;background:var(--chip);color:var(--ink-strong);font-size:10.5px;font-weight:600">Chat</span>
+            <span style="display:flex;align-items:center;padding:0 9px;color:var(--ink-dim);font-size:10.5px;font-family:'Geist Mono',monospace">&gt;_</span>
+          </span>
+          <span class="hbtn">⋮</span>
+        </div>
+      </div>
+      <div class="scroll">
+        <div class="bub you">Repro it with two tabs and fix the race.</div>
+        <div class="toolline">⏺ Bash( bun test auth ) · 42 passed</div>
+        <div class="bub ag">Reproduced. Two tabs refresh concurrently; the second rotation invalidates the first tab’s brand-new token. Fix is a rotation grace window or reuse detection with a shared lock.</div>
+        <div class="toolline">⏺ Edit( token-rotation.ts ) · +38 −7</div>
+        <div class="offerbar">
+          <div class="chead" style="font-size:12px">Grace-window fix ready — 43 tests green</div>
+          <div class="cmeta">in_progress · ⎇ issue/87 · 1 ahead · <span class="ok">clean</span></div>
+          <div class="cact">
+            <span class="b bpri" style="height:28px">✓ Merge</span>
+            <span class="b bsec" style="height:28px">Send back…</span>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="cfield" style="border-color:var(--bstrong)"><span class="prompt">&gt;</span><span class="ph">Message claude…</span></div>
+        <span class="micbtn">🎙</span><span class="sendbtn">↑</span>
+      </div>
+      <div class="tabbar">
+        <span class="tab"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab on"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 5 · SESSION · NATIVE ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>5 · Session — native agent view</b> The switch flipped to the real PTY. Terminal defaults to a much smaller mono size (~9–10px, crisp on retina) via the TerminalAppearance channel; theme follows the terminal themability settings. Key bar: esc · tab · ctrl · ↑ · ↓ · ⏎.</p>
+    <div class="phone">
+      <div class="ihdr" style="background:color-mix(in srgb,#14b8a6 13%,var(--panel));border-color:color-mix(in srgb,#14b8a6 40%,var(--seam));padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="color:var(--ink-muted);font-size:15px">‹</span>
+          <span class="idsq" style="background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+          <div style="flex:1;min-width:0">
+            <div style="color:var(--ink-strong);font-size:12.5px;font-weight:600">claude — oauth fix</div>
+            <div class="lbl" style="font-size:7.5px">POD-87 · native · ⎇ issue/87</div>
+          </div>
+          <span style="display:inline-flex;border:1px solid var(--bstrong);border-radius:7px;overflow:hidden;height:28px">
+            <span style="display:flex;align-items:center;padding:0 9px;color:var(--ink-dim);font-size:10.5px">Chat</span>
+            <span style="display:flex;align-items:center;padding:0 9px;background:var(--chip);color:var(--yellow);font-size:10.5px;font-family:'Geist Mono',monospace">&gt;_</span>
+          </span>
+        </div>
+      </div>
+      <div style="flex:1;overflow:hidden;background:#05070d;padding:8px 10px;font-family:'Geist Mono',monospace;font-size:9px;line-height:1.55;color:#b6c2e2">
+<pre style="font:inherit;color:inherit">╭──────────────────────────────────────────────╮
+│ ✻ Claude Code v2.1                           │
+│   /home/podium/wt/issue-87                   │
+╰──────────────────────────────────────────────╯
+
+⏺ I reproduced the race: two tabs refresh
+  concurrently; the second rotation invalidates
+  the first tab's brand-new token.
+
+⏺ Bash(bun test auth)
+  ⎿ 42 pass, 0 fail (2.31s)
+
+⏺ Update(packages/auth/token-rotation.ts)
+  ⎿ Added grace-window check (+38 −7)
+
+<span style="color:#f5c518">? Should refresh tokens rotate on every use?</span>
+<span style="color:#6c7690">  ❯ 1. Rotate every use (recommended)
+    2. Rotate on expiry only</span>
+
+<span style="color:#2f6bff">▌</span></pre>
+      </div>
+      <div style="flex:none;background:var(--bar);border-top:1px solid var(--hairbar);padding:6px 8px 10px;display:flex;gap:5px">
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px">esc</span>
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px">tab</span>
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px">ctrl</span>
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px">↑</span>
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px">↓</span>
+        <span class="b bsec" style="flex:1;justify-content:center;height:32px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--yellow)">⏎</span>
+      </div>
+      <div class="tabbar">
+        <span class="tab"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab on"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 6 · AGENTS + PEEK ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>6 · Agents — roster with task peek</b> Every agent row names its attached task (ID square + ref — identity channel). Long-press (haptic) opens the task peek sheet — the ONE task-reveal surface: the same sheet opens from the session header’s task chip and from tapping POD-refs in chat. Task summary, git state, latest offer, actions. Native builds can upgrade the long-press entry to a real iOS context-menu preview.</p>
+    <div class="phone">
+      <div class="hdr">
+        <span class="title">Agents</span>
+        <span class="spacer"></span>
+        <span class="hbtn">＋</span><span class="hbtn">⚙</span>
+      </div>
+      <div class="board" style="filter:brightness(.55)">
+        <div class="seclbl"><span class="lbl" style="color:var(--yellow)">Needs you</span><span class="pill">1</span><span class="rule"></span></div>
+        <div class="band" style="border-color:rgba(245,197,24,.4)">
+          <span style="color:var(--terra);font-size:12px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink)">claude — oauth fix</div><div class="lbl" style="font-size:7.5px">question · 14m</div></div>
+          <span class="idsq" style="width:18px;height:18px;font-size:4.5px;border-radius:5px;background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+        </div>
+        <div class="seclbl"><span class="lbl" style="color:var(--blue)">Working</span><span class="n">2</span><span class="rule"></span></div>
+        <div class="band">
+          <span style="color:var(--terra);font-size:12px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink)">claude — a11y sweep</div><div class="lbl" style="font-size:7.5px;color:var(--blue)">⠹ 4:12</div></div>
+          <span class="idsq" style="width:18px;height:18px;font-size:4.5px;border-radius:5px;background:#8b5cf6;color:#1e0b44"><span>POD</span><span>121</span></span>
+        </div>
+        <div class="band">
+          <span style="color:var(--terra);font-size:12px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink)">claude — dock files fix</div><div class="lbl" style="font-size:7.5px;color:var(--blue)">⠧ 12:41</div></div>
+          <span class="idsq" style="width:18px;height:18px;font-size:4.5px;border-radius:5px;background:#06b6d4;color:#062a33"><span>POD</span><span>130</span></span>
+        </div>
+        <div class="seclbl"><span class="lbl">Idle</span><span class="n">1</span><span class="rule"></span></div>
+        <div class="band">
+          <span style="color:var(--terra);font-size:12px">◆</span>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;color:var(--ink)">claude — header polish</div><div class="lbl" style="font-size:7.5px">idle · 1h</div></div>
+          <span class="idsq" style="width:18px;height:18px;font-size:4.5px;border-radius:5px;background:#8b5cf6;color:#1e0b44"><span>POD</span><span>121</span></span>
+        </div>
+      </div>
+      <!-- peek sheet -->
+      <div style="position:absolute;left:0;right:0;bottom:64px;background:var(--panel);border-top:1px solid color-mix(in srgb,#14b8a6 40%,var(--seam));border-radius:16px 16px 0 0;padding:12px 14px 16px;box-shadow:0 -14px 34px rgba(0,0,0,.65);display:flex;flex-direction:column;gap:9px">
+        <div style="width:34px;height:4px;border-radius:99px;background:var(--bstrong);align-self:center"></div>
+        <div class="ctop">
+          <span class="idsq" style="width:26px;height:26px;border-radius:7px;font-size:6.5px;background:#14b8a6;color:#042f2a"><span>POD</span><span>87</span></span>
+          <div style="flex:1;min-width:0">
+            <div style="color:var(--ink-strong);font-size:13px;font-weight:600">OAuth refresh loop logs users out</div>
+            <div class="cmeta">review · ⎇ issue/87 · 1 ahead · <span class="ok">clean</span></div>
+          </div>
+        </div>
+        <div class="cbody">Grace-window fix ready — 43 tests green. One question open: rotation policy.</div>
+        <div style="display:flex;gap:7px">
+          <span class="b bpri" style="flex:1;justify-content:center">Open task</span>
+          <span class="b bsec" style="flex:1;justify-content:center">Open session</span>
+        </div>
+      </div>
+      <div class="tabbar">
+        <span class="tab"><span class="glyph">▤</span>Tray<span class="bdg pill">3</span></span>
+        <span class="tab"><span class="glyph">▦</span>Tasks</span>
+        <span class="tab on"><span class="glyph">⣿</span>Agents</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 7 · LOGIN ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>7 · Login</b> The web login ported 1:1 — same code path: the precomputed 96×22 coverage grid + density ramp renders the wordmark (idle shimmer remaps characters), mono host label, fused bar with terracotta submit, amber status line, shake/success/caps states. Theme-independent near-black, exactly as on web.</p>
+    <div class="phone" style="background:radial-gradient(460px 280px at 50% 32%, rgba(217,119,87,.08), transparent 72%), #0a0a0e;justify-content:center;align-items:center;gap:18px;padding:24px">
+      <pre style="font:5.6px/1 Menlo,monospace;color:#f3f3f8;margin:0;letter-spacing:0">                                                                                                
+        n$$$$$$$$k      q$$$$$$*    z$$$$$$$8q     $$$k  k$$$    $$$q  k$$$$k     $$$$$z        
+        *$$$$$$$$$$    $$$$$$$$$$   O$$$$$$$$$$    $$$*  q$$$    $$$8  J$$$$$     8$$$$8        
+        $$$8   $$$$z  $$$$n  *$$$q  k$$$O  k$$$8   $$$8  O$$$z   8$$$   $$$$$*    k$$$$$        
+       O$$$J   8$$$  J$$$k   J$$$k  *$$$z   $$$$   $$$$  z$$$O   k$$$   $$$$$$    O$$$$$q       
+       $$$$    $$$$  *$$$z   k$$$q  $$$$    $$$$   $$$$  n$$$k   J$$$J  *$$$$$*   z$$$$$$       
+      n$$$8   J$$$*  $$$$    8$$$z  $$$$    $$$$   $$$$   $$$8   n$$$*  J$$$8$$    $$*$$$z      
+      *$$$z   *$$$J  $$$$    $$$$   $$$$    $$$$   $$$$   $$$$    $$$$   $$$q$$8   $$k8$$8      
+      $$$$    $$$$  O$$$*    $$$$   $$$$    $$$$   $$$$   $$$$    $$$$   $$$O*$$n  $$8J$$$      
+     O$$$*   J$$$8  8$$$O   z$$$$  z$$$$    $$$$   $$$$   $$$$    8$$$n  8$$8 $$8  $$$ $$$q     
+     $$$$J   $$$$J  $$$$n   q$$$8  O$$$$    $$$$   $$$$   $$$$z   k$$$q  O$$$ *$$z 8$$ 8$$$     
+    n$$$$$$$$$$$k   $$$$    8$$$q  q$$$8    $$$$   $$$$   8$$$O   J$$$8   $$$n $$8 k$$ J$$$n    
+    *$$$$$$$$$8z   q$$$8    $$$$J  *$$$k   n$$$$   $$$$z  k$$$k    $$$$   $$$q *$$zO$$  $$$*    
+    $$$$Ozzn       8$$$q    $$$$n  $$$$q   z$$$$   $$$$z  q$$$8    $$$$   8$$$  $$$O$$z *$$$    
+   O$$$$           $$$$z   n$$$$   $$$$O   z$$$$   $$$$J  J$$$$    $$$$J  q$$$  *$$8$$O z$$$O   
+   $$$$q          z$$$$    O$$$$   $$$$J   J$$$$   $$$$O  z$$$$    k$$$k  n$$$J  $$$$$k  $$$$   
+  n$$$$           k$$$$    *$$$8   $$$$n   O$$$$   $$$$q   $$$$    J$$$$   $$$*  k$$$$8  k$$$n  
+  *$$$8           $$$$8    $$$$q  n$$$$    8$$$$   $$$$k   $$$$O   z$$$$   $$$$   $$$$$   $$$*  
+  $$$$O           8$$$$qnz8$$$$   J$$$$kqk$$$$$q   $$$$*   8$$$$O z8$$$$   k$$$   k$$$$   $$$$  
+ O$$$$            z$$$$$$$$$$$z   q$$$$$$$$$$$*    $$$$8    8$$$$$$$$$$O   z$$$q   $$$$   O$$$O 
+ $$$$8              *$$$$$$$k     *$$$$$$$$8q      $$$$$     J8$$$$$$8J     $$$8   k$$$    $$$$ 
+                                                                                                </pre>
+      <div class="lbl" style="letter-spacing:.16em;color:#7a7a86">Sign in to podium.tailffb0fa.ts.net</div>
+      <div style="width:100%;max-width:330px;display:flex;align-items:center;gap:8px;border:1px solid #3a3a46;border-radius:13px;background:#0e0e12;padding:6px 6px 6px 18px">
+        <span style="flex:1;font-family:'Geist Mono',monospace;font-size:15px;color:#5a5a66">Password</span>
+        <span style="width:42px;height:42px;border-radius:9px;background:#D97757;color:#2b1208;display:flex;align-items:center;justify-content:center;font-family:'Geist Mono',monospace;font-size:16px;font-weight:600">→</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;font-family:'Geist Mono',monospace;font-size:11px;color:#f59e0b">
+        <span style="width:7px;height:7px;border-radius:99px;background:#f59e0b"></span>
+        waiting on you — enter your password
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ FRAME 8 · LOADER ═════════ -->
+  <div class="frame">
+    <p class="cap"><b>8 · Loader</b> The web AsciiLoader ported 1:1 — same reveal: cells land in random order over ~0.8s with a sparkle, then the sine shimmer; mono “LOADING…” ticker. Shown while fonts + replica hydrate (today mobile shows a blank dark view here). Static frame under reduced motion.</p>
+    <div class="phone" style="justify-content:center;align-items:center;gap:16px">
+      <pre style="font:5.6px/1 Menlo,monospace;color:#aab4d4;margin:0;letter-spacing:0">                                                                                                
+        _|{[]?]{()      OB$$@%&amp;p    ]t)}]?][{[     aM8b  b8Ma    j|1_  _})tnr     B@$@Bu        
+        ))}]?]}1/rc    W%@$$B8#hq   }|{[]?[{(fu    #&amp;B*  mW*b    t)}?  i1/rcJ     &amp;$$@8a        
+        ({[-   (juU(  #8B$n  bodZx  {)}]i  ]/xzY   W%@8  L#hq(   ){[]   (fuYQL    k$@%W*        
+       ]1[]!   |xzL  cW%@k   ckwQx  {{[?;   juU0   8B$$  uodZf   ]}]?   /xzCZd    O$B8#hX       
+       )}]?    jvUO  d8@$z   OdOJ/  1[]?    xXLm   %@$$  fkwQx   ~]?]i  |vU0qhd   z@%WodZ       
+      ~{[]-   ?nXQL  &amp;B@$    qmLX]  }]?]    vJOp   @$$@   pOJn   ;]?]]  }XLmq*&amp;    B&amp;pkwQ{      
+      }}]?;   /cJZx  %@$$    p0Uv   []?]    XQwk   @$@B   mLXn    ?][1   JOpCM8&amp;   8M0mOJn      
+      {[]]    uY0q  LB$$*    mCzx   ]?]}    CZdo   $$B8   0Uvj    ?]{(   QwkUkB$n  &amp;*qjLXx      
+     _[]?-   [zCmw  M@$$Q   tQYuf  !?][{    0qh#   $@%W   Czx/    ?}1/_  Qdoo @$&amp;  #hq Uvj[     
+     }]?]i   vUOpv  @$$@r   vJcr(  ~?]})    mb*W   $B&amp;#   Yuf(i   _{(j|  uh#8 *$@c bdZ ux/1     
+    ![]?]})tnXLwQ   @$@B    JXnt]  ~][1(    paM8   @%Ma   ur/1+   ~)txv   *W%n $B* QwQ }f({;    
+    ]]?][1/rcJQf   w$$@#    Uvj|+  _]}(1   )k*&amp;B   B&amp;*k/  /t)}_    |jvJ   M8@q o%MrvOJ  |1[-    
+    []?[_+--       &amp;$@%O    zxt);  ][1/)   foW%@   8Mhp|  1|{[?    fnXQ   *B@$  &amp;*bnLX] }}]?    
+   +]?]}           $$B8n   [uf({   [{(f)   r#8B$   Wobm/  ?)}]?    rcCZx  m@$$  dhpCUv} i[]?~   
+   ]?][-          z$@%W    (r/1[   })tx1   cW%@$   #hqQ/  +{[?]    tY0qQ  x$$@U  bZCzx{  ]?]}   
+  ;]?]}           k@B&amp;*    ff(}?   {|jv[   J8B$$   odZJ/   []?]    )Lmbo   $$Bh  UQYuf)  +][{i  
+  -?][{           $@8Md    j|1[~  !)tnX    *B@$@   kwQX/   ]?][_   1OpaM   $@%M   Jcr/1   ]}))  
+  ]?[{?           &amp;%W*bc{}jt)}]   +/rcJXYOM%@$$w   pOUv/   ??]})[ {Jwk*&amp;   kB&amp;*   rnt)}   [1|j  
+ ~?]}1            c8#hq0Uuj({[;   ]fuYQqk#&amp;B$$*    mLzx|    ?[1/rcJZdaWL   c8MaX   j|{[   +(fn/ 
+ ?][{)              qdZCcr/1-     )xzCZboW%&amp;q      0Yuf(     ~)fuYQqhhY     Wob0   1)}]    /rcJ 
+                                                                                                </pre>
+      <span class="lbl" style="font-size:9px;letter-spacing:.2em">LOADING..</span>
+    </div>
+  </div>
+
+</div>
+<footnote>POD-131 · concept v1 · Superade mapping: yellow = attention/primary (was amber), blue = working/calm (was green), red = alerts only, navy tiers replace near-black tiers. Vocabulary per POD-129: Tray = the queue (global, never filtered), Tasks = the map (signals only), composer = the voice (global, injected context), session = the stage. One item, one fate: acting on an offer anywhere clears it everywhere.</footnote>
+</div>

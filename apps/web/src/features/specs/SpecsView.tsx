@@ -335,6 +335,7 @@ export function SpecsView(): JSX.Element {
             ) : (
               hits.map((h) => (
                 <button
+                  data-pressable
                   key={h.id}
                   type="button"
                   className="block w-full px-3 py-1.5 text-left hover:bg-accent"
@@ -395,6 +396,7 @@ export function SpecsView(): JSX.Element {
               />
             )}
             <button
+              data-pressable
               type="button"
               title={`Copy code reference [spec:${selected.id}]`}
               className="flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -438,6 +440,7 @@ export function SpecsView(): JSX.Element {
             </Select>
             {selected.id !== ROOT_ID && (
               <button
+                data-pressable
                 type="button"
                 title="Delete component"
                 aria-label="Delete component"
@@ -534,6 +537,7 @@ function TreeNode({
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         <button
+          data-pressable
           type="button"
           aria-label={open ? 'Collapse' : 'Expand'}
           className={cn('flex-none rounded p-0.5', kids.length === 0 && 'invisible')}
@@ -546,6 +550,7 @@ function TreeNode({
           )}
         </button>
         <button
+          data-pressable
           type="button"
           className={cn(
             'min-w-0 flex-1 truncate text-left',
@@ -557,7 +562,9 @@ function TreeNode({
           {node.title}
         </button>
         <button
+          data-pressable
           type="button"
+          data-hover-reveal
           title="Add sub-component"
           aria-label={`Add sub-component under ${node.title}`}
           className="invisible flex-none rounded p-0.5 hover:bg-border group-hover:visible"

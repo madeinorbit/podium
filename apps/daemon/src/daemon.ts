@@ -15,7 +15,9 @@ import {
   type ControlMessage,
   type DaemonHandshake,
   type DaemonHandshakeReply,
+  type DaemonMessage,
   encode,
+  type LocalDaemonLink,
   parseControlMessage,
   parseDaemonHandshakeReply,
   WIRE_VERSION,
@@ -44,7 +46,7 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
 import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
-import { reportInventory } from './control/inventory'
+import { reportInventory, startInventoryRefresh } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { ensurePodiumGrokHooks } from './grok-hooks'
@@ -134,6 +136,13 @@ export interface DaemonOptions {
    * no paired credential of its own.
    */
   bootstrapToken?: string
+  /**
+   * In-process daemon↔server channel [POD-196], supplied by the composition
+   * root in all-in-one mode (ServerHandle.localDaemonLink). When set, the
+   * daemon never opens the loopback WebSocket: messages pass by reference in
+   * both directions, skipping encode/parse/schema validation per frame.
+   */
+  localLink?: LocalDaemonLink
   /**
    * A one-time pairing code (UI-issued) for a NEW remote daemon with no stored
    * token yet. Used only when there's no bootstrapToken and no persisted token.
@@ -378,7 +387,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // to a new connection after a reconnect. Everything below (observers, relay hub,
   // injectors, discovery loop) captures this one `send`.
   let currentWs: WebSocket | undefined
+  // In-process fast path [POD-196]: set once at startup when the composition
+  // root supplies a LocalDaemonLink (all-in-one mode). Messages pass by
+  // reference — no encode/WS/parse — so a sent message must not be mutated.
+  let localDeliver: ((msg: DaemonMessage) => void) | undefined
+  let detachLocalLink: (() => void) | undefined
   const send: DaemonContext['send'] = (msg) => {
+    if (localDeliver) {
+      localDeliver(msg)
+      return
+    }
     const w = currentWs
     if (!w || w.readyState !== WebSocket.OPEN) return
     // Mirror the server's safeSend: a send/encode throw (socket transitioning to
@@ -568,6 +586,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
   let metricsTimer: ReturnType<typeof setInterval> | undefined
   let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
+  let stopInventoryRefresh: (() => void) | undefined
   const pushHostMetrics = (): void => {
     send({
       type: 'hostMetrics',
@@ -668,6 +687,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     discoveryLoop.stop()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
+    stopInventoryRefresh?.()
+    stopInventoryRefresh = undefined
     // discovery.db lives entirely in the worker; stopping it terminates the
     // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()
@@ -709,6 +730,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       await agentRelay.close()
       return new Promise<void>((resolve) => {
         disposeAll(closeOpts?.reapSessions ?? false)
+        detachLocalLink?.()
         const w = currentWs
         if (!w || w.readyState === WebSocket.CLOSED) {
           resolve()
@@ -772,6 +794,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // Periodic GC for stale uploads (TTL 24h, runs hourly).
         uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
         uploadsGcTimer.unref?.()
+        stopInventoryRefresh = startInventoryRefresh(ctx)
         // Reclaim handoff packages abandoned by a failed transfer/import
         // ([POD-742]). Once, here: no transfer can be in flight through a daemon
         // that has only just handshaked, and exports sweep from then on.
@@ -884,6 +907,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         switch (reply.type) {
           case 'paired':
             // First pairing: persist the minted token so future boots send `hello`.
+            // Keep the live identity in sync too: a transport/server restart before this
+            // daemon process restarts must authenticate with the new token, not retry the
+            // now-consumed pair code.
+            identity.token = reply.token
             saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
             // The one-shot pair code is now consumed — drop it from config.json (#19) so
             // the config stops looking "unpaired" (guarded on the exact code inside).
@@ -1001,6 +1028,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // Remember the reason so the connectivity file can explain the disconnect.
         lastSocketError = err instanceof Error ? err.message : String(err)
       })
+    }
+    // In-process fast path [POD-196]: the composition root handed us a direct
+    // channel to the same-process server. No socket, no handshake, no
+    // reconnect loop — attach is the successful handshake. Inbound control
+    // messages arrive as already-typed objects, so the WS path's size guard
+    // and parse step don't apply; the dispatch instrumentation is kept.
+    if (opts.localLink) {
+      const link = opts.localLink.attach({
+        deliver: (msg) => {
+          if (closing) return
+          const finishControlTurn = beginControlTurn()
+          try {
+            timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+          } finally {
+            finishControlTurn(msg.type)
+          }
+        },
+      })
+      localDeliver = (msg) => link.deliver(msg)
+      detachLocalLink = () => {
+        localDeliver = undefined
+        link.close()
+      }
+      startBackground()
+      return
     }
     // Don't hang the entrypoint if the server isn't up yet — resolve after a grace
     // window; the daemon keeps retrying in the background and authenticates on real open.

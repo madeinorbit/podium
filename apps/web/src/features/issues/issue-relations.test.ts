@@ -36,7 +36,7 @@ describe('groupRelations', () => {
     ])
   })
 
-  it('places discovered-from and misc types after the named sections', () => {
+  it('provenance leads and is direction-aware; misc types trail (POD-85)', () => {
     const result = groupRelations(
       issue(
         [
@@ -44,14 +44,22 @@ describe('groupRelations', () => {
           { id: 't-1', type: 'tracks' },
           { id: 'c-1', type: 'caused-by' },
         ],
-        [{ id: 'blk', type: 'blocks' }],
+        [
+          { id: 'blk', type: 'blocks' },
+          { id: 'spin', type: 'discovered-from' },
+        ],
       ),
     )
     expect(result.map((s) => s.section)).toEqual([
+      'Spun off from',
+      'Spin-offs',
       'Blocks',
-      'Discovered from',
       'Caused by',
       'Tracks',
+    ])
+    expect(result[0]?.entries).toEqual([{ id: 'd-1', type: 'discovered-from', direction: 'dep' }])
+    expect(result[1]?.entries).toEqual([
+      { id: 'spin', type: 'discovered-from', direction: 'dependent' },
     ])
   })
 

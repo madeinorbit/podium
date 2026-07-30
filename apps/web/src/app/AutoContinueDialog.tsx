@@ -26,11 +26,15 @@ export function AutoContinueDialog(): JSX.Element | null {
     }),
     shallowEqual,
   )
-  const [busy, setBusy] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'dismiss' | 'enable' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const busy = pendingAction !== null
   const open = autoContinuePromptSessionId !== null
 
   const finish = async (enable: boolean) => {
-    setBusy(true)
+    if (busy) return
+    setPendingAction(enable ? 'enable' : 'dismiss')
+    setError(null)
     try {
       const current = await trpc.settings.get.query()
       await trpc.settings.set.mutate({
@@ -40,11 +44,14 @@ export function AutoContinueDialog(): JSX.Element | null {
           promptDismissed: true,
         },
       })
-    } catch {
-      // Best-effort: a failed write just means the popup may show again later.
+      closeAutoContinuePrompt()
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'Could not save this preference. Try again.',
+      )
+    } finally {
+      setPendingAction(null)
     }
-    setBusy(false)
-    closeAutoContinuePrompt()
   }
 
   if (!open) return null
@@ -68,11 +75,27 @@ export function AutoContinueDialog(): JSX.Element | null {
           Heads up: this can keep an agent running indefinitely and consuming tokens with no one
           watching. You can turn it off anytime in Settings → New sessions.
         </p>
+        {error && (
+          <p role="alert" className="text-xs text-destructive">
+            {error}
+          </p>
+        )}
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => void finish(false)}>
+          <Button
+            variant="outline"
+            disabled={busy}
+            pending={pendingAction === 'dismiss'}
+            pendingLabel="Saving…"
+            onClick={() => void finish(false)}
+          >
             Not now
           </Button>
-          <Button disabled={busy} onClick={() => void finish(true)}>
+          <Button
+            disabled={busy}
+            pending={pendingAction === 'enable'}
+            pendingLabel="Enabling…"
+            onClick={() => void finish(true)}
+          >
             Enable auto-continue
           </Button>
         </DialogFooter>

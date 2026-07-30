@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { watchdogPetIntervalMs } from './sd-notify'
+import { startWatchdog, watchdogPetIntervalMs } from './sd-notify'
 
 describe('watchdogPetIntervalMs', () => {
   it('pets at half the systemd WatchdogSec, converted from the WATCHDOG_USEC microseconds env', () => {
@@ -27,5 +27,41 @@ describe('watchdogPetIntervalMs', () => {
 
   it('never pets faster than once a second even with a tiny watchdog window', () => {
     expect(watchdogPetIntervalMs('200000' /* 0.2s → half is 0.1s */)).toBe(1_000)
+  })
+})
+
+describe('startWatchdog progress gating [spec:SP-c29e]', () => {
+  it('pets only after the janitor state machine advances, not from timer liveness', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('NOTIFY_SOCKET', '/run/systemd/notify')
+    try {
+      let progress = 7
+      const notifications: string[] = []
+      const stop = startWatchdog({
+        readProgress: () => progress,
+        intervalMs: 10,
+        notify: (state) => notifications.push(state),
+      })
+
+      expect(notifications).toEqual(['READY=1', 'WATCHDOG=1'])
+      // The first scheduled pet consumes progress completed before watchdog
+      // startup, giving a healthy 30s janitor cadence the full grace window.
+      await vi.advanceTimersByTimeAsync(10)
+      expect(notifications).toEqual(['READY=1', 'WATCHDOG=1', 'WATCHDOG=1'])
+
+      // A green event loop with a hung tick keeps running this timer but cannot
+      // advance progress, so systemd receives no more pets and restarts it.
+      await vi.advanceTimersByTimeAsync(20)
+      expect(notifications).toHaveLength(3)
+
+      progress += 1
+      await vi.advanceTimersByTimeAsync(10)
+      expect(notifications.at(-1)).toBe('WATCHDOG=1')
+      expect(notifications).toHaveLength(4)
+      stop?.()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+    }
   })
 })

@@ -10,6 +10,7 @@ import type {
 } from '@podium/protocol'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
@@ -111,6 +112,8 @@ interface SessionRegistryOptions {
   telegramNotice?: () => TelegramNoticePort | undefined
   /** Deterministic publication-worker fault injection for service-level tests. */
   publicationWorker?: PublishWorkerClient
+  /** Rollout-only semantic comparison of legacy and worker publications. */
+  publicationShadowCompare?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -238,6 +241,14 @@ export class SessionRegistry {
     options: SessionRegistryOptions = {},
   ) {
     this.now = options.now ?? Date.now
+    // Resolve feature state once, then keep it atomic with settings changes. This also
+    // avoids reading persistence during instruction preparation after async recovery.
+    let currentSettings = this.store.settings.getSettings()
+    this.bus.on('settings.changed', ({ next }) => {
+      currentSettings = next
+    })
+    const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
+      isFeatureEnabled(id, currentSettings)
     // Live entity maps are owned by modules/sessions; the pre-sessions modules
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
@@ -303,6 +314,7 @@ export class SessionRegistry {
             info: noticeInfo(s),
             state: s.agentState,
           })),
+        notificationsEnabled: () => featureEnabled("notifications"),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
@@ -315,6 +327,8 @@ export class SessionRegistry {
         machineName: (id) => machines.machineName(id),
         sessions: () => liveSessions().values(),
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
+        terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
@@ -577,11 +591,12 @@ export class SessionRegistry {
     })
     sessionInstructions.register({
       source: 'podium:specs',
-      prepare: () => ({ content: SPEC_SYSTEM_POINTER }),
+      prepare: () => (featureEnabled('specs') ? { content: SPEC_SYSTEM_POINTER } : null),
     })
     sessionInstructions.register({
       source: 'podium:workflow',
       prepare: ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
+        if (!featureEnabled('workflows')) return null
         const prepared = existingOnly
           ? workflows.prepareExistingSession({
               sessionId,
@@ -620,6 +635,12 @@ export class SessionRegistry {
       // against the TARGET session's issue exactly like an issue write
       // (RELAY_ALLOWED lists all four routers).
       dispatch: (capability, overrideScope, router, proc, input) => {
+        if (router === 'features' && proc === 'state') {
+          return Promise.resolve(getFeatureStates(currentSettings))
+        }
+        if (router === 'quota' && proc === 'summary') {
+          return this.modules.rpc.agentQuotaAll()
+        }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
         }
@@ -724,12 +745,34 @@ export class SessionRegistry {
               if (!prompt || prompt.length > 4_000) {
                 throw new Error(`action ${i + 1}: prompt must contain 1..4000 characters`)
               }
-              return { label, prompt }
+              // Feedback-collecting action [spec:SP-c7f1]: the UI asks for
+              // freeform text before sending, appended to the prompt.
+              return rec.input === true ? { label, prompt, input: true } : { label, prompt }
             })
+            // Issue-artifact references [POD-120]: bare paths, resolved by the
+            // client against the issue panel's artifact list — validated here
+            // only for shape (the artifact may legitimately not exist yet).
+            let artifacts: string[] | undefined
+            if (raw.artifacts !== undefined) {
+              if (!Array.isArray(raw.artifacts)) {
+                throw new Error('artifacts must be an array')
+              }
+              if (raw.artifacts.length > 6) {
+                throw new Error('at most 6 artifacts are allowed')
+              }
+              artifacts = raw.artifacts.map((p, i) => {
+                const path = typeof p === 'string' ? p.trim() : ''
+                if (!path || path.length > 512) {
+                  throw new Error(`artifact ${i + 1}: path must contain 1..512 characters`)
+                }
+                return path
+              })
+            }
             sessionsSvc.setOffer({
               sessionId: actorSessionId,
               message,
               actions,
+              ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
             })
             return Promise.resolve({ ok: true })
           }
@@ -982,10 +1025,9 @@ export class SessionRegistry {
         const actorSessionId = capability.actorSessionId
         if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
           return Promise.resolve(result).then((issuePrime) => {
-            const workflowPrime = workflows.prime(
-              {},
-              { actor: { kind: 'session', id: actorSessionId }, capability },
-            )
+            const workflowPrime = featureEnabled('workflows')
+              ? workflows.prime({}, { actor: { kind: 'session', id: actorSessionId }, capability })
+              : ''
             // Name-your-own-session (#490): asked for only while the session HAS no
             // name — a named session (by the user or by an earlier turn of this agent)
             // never sees the instruction, so the prime doesn't nag an agent into
@@ -1013,7 +1055,8 @@ export class SessionRegistry {
     const headless = new HeadlessService({
       getSession: (sessionId) => liveSessions().get(sessionId),
       registerSession: (session) => liveSessions().set(session.sessionId, session),
-      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
+      resolveMachine: (requested, cwd, agentKind) =>
+        machines.resolveMachineForAgent(requested, cwd, agentKind),
       defaultMachine: () => machines.defaultMachine(),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       nextRequestId: (prefix) => rpc.nextRequestId(prefix),
@@ -1046,6 +1089,9 @@ export class SessionRegistry {
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
+      ...(options.publicationShadowCompare !== undefined
+        ? { publicationShadowCompare: options.publicationShadowCompare }
+        : {}),
       machines,
       rpc,
       hosts,
@@ -1124,6 +1170,9 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // Closing an issue retires standing session offers (POD-290) so finished
+      // work cannot keep demanding a decision after the close flip.
+      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
@@ -1267,6 +1316,7 @@ export class SessionRegistry {
           sessionId,
           text,
           ...(mutationId ? { mutationId } : {}),
+          inputOrigin: 'steward',
         })
         if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
       },

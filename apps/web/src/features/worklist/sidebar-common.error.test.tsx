@@ -45,10 +45,8 @@ describe('PanelRow error status', () => {
     render(
       <PanelRow
         session={session}
-        pinned={false}
         active={false}
         onSelect={vi.fn()}
-        onPinned={vi.fn()}
       />,
     )
 

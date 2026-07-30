@@ -6,6 +6,7 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -14,22 +15,26 @@ import {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
   withoutHeadless,
   worktreeForCwd,
 } from '@podium/domain'
-import type {
-  AgentKind,
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  SessionMeta,
+import {
+  type AgentKind,
+  type GitRepositoryWire,
+  type HostMetricsWire,
+  type IssueWire,
+  issueDisplayRef,
+  type SessionMeta,
 } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
@@ -41,6 +46,7 @@ import type { PinState, RepoView, WorktreeView } from './types'
 // existing `@podium/client-core/viewmodels` / `./derive` call sites keep
 // working unchanged.
 export {
+  agentCapabilityRejection,
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
@@ -49,10 +55,13 @@ export {
   issueReturnedFromDefer,
   lastUsedMachine,
   machinesForRepo,
+  machinesForRepoOrClone,
   machinesWithRepo,
   normalizeOriginUrl,
+  onlineMachinesForRepoOrClone,
   repoNameFromOrigin,
   resolveTargetMachine,
+  resolveTargetMachineForAgent,
   returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
@@ -422,6 +431,7 @@ export type ExitedAction = 'restart' | 'resume' | 'remove'
  *  copy-resume-command stays available for resuming by hand elsewhere. */
 export function exitedRecovery(opts: {
   exitCode: number | undefined
+  spawnFailure?: string
   isShell: boolean
   resumable: boolean
   worktreeMissing: boolean
@@ -435,7 +445,9 @@ export function exitedRecovery(opts: {
     opts.exitCode === undefined || opts.exitCode === 0
       ? `The ${what} is no longer running.`
       : opts.exitCode === -1
-        ? `The ${what} failed to start.`
+        ? opts.spawnFailure
+          ? `The ${what} failed to start: ${opts.spawnFailure}`
+          : `The ${what} failed to start.`
         : `The ${what} exited with code ${opts.exitCode}.`
   if (opts.worktreeMissing) {
     const where = opts.worktreePath ? ` (${opts.worktreePath})` : ''
@@ -473,7 +485,6 @@ export interface RepoNavView {
 export interface SidebarSections {
   /** Shared ownership work for this exact repo/session/issue snapshot. */
   sessionOwnership?: SessionOwnershipIndex
-  pinnedPanels: SessionMeta[]
   pinnedWorktrees: WorktreeNavView[]
   pinnedRepos: RepoNavView[]
   repos: RepoNavView[]
@@ -496,13 +507,6 @@ export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' |
   parentId: string,
 ): T[] {
   return issues.filter((i) => i.parentId === parentId && !i.deletedAt).sort((a, b) => a.seq - b.seq)
-}
-
-export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
-  const panelOrder = orderMap(pins.panels)
-  return [...sessions].sort((left, right) =>
-    comparePinned(left.sessionId, right.sessionId, panelOrder),
-  )
 }
 
 /**
@@ -530,17 +534,16 @@ export function sortSessionsForSidebar(
 /**
  * Tab-strip order for one worktree/issue. The user's manual (drag) order wins;
  * sessions it doesn't know about — panels opened after the last drag — append
- * at the end in the default pin-aware order. When `coordinatorSessionId` is set
- * (issue workspace, M6), that session is elevated first so the driver is
- * unambiguous among equal tabs.
+ * at the end in arrival order. When `coordinatorSessionId` is set (issue
+ * workspace, M6), that session is elevated first so the driver is unambiguous
+ * among equal tabs. (Panel-pinning is retired, POD-169 — no pin-aware order.)
  */
 export function orderTabs(
   sessions: SessionMeta[],
   manualOrder: string[] | undefined,
-  pins: PinState,
   coordinatorSessionId?: string | null,
 ): SessionMeta[] {
-  const base = elevateCoordinatorSession(sortSessionsForPins(sessions, pins), coordinatorSessionId)
+  const base = elevateCoordinatorSession(sessions, coordinatorSessionId)
   if (!manualOrder || manualOrder.length === 0) return base
   // Manual drag order wins, but still lift the coordinator to the front so a
   // stale saved order can't bury the designated driver.
@@ -609,20 +612,6 @@ export function sidebarSections(
   const allWorktrees = repoViews.flatMap((repo) =>
     repo.worktrees.map((worktree) => ({ repo, worktree })),
   )
-  // Pinned panels are ordered by agent state (same comparator as the repo
-  // sections) rather than pin-insertion order, so the whole sidebar reads
-  // consistently — needs-you first, working sunk to the bottom.
-  const pinnedPanels = sortSessionsForSidebar(
-    pins.panels
-      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
-      .filter(
-        (session): session is SessionMeta => session !== undefined && !isHeadlessSession(session),
-      ),
-  )
-
-  // A pinned panel still appears in its own repo/worktree list (it's not removed
-  // from there) — pinning lifts a copy into PINNED PANELS for quick reach without
-  // hiding it from its home. The selected highlight lights up in both places.
   const allWorktreePaths = allWorktrees.map(({ worktree }) => worktree.path)
   const sessionOwnership = indexSessionOwnership(sessions, issues, allWorktreePaths)
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
@@ -648,7 +637,6 @@ export function sidebarSections(
 
   return {
     sessionOwnership,
-    pinnedPanels,
     pinnedWorktrees: pins.worktrees
       .map((path) => allWorktrees.find(({ worktree }) => worktree.path === path))
       .filter((item): item is { repo: RepoView; worktree: WorktreeView } => item !== undefined)
@@ -796,14 +784,18 @@ export function nativeSubagentLabel(count: number): string {
 
 /**
  * Human-facing issue linkage for a session row: prefer the permanent birth
- * `displayRef` (e.g. `POD-13-A`), fall back to raw `issueId` when present.
- * Null when the session carries no issue attachment data.
+ * `displayRef` (e.g. `POD-13-A`), then the attached issue's human display ref.
+ * Internal issue IDs are never suitable for display, so return null when
+ * neither human-facing ref is available.
  */
-export function sessionIssueLinkage(s: SessionMeta): string | null {
+export function sessionIssueLinkage(
+  s: SessionMeta,
+  attachedIssueDisplayRef?: string,
+): string | null {
   const ref = s.displayRef?.trim()
   if (ref) return ref
-  const id = s.issueId?.trim()
-  return id || null
+  const issueRef = s.issueId ? attachedIssueDisplayRef?.trim() : undefined
+  return issueRef || null
 }
 
 /**
@@ -1060,11 +1052,15 @@ export function isUnstartedSession(s: SessionMeta): boolean {
   return boot.includes(title) || title === cwdBase
 }
 
-/** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
- *  display name; a still-unstarted session reads "New <kind> session" so a blank
- *  vessel is unmistakable. Mirrors sessionDisplayName's name-beats-title rule
- *  (WorkerLabel imports from this module, so the tiny normalize step is inlined
- *  here rather than imported — no cycle). */
+/** Row label for a DRAFT issue (placeholder-titled vessel): a name someone chose
+ *  for the attached session — a user rename or the agent's own `podium session
+ *  title` — otherwise "New <kind> session" until one arrives.
+ *
+ *  Deliberately NOT the session's live title: that is the harness's OSC terminal
+ *  string, not a name. Claude Code seeds it from its GLOBAL history, so a session
+ *  that has not summarized itself yet surfaces an unrelated older conversation —
+ *  and the vessel row, which is the only place a draft issue is named, would
+ *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
   sessions: SessionMeta[],
@@ -1072,9 +1068,16 @@ export function draftIssueLabel(
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
-  if (isUnstartedSession(first)) return `New ${panelLabel(first.agentKind)} session`
-  const title = first.title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
-  return first.name?.trim() || title || 'New agent'
+  return first.name?.trim() || `New ${panelLabel(first.agentKind)} session`
+}
+
+/** A DRAFT vessel whose only content is its agents: no worktree of its own, no
+ *  title the human chose. It is a session container, not work — its sidebar row
+ *  IS the agent (clicking opens the session, nothing folds out beneath it), so
+ *  it can never parent real work either. Both the nesting decision and the row
+ *  rendering read this one predicate so they cannot drift apart (POD-282). */
+export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionMeta[]): boolean {
+  return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
 }
 
 /** Resolve the user's default agent kind for the unified split button. 'auto' (or
@@ -1316,10 +1319,103 @@ function issueFinishedAt(issue: IssueNavigationModel): number {
   return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
 }
 
+/** Closed human work at the top of an issue tree remains addressable in the
+ * sidebar's project-local disclosure until it is explicitly archived. This is
+ * deliberately narrower than `stage === 'done'`: done children keep the
+ * acknowledgment decay introduced by POD-100. */
+function isClosedTopLevelIssue(issue: IssueWire): boolean {
+  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
+}
+
+/** A private issue branch holding work that never landed on its parent branch.
+ *  The explicit ahead check keeps a never-moved/empty branch out, while
+ *  `merged !== true` reuses the cleanup guard's ancestry verdict.
+ *  Unknown/computing git state stays conservative (not actionable). */
+function issueHasUnmergedDelivery(issue: IssueWire): boolean {
+  const git = issue.gitState
+  return (
+    Boolean(issue.branch) &&
+    git?.shared === false &&
+    git.merged !== true &&
+    (git.ahead ?? 0) > 0
+  )
+}
+
+/** A FINISHED issue whose branch still has unlanded work. */
+export function issueAwaitingMerge(issue: IssueWire): boolean {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  return finished && issueHasUnmergedDelivery(issue)
+}
+
+/** What the human is actually being asked to decide (POD-279). A queue of
+ *  review-stage issues is not one undifferentiated "needs you": most of them
+ *  are a branch waiting to land, and saying so is the difference between
+ *  reading nine rows and reading one word.
+ *
+ *   - `merge`  — the deliverable is commits on a private branch that never
+ *                reached `parentBranch`. The decision IS the merge.
+ *   - `review` — the issue sits in review with nothing to land (a design, doc
+ *                or artifact deliverable, or work already merged): the decision
+ *                is approve / send back.
+ *
+ *  Deliberately derived from stage + git, never from the session offer: an
+ *  offer is consumed by any user turn into that session, so a merge queue that
+ *  depended on it would silently empty itself (same reasoning as the tray's
+ *  review backstop, POD-118). */
+export type IssuePendingDecision = 'merge' | 'review'
+
+export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  if (!finished && issue.stage !== 'review') return null
+  if (issueHasUnmergedDelivery(issue)) return 'merge'
+  // A finished issue with nothing to land is simply done — only an explicit
+  // review stage still holds an open question.
+  return issue.stage === 'review' ? 'review' : null
+}
+
+/** How many commits the merge would land — the one number that makes "ready to
+ *  merge" a fact instead of a label. Absent unless the decision is a merge. */
+export function issuePendingMergeCommits(issue: IssueWire): number {
+  return issuePendingDecision(issue) === 'merge' ? (issue.gitState?.ahead ?? 0) : 0
+}
+
+/** The row's copy for a pending decision, in the handoff's terse grammar
+ *  ("needs answer", "plan ready"). A merge carries the size of the decision as
+ *  a bare count: a sidebar row is ~250px and "· 2 commits" truncates, while
+ *  "· 2" under a branch glyph reads as commits. {@link pendingDecisionTitle}
+ *  spells it out on hover. */
+export function pendingDecisionLabel(
+  issue: IssueWire,
+  decision: IssuePendingDecision = 'review',
+): string {
+  if (decision !== 'merge') return 'needs review'
+  const commits = issuePendingMergeCommits(issue)
+  return commits > 0 ? `ready to merge · ${commits}` : 'ready to merge'
+}
+
+/** The unabbreviated sentence behind {@link pendingDecisionLabel} — hover copy,
+ *  and the accessible name where the row has no room to say it. */
+export function pendingDecisionTitle(
+  issue: IssueWire,
+  decision: IssuePendingDecision = 'review',
+): string {
+  if (decision !== 'merge') return 'Waiting on your review'
+  const commits = issuePendingMergeCommits(issue)
+  const target = issue.parentBranch || 'its parent branch'
+  return commits > 0
+    ? `${commits} commit${commits === 1 ? '' : 's'} ready to land on ${target}`
+    : `Ready to land on ${target}`
+}
+
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
 export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished) return true
+  // POD-183: closed top-level issues visually decay into a fold; they do not
+  // disappear with time. Unread and selected presentation is handled later.
+  if (isClosedTopLevelIssue(issue)) return true
+  // Review/merge is still a human action. It does not decay like shipped work.
+  if (issueAwaitingMerge(issue)) return true
   const finishedAt = issueFinishedAt(issue)
   // Unread keeps a finished row visible only within 7 days of finishing —
   // beyond that it is history, not pending acknowledgment.
@@ -1330,12 +1426,24 @@ export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number):
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
-export function sessionVisibleInSidebar(s: SessionMeta, now: number): boolean {
+export function sessionVisibleInSidebar(s: SessionMeta, now: number, issue?: IssueWire): boolean {
+  const issueFinished =
+    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+  const agentState = s.agentState
+  const idleDone = agentState?.phase === 'idle' && agentState.idle?.kind === 'done'
   const finishedAt =
-    s.stoppedAt ?? (s.agentState?.phase === 'ended' ? s.agentState.since : undefined)
+    s.stoppedAt ??
+    (agentState?.phase === 'ended'
+      ? agentState.since
+      : idleDone && issueFinished
+        ? (issue?.closedAt ?? issue?.updatedAt ?? agentState.since)
+        : undefined)
   if (!finishedAt) return true
-  if (s.unread || !s.readAt) return true
-  const anchor = Math.max(Date.parse(finishedAt) || 0, Date.parse(s.readAt) || 0)
+  const finishedAtMs = Date.parse(finishedAt) || 0
+  if (s.unread || !s.readAt) {
+    return now - finishedAtMs <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
+  }
+  const anchor = Math.max(finishedAtMs, Date.parse(s.readAt) || 0)
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
@@ -1353,21 +1461,34 @@ function buildUnifiedRows(
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
         sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
-          sessionVisibleInSidebar(s, now),
+          sessionVisibleInSidebar(s, now, issue),
         ),
         now,
       ),
       issue.coordinatorSessionId,
     )
-    // Active work requires a session. Sessionless rows are allowed only for
-    // finished MILESTONE CHILDREN (a parent to nest under) inside the unread →
-    // 24h-grace decay window — a sessionless top-level done issue (or the
-    // historical backlog of done issues, unread since before readAt existed)
-    // must never resurface here. [spec:SP-6144]
+    // Once human work has started, retiring its last session must not erase the
+    // issue from the sidebar. Backlog/proposed issues still need execution to
+    // earn a live row; planning/in-progress/review issues carry their own work
+    // lifecycle independently of any particular session. Finished milestone
+    // children, awaiting-merge work, and explicitly closed top-level issues use
+    // their existing completion visibility rules. [spec:SP-6144]
     if (mine.length === 0) {
       const finished = issue.stage === 'done' || issue.closedReason != null
-      if (!finished || !issue.parentId || issue.audience === 'agent') continue
-      if (!issueVisibleInSidebar(issue, now)) continue
+      const activeHumanIssue =
+        issue.audience === 'human' &&
+        (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
+      const awaitingMerge = issueAwaitingMerge(issue)
+      const closedTopLevel = isClosedTopLevelIssue(issue)
+      if (!activeHumanIssue) {
+        if (
+          !finished ||
+          (!awaitingMerge && !closedTopLevel && (!issue.parentId || issue.audience === 'agent'))
+        ) {
+          continue
+        }
+        if (!issueVisibleInSidebar(issue, now)) continue
+      }
     }
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
@@ -1412,29 +1533,9 @@ function buildUnifiedRows(
       parentId = parent.parentId
     }
   }
-  const liveIssueIds = new Set(issues.filter((i) => !i.archived && !i.deletedAt).map((i) => i.id))
-  const seen = new Set<string>()
-  const navWorktrees = [
-    ...sections.pinnedWorktrees,
-    ...sections.pinnedRepos.flatMap((r) => r.worktrees),
-    ...sections.repos.flatMap((r) => r.worktrees),
-  ]
-  for (const wt of navWorktrees) {
-    if (seen.has(wt.path) || wt.issues.length > 0) continue
-    seen.add(wt.path)
-    const unowned = wt.sessions.filter((s) => !(s.issueId && liveIssueIds.has(s.issueId)))
-    if (unowned.length === 0) continue
-    const lastSession = unowned.reduce(
-      (max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0),
-      0,
-    )
-    rows.push({
-      kind: 'worktree',
-      worktree: { ...wt, sessions: unowned },
-      activityAt: lastSession,
-      rank: rowRank(unowned, now),
-    })
-  }
+  // The work sidebar is issue-only. Unattached and orphaned sessions remain
+  // available through session/history surfaces, but a repository branch is
+  // never promoted into a pseudo-issue row (for example "podium · main").
   return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, now, ownership)
 }
 
@@ -1487,9 +1588,12 @@ export function issueIdOwningSession(
 /**
  * Nest top-level agent-started issues under the issue that owns their
  * `startedBySession` (M6 started-by tree). Formal `parentId` edges are left
- * alone — this is provenance grouping, not sub-issue hierarchy. If the starter
- * session or its issue is not in the current sidebar view, the issue stays
- * top-level (never hidden). Cycle-safe.
+ * alone — this is provenance grouping, not sub-issue hierarchy. Spin-offs
+ * (issues with an outgoing `discovered-from` edge) are also left alone: their
+ * provenance renders as the ⤷ origin tick, not nesting (POD-85/POD-117), so
+ * started-by nesting survives only as a fallback for agent-started issues that
+ * carry no explicit edge. If the starter session or its issue is not in the
+ * current sidebar view, the issue stays top-level (never hidden). Cycle-safe.
  */
 export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
@@ -1522,15 +1626,27 @@ export function nestStartedByIssues(
       seenParents.add(parentId)
       parentId = allById.get(parentId)?.parentId
     }
-    if (!parentId && !issue.parentId && issue.startedBySession) {
-      parentId =
-        issueIdOwningSession(
-          issue.startedBySession,
-          sessions,
-          visibleIssues,
-          allWorktreePaths,
-          ownership,
-        ) ?? undefined
+    // A spin-off (outgoing `discovered-from` edge) is deliberately TOP-LEVEL:
+    // the sidebar renders its provenance as the ⤷ origin tick (POD-85), so the
+    // startedBySession fallback must not re-nest it under the origin — which
+    // would also bubble its sessions into the origin's aggregate agent count.
+    const isSpinOff = issue.deps?.some((dep) => dep.type === 'discovered-from')
+    if (!parentId && !issue.parentId && !isSpinOff && issue.startedBySession) {
+      const candidate = issueIdOwningSession(
+        issue.startedBySession,
+        sessions,
+        visibleIssues,
+        allWorktreePaths,
+        ownership,
+      )
+      const candidateRow = candidate ? byId.get(candidate) : undefined
+      // Nesting under a draft vessel ERASES the issue: that row is the agent
+      // itself and renders no children, so the child has no path to the screen.
+      // Provenance is never worth losing the work — a draft keeps its spawned
+      // issues top-level until it becomes real work of its own (POD-282).
+      if (candidateRow && !isDraftAgentVessel(candidateRow.issue, candidateRow.sessions)) {
+        parentId = candidateRow.issue.id
+      }
     }
     if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
     let walk: string | undefined = parentId
@@ -1554,6 +1670,9 @@ export function nestStartedByIssues(
       .map((id) => byId.get(id))
       .filter((child): child is UnifiedIssueRow => child !== undefined)
       .map(attach)
+      // A parent's children are their own sibling scope (POD-168): manual
+      // sortKey order, same comparator as top level.
+      .sort(compareManualOrder)
     const aggregateSessions = [
       ...row.sessions,
       ...children.flatMap((child) => child.aggregateSessions ?? child.sessions),
@@ -1614,16 +1733,34 @@ function compareCreationDesc(a: UnifiedWorkRow, b: UnifiedWorkRow): number {
     : 0
 }
 
+/** Manual order within a band (POD-168, R1): persisted `sortKey` ascending —
+ *  keys are minted above the scope minimum on create, so new-at-top (R2) falls
+ *  out naturally. A keyed row sorts before any unkeyed (legacy) row — a fresh
+ *  issue still lands on top of a scope that predates keys — and unkeyed rows
+ *  keep the old newest-first creation order among themselves. Keys are only
+ *  ever meaningful against SIBLINGS (one key space per scope); cross-scope
+ *  comparisons here are harmless because grouping happens downstream. */
+function compareManualOrder(a: UnifiedWorkRow, b: UnifiedWorkRow): number {
+  if (a.kind === 'issue' && b.kind === 'issue') {
+    const ka = a.issue.sortKey
+    const kb = b.issue.sortKey
+    if (ka && kb && ka !== kb) return ka < kb ? -1 : 1
+    if (ka && !kb) return -1
+    if (!ka && kb) return 1
+  }
+  return compareCreationDesc(a, b)
+}
+
 /** WORK-list order: band asc (pinned/returned top, snoozed bottom — explicit
- *  user actions only), then newest-first creation order. Urgency, activity and
- *  updatedAt deliberately do NOT sort — attention is carried per-row by the
- *  square language / amber pill / motion meta, never by reordering, so rows
- *  hold still while agents work (#64). */
+ *  user actions only), then manual sortKey order (creation-desc fallback).
+ *  Urgency, activity and updatedAt deliberately do NOT sort — attention is
+ *  carried per-row by the square language / amber pill / motion meta, never by
+ *  reordering, so rows hold still while agents work (#64). */
 function sortUnifiedWorkRows(rows: UnifiedWorkRow[], now: number): UnifiedWorkRow[] {
   return [...rows].sort((a, b) => {
     const db = unifiedRowBand(a, now) - unifiedRowBand(b, now)
     if (db !== 0) return db
-    return compareCreationDesc(a, b)
+    return compareManualOrder(a, b)
   })
 }
 
@@ -1656,7 +1793,7 @@ export type WorkingEntry =
   | { kind: 'session'; session: SessionMeta }
 
 export interface UnifiedWorkPartition {
-  /** WORKING rows/sessions, most-recently-active first. */
+  /** WORKING rows/sessions, preserving the unified list's manual row order. */
   working: WorkingEntry[]
   /** The WORK list (banded order), minus whatever moved to WORKING. */
   work: UnifiedWorkRow[]
@@ -1695,10 +1832,6 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number):
   }
 }
 
-function workingEntryActivity(e: WorkingEntry): number {
-  return e.kind === 'session' ? Date.parse(e.session.lastActiveAt) || 0 : e.row.activityAt
-}
-
 /**
  * Split the unified work into a WORKING section (move-out) and the WORK list:
  *   - an issue/worktree whose EVERY member session is working moves whole into
@@ -1709,7 +1842,8 @@ function workingEntryActivity(e: WorkingEntry): number {
  *   - a pinned issue is EXEMPT from move-out: pinning floats it to the top of
  *     WORK, so it stays there whole; when it has any working session it ALSO
  *     appears in WORKING as its row (the one row shown in both places).
- * WORK keeps the banded order; WORKING reads most-recently-active first.
+ * Both partitions preserve the unified list's banded/manual row order. Lifted
+ * standalone sessions retain their deterministic per-row sidebar order.
  */
 export function partitionUnifiedWork(
   sections: SidebarSections,
@@ -1718,7 +1852,10 @@ export function partitionUnifiedWork(
   allWorktreePaths: string[],
   now: number = Date.now(),
 ): UnifiedWorkPartition {
-  const rows = buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now)
+  const rows = sortUnifiedWorkRows(
+    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now),
+    now,
+  )
   const working: WorkingEntry[] = []
   const work: UnifiedWorkRow[] = []
   for (const row of rows) {
@@ -1752,23 +1889,142 @@ export function partitionUnifiedWork(
       work.push(row)
     }
   }
-  working.sort((a, b) => workingEntryActivity(b) - workingEntryActivity(a))
-  return { working, work: sortUnifiedWorkRows(work, now) }
+  return { working, work }
+}
+
+export interface PinnedWorkSplit {
+  /** Pinned issue rows, in banded order — the PINNED section above all groups. */
+  pinned: UnifiedWorkRow[]
+  /** Everything else, ready for {@link groupUnifiedWorkRows}. */
+  rest: UnifiedWorkRow[]
+}
+
+/**
+ * PINNED section split (POD-166, R3): pinned issues MOVE out of their project
+ * group into one section above all groups — Linear-favorites style, move not
+ * copy. Unpinning drops the row back into its group's banded order. Input
+ * order is preserved on both sides (pinned rows already float via band 0, so
+ * the pinned list reads in the same banded creation order).
+ */
+export function splitPinnedWork(rows: UnifiedWorkRow[]): PinnedWorkSplit {
+  const pinned: UnifiedWorkRow[] = []
+  const rest: UnifiedWorkRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'issue' && row.issue.pinned) pinned.push(row)
+    else rest.push(row)
+  }
+  return { pinned, rest }
 }
 
 export interface UnifiedWorkGroup {
   key: string
   label: string
   rows: UnifiedWorkRow[]
+  /** Actively deferred issues hidden behind the project's local disclosure. */
+  snoozedRows: UnifiedIssueRow[]
+  /** Settled top-level closures hidden behind the project's local disclosure. */
+  closedRows: UnifiedIssueRow[]
+}
+
+/** Snoozed issues decay into the project-local fold. Pinned rows have already
+ * been removed before grouping, and a returned-from-defer issue is not
+ * currently snoozed, so both keep their existing top-of-list treatment. */
+export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is UnifiedIssueRow {
+  return row.kind === 'issue' && isIssueSnoozed(row.issue, now)
+}
+
+/** POD-183 / POD-293 fold membership. Live asks outrank structure: needs-you
+ * and awaiting-merge keep their full row. Finished top-level closures offer
+ * "Tuck away" without requiring a read stamp or idle sessions — those gates
+ * were for auto-fold-on-read / auto-bury; manual tuck is the dismiss path.
+ * A selected open finished row stays open until tuck, grace, or focus moves.
+ * Pinned rows are removed before grouping, so pinning also wins. */
+
+/** Has the operator dismissed this finished row into the fold? Read straight off
+ *  the issue (POD-333): `tuckedAt` is SERVER state delivered to every client,
+ *  so a second browser hydrates the same fold and a tuck here folds the row
+ *  there. It used to be a per-browser ui-state key the server never saw. The
+ *  pressing client sees it instantly through the outbox overlay, which paints
+ *  `tuckedAt` over server truth until the mutation lands. */
+function issueTucked(issue: IssueWire): boolean {
+  return issue.tuckedAt != null
+}
+
+/** Finished-issue facts shared by fold membership and the tuck-away control.
+ *  Selection is intentionally NOT here: selecting a done row must keep
+ *  "Tuck away" visible; only fold placement cares about selection. Read and
+ *  working-session state are also not here — closing the issue is enough to
+ *  offer dismiss; an agent still winding down must not hide the control. */
+function finishedIssueSettled(row: UnifiedWorkRow): row is UnifiedIssueRow {
+  if (row.kind !== 'issue') return false
+  const { issue } = row
+  return (
+    isClosedTopLevelIssue(issue) &&
+    !issue.needsHuman &&
+    !issueAwaitingMerge(issue) &&
+    rowWaitingCount(row) === 0
+  )
+}
+
+/** Eligibility for the closed fold BEFORE the operator's dismissal is consulted:
+ *  a settled top-level closure with nothing still asked of the human. */
+function closedFoldEligible(
+  row: UnifiedWorkRow,
+  selectedIssueId: string | null,
+  selectedIssueWasFolded: boolean,
+): row is UnifiedIssueRow {
+  if (!finishedIssueSettled(row)) return false
+  const { issue } = row
+  // A selected closure keeps the lane it occupied when clicked: a settled folded
+  // row stays folded, while an open finished row stays open until focus moves.
+  return issue.id !== selectedIssueId || selectedIssueWasFolded
+}
+
+export function rowInClosedFold(
+  row: UnifiedWorkRow,
+  selectedIssueId: string | null,
+  selectedIssueWasFolded = false,
+  now: number = Date.now(),
+): row is UnifiedIssueRow {
+  if (!finishedIssueSettled(row)) return false
+  // Explicit tuck always folds — even while the row is selected. Lane stickiness
+  // ("selected open stays open until focus moves") only applies to passive
+  // placement (grace auto-fold), not operator dismissal.
+  if (issueTucked(row.issue)) return true
+  if (!closedFoldEligible(row, selectedIssueId, selectedIssueWasFolded)) return false
+  // POD-293: a freshly finished issue no longer drops into the fold the instant
+  // it finishes — it stays a live "done" row carrying the tuck-away control, and
+  // folds only once the operator dismisses it, or after the finished-grace
+  // window tidies it away on its own so the live list can't accrete history.
+  return now - issueFinishedAt(row.issue) > SIDEBAR_FINISHED_GRACE_MS
+}
+
+/** A finished issue held OPEN in the live list for the operator to dismiss
+ *  (POD-293): settled and still inside the grace window, not yet tucked.
+ *  Selection and read state do not hide the control — only tuck or grace does. */
+export function rowAwaitsTuck(
+  row: UnifiedWorkRow,
+  _selectedIssueId: string | null = null,
+  _selectedIssueWasFolded = false,
+  now: number = Date.now(),
+): row is UnifiedIssueRow {
+  if (!finishedIssueSettled(row)) return false
+  return !issueTucked(row.issue) && now - issueFinishedAt(row.issue) <= SIDEBAR_FINISHED_GRACE_MS
 }
 
 /**
  * Bucket unified WORK rows by repo (stable repoId when known, repoPath
  * otherwise — so the same repo on two machines/paths merges into one group).
- * Row order inside a group and group order both follow the incoming fixed
- * creation order: a group sits where its first (newest-created) row would.
+ * Open-row and group order follow the incoming fixed creation order. Closed
+ * rows deliberately ignore manual sort keys: the fold is a small history list,
+ * ordered by the moment of closing, newest first.
  */
-export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[] {
+export function groupUnifiedWorkRows(
+  rows: UnifiedWorkRow[],
+  selectedIssueId: string | null = null,
+  selectedIssueWasFolded = false,
+  now: number = Date.now(),
+): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
   for (const row of rows) {
@@ -1782,26 +2038,24 @@ export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[]
         row.kind === 'worktree'
           ? row.worktree.repoName
           : row.issue.repoPath.split('/').pop() || row.issue.repoPath
-      group = { key, label, rows: [] }
+      group = { key, label, rows: [], snoozedRows: [], closedRows: [] }
       byKey.set(key, group)
       groups.push(group)
     }
-    group.rows.push(row)
+    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded, now)) {
+      group.closedRows.push(row)
+    } else if (rowInSnoozedFold(row, now)) {
+      group.snoozedRows.push(row)
+    } else group.rows.push(row)
+  }
+  for (const group of groups) {
+    group.closedRows.sort((a, b) => issueFinishedAt(b.issue) - issueFinishedAt(a.issue))
   }
   return groups
 }
 
 function orderMap(ids: string[]): Map<string, number> {
   return new Map(ids.map((id, index) => [id, index]))
-}
-
-function comparePinned(leftId: string, rightId: string, order: Map<string, number>): number {
-  const leftOrder = order.get(leftId)
-  const rightOrder = order.get(rightId)
-  if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder
-  if (leftOrder !== undefined) return -1
-  if (rightOrder !== undefined) return 1
-  return 0
 }
 
 export interface AgentBadge {
@@ -1812,7 +2066,16 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionMeta): AgentBadge | null {
+export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | null {
+  // An offer is an explicit pending decision even when the turn that produced
+  // it has already classified as idle/done. Keep every status surface (session
+  // dot, sidebar meta, chat activity) amber until that offer is cleared —
+  // except on a finished issue, where the close retired the decision (POD-290).
+  const issueFinished =
+    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+  if (meta.offer && !issueFinished) {
+    return { label: 'waiting on decision', tone: 'attention', showContinue: false }
+  }
   const s = meta.agentState
   if (!s || s.phase === 'unknown') return null
   switch (s.phase) {
@@ -1861,18 +2124,24 @@ export interface ChatActivity {
  * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
  * `busy` signal for uninstrumented kinds; and shows an optimistic "Sending…"
  * immediately after a submit (`justSent`) before the first `working` event lands.
+ *
+ * A parked process (hibernated/exited) cannot be working, however fresh the
+ * preserved `working` phase — the header already says so, and the activity row
+ * must not contradict it. Last-state *attention* labels are kept: a parked
+ * "needs answer" is still true and worth surfacing. [spec:SP-8b0e]
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
   justSent: boolean,
 ): ChatActivity | null {
   if (!meta) return null
+  const parked = meta.status === 'hibernated' || meta.status === 'exited'
   const badge = agentBadge(meta)
-  if (badge?.tone === 'working') {
+  if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
-  if (!meta.agentState && meta.busy) return { label: 'Working…', tone: 'working' }
+  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending…', tone: 'working' }
   return null
 }
@@ -1890,11 +2159,14 @@ export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
  * The status-dot tone for a session row/tab/card — the single source of truth
  * for agent colour, shared by every mode so the semantics never drift.
  *
- * Hibernated sessions KEEP their last real status colour: the server preserves
- * `agentState` across a hibernate (the kill is the expected result, so `onExit`
- * leaves the phase intact), so a hibernated agent that "needs input" still reads
- * yellow. Hibernation is conveyed only by the grayed/italic `.dot.parked` row, not
- * by draining the dot to grey.
+ * Hibernated sessions KEEP their last *attention-worthy* status colour: the
+ * server preserves `agentState` across a hibernate (the kill is the expected
+ * result, so `onExit` leaves the phase intact), so a hibernated agent that
+ * "needs input" still reads yellow. Hibernation is conveyed only by the
+ * grayed/italic `.dot.parked` row, not by draining the dot to grey. The one
+ * exception is `working`: a parked process cannot be working, however fresh
+ * its preserved phase, so a hibernated "working" session reads ready (blue)
+ * — matching `attentionGroup`, which already treats it as idle. [spec:SP-8b0e]
  */
 export function sessionDotTone(s: SessionMeta): DotTone {
   // Exited (process gone, phase cleared server-side): no live status colour.
@@ -1905,7 +2177,7 @@ export function sessionDotTone(s: SessionMeta): DotTone {
   if (badge) {
     switch (badge.tone) {
       case 'working':
-        return 'working'
+        return s.status === 'hibernated' ? 'ready' : 'working'
       case 'attention':
         return 'attention'
       case 'error':
@@ -1962,20 +2234,38 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
 /**
  * Collapse harness phase + shell busyness + liveness into the motion phase.
  * Kept in lock-step with the existing grammar: `waiting` is exactly
- * `attentionGroup === 'needsYou'` (question/permission/error/open todos —
+ * `attentionGroup === 'needsYou'` (offer/question/permission/error/open todos —
  * hibernated sessions keep their last phase, so a parked "needs input" still
  * reads amber), and `working` is exactly `isSessionWorking` (the green-dot
  * predicate). A finished run (`idle.kind === 'done'` or `ended`) is `done`;
  * starting/exited/uninstrumented-quiet sessions fall through to `queued`.
  */
-export function motionPhase(s: SessionMeta): MotionPhase {
+export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   const state = s.agentState
+  // Offers outlive the turn that created them, so attention must win over the
+  // transcript's terminal idle/done verdict — unless the owning issue is already
+  // finished. Closing retires offers server-side (POD-290); this guard also
+  // drops historical stale offers so a closed row cannot keep demanding a
+  // decision. Open review work still counts.
+  if (attentionGroup(s) === 'needsYou') {
+    const finished =
+      issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
+  }
   if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
     return 'done'
   }
-  if (attentionGroup(s) === 'needsYou') return 'waiting'
   if (isSessionWorking(s)) return 'working'
   return 'queued'
+}
+
+/** True when attention would still be needsYou even without a standing offer —
+ *  questions, permissions, errors, open todos. Used so a finished issue only
+ *  ignores offer-driven attention, not a real live need. */
+function hasNonOfferNeedsYou(s: SessionMeta): boolean {
+  if (!s.offer) return attentionGroup(s) === 'needsYou'
+  const withoutOffer = { ...s, offer: undefined }
+  return attentionGroup(withoutOffer) === 'needsYou'
 }
 
 /** Canonical timer inputs derived from one session's persisted runtime state.
@@ -2013,9 +2303,11 @@ export function formatClock(ms: number): string {
  * human-relevant of its member sessions' phases. `waiting` dominates (stillness
  * is the signal — a row that needs you must read amber even while other agents
  * grind on), then `working`, then `done` when every member finished; a row
- * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
+ * whose sessions are merely idle/ready reads motion `queued` (dimmed stillness
+ * — status copy surfaces this as "idle", not "queued").
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
+  if (row.kind === 'issue' && pendingDecisionStats(row).count > 0) return 'waiting'
   const sessions = rowSessions(row)
   if (
     sessions.length === 0 &&
@@ -2024,13 +2316,16 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   ) {
     return 'done'
   }
-  return aggregateMotionPhase(sessions)
+  return aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member
- *  session set — for squares fed by resolved issue member sessions (#65 right rail). */
-export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
-  const phases = sessions.map(motionPhase)
+ *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
+export function aggregateMotionPhase(
+  sessions: SessionMeta[],
+  issue?: IssueNavigationModel,
+): MotionPhase {
+  const phases = sessions.map((s) => motionPhase(s, issue))
   if (phases.includes('waiting')) return 'waiting'
   if (phases.includes('working')) return 'working'
   if (phases.length > 0 && phases.every((p) => p === 'done')) return 'done'
@@ -2038,21 +2333,139 @@ export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
 }
 
 /** How many member sessions are waiting on the human — drives the amber count
- *  pill on wide rows and the numbered corner badge on rail squares (#41). */
+ *  pill on wide rows and the numbered corner badge on rail squares (#41).
+ *  Issue rows count their `aggregateSessions` (via {@link rowSessions}), so the
+ *  pill sums needs-you across the WHOLE branch — visible children and rolled-up
+ *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
-  return rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+  const issue = row.kind === 'issue' ? row.issue : undefined
+  const sessions = rowSessions(row).filter((s) => motionPhase(s, issue) === 'waiting').length
+  return sessions + (row.kind === 'issue' ? pendingDecisionStats(row).count : 0)
+}
+
+/**
+ * The decision this ROW is waiting on, if any (POD-279). Issue-level classification
+ * plus the one piece of context the issue itself can't see: a review-stage issue
+ * whose own agent is running again (sent back, follow-up turn) is not waiting on
+ * the human — its decision returns when the turn settles. A finished issue keeps
+ * its awaiting-merge reading regardless, since nothing is going to re-decide it.
+ */
+export function rowPendingDecision(row: UnifiedIssueRow): IssuePendingDecision | null {
+  const decision = issuePendingDecision(row.issue)
+  if (decision === null) return null
+  const finished = row.issue.stage === 'done' || row.issue.closedReason != null
+  if (!finished && row.sessions.some(isSessionWorking)) return null
+  return decision
+}
+
+/** Count issues awaiting a human decision in a visible row's full formal subtree
+ *  and find the oldest anchor for the static waiting-age stamp. Cycle-safe. */
+function pendingDecisionStats(row: UnifiedIssueRow): { count: number; sinceMs?: number } {
+  let count = 0
+  let sinceMs: number | undefined
+  const seen = new Set<string>()
+  const stack: UnifiedIssueRow[] = [row]
+  while (stack.length > 0) {
+    const current = stack.pop() as UnifiedIssueRow
+    if (seen.has(current.issue.id)) continue
+    seen.add(current.issue.id)
+    if (rowPendingDecision(current) !== null) {
+      count += 1
+      // Finished work anchors on closedAt; a review-stage issue has no closure
+      // stamp, so its last update is when it came to rest asking.
+      const at = issueFinishedAt(current.issue)
+      if (at > 0 && (sinceMs === undefined || at < sinceMs)) sinceMs = at
+    }
+    for (const child of current.startedByChildren ?? []) stack.push(child)
+  }
+  return { count, ...(sinceMs !== undefined ? { sinceMs } : {}) }
+}
+
+/** Roll-up stats for a subtree hidden behind the sidebar's depth cap (POD-100
+ *  L4): every non-archived descendant of `rootId` via formal parentId edges —
+ *  including done children that already decayed out of their own rows, since
+ *  history is the k/m, not rows (L5). Cycle-safe. */
+export function branchRollup(
+  issues: readonly IssueWire[],
+  rootId: string,
+): { total: number; done: number } {
+  const childrenOf = new Map<string, IssueWire[]>()
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || !issue.parentId) continue
+    const list = childrenOf.get(issue.parentId) ?? []
+    list.push(issue)
+    childrenOf.set(issue.parentId, list)
+  }
+  let total = 0
+  let done = 0
+  const seen = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    for (const child of childrenOf.get(id) ?? []) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      total += 1
+      if (child.stage === 'done' || child.closedReason != null) done += 1
+      stack.push(child.id)
+    }
+  }
+  return { total, done }
+}
+
+/** The deepest descendant row whose OWN sessions include one waiting on the
+ *  human — the source the parent's sub-line whispers when depth would otherwise
+ *  hide a request ('deep: POD-224 needs you', POD-100 L3). Depth is relative to
+ *  `row` (1 = direct child). Null when no descendant is waiting. */
+export function deepAttentionSource(
+  row: UnifiedIssueRow,
+): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
+  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null = null
+  const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
+  while (stack.length > 0) {
+    const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
+    const kind =
+      rowPendingDecision(r) ??
+      (r.sessions.some((s) => motionPhase(s, r.issue) === 'waiting') ? 'session' : null)
+    if (depth > 0 && kind !== null) {
+      // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
+      // later sibling deterministically; any deepest source serves the whisper.
+      if (best === null || depth >= best.depth) best = { issue: r.issue, depth, kind }
+    }
+    for (const child of r.startedByChildren ?? []) stack.push({ row: child, depth: depth + 1 })
+  }
+  return best
+}
+
+/** Is any session waiting within `depth` levels of `row` (0 = own sessions
+ *  only)? Distinguishes a visible yellow (the child row explains itself) from
+ *  one hidden behind the roll-up (the parent must whisper the source). */
+function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
+  if (row.sessions.some((s) => motionPhase(s, row.issue) === 'waiting')) return true
+  if (rowPendingDecision(row) !== null) return true
+  if (depth <= 0) return false
+  return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
 }
 
 /**
  * The row's second line (#41): a compact status phrase in the handoff's copy
  * grammar. Waiting rows surface WHAT is being waited for (the most urgent
- * session's badge label — "needs answer", "plan ready"); working/queued/done
- * rows read as their phase; multi-agent rows carry the head-count.
+ * session's badge label — "needs answer", "plan ready"); working/done rows
+ * read as their phase; multi-agent rows carry the head-count. Quiet rows
+ * (motion bucket `queued` — dimmed stillness, nothing working or needing you)
+ * read **idle**, never "queued": "queued" sounds like pending work and
+ * confused temporary pinned desks that were simply done for now.
  */
-export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): string {
+export function rowStatusLine(
+  row: UnifiedWorkRow,
+  now: number = Date.now(),
+  /** How many descendant levels render beneath this row (POD-100 L4 cap):
+   *  1 for a top-level row (children visible), 0 for a depth-capped child. */
+  visibleDepth: number = 1,
+): string {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
-  // A draft vessel whose sessions were never prompted isn't "queued" work —
+  // A draft vessel whose sessions were never prompted isn't idle work —
   // nothing was asked yet. Say so instead of the phase word.
   if (
     row.kind === 'issue' &&
@@ -2064,21 +2477,49 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
     return 'awaiting first prompt'
   }
   const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
-  const progress =
-    row.kind === 'issue' && row.issue.childCount > 0
-      ? ` · ${row.issue.childDoneCount}/${row.issue.childCount} done`
-      : ''
+  // Child progress speaks of subtasks, not a bare "N/M done" — appended to the
+  // phase word that used to read "done · 0/1 done" (POD-85).
+  const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
+  const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
+    if (row.kind === 'issue') {
+      const decision = rowPendingDecision(row)
+      if (decision !== null) {
+        return `${head}${pendingDecisionLabel(row.issue, decision)}${progress}`
+      }
+    }
+    // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
+    // hidden behind the depth cap — no visible row explains the pill, so the
+    // sub-line names the deepest source instead of a bare "needs you".
+    if (row.kind === 'issue') {
+      const deep = deepAttentionSource(row)
+      if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
+        const own = row.sessions.some(isSessionWorking) ? 'working · ' : ''
+        const request =
+          deep.kind === 'session' ? 'needs you' : pendingDecisionLabel(deep.issue, deep.kind)
+        return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
+      }
+    }
+    const issue = row.kind === 'issue' ? row.issue : undefined
     const urgent = mostUrgentSession(
-      sessions.filter((s) => motionPhase(s) === 'waiting'),
+      sessions.filter((s) => motionPhase(s, issue) === 'waiting'),
       now,
     )
-    const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
+    const label = urgent ? (agentBadge(urgent, issue)?.label ?? 'needs you') : 'needs you'
     return head + label + progress
   }
   if (phase === 'working') return head + 'working' + progress
-  if (phase === 'done') return head + 'done' + progress
-  return head + 'queued' + progress
+  if (phase === 'done') {
+    // A parent whose own sessions are done but whose subtasks aren't is not
+    // "done" — the open subtasks ARE its status.
+    if (children && children.childDoneCount < children.childCount) {
+      return head + `${children.childDoneCount}/${children.childCount} subtasks done`
+    }
+    return head + 'done'
+  }
+  // Motion still uses the `queued` bucket for dim stillness; the human-facing
+  // word is idle — quiet, not waiting in line.
+  return head + 'idle' + progress
 }
 
 /**
@@ -2104,8 +2545,15 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
     }
   }
   if (phase === 'waiting') {
-    const anchor = earliest(sessions.filter((s) => motionPhase(s) === 'waiting'))
-    if (anchor) return { phase, sinceMs: since(anchor) }
+    const issue = row.kind === 'issue' ? row.issue : undefined
+    const anchor = earliest(sessions.filter((s) => motionPhase(s, issue) === 'waiting'))
+    if (anchor) {
+      return { phase, sinceMs: Date.parse(anchor.offer?.createdAt ?? '') || since(anchor) }
+    }
+    if (row.kind === 'issue') {
+      const pending = pendingDecisionStats(row)
+      if (pending.sinceMs !== undefined) return { phase, sinceMs: pending.sinceMs }
+    }
   }
   if (phase === 'done') {
     const totals = sessions

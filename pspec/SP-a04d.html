@@ -1,0 +1,4 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-a04d] -->
+<section data-spec="SP-a04d" data-title="Per-session CLI theme seeding: Podium setting, default ON" data-parent="SP-root" data-order="11" data-status="draft" data-updated="1784062878726">
+Podium seeds spawned native agent CLIs with per-session OFFICIAL theme flags so their rendering follows the terminal's (issue-tinted) colours: Claude Code gets --settings '{"theme":"auto"}' (it then OSC-11-queries the xterm background); Codex gets its tui theme config override as appropriate. Gated by an explicit, provider-aware Podium setting, DEFAULT ON, with an opt-out; disabling it preserves the user's native CLI theme behaviour exactly (no flags passed). Podium must NEVER mutate a user's global CLI config (~/.claude, ~/.codex) for theming. (Till via coordinator, 2026-07-14)
+</section>

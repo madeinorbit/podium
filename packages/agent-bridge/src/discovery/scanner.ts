@@ -165,11 +165,25 @@ async function scanAgentConversationsCachedInternal(
         diagnostics,
       })
 
+      // Targeted refresh: only list roots that actually contain a dirty path.
+      // Listing is not free (opencode's listRoot probes the CLI and opens its
+      // SQLite db), so an unrelated provider must do zero work here (POD-192).
+      const activeRoots = internal.onlyPaths
+        ? roots.filter((root) => anyPathWithinRoot(internal.onlyPaths as ReadonlySet<string>, root))
+        : roots
+
       await Promise.all(
-        roots.map(async (root) => {
+        activeRoots.map(async (root) => {
           let listing: Awaited<ReturnType<ConversationProvider['listRoot']>>
           try {
-            listing = await provider.listRoot(root)
+            // Targeted refresh on a provider whose listing metadata is derivable
+            // from the path alone (POD-196): skip the full root walk and list
+            // just the dirty paths. Providers with sibling-derived listing state
+            // (no listPathsWithinRoot) keep the full walk.
+            listing =
+              internal.onlyPaths && provider.listPathsWithinRoot
+                ? provider.listPathsWithinRoot(root, [...internal.onlyPaths])
+                : await provider.listRoot(root)
           } catch (cause) {
             diagnostics.push({
               severity: 'error',
@@ -352,6 +366,14 @@ function compareStrings(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
   return 0
+}
+
+function anyPathWithinRoot(paths: ReadonlySet<string>, root: string): boolean {
+  const prefix = root.endsWith(sep) ? root : root + sep
+  for (const path of paths) {
+    if (path.startsWith(prefix)) return true
+  }
+  return false
 }
 
 function memoizeCanonicalPath(): (path: string) => Promise<string> {

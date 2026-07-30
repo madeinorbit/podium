@@ -20,6 +20,7 @@ export function MachineContextRow({
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       <div className="transcript-body py-0.5">
         <button
+          data-pressable
           type="button"
           className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
           onClick={() => setOpen((v) => !v)}

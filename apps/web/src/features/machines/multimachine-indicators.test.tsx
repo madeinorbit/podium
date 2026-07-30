@@ -7,7 +7,7 @@
  *  - Quota: the overlay groups by machine so two accounts are both visible.
  */
 import type { MachineQuotaWire } from '@podium/protocol'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
@@ -146,6 +146,37 @@ describe('memory chip is machine-aware', () => {
 })
 
 describe('quota overlay groups by account', () => {
+  it('shows a scoped header meter for each usable subscription', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 98)
+    mixed.agents.push({
+      agent: 'codex',
+      status: 'ok',
+      account: { email: 'codex@example.com', plan: 'plus' },
+      windows: [
+        { key: 'weekly', label: 'Weekly', usedPercent: 10, resetsAt: '', windowMinutes: 10080 },
+      ],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Agent quota: Claude Code \(claude@example.com\) 98% used; Codex \(codex@example.com\) 10% used/i,
+    })
+    expect(within(chip).getByText('CC')).toBeTruthy()
+    expect(within(chip).getByText('CX')).toBeTruthy()
+    const meters = chip.querySelectorAll<HTMLElement>('.header-quota-meter > span')
+    expect(meters).toHaveLength(2)
+    expect(meters[0]?.style.width).toBe('98%')
+    expect(meters[1]?.style.width).toBe('10%')
+    expect(meters[0]?.className).toContain('bg-destructive')
+    expect(meters[1]?.className).toContain('bg-success')
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('1 constrained · 1 healthy')).toBeTruthy())
+  })
+
   it('shows a card per distinct account, each labeled with its email + machine', async () => {
     quotaSummary.mockResolvedValue([
       machineQuota('podium-host', 'podium-host', 'podium-host', 'lud@example.com', 30),
@@ -178,6 +209,112 @@ describe('quota overlay groups by account', () => {
 
     await waitFor(() => expect(screen.getByText('Fable')).toBeTruthy())
     expect(screen.getByText(/83%/)).toBeTruthy()
+  })
+
+  // POD-271: a spent model bucket must not paint the pool red — the harness
+  // falls back onto the limits that actually gate work.
+  it('meters the gating limits and rails the model buckets separately', async () => {
+    const quota = machineQuota('solo', 'solo', 'solo', 'solo@example.com', 7)
+    const agent = quota.agents[0]
+    if (!agent) throw new Error('fixture')
+    agent.windows = [
+      { key: 'session', label: '5-hour', usedPercent: 7, resetsAt: '', windowMinutes: 300 },
+      { key: 'weekly-all', label: 'Weekly', usedPercent: 54, resetsAt: '', windowMinutes: 10080 },
+      {
+        key: 'weekly-scoped:model:fable',
+        label: 'Fable',
+        usedPercent: 100,
+        resetsAt: '',
+        windowMinutes: 10080,
+        scopeModel: 'Fable',
+      },
+    ]
+    quotaSummary.mockResolvedValue([quota])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Agent quota: Claude Code \(solo@example\.com\) 54% used, Fable 100% used/i,
+    })
+    // The meter reports the worst GATING window (weekly 54%), not Fable's 100%.
+    const meter = chip.querySelector<HTMLElement>('.header-quota-meter > span')
+    expect(meter?.style.width).toBe('54%')
+    expect(meter?.className).toContain('bg-success')
+    // Fable gets its own rail segment, and that one is red.
+    const rail = chip.querySelectorAll<HTMLElement>('.header-quota-rail-seg > span')
+    expect(rail).toHaveLength(1)
+    expect(rail[0]?.className).toContain('bg-destructive')
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('Fable spent · rest lasts')).toBeTruthy())
+    expect(
+      screen.getByText(/Fable is spent — Claude Code falls back to the models the shared pool/),
+    ).toBeTruthy()
+  })
+
+  it('renders no fallback rail for a harness with only gating limits', async () => {
+    quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    expect(chip.querySelectorAll('.header-quota-rail')).toHaveLength(0)
+    expect(chip.querySelectorAll('.header-quota-meter')).toHaveLength(1)
+  })
+
+  // POD-318: the number is the readout the 30px meter can't give — and it is the
+  // only thing that takes signal colour, so its tone must track the threshold.
+  it('prints each pool percentage and tones it at the warn/crit thresholds', async () => {
+    quotaSummary.mockResolvedValue([
+      {
+        machineId: 'solo',
+        machineName: 'solo',
+        hostname: 'solo',
+        agents: [
+          {
+            agent: 'claude-code' as const,
+            status: 'ok' as const,
+            account: { email: 'a@example.com', plan: 'max' },
+            windows: [
+              { key: '5h', label: '5-hour', usedPercent: 62, resetsAt: '', windowMinutes: 300 },
+            ],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+          {
+            agent: 'codex' as const,
+            status: 'ok' as const,
+            account: { email: 'b@example.com', plan: 'pro' },
+            windows: [
+              { key: 'wk', label: 'Weekly', usedPercent: 94, resetsAt: '', windowMinutes: 10080 },
+            ],
+            fetchedAt: '2026-07-07T00:00:00.000Z',
+          },
+        ],
+      },
+    ])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    const read = (mark: string) => {
+      const pool = [...chip.querySelectorAll('.header-quota-pool')].find(
+        (p) => p.querySelector('.header-mark')?.textContent === mark,
+      )
+      const value = pool?.querySelector<HTMLElement>('.header-value')
+      return { text: value?.textContent, tone: value?.dataset.tone }
+    }
+    expect(read('CC')).toEqual({ text: '62%', tone: 'ok' })
+    expect(read('CX')).toEqual({ text: '94%', tone: 'crit' })
+  })
+})
+
+// POD-318: Base UI flags the trigger `data-popup-open` for the HOVER preview
+// too, so pinned needs its own marker — without it a panel you clicked open
+// renders exactly like one you merely pointed at.
+describe('header chips mark a pinned panel apart from a hover preview', () => {
+  it('sets data-pinned only once the chip is clicked', async () => {
+    quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
+    render(<QuotaIndicator header />)
+    const chip = await screen.findByRole('button', { name: /agent quota/i })
+    expect(chip.hasAttribute('data-pinned')).toBe(false)
+    fireEvent.click(chip)
+    await waitFor(() => expect(chip.hasAttribute('data-pinned')).toBe(true))
   })
 })
 

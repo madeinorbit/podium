@@ -116,6 +116,31 @@ async function enterHarnessWorkspace(page: Page): Promise<void> {
   await expect(page.getByTestId('native-tab-strip')).toBeVisible({ timeout: 20_000 })
 }
 
+test('Cmd+W is consumed for a locked session tab', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openAppBare(page)
+  await enterHarnessWorkspace(page)
+
+  const strip = page.getByTestId('native-tab-strip')
+  const activeTab = strip.locator('[data-session]').first()
+  await expect(activeTab).toBeVisible({ timeout: 30_000 })
+  const activeId = await activeTab.getAttribute('data-session')
+
+  const closeHandled = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __PODIUM_CLOSE_TAB__?: () => boolean
+        }
+      ).__PODIUM_CLOSE_TAB__?.() ?? false,
+  )
+
+  expect(closeHandled).toBe(true)
+  await page.waitForTimeout(500)
+  await expect(strip.locator(`[data-session="${activeId}"]`)).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Close this session?' })).toHaveCount(0)
+})
+
 /** Create an issue with real work through the board composer ("Start work
  *  now" spawns its session) and return its sidebar row. Owning the workspace
  *  keeps the test deterministic — the sidebar's top row shifts with whatever
@@ -227,6 +252,7 @@ test('tab strip, chrome and terminal are context-tinted; tabs carry the status g
       { timeout: 15_000 },
     )
     .toBe('inset')
+
   const tabShadow = await activeTab.evaluate((el) => getComputedStyle(el).boxShadow)
   expect(tabShadow).toContain(ctx.rgb)
   const dot = activeTab.locator('.tab-issue-dot').first()

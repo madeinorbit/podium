@@ -6,20 +6,26 @@ import { useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { HealthPopover } from './HealthPopover'
+import { QuotaPanel } from './QuotaPanel'
 import {
   type AccountQuotaGroup,
   agentLabel,
+  agentShortLabel,
   formatReset,
   groupQuotaByAccount,
+  modelLimitNote,
   paceHint,
   paceLabel,
   percentTone,
   type QuotaPace,
   type QuotaTone,
+  splitQuotaWindows,
   statusNote,
   toneBarClass,
   windowElapsedPercent,
   windowPace,
+  windowScopeModel,
 } from './quota'
 
 // Severity → status-strip colors, matching the host memory glyph's contract
@@ -37,24 +43,43 @@ const PACE: Record<QuotaPace, string> = {
   hot: 'text-destructive',
 }
 
-/** Highest window utilization across all `ok` accounts — the at-a-glance signal. */
+/**
+ * Highest *gating* window utilization across all `ok` accounts — the
+ * at-a-glance "can I still work" signal. Model-scoped windows are excluded on
+ * purpose: spending one drops a model, not the harness (POD-271).
+ */
 function worstPercent(groups: AccountQuotaGroup[]): number {
   let worst = 0
   for (const g of groups) {
     if (g.status !== 'ok') continue
-    for (const w of g.windows) worst = Math.max(worst, w.usedPercent)
+    for (const w of splitQuotaWindows(g.windows).gating) worst = Math.max(worst, w.usedPercent)
   }
   return worst
 }
 
-/** The most-consumed window with its account — drives the inline status-bar label. */
+/** One independently usable quota pool: its gating meter plus its model buckets. */
+interface QuotaPool {
+  group: AccountQuotaGroup
+  percent: number
+  models: AccountQuotaGroup['windows']
+}
+
+function quotaPools(groups: AccountQuotaGroup[]): QuotaPool[] {
+  return groups.flatMap((group) => {
+    if (group.status !== 'ok' || group.windows.length === 0) return []
+    const { gating, models } = splitQuotaWindows(group.windows)
+    return [{ group, percent: Math.max(...gating.map((w) => w.usedPercent)), models }]
+  })
+}
+
+/** The most-consumed gating window with its account — drives the inline status-bar label. */
 function worstWindow(
   groups: AccountQuotaGroup[],
 ): { g: AccountQuotaGroup; w: AccountQuotaGroup['windows'][number] } | null {
   let hit: { g: AccountQuotaGroup; w: AccountQuotaGroup['windows'][number] } | null = null
   for (const g of groups) {
     if (g.status !== 'ok') continue
-    for (const w of g.windows) {
+    for (const w of splitQuotaWindows(g.windows).gating) {
       if (!hit || w.usedPercent > hit.w.usedPercent) hit = { g, w }
     }
   }
@@ -63,9 +88,10 @@ function worstWindow(
 
 /**
  * Agent-quota status item. Lives in the host status strip (HostIndicators),
- * beside the memory and connection glyphs — a gauge icon + a severity-tinted
- * fullness bar of the most-consumed plan window across every account.
- * Hover shows the per-account summary; click opens the full per-window breakdown.
+ * beside the memory and connection glyphs — a compact labeled meter for each
+ * independently usable quota pool, so one constrained plan does not make every
+ * subscription look spent. Hover shows the per-account summary; click pins the
+ * full per-window breakdown.
  * Rate limits are per-account, so the breakdown is grouped by account (with the
  * machine[s] each is used on) and deduped — never the same limit twice. Distinct
  * from Usage & analytics (transcript-harvested token cost) — this is plan
@@ -77,7 +103,8 @@ export function QuotaIndicator({
   header = false,
 }: {
   compact?: boolean
-  /** Use the 44px desktop-header label + 34×3.5px meter treatment. */
+  /** 44px desktop-header treatment: label + scoped per-pool mini-meters whose
+   *  hover previews the quota panel and whose click pins the full breakdown. */
   header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
@@ -115,38 +142,113 @@ export function QuotaIndicator({
   const tone = TONE[percentTone(worst)]
   const worstW = worstWindow(groups)
 
+  // Desktop 44px header: hover previews the panel, click pins the breakdown —
+  // no tooltip, no modal (POD-173). Other placements keep the legacy pair.
+  if (header) {
+    const pools = quotaPools(groups)
+    const poolSummary = pools
+      .map(({ group, percent, models }) => {
+        const account = group.account?.email ? ` (${group.account.email})` : ''
+        // Each model bucket is named in the label — the rail segment is the
+        // glance, this is what a screen reader reads out.
+        const scoped = models
+          .map((w) => `, ${windowScopeModel(w)} ${Math.round(w.usedPercent)}% used`)
+          .join('')
+        return `${agentLabel(group.agent)}${account} ${Math.round(percent)}% used${scoped}`
+      })
+      .join('; ')
+    return (
+      <HealthPopover
+        trigger={
+          <button
+            data-pressable
+            type="button"
+            className="header-quota-chip"
+            aria-label={poolSummary ? `Agent quota: ${poolSummary}` : 'Agent quota'}
+          >
+            {/* A group label, not a fourth pool: it names the marks to its
+                right, so it sits a tier above them in the mono ramp. */}
+            <span className="header-quota-label">quota</span>
+            <span className="header-quota-pools" role="presentation">
+              {pools.map(({ group, percent, models }) => {
+                const poolKey = percentTone(percent)
+                const poolTone = TONE[poolKey]
+                const meter = (
+                  <span className="header-meter header-quota-meter">
+                    <span
+                      className={cn('block h-full', poolTone.fill)}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </span>
+                )
+                return (
+                  <span key={group.key} className="header-quota-pool">
+                    <span className="header-mark">{agentShortLabel(group.agent)}</span>
+                    {/* The fallback rail exists only for a pool that reports
+                        model-scoped buckets — a single-quota harness renders
+                        exactly the meter it always has. */}
+                    {models.length === 0 ? (
+                      meter
+                    ) : (
+                      <span className="header-quota-stack">
+                        {meter}
+                        <span className="header-quota-rail">
+                          {models.map((w) => (
+                            <span key={w.key} className="header-quota-rail-seg">
+                              <span
+                                className={cn(
+                                  'block h-full',
+                                  TONE[percentTone(w.usedPercent)].fill,
+                                )}
+                                style={{ width: `${Math.min(100, Math.max(0, w.usedPercent))}%` }}
+                              />
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    )}
+                    {/* 30px of meter is ~3% per pixel; the number is what tells
+                        you a pool is at 78 rather than 62. */}
+                    <span className="header-value" data-tone={poolKey}>
+                      {Math.round(percent)}%
+                    </span>
+                  </span>
+                )
+              })}
+            </span>
+          </button>
+        }
+      >
+        {(pinned) => <QuotaPanel groups={groups} pinned={pinned} now={Date.now()} />}
+      </HealthPopover>
+    )
+  }
+
   return (
     <>
       <Tooltip>
         <TooltipTrigger
           render={
             <button
+              data-pressable
               type="button"
               className={cn(
                 'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
                 compact && cn('min-w-[30px] justify-center px-1', tone.compact),
-                header && 'header-quota-chip',
               )}
               aria-label="Agent quota — click for the breakdown"
               onClick={() => setOpen(true)}
             >
-              {header ? (
-                <span>quota</span>
-              ) : (
-                <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
-              )}
+              <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
               {!compact && (
                 <span
-                  className={cn(
-                    'overflow-hidden rounded-sm bg-secondary',
-                    header ? 'h-[3.5px] w-[34px]' : 'h-1 w-9',
-                  )}
+                  className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
                   role="presentation"
                 >
                   <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
                 </span>
               )}
-              {!compact && !header && detail && worstW && (
+              {!compact && detail && worstW && (
                 <span className="whitespace-nowrap text-[#6c6c78]">
                   {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
                   {formatReset(worstW.w.resetsAt, Date.now())}
@@ -209,6 +311,7 @@ function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Elem
  *  on, then either the per-window bars (ok) or a short status note. */
 function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
   const now = Date.now()
+  const { gating, models } = splitQuotaWindows(g.windows)
   return (
     <div className="rounded-md border border-border px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -231,9 +334,22 @@ function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
         <div className="mt-1.5 text-xs text-muted-foreground/70">{statusNote(g)}</div>
       ) : (
         <div className="mt-2 flex flex-col gap-2">
-          {g.windows.map((w) => (
+          {gating.map((w) => (
             <QuotaWindowRow key={w.key} w={w} now={now} />
           ))}
+          {models.length > 0 && (
+            <>
+              <div className="mt-0.5 font-mono text-[8.5px] tracking-[0.12em] text-muted-foreground/70 uppercase">
+                Model limits
+              </div>
+              {models.map((w) => (
+                <QuotaWindowRow key={w.key} w={w} now={now} />
+              ))}
+              <p className="m-0 text-[11px] text-muted-foreground/70">
+                {modelLimitNote(g.agent, g.windows)}
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

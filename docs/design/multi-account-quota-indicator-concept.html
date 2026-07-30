@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi-account quota indicator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #090e1a;
+      --bar: #080c16;
+      --panel: #111a2e;
+      --panel-2: #15213a;
+      --track: #22345f;
+      --line: #2b3f6d;
+      --ink: #f1f2f8;
+      --muted: #929cb6;
+      --dim: #65708d;
+      --blue: #3268f5;
+      --red: #ef334e;
+      --yellow: #f2c84b;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 80% 0%, rgb(49 104 245 / 0.08), transparent 34rem),
+        var(--page);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main { width: min(1040px, calc(100% - 48px)); margin: 0 auto; padding: 48px 0 72px; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--yellow);
+      font: 600 10px/1 var(--mono);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 { max-width: 760px; margin: 0; font-size: 28px; line-height: 1.14; letter-spacing: -.025em; }
+    .lede { max-width: 740px; margin: 12px 0 36px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+    .recommendation {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 288px;
+      gap: 20px;
+      align-items: start;
+    }
+    .stage {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid #1e2d50;
+      border-radius: 12px;
+      background: #0c1322;
+      box-shadow: 0 18px 50px rgb(0 0 0 / .35);
+    }
+    .stage-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 14px;
+      border-bottom: 1px solid #1e2d50;
+      color: var(--muted);
+      font: 500 10px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .tag {
+      padding: 4px 6px;
+      border-radius: 4px;
+      background: rgb(50 104 245 / .15);
+      color: #83a3ff;
+      letter-spacing: .08em;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      height: 58px;
+      padding: 0 18px;
+      border-bottom: 1px solid #22345b;
+      background: var(--bar);
+    }
+    .logo { width: 17px; height: 17px; border-radius: 5px; background: var(--yellow); }
+    .nav { margin-left: 16px; color: #6e7892; font-size: 11px; word-spacing: 10px; }
+    .machine { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: 11px; }
+    .machine-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .machine-meter, .mini-meter, .old-meter {
+      overflow: hidden;
+      border-radius: 99px;
+      background: var(--track);
+    }
+    .machine-meter { width: 40px; height: 4px; }
+    .machine-meter::after { content: ""; display: block; width: 26%; height: 100%; background: var(--blue); }
+
+    .quota-chip {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      height: 34px;
+      margin-left: 20px;
+      padding: 0 9px;
+      border-radius: 7px;
+      background: var(--panel-2);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .pools { display: flex; align-items: center; gap: 9px; }
+    .pool { display: grid; grid-template-columns: auto 25px; align-items: center; gap: 4px; }
+    .pool-label { color: var(--dim); font: 600 8px/1 var(--mono); letter-spacing: .04em; }
+    .mini-meter { width: 25px; height: 4px; }
+    .fill { display: block; height: 100%; border-radius: inherit; }
+    .critical { width: 98%; background: var(--red); }
+    .healthy { width: 10%; min-width: 3px; background: var(--blue); }
+
+    .popover {
+      width: 430px;
+      margin: 0 18px 24px auto;
+      border: 1px solid #3d568d;
+      border-radius: 0 0 10px 10px;
+      background: var(--panel);
+      box-shadow: 0 18px 38px rgb(0 0 0 / .55);
+    }
+    .pop-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .pop-title { font-size: 15px; font-weight: 700; }
+    .mixed { display: flex; align-items: center; gap: 7px; color: var(--muted); font: 600 9px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .mixed::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: linear-gradient(90deg, var(--red) 50%, var(--blue) 50%); }
+    .account { padding: 14px 18px 16px; border-bottom: 1px solid var(--line); }
+    .account:last-child { border: 0; }
+    .account-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+    .account-name { font-size: 14px; font-weight: 700; }
+    .plan { padding: 3px 6px; border: 1px solid #294373; border-radius: 4px; background: #1d3058; color: #9badd2; font: 600 9px/1 var(--mono); letter-spacing: .08em; }
+    .email { margin-left: auto; color: var(--dim); font-size: 11px; }
+    .window { display: grid; grid-template-columns: 42px 1fr 82px; gap: 10px; align-items: center; margin-top: 8px; }
+    .window-label { color: var(--dim); font: 600 10px/1 var(--mono); text-transform: uppercase; }
+    .window-track { position: relative; height: 5px; border-radius: 99px; background: var(--track); overflow: hidden; }
+    .window-track::after { content: ""; position: absolute; inset: -2px auto -2px 27%; width: 1px; background: rgb(255 255 255 / .55); }
+    .window-value { text-align: right; color: var(--ink); font: 600 11px/1 var(--mono); }
+    .window-value span { color: var(--dim); font-weight: 400; }
+    .pop-note { padding: 10px 18px; color: var(--dim); font: 500 9px/1.45 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+
+    .rationale { padding: 4px 0; }
+    .rationale h2 { margin: 0 0 14px; font-size: 16px; line-height: 1.3; }
+    .rationale p { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .rationale strong { color: var(--ink); font-weight: 650; }
+    .rule { padding: 12px 13px; border-left: 2px solid var(--yellow); background: rgb(242 200 75 / .06); color: #c8c2a8; font: 500 10px/1.55 var(--mono); }
+
+    .comparison { margin-top: 42px; }
+    .comparison h2 { margin: 0 0 8px; font-size: 17px; }
+    .comparison > p { margin: 0 0 18px; color: var(--muted); font-size: 12px; }
+    .options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .option { min-height: 155px; padding: 16px; border: 1px solid #1f2e50; border-radius: 9px; background: #0c1322; }
+    .option.recommended { border-color: #35599b; background: linear-gradient(145deg, rgb(50 104 245 / .09), #0c1322 52%); }
+    .option-kicker { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+    .option-kicker em { color: #83a3ff; font-style: normal; }
+    .option-demo { display: flex; align-items: center; min-height: 52px; margin: 10px 0 8px; }
+    .old-chip, .separate-chip { display: inline-flex; align-items: center; gap: 7px; height: 28px; color: var(--muted); font-size: 10.5px; }
+    .old-meter { width: 38px; height: 4px; }
+    .old-meter::after { content: ""; display: block; width: 98%; height: 100%; background: var(--red); }
+    .separate { display: flex; gap: 13px; flex-wrap: wrap; }
+    .separate-chip .mini-meter { width: 28px; }
+    .option h3 { margin: 0 0 5px; font-size: 12px; }
+    .option p { margin: 0; color: var(--dim); font-size: 10.5px; line-height: 1.45; }
+
+    @media (max-width: 780px) {
+      main { width: min(100% - 28px, 620px); padding-top: 28px; }
+      .recommendation { grid-template-columns: 1fr; }
+      .options { grid-template-columns: 1fr; }
+      .popover { width: calc(100% - 36px); }
+      .nav { display: none; }
+      .machine { margin-left: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">POD-215 · UI recommendation</p>
+    <h1>One quota control, separate signals for each usable pool</h1>
+    <p class="lede">Keep quota as one header concept, but stop collapsing every subscription into the single worst window. Each independently usable account/provider gets a labeled mini-meter; the popover keeps the full window detail.</p>
+
+    <section class="recommendation">
+      <div class="stage">
+        <div class="stage-title"><span>Proposed header + hover</span><span class="tag">Recommended</span></div>
+        <div class="topbar">
+          <span class="logo"></span>
+          <span class="nav">Tasks Workflows Specs Automations</span>
+          <span class="machine"><i class="machine-dot"></i>vmi3431366 <i class="machine-meter"></i></span>
+          <span class="quota-chip">
+            <span>quota</span>
+            <span class="pools" aria-label="Claude critical, Codex healthy">
+              <span class="pool"><span class="pool-label">CC</span><span class="mini-meter"><i class="fill critical"></i></span></span>
+              <span class="pool"><span class="pool-label">CX</span><span class="mini-meter"><i class="fill healthy"></i></span></span>
+            </span>
+          </span>
+        </div>
+        <div class="popover">
+          <div class="pop-head"><span class="pop-title">Agent quota</span><span class="mixed">1 constrained · 1 healthy</span></div>
+          <div class="account">
+            <div class="account-head"><span class="account-name">Claude Code</span><span class="plan">MAX</span><span class="email">tillmann.felippi@gmail.com</span></div>
+            <div class="window"><span class="window-label">5h</span><span class="window-track"><i class="fill healthy" style="width:3%"></i></span><span class="window-value">3% <span>· 4h 38m</span></span></div>
+            <div class="window"><span class="window-label">wk</span><span class="window-track"><i class="fill" style="width:51%;background:var(--blue)"></i></span><span class="window-value">51% <span>· 5d 2h</span></span></div>
+            <div class="window"><span class="window-label">Fable</span><span class="window-track"><i class="fill critical"></i></span><span class="window-value">98% <span>· 5d 2h</span></span></div>
+          </div>
+          <div class="account">
+            <div class="account-head"><span class="account-name">Codex</span><span class="plan">PLUS</span><span class="email">tillmann.felippi@gmail.com</span></div>
+            <div class="window"><span class="window-label">wk</span><span class="window-track"><i class="fill healthy"></i></span><span class="window-value">10% <span>· 6d 23h</span></span></div>
+          </div>
+          <div class="pop-note">Mini-meters follow this account order · click pins the full breakdown</div>
+        </div>
+      </div>
+
+      <aside class="rationale">
+        <h2>Why this shape</h2>
+        <p><strong>A single red bar overstates the situation.</strong> It correctly finds the worst limit, but hides that another subscription is available.</p>
+        <p><strong>A blended percentage would understate it.</strong> Averaging 98% and 10% into 54% suggests Claude/Fable is usable when it is not.</p>
+        <p><strong>Separate mini-meters preserve scope.</strong> Red remains attached to the constrained pool; blue remains attached to the healthy one. The shared shell avoids turning every account into a full topbar chip.</p>
+        <div class="rule">Summary text describes availability: “1 constrained · 1 healthy.” It never claims all quota is critical unless every usable pool is critical.</div>
+      </aside>
+    </section>
+
+    <section class="comparison">
+      <h2>Decision in one glance</h2>
+      <p>The proposal borrows the separate-signal behavior of machine chips without paying the full horizontal cost per account.</p>
+      <div class="options">
+        <article class="option">
+          <div class="option-kicker"><span>Current</span></div>
+          <div class="option-demo"><span class="old-chip">quota <i class="old-meter"></i></span></div>
+          <h3>One worst-case bar</h3>
+          <p>Compact, but reads as global failure and conceals healthy capacity.</p>
+        </article>
+        <article class="option">
+          <div class="option-kicker"><span>Alternative</span></div>
+          <div class="option-demo separate">
+            <span class="separate-chip">Claude <i class="mini-meter"><b class="fill critical"></b></i></span>
+            <span class="separate-chip">Codex <i class="mini-meter"><b class="fill healthy"></b></i></span>
+          </div>
+          <h3>Full separate chips</h3>
+          <p>Very explicit, but scales poorly with accounts and competes with machine status.</p>
+        </article>
+        <article class="option recommended">
+          <div class="option-kicker"><span>Proposed</span><em>Best balance</em></div>
+          <div class="option-demo"><span class="quota-chip" style="margin:0">quota <span class="pools"><span class="pool"><span class="pool-label">CC</span><span class="mini-meter"><i class="fill critical"></i></span></span><span class="pool"><span class="pool-label">CX</span><span class="mini-meter"><i class="fill healthy"></i></span></span></span></span></div>
+          <h3>One shell, scoped meters</h3>
+          <p>Shows mixed health immediately while preserving one quota destination.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

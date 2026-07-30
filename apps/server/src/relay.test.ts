@@ -350,6 +350,10 @@ describe('SessionRegistry', () => {
 
   it('pins one exact workflow revision without exposing it in the human prompt, and starts a run', () => {
     const reg = new SessionRegistry()
+    reg.modules.settings.setSettings({
+      ...reg.modules.settings.getSettings(),
+      experimental: { workflows: true, specs: true },
+    })
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
@@ -591,7 +595,6 @@ describe('SessionRegistry', () => {
         resume: { kind: 'codex-thread', value: 't9' },
         instructions: expect.arrayContaining([
           expect.objectContaining({ source: 'podium:issues' }),
-          expect.objectContaining({ source: 'podium:specs' }),
         ]),
       }),
     )
@@ -804,7 +807,12 @@ describe('SessionRegistry', () => {
     const id = reg.modules.sessions.attachClient(c.send)
     reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
     reg.modules.sessions.onClientMessage(id, { type: 'input', sessionId: s1, data: 'eA==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eA==',
+      inputOrigin: 'human',
+    })
   })
 
   it('takeover on one session leaves another session epoch untouched', () => {
@@ -1698,6 +1706,7 @@ describe('agent state', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
+      experimental: { ...settings.experimental, notifications: true },
       notifications: {
         ...settings.notifications,
         web: true,
@@ -1778,6 +1787,7 @@ describe('agent state', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
+      experimental: { ...settings.experimental, notifications: true },
       notifications: {
         ...settings.notifications,
         ntfyTopic: 'podium-topic',
@@ -1806,6 +1816,29 @@ describe('agent state', () => {
     }
   })
 
+  it('suppresses configured notification delivery while the feature is disabled', () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        ntfyTopic: 'podium-topic',
+        telegramBotToken: '123456:secret',
+        telegramChatId: '-100123',
+      },
+    })
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
+      expect(ntfy).not.toHaveBeenCalled()
+      expect(telegram).not.toHaveBeenCalled()
+    } finally {
+      store.close()
+    }
+  })
   it('connects Telegram from a start-code update', async () => {
     const store = new SessionStore(':memory:')
     const settings = store.settings.getSettings()
@@ -1895,6 +1928,7 @@ describe('agent state', () => {
       const settings = reg.modules.settings.getSettings()
       reg.modules.settings.setSettings({
         ...settings,
+        experimental: { ...settings.experimental, notifications: true },
         notifications: {
           ...settings.notifications,
           telegramBotToken: '123456:secret',
@@ -2286,6 +2320,138 @@ describe('sendText (chat send path)', () => {
     }
   })
 
+  it('POD-152: resends the CR (bounded) while the submit never lands — no echo, phase idle', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      // An image send: the composer converts the pasted path to an attachment,
+      // which outlasts the CR delay — the CR is swallowed, nothing submits.
+      reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
+      // No user-turn echo and the phase never left idle → verify resends the CR.
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
+      // Bounded: SUBMIT_MAX_RETRIES exhausted, no CR drip-feed forever.
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: no CR retry once the agent phase leaves idle (the turn started)', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
+      vi.advanceTimersByTime(100)
+      reg.modules.sessions.onDaemonMessageFrom('local', agentStateMsg(sessionId, 'working'))
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: no CR retry once the user turn echoes in the transcript tail', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
+      vi.advanceTimersByTime(100)
+      // The turn ran so fast the phase is already back to idle — but the user turn
+      // reached the transcript cache, which is submit evidence on its own.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'transcriptDelta',
+        sessionId,
+        items: [{ id: 'u1', role: 'user' as const, text: 'quick one', cursor: 'c1' }],
+        tail: 'c1',
+      })
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: an assistant-only delta is NOT submit evidence — the retry still fires', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'hello' })
+      vi.advanceTimersByTime(100)
+      // A trailing assistant item from the PREVIOUS turn arrives late; it must not
+      // be mistaken for the echo of the just-sent user turn.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'transcriptDelta',
+        sessionId,
+        items: [{ id: 'a9', role: 'assistant' as const, text: 'earlier reply', cursor: 'c9' }],
+        tail: 'c9',
+      })
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: the verify NEVER CRs into a menu that appeared meanwhile (needs_user)', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
+      vi.advanceTimersByTime(100)
+      // The turn started and hit an AskUserQuestion before the verify fired. A
+      // retry CR would answer the menu's highlighted default (#473) — forbidden.
+      reg.modules.sessions.onDaemonMessageFrom(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('#473: NEVER types into a session waiting on a menu (needs_user) — no paste, no CR', () => {
     vi.useFakeTimers()
     try {
@@ -2589,7 +2755,6 @@ describe('hibernation', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
         instructions: expect.arrayContaining([
           expect.objectContaining({ source: 'podium:issues' }),
-          expect.objectContaining({ source: 'podium:specs' }),
         ]),
       }),
     )
@@ -2641,7 +2806,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.resurrectSession({ sessionId })).ok).toBe(false)
   })
 
-  it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
+  it('does not auto-hibernate a legacy unfenced idle session', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -2682,7 +2847,7 @@ describe('hibernation', () => {
         swapFreeBytes: 0,
       },
     })
-    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {
@@ -2773,7 +2938,12 @@ describe('reconnect identity (hello reclaim)', () => {
     const idA = reg.modules.sessions.attachClient(a.send)
     reg.modules.sessions.onClientMessage(idA, { type: 'attach', sessionId: s1 })
     reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eA==',
+      inputOrigin: 'human',
+    })
 
     // The socket goes half-open; a new socket connects and re-presents idA in hello,
     // then re-attaches the way the client does on reconnect.
@@ -2785,7 +2955,12 @@ describe('reconnect identity (hello reclaim)', () => {
     daemon.length = 0
     // B now drives input (it inherited control)...
     reg.modules.sessions.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eQ==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eQ==',
+      inputOrigin: 'human',
+    })
     // ...and the stale A is gone: its messages are dropped, not honored.
     reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
     expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })

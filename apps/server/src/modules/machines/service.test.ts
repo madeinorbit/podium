@@ -108,4 +108,41 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
     expect(store.machines.getMachine(MACHINE)?.hostname).toBe('vmi-renamed')
   })
+
+  test('explicit session placement is rejected when the harness is missing or logged out', () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({ id: MACHINE, name: 'Builder', hostname: 'vmi', tokenHash: 'x' })
+    svc.attach(MACHINE, recorder().send)
+
+    svc.recordInventory(MACHINE, INV)
+    expect(() => svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toThrow(
+      "codex is not installed on machine 'Builder'",
+    )
+
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
+    })
+    expect(() => svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toThrow(
+      "codex is not logged in on machine 'Builder'",
+    )
+  })
+
+  test('implicit placement moves to a capable machine that owns the cwd', () => {
+    const { svc, store } = makeStoreService()
+    const other = 'capable'
+    store.machines.upsertMachine({ id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: other, name: 'Capable', hostname: 'b', tokenHash: 'y' })
+    store.repos.addRepo('/repo', MACHINE)
+    store.repos.addRepo('/repo', other)
+    svc.attach(MACHINE, recorder().send)
+    svc.attach(other, recorder().send)
+    svc.recordInventory(MACHINE, INV)
+    svc.recordInventory(other, {
+      ...INV,
+      agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
+    })
+
+    expect(svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex')).toBe(other)
+  })
 })

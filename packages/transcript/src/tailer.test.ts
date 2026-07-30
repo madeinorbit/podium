@@ -265,7 +265,9 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
 
   it('a tiny readChunkBytes yields identical items + exact cursors across chunk boundaries', async () => {
     const path = join(dir, 'tail-chunked.jsonl')
-    const records = Array.from({ length: 5 }, (_, i) => userRecord(`k${i}`, `msg-${i}-${'x'.repeat(90)}`))
+    const records = Array.from({ length: 5 }, (_, i) =>
+      userRecord(`k${i}`, `msg-${i}-${'x'.repeat(90)}`),
+    )
     writeFileSync(path, `${records.join('\n')}\n`)
     // 64-byte chunks force every record to span multiple chunks — the leftover
     // carry across chunk reads must keep absolute offsets exact.
@@ -324,5 +326,68 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     } finally {
       tailer.stop()
     }
+  })
+})
+
+describe('tailTranscript — observed model + effort (POD-121)', () => {
+  const assistantRecord = (uuid: string, model: string, text: string, effort?: string): string =>
+    JSON.stringify({
+      type: 'assistant',
+      uuid,
+      timestamp: '2026-06-15T10:00:00.000Z',
+      ...(effort ? { effort } : {}),
+      message: {
+        role: 'assistant',
+        model,
+        content: [{ type: 'text', text }],
+        stop_reason: 'end_turn',
+      },
+    })
+
+  it('emits onModel on first sighting and on change, not on repeats', async () => {
+    const path = join(dir, 'tail-model.jsonl')
+    writeFileSync(path, `${assistantRecord('m1', 'claude-fable-5', 'one')}\n`)
+    const models: string[] = []
+    const { tailer, tick } = makeTailHarness(path, 10, {
+      onModel: (m) => models.push(m),
+    })
+    await tick()
+    expect(models).toEqual(['claude-fable-5'])
+
+    // Same model again — no re-emit.
+    appendFileSync(path, `${assistantRecord('m2', 'claude-fable-5', 'two')}\n`)
+    await tick()
+    expect(models).toEqual(['claude-fable-5'])
+
+    // A /model switch mid-session — emits the new id.
+    appendFileSync(path, `${assistantRecord('m3', 'claude-opus-4-8', 'three')}\n`)
+    await tick()
+    expect(models).toEqual(['claude-fable-5', 'claude-opus-4-8'])
+    tailer.stop()
+  })
+
+  it('carries the observed effort alongside the model and re-emits on effort change', async () => {
+    const path = join(dir, 'tail-effort.jsonl')
+    writeFileSync(path, `${assistantRecord('e1', 'claude-fable-5', 'one', 'medium')}\n`)
+    const seen: Array<[string, string | undefined]> = []
+    const { tailer, tick } = makeTailHarness(path, 10, {
+      onModel: (m, e) => seen.push([m, e]),
+    })
+    await tick()
+    expect(seen).toEqual([['claude-fable-5', 'medium']])
+
+    // Effort change alone re-emits with the unchanged model.
+    appendFileSync(path, `${assistantRecord('e2', 'claude-fable-5', 'two', 'high')}\n`)
+    await tick()
+    expect(seen).toEqual([
+      ['claude-fable-5', 'medium'],
+      ['claude-fable-5', 'high'],
+    ])
+
+    // Same pair again — no re-emit.
+    appendFileSync(path, `${assistantRecord('e3', 'claude-fable-5', 'three', 'high')}\n`)
+    await tick()
+    expect(seen).toHaveLength(2)
+    tailer.stop()
   })
 })

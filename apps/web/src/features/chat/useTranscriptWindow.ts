@@ -8,6 +8,7 @@ import {
   type ChatBlock,
   type ChatRow,
   dedupeByCursor,
+  freshOlderPage,
   mergeByCursor,
   pairToolResults,
   reconcileReset,
@@ -290,6 +291,11 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     () => (older.length > 0 ? dedupeByCursor([...older, ...items]) : items),
     [older, items],
   )
+  // Mirrored into a ref so the (stable-identity) paging callback can filter a page
+  // against the CURRENT loaded window without re-binding on every delta — same
+  // render-time ref-mirror pattern as headCursorRef above.
+  const loadedRef = useRef<TranscriptItem[]>([])
+  loadedRef.current = effectiveItems
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   // Render unit: consecutive tool calls fold into one collapsed batch row; the
   // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
@@ -357,18 +363,25 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     trpc.sessions.transcriptRead
       .query({ sessionId, anchor, direction: 'before', limit: PAGE_LIMIT })
       .then((r) => {
-        if (r.items.length > 0) {
-          setOlder((prev) => [...r.items, ...prev])
+        // Only items we do NOT already hold can be earlier than the window. A page
+        // that is entirely held is the reader's rolled-away-anchor fallback (the
+        // NEWEST window, not an older page) — prepending it would push newer items
+        // above older ones, so treat it as "nothing earlier reachable" [POD-341].
+        const fresh = freshOlderPage(r.items, loadedRef.current)
+        if (fresh.length > 0) {
+          setOlder((prev) => [...fresh, ...prev])
           // Advance the back-paging anchor to the new oldest item. A page can come
           // back empty-of-new-head only if it was empty; guard with `?? anchor`.
-          setHeadCursor(r.head ?? anchor)
+          setHeadCursor(fresh[0]?.cursor ?? r.head ?? anchor)
           // Keep the freshly-prepended page rendered (don't let the window slice
           // it straight back off). `renderCount` is a ROW count and the page is in
           // raw items; items fold into ≤ items rows, so adding the item count is a
           // safe over-estimate (renderStart clamps at 0 / the row total).
-          setRenderCount((c) => c + r.items.length)
+          setRenderCount((c) => c + fresh.length)
         }
-        setHasMoreOlder(r.hasMore)
+        // A page that came back entirely held means no genuinely earlier item is
+        // reachable from this anchor — stop paging rather than re-fetch it forever.
+        setHasMoreOlder(r.items.length > 0 && fresh.length === 0 ? false : r.hasMore)
       })
       .catch(() => {
         // Leave hasMoreOlder as-is so a transient failure can be retried by

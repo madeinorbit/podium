@@ -10,9 +10,10 @@ import {
   type WorkflowWire,
 } from '@podium/protocol'
 import { Check, Plus, RefreshCw, ShieldCheck, Workflow } from 'lucide-react'
-import type { FormEvent, JSX, ReactElement } from 'react'
-import { cloneElement, useCallback, useEffect, useId, useState } from 'react'
+import type { ComponentProps, FormEvent, JSX, ReactElement } from 'react'
+import { cloneElement, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 type Tab = 'library' | 'progress' | 'profiles'
@@ -42,6 +43,49 @@ function Empty({ children }: { children: string }): JSX.Element {
   )
 }
 
+type WorkflowAction = (run: () => Promise<unknown>, message: string) => Promise<void>
+
+function WorkflowMutationButton({
+  action,
+  run,
+  success,
+  pendingLabel,
+  children,
+  disabled,
+  ...props
+}: Omit<ComponentProps<typeof Button>, 'onClick'> & {
+  action: WorkflowAction
+  run: () => Promise<unknown>
+  success: string
+  pendingLabel: string
+}): JSX.Element {
+  const lock = useRef(false)
+  const [pending, setPending] = useState(false)
+  const invoke = async (): Promise<void> => {
+    if (lock.current) return
+    lock.current = true
+    setPending(true)
+    try {
+      await action(run, success)
+    } finally {
+      lock.current = false
+      setPending(false)
+    }
+  }
+  return (
+    <Button
+      {...props}
+      aria-describedby="workflow-action-feedback"
+      disabled={disabled}
+      pending={pending}
+      pendingLabel={pendingLabel}
+      onClick={() => void invoke()}
+    >
+      {children}
+    </Button>
+  )
+}
+
 export function WorkflowsView(): JSX.Element {
   const [tab, setTab] = useState<Tab>('library')
   const [workflows, setWorkflows] = useState<WorkflowWire[]>([])
@@ -52,6 +96,8 @@ export function WorkflowsView(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkflowDetailWire | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshLock = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -60,6 +106,9 @@ export function WorkflowsView(): JSX.Element {
   // biome-ignore lint/correctness/useExhaustiveDependencies: trpc is a stable store singleton.
   const refresh = useCallback(
     async (includeTerminal = showHistory) => {
+      if (refreshLock.current) return
+      refreshLock.current = true
+      setRefreshing(true)
       setError(null)
       try {
         const [workflowRows, bindingRows, profileRows, runRows] = await Promise.all([
@@ -76,6 +125,8 @@ export function WorkflowsView(): JSX.Element {
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause))
       } finally {
+        refreshLock.current = false
+        setRefreshing(false)
         setLoading(false)
       }
     },
@@ -131,14 +182,17 @@ export function WorkflowsView(): JSX.Element {
             Versioned instructions, optional linear steps, and explicit execution profiles.
           </p>
         </div>
-        <button
+        <Button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs hover:bg-accent"
+          variant="outline"
+          size="sm"
+          pending={refreshing}
+          pendingLabel="Refreshing…"
           onClick={() => void refresh()}
         >
           <RefreshCw size={13} aria-hidden="true" />
           Refresh
-        </button>
+        </Button>
       </header>
 
       <nav className="flex flex-none gap-1 border-b px-5 pt-2" aria-label="Workflow sections">
@@ -150,6 +204,7 @@ export function WorkflowsView(): JSX.Element {
           ] as const
         ).map(([id, label]) => (
           <button
+            data-pressable
             key={id}
             type="button"
             aria-pressed={tab === id}
@@ -168,6 +223,7 @@ export function WorkflowsView(): JSX.Element {
 
       {(error || notice) && (
         <div
+          id="workflow-action-feedback"
           role={error ? 'alert' : 'status'}
           className={cn(
             'mx-5 mt-3 rounded-md border px-3 py-2 text-xs',
@@ -237,6 +293,7 @@ function Library(props: {
     <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(360px,1fr)_310px] overflow-hidden">
       <aside className="min-h-0 overflow-y-auto border-r p-3">
         <button
+          data-pressable
           type="button"
           onClick={props.onCreate}
           className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
@@ -247,6 +304,7 @@ function Library(props: {
         <div className="space-y-1">
           {props.workflows.map((workflow) => (
             <button
+              data-pressable
               key={workflow.id}
               type="button"
               onClick={() => props.onSelect(workflow.id)}
@@ -291,8 +349,11 @@ function CreateWorkflow(props: {
   const [steps, setSteps] = useState('[]')
   const trpc = useStoreSelector((state) => state.trpc)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (submitting) return
+    setSubmitting(true)
     setError(null)
     try {
       const created = await trpc.workflows.create.mutate({
@@ -306,10 +367,16 @@ function CreateWorkflow(props: {
       props.onCreated(created.workflow.id)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSubmitting(false)
     }
   }
   return (
-    <form onSubmit={(event) => void submit(event)} className="mx-auto max-w-3xl space-y-4">
+    <form
+      aria-busy={submitting || undefined}
+      onSubmit={(event) => void submit(event)}
+      className="mx-auto max-w-3xl space-y-4"
+    >
       <div>
         <h2 className="text-lg font-semibold">New workflow</h2>
         <p className="text-xs text-muted-foreground">
@@ -364,12 +431,9 @@ function CreateWorkflow(props: {
           className="input min-h-32 font-mono text-xs"
         />
       </Field>
-      <button
-        type="submit"
-        className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
-      >
+      <Button type="submit" pending={submitting} pendingLabel="Creating workflow…">
         Create revision 1
-      </button>
+      </Button>
     </form>
   )
 }
@@ -424,37 +488,31 @@ function WorkflowEditor(props: {
         />
       </Field>
       <div className="flex gap-2">
-        <button
-          type="button"
-          className="rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
-          onClick={() =>
-            void props.action(
-              () =>
-                trpc.workflows.revise.mutate({
-                  workflowId: props.detail.workflow.id,
-                  instructions,
-                  steps: parseSteps(steps),
-                }),
-              'Created a new immutable revision.',
-            )
+        <WorkflowMutationButton
+          action={props.action}
+          run={() =>
+            trpc.workflows.revise.mutate({
+              workflowId: props.detail.workflow.id,
+              instructions,
+              steps: parseSteps(steps),
+            })
           }
+          success="Created a new immutable revision."
+          pendingLabel="Creating revision…"
         >
           Create revision
-        </button>
+        </WorkflowMutationButton>
         {!revision.publishedAt && (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs"
-            onClick={() =>
-              void props.action(
-                () => trpc.workflows.publish.mutate({ revisionId: revision.id }),
-                'Published this revision.',
-              )
-            }
+          <WorkflowMutationButton
+            variant="outline"
+            action={props.action}
+            run={() => trpc.workflows.publish.mutate({ revisionId: revision.id })}
+            success="Published this revision."
+            pendingLabel="Publishing…"
           >
             <ShieldCheck size={14} />
             Publish
-          </button>
+          </WorkflowMutationButton>
         )}
       </div>
       <div className="border-t pt-4">
@@ -490,18 +548,6 @@ function AssignmentPanel(props: {
   const [kind, setKind] = useState<WorkflowBindingTarget>('issue')
   const [targetId, setTargetId] = useState('')
   const revision = props.detail?.revisions[0]
-  const assign = () => {
-    if (!revision) return
-    void props.action(
-      () =>
-        trpc.workflows.assign.mutate({
-          targetKind: kind,
-          targetId: kind === 'global' ? '' : targetId,
-          revisionId: revision.id,
-        }),
-      'Pinned the exact workflow revision.',
-    )
-  }
   return (
     <div className="space-y-4">
       <div>
@@ -528,14 +574,24 @@ function AssignmentPanel(props: {
           <input value={targetId} onChange={(e) => setTargetId(e.target.value)} className="input" />
         </Field>
       )}
-      <button
-        type="button"
+      <WorkflowMutationButton
+        className="w-full"
+        variant="outline"
         disabled={!revision || (kind !== 'global' && !targetId)}
-        onClick={assign}
-        className="w-full rounded-md border px-3 py-2 text-xs font-medium enabled:hover:bg-accent disabled:opacity-40"
+        action={props.action}
+        run={() => {
+          if (!revision) return Promise.resolve()
+          return trpc.workflows.assign.mutate({
+            targetKind: kind,
+            targetId: kind === 'global' ? '' : targetId,
+            revisionId: revision.id,
+          })
+        }}
+        success="Pinned the exact workflow revision."
+        pendingLabel="Assigning revision…"
       >
         Assign latest revision
-      </button>
+      </WorkflowMutationButton>
       <div className="border-t pt-3">
         <h3 className="mb-2 text-xs font-semibold">Current bindings</h3>
         <div className="space-y-2">
@@ -663,36 +719,33 @@ function RunCard({
       )}
       {current && (run.status === 'active' || run.status === 'blocked') && (
         <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              void action(
-                () =>
-                  trpc.workflows.skip.mutate({
-                    runId: run.id,
-                    stepId: current.stepId,
-                    reason: 'Skipped by operator',
-                  }),
-                'Skipped the current workflow step.',
-              )
+          <WorkflowMutationButton
+            size="sm"
+            variant="outline"
+            action={action}
+            run={() =>
+              trpc.workflows.skip.mutate({
+                runId: run.id,
+                stepId: current.stepId,
+                reason: 'Skipped by operator',
+              })
             }
-            className="rounded-md border px-2.5 py-1.5 text-[11px] hover:bg-accent"
+            success="Skipped the current workflow step."
+            pendingLabel="Skipping…"
           >
             Skip current
-          </button>
+          </WorkflowMutationButton>
           {current.status === 'blocked' && (
-            <button
-              type="button"
-              onClick={() =>
-                void action(
-                  () => trpc.workflows.retry.mutate({ runId: run.id, stepId: current.stepId }),
-                  'Reset the step for another attempt.',
-                )
-              }
-              className="rounded-md border px-2.5 py-1.5 text-[11px] hover:bg-accent"
+            <WorkflowMutationButton
+              size="sm"
+              variant="outline"
+              action={action}
+              run={() => trpc.workflows.retry.mutate({ runId: run.id, stepId: current.stepId })}
+              success="Reset the step for another attempt."
+              pendingLabel="Retrying…"
             >
               Retry
-            </button>
+            </WorkflowMutationButton>
           )}
         </div>
       )}
@@ -774,27 +827,25 @@ function Profiles(props: {
                 />
               </Field>
             </div>
-            <button
-              type="button"
+            <WorkflowMutationButton
+              className="w-full"
               disabled={!canSave}
-              onClick={() =>
-                void props.action(
-                  () =>
-                    trpc.workflows.profileSave.mutate({
-                      name,
-                      accountId,
-                      harness,
-                      model,
-                      effort,
-                      machineId: null,
-                    }),
-                  'Saved the execution profile.',
-                )
+              action={props.action}
+              run={() =>
+                trpc.workflows.profileSave.mutate({
+                  name,
+                  accountId,
+                  harness,
+                  model,
+                  effort,
+                  machineId: null,
+                })
               }
-              className="w-full rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-40"
+              success="Saved the execution profile."
+              pendingLabel="Saving profile…"
             >
               Save profile
-            </button>
+            </WorkflowMutationButton>
           </div>
         </div>
       </div>

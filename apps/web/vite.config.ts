@@ -1,8 +1,11 @@
+import { existsSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
@@ -26,6 +29,7 @@ const BACKEND_PORT = process.env.PODIUM_PORT ?? '18787'
 const WEB_PORT = Number(process.env.PODIUM_WEB_PORT ?? 55556)
 const BACKEND = `http://localhost:${BACKEND_PORT}`
 const BACKEND_WS = `ws://localhost:${BACKEND_PORT}`
+const MOBILE_INDEX = fileURLToPath(new URL('../mobile/dist/index.html', import.meta.url))
 const proxy = {
   '/health': { target: BACKEND, changeOrigin: true },
   '/trpc': { target: BACKEND, changeOrigin: true },
@@ -40,10 +44,38 @@ const proxy = {
   '/auth': { target: BACKEND, changeOrigin: true },
   '/client': { target: BACKEND_WS, ws: true, changeOrigin: true },
   '/daemon': { target: BACKEND_WS, ws: true, changeOrigin: true },
+  // The Expo SPA is served by the backend. Without this proxy, Vite's own SPA
+  // fallback returns the desktop index for /mobile in the live source setup.
+  '/mobile': { target: BACKEND, changeOrigin: true },
+}
+
+function mobileEntryRedirectPlugin(): Plugin {
+  const redirect = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => {
+    const location = mobileRedirectLocation(
+      req.url,
+      req.headers['user-agent'],
+      existsSync(MOBILE_INDEX),
+    )
+    if (!location) return next()
+    res.statusCode = 302
+    res.setHeader('Location', location)
+    res.end()
+  }
+  return {
+    name: 'podium-mobile-entry-redirect',
+    // Both source-mode Vite and built preview sit in front of the backend.
+    configureServer(server) {
+      server.middlewares.use(redirect)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(redirect)
+    },
+  }
 }
 
 export default defineConfig({
   plugins: [
+    mobileEntryRedirectPlugin(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -63,19 +95,15 @@ export default defineConfig({
       workbox: {
         // Precache the built shell so an installed app cold-starts instantly.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // SPA fallback for navigations — but never shadow the live API/WS routes
-        // or the dedicated Expo mobile SPA served by the backend under /mobile.
+        // The main app chunk has grown past workbox's 2 MiB default; without a
+        // higher ceiling SW generation throws and fails the whole build. Give
+        // headroom so the shell still precaches (POD-292).
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // SPA fallback for navigations — but never shadow the live API/WS routes,
+        // the Expo mobile SPA under /mobile, or the `/` and `/desktop` entry
+        // redirects. See NAVIGATION_FALLBACK_DENYLIST for why each is on the list.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [
-          /^\/trpc/,
-          /^\/health/,
-          /^\/mobile/,
-          /^\/files/,
-          /^\/setup/,
-          /^\/auth/,
-          /^\/client/,
-          /^\/daemon/,
-        ],
+        navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST,
       },
       // Keep the service worker out of `npm run dev` (it fights HMR); it only
       // ships in the built bundle served by `vite preview`.

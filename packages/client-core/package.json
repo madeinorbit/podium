@@ -69,6 +69,11 @@
       "@podium/source": "./src/perf/index.ts",
       "types": "./src/perf/index.ts",
       "import": "./src/perf/index.ts"
+    },
+    "./sound": {
+      "@podium/source": "./src/sound/index.ts",
+      "types": "./src/sound/index.ts",
+      "import": "./src/sound/index.ts"
     }
   },
   "scripts": {

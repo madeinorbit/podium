@@ -6,6 +6,8 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   type StewardDeps,
   sessionSpawnerParentId,
+  subscriptionEventKinds,
+  isAcceptedLiveTerminalEvent,
   StewardService,
   TRIGGER_RULES,
 } from './steward'
@@ -161,6 +163,118 @@ describe('TRIGGER_RULES', () => {
     expect(
       TRIGGER_RULES['issue.needs_human']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } }),
     ).toEqual(['needshuman:iss_c', 'parentnudge:needs_human:iss_p'])
+  })
+})
+
+describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
+  const baseEvent = {
+    id: 1,
+    ts: 't',
+    kind: 'session.phase',
+    subject: 'child',
+    repoPath: null,
+  }
+  const accepted = {
+    phase: 'idle',
+    verdict: 'done',
+    transitionId: 'terminal-1',
+    transitionKind: 'turn_terminal',
+    provenance: 'live',
+    observerGeneration: 7,
+    providerCursor: { segmentId: 'claude:one', components: { transcript: 40 } },
+    turnEpoch: 1,
+    priorPhase: 'working',
+    nextPhase: 'idle',
+  }
+
+  it('rejects bootstrap, replay, same-phase refresh, and no-input causal terminals', () => {
+    for (const payload of [
+      { ...accepted, provenance: 'bootstrap' },
+      { ...accepted, provenance: 'replay' },
+      { ...accepted, transitionKind: 'activity' },
+      { ...accepted, priorPhase: 'idle' },
+      { ...accepted, turnEpoch: 0 },
+      { phase: 'idle', verdict: 'done', transitionId: 'partial-v1' },
+    ]) {
+      const event = { ...baseEvent, payload }
+      expect(isAcceptedLiveTerminalEvent(event)).toBe(false)
+      expect(TRIGGER_RULES['session.phase']!(event)).toBe('ackfallback:child')
+    }
+  })
+
+  it('nudges a parent once for one accepted live terminal cursor; duplicate/restart replay is inert', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: 'child', status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: accepted,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: accepted,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: {
+        ...accepted,
+        transitionId: 'bootstrap-restart',
+        provenance: 'bootstrap',
+        observerGeneration: 8,
+      },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+  it('nudges exactly once when final child bookkeeping closes working to idle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: 'child', status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    const closure = {
+      ...accepted,
+      transitionId: 'child-close-1',
+      transitionKind: 'subagent_bookkeeping',
+      providerCursor: { segmentId: 'claude:one', components: { transcript: 55 } },
+    }
+    expect(isAcceptedLiveTerminalEvent({ ...baseEvent, payload: closure })).toBe(true)
+    expect(
+      isAcceptedLiveTerminalEvent({
+        ...baseEvent,
+        payload: { ...closure, priorPhase: 'idle' },
+      }),
+    ).toBe(false)
+
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: closure,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: closure,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -753,6 +867,35 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
+  it('delivers terminal-fenced exits to session.exited-only subscribers', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'watcher', cwd: '/w' }),
+      fakeSession({ sessionId: 'worker', cwd: '/x' }),
+    ]
+    const { store, steward, sendTextWhenReady } = harness({ sessions })
+    store.events.addSubscription(
+      seedSub({
+        id: 'sub_exit',
+        subscriberKind: 'session',
+        subscriberId: 'watcher',
+        event: 'session.exited',
+        sourceKind: 'session',
+        sourceRef: 'worker',
+      }),
+    )
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'worker',
+      payload: { code: 0, terminalFenceReported: true },
+    })
+
+    await steward.tick()
+
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('watcher')
+  })
+
   it('a session.finished subscription nudges the subscriber session', async () => {
     const sessions = [
       fakeSession({ sessionId: 'watcher', cwd: '/w' }),
@@ -952,9 +1095,16 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'working' } })).toBeUndefined()
   })
 
-  it('maps session.exited to a sessionparentnudge:exited key', () => {
+  it('routes legacy and causal nonterminal exits but suppresses terminal-fenced duplicates', () => {
     const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
     expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
+    const nonterminal = { ...e, payload: { terminalFenceReported: false } }
+    expect(TRIGGER_RULES['session.exited']!(nonterminal)).toBe('sessionparentnudge:exited:s9')
+    expect(subscriptionEventKinds(nonterminal)).toEqual(['session.exited'])
+
+    const terminal = { ...e, payload: { terminalFenceReported: true } }
+    expect(TRIGGER_RULES['session.exited']!(terminal)).toBeUndefined()
+    expect(subscriptionEventKinds(terminal)).toEqual(['session.exited'])
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {
@@ -1128,9 +1278,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(1)
     // A concurrent producer still loses while the fact is live (TTL not shortened).
-    expect(
-      h.arbiter.claim('settle:s9', 's9', { source: 'daemon.stop-hook' }),
-    ).toBe(false)
+    expect(h.arbiter.claim('settle:s9', 's9', { source: 'daemon.stop-hook' })).toBe(false)
 
     // Leave idle (working) → condition-clear retires settle:s9 (not TTL expiry).
     h.store.events.appendEvent({

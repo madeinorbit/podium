@@ -27,7 +27,7 @@ import type { PodiumClientApi } from '../api'
 import type { Replica, UiState } from '../replica/replica'
 import type { MainView } from '../router'
 import type { SpawnTarget } from '../spawn-agent'
-import type { DockTab, FileScope, FileTab, PinKind, PinState } from '../viewmodels'
+import type { DockTab, FileScope, FileTab, PinKind, PinState, RecentFileEntry } from '../viewmodels'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
 export interface StoreServerConfig {
@@ -132,6 +132,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: string | null
   setOpenIssueId: (id: string | null) => void
+  /** The issue peeked in the right dock (POD-95): a chat ref's "open" that stays
+   *  in the conversation. A labeled transient surface beside the Task panel —
+   *  not routed, not persisted; the full /issues/:id page remains openIssueId.
+   *  One peek at a time: opening another ref replaces it. */
+  peekIssueId: string | null
+  setPeekIssueId: (id: string | null) => void
   /** Whether the Cmd/Ctrl+K command palette is open. In the store (not palette-
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean
@@ -172,8 +178,19 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockVisibleSession: string | null
   setDockVisibleSession: (sessionId: string | null) => void
   fileTabs: FileTab[]
+  /** Recently opened files across all workspaces (POD-149), newest first —
+   *  feeds the "+" menu's Recent-files list so strict issue scoping never
+   *  strands a file. Persisted. */
+  recentFiles: RecentFileEntry[]
   openFile: (sessionId: string, path: string) => void
-  openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void
+  /** `issueId` names the owning issue explicitly (issue pages, legacy
+   *  artifacts); omitted, the open is stamped to the selected issue (POD-149). */
+  openFileInWorktree: (args: {
+    machineId?: string
+    root: string
+    path: string
+    issueId?: string
+  }) => void
   /** Open a permanent artifact snapshot as a read-only file tab ([spec:SP-0fc9]
    *  #441). `path` is the relpath inside the artifact dir (bundle entry or the
    *  artifact's basename). */
@@ -199,6 +216,21 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     root: string
     path?: string
   }) => Promise<Awaited<ReturnType<TApi['files']['list']['query']>>>
+  /** Git dock panel [POD-114] — read-only checkout inspection (raw git output;
+   *  parsing lives in the web viewmodels). */
+  gitStatus: (args: {
+    machineId?: string
+    root: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['status']['query']>>>
+  gitLog: (args: {
+    machineId?: string
+    root: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['log']['query']>>>
+  gitDiffFile: (args: {
+    machineId?: string
+    root: string
+    path: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
   split: boolean
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no
@@ -249,6 +281,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
    *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
   markIssueUnread: (id: string) => Promise<void>
+  /** Tuck a finished issue into the sidebar's Closed fold, or bring it back
+   *  (POD-333): stamp tuckedAt = now / null. Optimistic + outboxed, so the row
+   *  folds on the press and the dismissal is SERVER state — it survives a
+   *  different browser and every other client folds the same row. */
+  setIssueTucked: (id: string, tucked: boolean) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the

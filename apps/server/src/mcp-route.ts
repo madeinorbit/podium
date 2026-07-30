@@ -9,7 +9,9 @@ export interface McpToolProvider {
    *  per thread — e.g. advertise the `confirmed` gate param on start-capable
    *  tools for concierge/thread-blind callers, so harness clients that validate
    *  args against the advertised schema can actually pass the flag. */
-  mcpToolSpecs(threadId?: string): Array<{ name: string; description: string; inputSchema: unknown }>
+  mcpToolSpecs(
+    threadId?: string,
+  ): Array<{ name: string; description: string; inputSchema: unknown }>
   /** `threadId` (when the transport resolved one) scopes the call to the
    *  superagent thread it runs for — gate + session provenance (issue #67). */
   callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string>
@@ -45,6 +47,17 @@ export function registerMcpRoute(
 ): void {
   const tokenOf = (header: string | undefined): string | undefined =>
     header?.replace(/^Bearer\s+/i, '')
+
+  // Streamable-HTTP transport handshake: a modern MCP client (codex 0.144.5's
+  // rmcp) OPENS the connection with `GET /mcp` to look for a server-initiated
+  // SSE stream, and may `DELETE /mcp` to end a session. Podium is POST-only
+  // JSON-RPC (no server push, no client-driven session teardown), so the spec's
+  // answer for both is 405 Method Not Allowed — which tells the client to fall
+  // back to plain POST. Without this the GET falls through to a 404, and rmcp
+  // mis-reads that as an OAuth challenge, probes `/.well-known/oauth-*`, finds
+  // nothing, and the transport worker quits with `Auth(AuthorizationRequired)`,
+  // killing the whole harness turn (POD-1021).
+  app.on(['GET', 'DELETE'], '/mcp', (c) => c.body(null, 405, { allow: 'POST' }))
 
   app.post('/mcp', async (c) => {
     const supplied = c.req.header('x-podium-mcp-token') ?? tokenOf(c.req.header('authorization'))

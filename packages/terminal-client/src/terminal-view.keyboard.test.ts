@@ -165,6 +165,36 @@ describe('TerminalView keyboard fidelity (macOS)', () => {
     ).toBe('\x15')
   })
 
+  // Cmd+Left/Right = jump to line start/end on macOS. xterm has no encoding for
+  // a Meta-modified arrow (the chord otherwise dies), so we rewrite to the emacs
+  // line-motion bytes Claude Code and readline honor.
+  it('rewrites Cmd+Left to beginning-of-line (Ctrl+A)', () => {
+    expect(
+      pressKey(textarea, out, { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37, metaKey: true }),
+    ).toBe('\x01')
+  })
+
+  it('rewrites Cmd+Right to end-of-line (Ctrl+E)', () => {
+    expect(
+      pressKey(textarea, out, {
+        key: 'ArrowRight',
+        code: 'ArrowRight',
+        keyCode: 39,
+        metaKey: true,
+      }),
+    ).toBe('\x05')
+  })
+
+  // Plain arrows must keep their normal cursor sequences — the rewrite is Cmd-only.
+  it('leaves plain Left/Right as CSI cursor moves', () => {
+    expect(pressKey(textarea, out, { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 })).toBe(
+      '\x1b[D',
+    )
+    expect(pressKey(textarea, out, { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 })).toBe(
+      '\x1b[C',
+    )
+  })
+
   // Plain Backspace must stay a single-char delete (DEL).
   it('leaves plain Backspace as DEL (0x7f)', () => {
     expect(pressKey(textarea, out, { key: 'Backspace', code: 'Backspace', keyCode: 8 })).toBe(

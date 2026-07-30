@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { NAVIGATION_FALLBACK_DENYLIST } from '../mobile-routing'
 
 const readWeb = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8')
@@ -13,10 +14,36 @@ describe('installable PWA wiring', () => {
   it('the service worker falls back to the shell but never shadows the live API/WS routes', () => {
     const cfg = readWeb('vite.config.ts')
     expect(cfg).toContain("navigateFallback: '/index.html'")
-    expect(cfg).toContain('navigateFallbackDenylist')
-    expect(cfg).toContain('/^\\/mobile/')
-    expect(cfg).toContain('/^\\/trpc/')
-    expect(cfg).toContain('/^\\/daemon/')
+    expect(cfg).toContain('navigateFallbackDenylist: NAVIGATION_FALLBACK_DENYLIST')
+    expect(cfg).toContain("'/mobile': { target: BACKEND")
+    expect(cfg).toContain('mobileEntryRedirectPlugin()')
+  })
+
+  // Workbox tests the denylist against `pathname + search`, so these are the
+  // exact strings the generated worker sees.
+  const denied = (url: string) => NAVIGATION_FALLBACK_DENYLIST.some((re) => re.test(url))
+
+  it('lets the root reach the server so the phone redirect can run [POD-359]', () => {
+    // The regression: with `/` served from the precache, a phone that had ever
+    // opened the desktop app never got the 302 to /mobile again.
+    expect(denied('/')).toBe(true)
+    expect(denied('/?server=wss://x')).toBe(true)
+    expect(denied('/?desktop=1')).toBe(true)
+    // /desktop is a server redirect too — the Expo app's escape hatch.
+    expect(denied('/desktop')).toBe(true)
+    expect(denied('/desktop?e2e=1')).toBe(true)
+  })
+
+  it('never shadows the backend routes or the Expo SPA', () => {
+    for (const url of ['/trpc/x', '/health', '/mobile', '/mobile/session/s1', '/daemon', '/auth']) {
+      expect(denied(url)).toBe(true)
+    }
+  })
+
+  it('still falls back to the cached shell for SPA deep links', () => {
+    for (const url of ['/workspace', '/session/s1', '/settings/machines', '/desktops']) {
+      expect(denied(url)).toBe(false)
+    }
   })
 })
 
@@ -34,21 +61,10 @@ describe('PWA shell height + safe-area inset', () => {
   it('safe-area-inset-bottom is NOT applied to the shell root (composer owns it once)', () => {
     const css = readWeb('src/styles.css')
     // The global safe-area padding belongs in the bottommost UI component
-    // (ChatView composer / SuperagentView composer / mobile toolbar), not on the
-    // shell wrapper. If the shell added it too the inset would be double-counted.
-    // Guard: no padding-bottom referencing safe-area-inset-bottom on .desktop-shell
-    // or .mobile-shell directly (the toolbar rule inside .mobile-shell is fine).
+    // (ChatView composer / SuperagentView composer), not on the shell wrapper.
+    // If the shell added it too the inset would be double-counted.
     const desktopBlock = css.match(/\.desktop-shell\s*\{[^}]*\}/)?.[0] ?? ''
     expect(desktopBlock).not.toContain('safe-area-inset-bottom')
-  })
-
-  it('mobile-shell uses dvh (via --viewport-h fallback) not a fixed 100vh', () => {
-    const css = readWeb('src/styles.css')
-    // mobile-shell must NOT use the old fixed 100vh (layout viewport), which
-    // doesn't shrink when the soft keyboard opens.
-    const mobileBlock = css.match(/\.mobile-shell\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(mobileBlock).not.toContain('100vh')
-    expect(mobileBlock).toMatch(/100dvh/)
   })
 
   it('ChatView composer applies safe-area-inset-bottom exactly once', () => {

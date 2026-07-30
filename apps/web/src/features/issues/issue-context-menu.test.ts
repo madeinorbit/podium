@@ -117,6 +117,12 @@ describe('issueMenuEligibility', () => {
     expect(issueMenuEligibility([makeIssue({ duplicateOf: 'x' })]).canDuplicate).toBe(false)
   })
 
+  // POD-169: "Duplicate of…" stays on the Issues board; the sidebar menu drops it.
+  it('hides duplicate on the sidebar surface', () => {
+    expect(issueMenuEligibility([makeIssue()], 'sidebar').canDuplicate).toBe(false)
+    expect(issueMenuEligibility([makeIssue()], 'board').canDuplicate).toBe(true)
+  })
+
   it('offers only open and restore for deleted issues', () => {
     const e = issueMenuEligibility([makeIssue({ deletedAt: '2026-07-13T10:00:00.000Z' })])
     expect(e.canOpen).toBe(true)

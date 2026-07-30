@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, elevation, font, radius, space } from '../theme/theme'
+import { color, elevation, font, monoLabel, radius, sans, space } from '../theme/theme'
 
 export interface SheetAction {
   label: string
+  /** One line under the label, for a choice the label alone can't settle
+   *  (e.g. task vs bare session — where the work ends up differs). */
+  hint?: string
   destructive?: boolean
+  disabled?: boolean
   onPress: () => void
 }
 
@@ -29,21 +33,28 @@ export function ActionSheet({
   const [mounted, setMounted] = useState(visible)
 
   useEffect(() => {
+    slide.stopAnimation()
     if (visible) {
       setMounted(true)
-      Animated.spring(slide, {
+      const opening = Animated.spring(slide, {
         toValue: 1,
         useNativeDriver: Platform.OS !== 'web',
         speed: 18,
         bounciness: 4,
-      }).start()
-    } else {
-      Animated.timing(slide, {
-        toValue: 0,
-        duration: 160,
-        useNativeDriver: Platform.OS !== 'web',
-      }).start(() => setMounted(false))
+      })
+      opening.start()
+      return () => opening.stop()
     }
+
+    const closing = Animated.timing(slide, {
+      toValue: 0,
+      duration: 160,
+      useNativeDriver: Platform.OS !== 'web',
+    })
+    closing.start(({ finished }) => {
+      if (finished) setMounted(false)
+    })
+    return () => closing.stop()
   }, [visible, slide])
 
   if (!mounted) return null
@@ -78,6 +89,9 @@ export function ActionSheet({
               key={action.label}
               accessibilityRole="button"
               accessibilityLabel={action.label}
+              {...(action.hint ? { accessibilityHint: action.hint } : {})}
+              accessibilityState={{ disabled: action.disabled }}
+              disabled={action.disabled}
               onPress={() => {
                 onClose()
                 action.onPress()
@@ -85,12 +99,14 @@ export function ActionSheet({
               style={({ pressed }) => [
                 styles.action,
                 i > 0 && styles.actionDivider,
+                action.disabled && styles.actionDisabled,
                 pressed && styles.actionPressed,
               ]}
             >
               <Text style={[styles.actionText, action.destructive && styles.destructive]}>
                 {action.label}
               </Text>
+              {action.hint ? <Text style={styles.actionHint}>{action.hint}</Text> : null}
             </Pressable>
           ))}
         </View>
@@ -137,11 +153,8 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   title: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+    ...monoLabel(9),
+    color: color.textMicro,
     textAlign: 'center',
     marginBottom: space.sm,
   },
@@ -154,7 +167,9 @@ const styles = StyleSheet.create({
   },
   action: {
     paddingVertical: 14,
+    paddingHorizontal: space.lg,
     alignItems: 'center',
+    gap: 3,
   },
   actionDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -163,10 +178,20 @@ const styles = StyleSheet.create({
   actionPressed: {
     backgroundColor: color.surfacePressed,
   },
+  actionDisabled: {
+    opacity: 0.38,
+  },
   actionText: {
+    ...sans(600),
     color: color.text,
     fontSize: font.body,
-    fontWeight: '600',
+  },
+  actionHint: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.tiny,
+    lineHeight: 15,
+    textAlign: 'center',
   },
   destructive: {
     color: color.danger,
@@ -178,8 +203,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   cancelText: {
+    ...sans(600),
     color: color.textDim,
     fontSize: font.body,
-    fontWeight: '600',
   },
 })

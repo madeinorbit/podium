@@ -16,7 +16,7 @@
           }
           var p = localStorage.getItem('podium.theme.preset')
           var m = localStorage.getItem('podium.theme.mode')
-          var preset = p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'podium'
+          var preset = p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'superade'
           var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'dark'
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var isDark = mode === 'system' ? prefersDark : mode === 'dark'

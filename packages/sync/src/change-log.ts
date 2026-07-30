@@ -114,6 +114,35 @@ export function conversationProjection(value: unknown): string {
   return JSON.stringify(stable)
 }
 
+/** Issue fields derived from live-session state — EXCLUDED from change
+ *  detection (POD-210, same shape as {@link conversationProjection}): the wire
+ *  embeds the full member SessionMeta[] plus roll-ups, so every session
+ *  heartbeat (working↔idle flip, read receipt, activity stamp) re-serializes
+ *  the issue row and was re-recorded to the ledger ~each second per active
+ *  session. Live clients keep getting these via the snapshot fan-out, and
+ *  sessions are ledgered as their own entity; only the durable issue-change
+ *  KEY ignores them. Staleness tradeoff: a delta client's embedded session
+ *  snapshot inside an issue row refreshes when a stable field changes or on
+ *  its next reconnect snapshot — acceptable for advisory live-state hints. */
+export function issueProjection(value: unknown): string {
+  const {
+    sessions: _sessions,
+    sessionSummary: _sessionSummary,
+    unread: _unread,
+    ...stable
+  } = value as Record<string, unknown>
+  return JSON.stringify(stable)
+}
+
+/** The change-DETECTION key for one entity value: the stable-field projection
+ *  for entities with churn-prone derived fields, else the full serialized wire
+ *  JSON (`json` must be `JSON.stringify(value)`). */
+export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
+  if (entity === 'conversation') return conversationProjection(value)
+  if (entity === 'issue') return issueProjection(value)
+  return json
+}
+
 /**
  * The in-memory dedup baseline: per (entity, id), the serialized wire JSON of
  * the last recorded state — plus, for conversations, the stable-field
@@ -124,10 +153,10 @@ export function conversationProjection(value: unknown): string {
  * log.
  */
 export class ChangeBaseline {
-  /** entity -> id -> serialized wire JSON of the last recorded state. */
+  /** entity -> id -> DETECTION KEY of the last recorded state (see
+   *  {@link detectionKey}: the stable-field projection for projected entities,
+   *  else the serialized wire JSON). */
   private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
-  /** Conversation id -> stable-field projection JSON of the last recorded state. */
-  private readonly convProjection = new Map<string, string>()
 
   private byEntity(entity: MetadataEntityKind): Map<string, string> {
     let m = this.last.get(entity)
@@ -140,28 +169,25 @@ export class ChangeBaseline {
 
   /** Boot fold: seed from the latest retained upsert per (entity, id), so the
    *  first record after a restart emits deltas for anything that changed while
-   *  the server was down. A corrupt conversation payload seeds no projection —
+   *  the server was down. A corrupt payload seeds no baseline for its id —
    *  the first sighting then re-upserts it. */
   seed(store: Pick<ChangeLogStore, 'latestChangeStates'>): void {
     for (const row of store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload == null) continue
-      this.byEntity(row.entity as MetadataEntityKind).set(row.entityId, row.payload)
-      if (row.entity === 'conversation') {
-        try {
-          this.convProjection.set(row.entityId, conversationProjection(JSON.parse(row.payload)))
-        } catch {} // corrupt payload -> no baseline; first record re-upserts it
-      }
+      try {
+        const entity = row.entity as MetadataEntityKind
+        this.byEntity(entity).set(
+          row.entityId,
+          detectionKey(entity, JSON.parse(row.payload), row.payload),
+        )
+      } catch {} // corrupt payload -> no baseline; first record re-upserts it
     }
   }
 
   /** Would upserting (id, value) change anything? Byte-equality on the
-   *  serialized JSON, except conversations, which compare on the stable-field
-   *  projection (see {@link conversationProjection}). */
+   *  entity's detection key (see {@link detectionKey}). */
   upsertChanged(entity: MetadataEntityKind, id: string, value: unknown, json: string): boolean {
-    if (entity === 'conversation') {
-      return this.convProjection.get(id) !== conversationProjection(value)
-    }
-    return this.byEntity(entity).get(id) !== json
+    return this.byEntity(entity).get(id) !== detectionKey(entity, value, json)
   }
 
   has(entity: MetadataEntityKind, id: string): boolean {
@@ -174,13 +200,11 @@ export class ChangeBaseline {
   }
 
   applyUpsert(entity: MetadataEntityKind, id: string, value: unknown, json: string): void {
-    this.byEntity(entity).set(id, json)
-    if (entity === 'conversation') this.convProjection.set(id, conversationProjection(value))
+    this.byEntity(entity).set(id, detectionKey(entity, value, json))
   }
 
   applyRemove(entity: MetadataEntityKind, id: string): void {
     this.byEntity(entity).delete(id)
-    if (entity === 'conversation') this.convProjection.delete(id)
   }
 }
 

@@ -23,6 +23,86 @@ export function claudeRecordColor(record: unknown): string | undefined {
   return typeof r.agentColor === 'string' ? r.agentColor : undefined
 }
 
+/**
+ * The model that actually produced this record, if it is an assistant turn —
+ * `message.model` (e.g. "claude-fable-5"). This is the OBSERVED model: it
+ * resolves a spawn-time `auto` selection to the concrete id, and follows
+ * mid-session `/model` switches. Claude stamps API-error placeholder records
+ * with the sentinel `<synthetic>`; those aren't a real model, so they're
+ * filtered here rather than at every consumer.
+ */
+export function claudeRecordModel(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as Record<string, unknown>
+  if (r.type !== 'assistant') return undefined
+  const message = r.message
+  if (typeof message !== 'object' || message === null) return undefined
+  const model = (message as Record<string, unknown>).model
+  if (typeof model !== 'string' || model === '' || model.startsWith('<')) return undefined
+  return model
+}
+
+/**
+ * The reasoning-effort tier this assistant record ran at — Claude stamps it
+ * top-level on assistant lines (`"effort":"medium"`). The OBSERVED counterpart
+ * to the spawn-time effort request: it also covers sessions Podium never
+ * spawned (CLI attach) and follows mid-session changes.
+ */
+export function claudeRecordEffort(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as Record<string, unknown>
+  if (r.type !== 'assistant') return undefined
+  return typeof r.effort === 'string' && r.effort !== '' ? r.effort : undefined
+}
+
+const IMAGE_SOURCE_MARKER_RE = /\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g
+
+/**
+ * A pasted/uploaded image's file path arrives as a SEPARATE isMeta user record
+ * — `[Image: source: /abs/path.png]` — following the user turn that carries
+ * the image block. isMeta records are otherwise dropped (injected content),
+ * but a marker-ONLY record is surfaced as a text-less user item carrying the
+ * paths: the chat folds it into the preceding user block as an inline
+ * thumbnail, and the server's file-relay policy allow-lists exactly the paths
+ * a transcript references. Any other isMeta content stays dropped.
+ */
+function metaImageSourceItems(
+  uuid: string | undefined,
+  ts: string | undefined,
+  r: Record<string, unknown>,
+): TranscriptItem[] {
+  if (r.type !== 'user') return []
+  const message = (r.message ?? {}) as Record<string, unknown>
+  const content = message.content
+  let text: string
+  if (typeof content === 'string') text = content
+  else if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const block of content) {
+      const b = block as Record<string, unknown> | null
+      if (b && b.type === 'text' && typeof b.text === 'string') parts.push(b.text)
+      else return [] // any non-text block → not a pure marker record
+    }
+    text = parts.join('\n')
+  } else return []
+  if (!/^\s*(?:\[Image(?: #\d+)?: source: [^\]\n]+\]\s*)+$/.test(text)) return []
+  const paths = [...text.matchAll(IMAGE_SOURCE_MARKER_RE)].map((m) => (m[1] ?? '').trim())
+  if (paths.length === 0) return []
+  return [
+    {
+      id: uuid ?? freshId('u'),
+      role: 'user',
+      ts,
+      text: '',
+      toolPaths: paths,
+      tags: paths.map((p) => ({
+        kind: 'image' as const,
+        ...(p.split('/').pop() ? { label: p.split('/').pop() as string } : {}),
+      })),
+    },
+  ]
+}
+
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
@@ -32,7 +112,12 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   // the auto "Continue from where you left off." prompt, SessionStart context.
   // Its own UI hides them; rendering them as user messages dumps what looks like
   // the system prompt into the chat view (and poisons the /btw seed downstream).
-  if (r.isMeta === true) return []
+  if (r.isMeta === true)
+    return metaImageSourceItems(
+      typeof r.uuid === 'string' ? r.uuid : undefined,
+      typeof r.timestamp === 'string' ? r.timestamp : undefined,
+      r,
+    )
   const uuid = typeof r.uuid === 'string' ? r.uuid : undefined
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
   const message = (r.message ?? {}) as Record<string, unknown>
@@ -168,7 +253,28 @@ function userItems(
       })
     }
   }
-  const text = stripSystemReminders(textParts.join('\n'))
+  let text = stripSystemReminders(textParts.join('\n'))
+  // Pasted/uploaded images ride in as an image block plus a text marker
+  // `[Image: source: /abs/path.png]` (numbered `[Image #N: …]` when several).
+  // Harvest the paths into toolPaths — the web renders them as inline
+  // thumbnails and the server's file-relay policy allow-lists exactly the
+  // paths a transcript references — and strip the raw markers from the shown
+  // text. Paths label the image tags in order (uploads and markers are
+  // emitted pairwise).
+  const imagePaths: string[] = []
+  text = text
+    .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
+      imagePaths.push(p.trim())
+      return ''
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+  const imageTags = tags.filter((t) => t.kind === 'image')
+  imagePaths.forEach((p, i) => {
+    const tag = imageTags[i]
+    const label = p.split('/').pop()
+    if (tag && label && tag.label === undefined) tag.label = label
+  })
   if (text || tags.length > 0) {
     items.unshift({
       id: uuid ?? freshId('u'),
@@ -176,6 +282,7 @@ function userItems(
       ts,
       text,
       ...(tags.length > 0 ? { tags } : {}),
+      ...(imagePaths.length > 0 ? { toolPaths: imagePaths } : {}),
       ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
     })
   }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { envelopePrincipalLabel, parseMessageEnvelope } from './message-envelope'
+import {
+  envelopePrincipal,
+  envelopePrincipalLabel,
+  parseEnvelopeBatch,
+  parseMessageEnvelope,
+} from './message-envelope'
 
 const frame = (id: string, from: string, to: string, body: string, extra = '') =>
   `[podium message ${id} · from ${from} · to ${to} · reply: podium mail reply ${id}]\n${body}\n${extra}[end podium message ${id}]`
@@ -13,6 +18,43 @@ describe('parseMessageEnvelope', () => {
       to: 'issue:#228',
       body: 'hello\nworld',
       question: false,
+      expectsReply: false,
+    })
+  })
+
+  it('strips the response-requested rule and marks the block', () => {
+    const p = parseMessageEnvelope(
+      frame(
+        'msg_r',
+        'issue:POD-84',
+        'your session',
+        'please confirm',
+        '[a response was requested: reply within this thread (`podium mail reply msg_r`) when you have handled it — any substantive reply satisfies it]\n',
+      ),
+    )
+    expect(p).toMatchObject({
+      id: 'msg_r',
+      body: 'please confirm',
+      expectsReply: true,
+      question: false,
+    })
+  })
+
+  it('strips the cross-machine note into machineNote', () => {
+    const p = parseMessageEnvelope(
+      frame(
+        'msg_m',
+        'issue:POD-84',
+        'your session',
+        'hi',
+        '[this agent runs on machine "vmi123" — inspect its working tree with: podium workspace fetch ses_1]\n',
+      ),
+    )
+    expect(p).toMatchObject({
+      id: 'msg_m',
+      body: 'hi',
+      machineNote:
+        'this agent runs on machine "vmi123" — inspect its working tree with: podium workspace fetch ses_1',
     })
   })
 
@@ -48,6 +90,39 @@ describe('parseMessageEnvelope', () => {
       ),
     ).toBeNull()
   })
+
+  it('splits a leading internal frame from a coalesced operator follow-up', () => {
+    const text = `${frame('msg_b', 'issue:POD-84', 'your session', 'dependency cleared')}please refine the sticky prompt`
+    expect(parseEnvelopeBatch(text)).toEqual({
+      envelopes: [
+        {
+          id: 'msg_b',
+          from: 'issue:POD-84',
+          to: 'your session',
+          body: 'dependency cleared',
+          question: false,
+          expectsReply: false,
+        },
+      ],
+      operatorText: 'please refine the sticky prompt',
+    })
+  })
+
+  it('splits multiple leading frames and accepts CRLF server records', () => {
+    const text = `${frame('msg_a', 'system', 'your session', 'one')}\n\n${frame(
+      'msg_b',
+      'issue:POD-84',
+      'your session',
+      'two',
+    )}\noperator text`.replace(/\n/g, '\r\n')
+    const batch = parseEnvelopeBatch(text)
+    expect(batch?.envelopes.map((envelope) => envelope.id)).toEqual(['msg_a', 'msg_b'])
+    expect(batch?.operatorText).toBe('operator text')
+  })
+
+  it('does not promote a frame-shaped quote inside operator text', () => {
+    expect(parseEnvelopeBatch(`look at this:\n${frame('msg_q', 'a', 'b', 'quoted')}`)).toBeNull()
+  })
 })
 
 describe('envelopePrincipalLabel', () => {
@@ -64,5 +139,26 @@ describe('envelopePrincipalLabel', () => {
     expect(envelopePrincipalLabel('issue:whatever')).toBe('issue:whatever')
     expect(envelopePrincipalLabel('issue:pod-13')).toBe('issue:pod-13')
     expect(envelopePrincipalLabel('issue:TOOLONG-1')).toBe('issue:TOOLONG-1')
+  })
+})
+
+describe('envelopePrincipal', () => {
+  it('exposes a nice-id issue ref for chipping, but not a legacy #seq', () => {
+    expect(envelopePrincipal('issue:POD-13')).toEqual({
+      pre: 'task ',
+      ref: 'POD-13',
+      post: ' · agent',
+    })
+    expect(envelopePrincipal('issue:#212')).toEqual({
+      pre: 'task ',
+      ref: null,
+      post: '#212 · agent',
+    })
+    expect(envelopePrincipal('session:s1')).toEqual({
+      pre: 'session s1 · agent',
+      ref: null,
+      post: '',
+    })
+    expect(envelopePrincipal('superagent')).toEqual({ pre: 'superagent', ref: null, post: '' })
   })
 })

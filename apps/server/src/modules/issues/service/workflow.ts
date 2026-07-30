@@ -1,5 +1,10 @@
 import { DEFER_NEXT_MESSAGE } from '@podium/domain'
-import type { IssueWire, OrphanIssue } from '@podium/protocol'
+import {
+  formatIssueRef,
+  type IssueWire,
+  type OrphanIssue,
+  type SessionMeta,
+} from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '../../../local-machine'
 import { sessionsForIssue } from '../../../issue-util'
@@ -8,6 +13,7 @@ import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
+import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueServiceMail } from './mail'
 import type { CreateIssueInput } from './types'
 
@@ -127,6 +133,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       row.closedAt = null
       row.supersededBy = null
       row.duplicateOf = null
+      // …including the tuck-away dismissal (POD-333), same as update()'s reopen:
+      // work picked back up must not carry a stale fold into its next close.
+      row.tuckedAt = null
     }
     row.branch = branch
     row.worktreePath = path
@@ -827,6 +836,177 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         void this.refreshAssistant(row.id).catch(() => {})
       }, 120_000),
     )
+  }
+
+  // ── git-state probes [POD-98] ─────────────────────────────────────────────
+  // "Has this task committed, and on which branch?" — probed on the working→idle
+  // edge (the only moment commits appear), joined into the wire as an ephemeral
+  // field (core.gitStates). Attribution (which commits/files are THIS task's)
+  // comes from the daemon's hook-ingest HEAD-delta capture, recorded per session
+  // here and unioned per issue at probe time; without it a shared checkout runs
+  // in disclosed fallback mode.
+  private gitRefreshes = new Map<
+    string,
+    { promise: Promise<void>; rerun: boolean; fallbackCwd?: string }
+  >()
+  private gitCommitsBySession = new Map<string, string[]>()
+  private gitTouchedBySession = new Map<string, Set<string>>()
+
+  /** Daemon-captured git activity for a session: commit shas from the HEAD
+   *  delta around the session's own tool call, and/or files its Edit/Write
+   *  tools touched. Registers the session as attribution-capable even when
+   *  both lists are empty (SessionStart baseline). */
+  recordSessionGitActivity(
+    sessionId: string,
+    activity: { commits?: string[]; touched?: string[] },
+  ): void {
+    const commits = this.gitCommitsBySession.get(sessionId) ?? []
+    for (const sha of activity.commits ?? []) if (!commits.includes(sha)) commits.push(sha)
+    this.gitCommitsBySession.set(sessionId, commits)
+    const touched = this.gitTouchedBySession.get(sessionId) ?? new Set<string>()
+    for (const f of activity.touched ?? []) touched.add(f)
+    this.gitTouchedBySession.set(sessionId, touched)
+    // A commit is the one git-state change worth a probe OUTSIDE the turn-end
+    // edge — it flips the headline answer ("has it committed?") mid-turn. And
+    // after a restart the ephemeral gitStates map is empty: the first hook
+    // registration from a live session repopulates its issue's stamp instead
+    // of leaving the UI blank until the next full turn ends.
+    const resolved = this.issueForSession(sessionId)
+    if (!resolved) return
+    if (activity.commits?.length || !this.gitStates.has(resolved.row.id)) {
+      void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+    }
+  }
+
+  /** Working→idle edge from the sessions service: refresh the git state of the
+   *  issue this session works. Fire-and-forget; never throws into the caller. */
+  onSessionTurnEnd(sessionId: string): void {
+    const resolved = this.issueForSession(sessionId)
+    if (!resolved) return
+    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+  }
+
+  /** A session was archived or permanently removed. Drop its ephemeral
+   * attribution ledger immediately; if its issue remains visible, queue a fresh
+   * derived state so commits/files from the departed session do not linger. */
+  onSessionRemovedOrArchived(sessionId: string): void {
+    const resolved = this.issueForSession(sessionId)
+    const removedCommits = this.gitCommitsBySession.delete(sessionId)
+    const removedTouched = this.gitTouchedBySession.delete(sessionId)
+    if ((!removedCommits && !removedTouched) || !resolved) return
+    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+  }
+
+  /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
+   *  commit-message marker logIssueCommits greps for. */
+  private issueRef(row: IssueRow): string {
+    const prefix = this.d.store.repos.prefixForPath(row.repoPath)
+    return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
+  }
+
+  /** The issue a session works: explicit attachment or worktree membership. */
+  private issueForSession(sessionId: string): { row: IssueRow; sess: SessionMeta } | null {
+    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    if (!sess) return null
+    const row = [...this.rows.values()].find(
+      (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
+    )
+    return row ? { row, sess } : null
+  }
+
+  /** Queue a checkout probe. Requests arriving in the same short window share
+   * one probe; requests arriving while it runs share one trailing probe, so a
+   * late attribution update is never dropped. Scheduling happens before any
+   * list/Git work, keeping daemon hooks and turn-end handlers fire-and-forget. */
+  async refreshGitState(id: string, fallbackCwd?: string): Promise<void> {
+    const active = this.gitRefreshes.get(id)
+    if (active) {
+      active.rerun = true
+      active.fallbackCwd ??= fallbackCwd
+      return active.promise
+    }
+    const refresh = {
+      rerun: false,
+      fallbackCwd,
+      promise: Promise.resolve(),
+    }
+    refresh.promise = (async () => {
+      let changed = false
+      do {
+        // Coalesce rapid daemon messages/turn-end edges before starting four
+        // read-only repo operations. A request during the probe flips rerun and
+        // is folded into exactly one trailing pass.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        refresh.rerun = false
+        changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
+      } while (refresh.rerun)
+      if (changed) {
+        const current = this.rows.get(id)
+        if (current && !current.deletedAt) this.broadcastIssue(current)
+      }
+    })().finally(() => {
+      if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)
+    })
+    this.gitRefreshes.set(id, refresh)
+    return refresh.promise
+  }
+
+  /** Run one coalesced probe and retain its issue's final state for publication. */
+  private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
+    const row = this.rows.get(id)
+    if (!row || row.deletedAt) return false
+    const shared = row.worktreePath === null
+    const cwd = row.worktreePath ?? fallbackCwd
+    if (!cwd) return false
+    try {
+      const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id)
+      const attribution = this.gitAttributionFor(members)
+      const state = await probeGitState(
+        {
+          repoOp: (op, opCwd, args, machineId) =>
+            this.d.repoOp(op as never, opCwd, args, machineId),
+        },
+        {
+          cwd,
+          shared,
+          parentBranch: row.parentBranch,
+          branch: row.branch,
+          machineId: row.machineId ?? undefined,
+          ...attribution,
+          // Restart-proof task axis: commits whose message carries the issue's
+          // marker ([POD-98] tag / Podium-Issue trailer) count even when the
+          // in-memory ledger is empty or the commits predate capture.
+          refsPattern: issueRefsPattern(this.issueRef(row)),
+        },
+        this.now(),
+      )
+      this.gitStates.set(id, state)
+      return true
+    } catch {
+      // Probe failure leaves the last completed state intact.
+      return false
+    }
+  }
+
+  /** Union the attribution ledgers of an issue's member sessions. Absent (not
+   *  empty) when NO member ever registered — that absence is what flips the
+   *  probe into disclosed fallback mode. */
+  private gitAttributionFor(members: SessionMeta[]): {
+    commits?: string[]
+    touched?: ReadonlySet<string>
+  } {
+    let seen = false
+    const commits: string[] = []
+    const touched = new Set<string>()
+    for (const m of members) {
+      const c = this.gitCommitsBySession.get(m.sessionId)
+      const t = this.gitTouchedBySession.get(m.sessionId)
+      if (c === undefined && t === undefined) continue
+      seen = true
+      for (const sha of c ?? []) if (!commits.includes(sha)) commits.push(sha)
+      for (const f of t ?? []) touched.add(f)
+    }
+    return seen ? { commits, touched } : {}
   }
 
   async refreshAssistant(id: string): Promise<IssueWire> {

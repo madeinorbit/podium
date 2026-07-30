@@ -1,3 +1,3 @@
-import { InboxScreen } from '../../src/screens/InboxScreen'
+import { TrayScreen } from '../../src/screens/TrayScreen'
 
-export default InboxScreen
+export default TrayScreen

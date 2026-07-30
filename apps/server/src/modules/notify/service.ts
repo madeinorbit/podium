@@ -1,5 +1,10 @@
+import type {
+  AgentObservation,
+  AgentRuntimeState,
+  LiveServerMessage,
+  ServerMessage,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type { AgentRuntimeState, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -7,8 +12,8 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from '../../notify'
-import type { TelegramNoticePort } from '../messaging/types'
 import type { EventBus } from '../bus'
+import type { TelegramNoticePort } from '../messaging/types'
 
 export interface NotificationPushers {
   ntfy(topic: string, notice: AttentionNotice): void
@@ -51,6 +56,8 @@ export interface SessionNoticeInfo {
 
 export interface NotifyDeps {
   getSettings(): PodiumSettings
+  /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
+  notificationsEnabled?(): boolean
   /** store.appendEvent — the durable podium_events log. */
   appendEvent(e: {
     ts: string
@@ -82,9 +89,9 @@ export class NotifyService {
     private readonly pushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     bus: EventBus,
   ) {
-    bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
+    bus.on('session.stateChanged', ({ sessionId, prev, next, observation }) => {
       const info = this.deps.sessionInfo(sessionId)
-      if (info) this.notifyAttention(info, prev, next)
+      if (info) this.notifyAttention(info, prev, next, observation)
     })
     bus.on('settings.changed', ({ previous, next }) => {
       this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
@@ -95,11 +102,7 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
-  private sendTelegram(
-    config: TelegramConfig,
-    notice: AttentionNotice,
-    sessionId?: string,
-  ): void {
+  private sendTelegram(config: TelegramConfig, notice: AttentionNotice, sessionId?: string): void {
     const text = `${notice.title}\n\n${notice.body}`
     const port = this.deps.telegramNotice?.()
     if (port) {
@@ -114,6 +117,7 @@ export class NotifyService {
     next: NotificationSettings,
   ): void {
     const previousNtfy = previous.ntfyTopic.trim()
+    if (this.deps.notificationsEnabled?.() === false) return
     const nextNtfy = next.ntfyTopic.trim()
     const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
     const sendTelegram =
@@ -148,6 +152,7 @@ export class NotifyService {
    */
   notifyExternal(notice: AttentionNotice): void {
     const settings = this.deps.getSettings().notifications
+    if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
     if (isTelegramEnabled(settings)) this.sendTelegram(telegramConfig(settings), notice)
   }
@@ -162,6 +167,7 @@ export class NotifyService {
     info: SessionNoticeInfo,
     prev: AgentRuntimeState | undefined,
     next: AgentRuntimeState,
+    observation?: AgentObservation,
   ): void {
     // Durable event log: one row per REAL phase transition (the caller fires on
     // every agentState message, including same-phase refreshes). prev==null is the
@@ -176,6 +182,26 @@ export class NotifyService {
           payload: {
             phase: next.phase,
             ...(next.idle?.kind ? { verdict: next.idle.kind } : {}),
+            ...(observation
+              ? {
+                  transitionId: observation.transitionId,
+                  provider: observation.provider,
+                  providerSessionId: observation.providerSessionId,
+                  providerTurnId: observation.providerTurnId,
+                  providerPromptId: observation.providerPromptId,
+                  observerGeneration: observation.observerGeneration,
+                  providerCursor: observation.providerCursor,
+                  turnEpoch: observation.turnEpoch,
+                  transitionKind: observation.transitionKind,
+                  providerAt: observation.providerAt,
+                  receivedAt: observation.receivedAt,
+                  sourceEventKind: observation.sourceEventKind,
+                  provenance: observation.provenance,
+                  inputOrigin: observation.inputOrigin,
+                  priorPhase: observation.priorPhase,
+                  nextPhase: observation.nextPhase,
+                }
+              : {}),
             agentKind: info.agentKind,
             cwd: info.cwd,
           },
@@ -183,6 +209,7 @@ export class NotifyService {
       } catch {}
     }
     const settings = this.deps.getSettings().notifications
+    if (this.deps.notificationsEnabled?.() === false) return
     const name = this.attentionNoticeName(info)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return

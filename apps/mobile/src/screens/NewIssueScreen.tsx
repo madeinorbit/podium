@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 const TYPES: IssueType[] = ['task', 'bug', 'feature', 'chore']
 const PRIORITIES = [0, 1, 2, 3, 4]
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
   chipText: {
     color: color.textDim,
     fontSize: font.small,
-    fontWeight: '600',
+    ...sans(600),
   },
   chipTextActive: {
     color: color.accentText,
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   checkmark: {
     color: color.accentText,
     fontSize: 13,
-    fontWeight: '800',
+    ...sans(700),
   },
   toggleLabel: {
     color: color.text,
@@ -253,6 +253,6 @@ const styles = StyleSheet.create({
   createText: {
     color: color.accentText,
     fontSize: font.body,
-    fontWeight: '700',
+    ...sans(700),
   },
 })

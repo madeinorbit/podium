@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
@@ -70,8 +70,19 @@ export const grokAdapter: HarnessAdapter = {
     binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
     detectLogin(homeDir) {
       const path = grokHome(homeDir)
-      if (!existsSync(path)) return { state: 'out' }
-      return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+      try {
+        const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
+          string,
+          GrokAuthRecord
+        >
+        const hasCredential = Object.values(file).some(
+          (record) => record && (record.key || record.refresh_token),
+        )
+        if (!hasCredential) return { state: 'out' }
+        return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+      } catch {
+        return { state: 'out' }
+      }
     },
   },
 
@@ -136,34 +147,164 @@ export const grokAdapter: HarnessAdapter = {
 
   state: grokStateProvider,
 
-  // Grok has no hook channel — a polling observer discovers the session the
-  // CLI creates and tails its update stream. On a fresh spawn `startedAtMs` is
+  // Grok's native hooks carry lifecycle/state, but the payload names only the
+  // session id — not its on-disk transcript — so a polling observer still
+  // discovers the session dir the CLI creates and tails its update stream. On a
+  // fresh spawn `startedAtMs` is
   // the spawn time, so discovery skips older sibling sessions in the same cwd.
   // On reattach it's absent → observeGrokState defaults watermarkMs to 0 (no
   // floor), so the latest-by-activity session is found even if it predates
   // this daemon process start.
   observer(input, host) {
-    const obs = observeGrokState({
-      cwd: input.cwd,
-      ...(input.statTick ? { statTick: input.statTick } : {}),
-      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-      ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
-      onSession: (grokSessionId) => {
-        host.onResumeValue(grokSessionId)
-        // The session's chat_history.jsonl is derivable once the id is known —
-        // tail it so chat has history before (and without) new activity.
-        host.tailFile(
-          grokSessionPaths({
-            cwd: input.cwd,
-            sessionId: grokSessionId,
-            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-          }).chatHistoryPath,
-        )
+    let lease = input.observationLease
+    let active: ReturnType<typeof observeGrokState> | undefined
+    let stopped = false
+    let pendingRebind:
+      | {
+          sessionId: string
+          rebindId: string
+          observerGeneration: number
+          bindingVersion: number
+          lastSentAt: number
+        }
+      | undefined
+
+    const start = (resumeValue: string | undefined): void => {
+      if (stopped) return
+      active?.stop()
+      const causal =
+        lease?.provider === 'grok' && lease.providerSessionId && input.podiumSessionId
+          ? {
+              podiumSessionId: input.podiumSessionId,
+              providerSessionId: lease.providerSessionId,
+              bindingVersion: lease.bindingVersion,
+              observerGeneration: lease.observerGeneration,
+              acceptedCheckpoint: lease.acceptedCheckpoint,
+              onObservation: (observation: Parameters<typeof host.onObservation>[0]) =>
+                host.onObservation(observation),
+            }
+          : undefined
+      active = observeGrokState({
+        cwd: input.cwd,
+        ...(input.statTick ? { statTick: input.statTick } : {}),
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+        onLivePollComplete: (cursor) => host.onLiveObservationCycle?.(cursor),
+        onSessionCandidate: (grokSessionId) => {
+          if (!lease) return true
+          if (lease.provider !== 'grok' || !input.podiumSessionId) return false
+          if (lease.providerSessionId === grokSessionId) return true
+          if (pendingRebind) {
+            if (
+              pendingRebind.sessionId === grokSessionId &&
+              Date.now() - pendingRebind.lastSentAt >= 2_000
+            ) {
+              pendingRebind.lastSentAt = Date.now()
+              host.onExactProviderRebind({
+                nextProviderSessionId: grokSessionId,
+                resumeKind: 'grok-session',
+                rebindId: pendingRebind.rebindId,
+              })
+            }
+          } else {
+            const rebindId = [
+              'grok',
+              input.podiumSessionId,
+              lease.observerGeneration,
+              lease.bindingVersion,
+              grokSessionId,
+            ].join(':')
+            pendingRebind = {
+              sessionId: grokSessionId,
+              rebindId,
+              observerGeneration: lease.observerGeneration,
+              bindingVersion: lease.bindingVersion,
+              lastSentAt: Date.now(),
+            }
+            host.onExactProviderRebind({
+              nextProviderSessionId: grokSessionId,
+              resumeKind: 'grok-session',
+              rebindId,
+            })
+          }
+          return false
+        },
+        onSession: (grokSessionId) => {
+          host.onResumeValue(grokSessionId)
+          host.tailFile(
+            grokSessionPaths({
+              cwd: input.cwd,
+              sessionId: grokSessionId,
+              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+            }).chatHistoryPath,
+          )
+        },
+        ...(causal
+          ? { causal }
+          : lease
+            ? {}
+            : {
+                onEvents: (events: Parameters<typeof host.onStateEvents>[0]) =>
+                  host.onStateEvents(events),
+              }),
+      })
+    }
+
+    start(input.resumeValue)
+    return {
+      stop() {
+        stopped = true
+        active?.stop()
       },
-      onEvents: (events) => host.onStateEvents(events),
-    })
-    return { stop: () => obs.stop() }
+      onObservationAck: (ack) => active?.onObservationAck?.(ack),
+      onProviderRebindAck(ack) {
+        const pending = pendingRebind
+        const priorLease = lease
+        if (
+          !pending ||
+          ack.provider !== 'grok' ||
+          ack.rebindId !== pending.rebindId ||
+          ack.priorObserverGeneration !== pending.observerGeneration ||
+          ack.priorBindingVersion !== pending.bindingVersion ||
+          ack.nextProviderSessionId !== pending.sessionId
+        ) {
+          return
+        }
+        const acceptedCandidate =
+          ack.result === 'accepted' && ack.providerSessionId === pending.sessionId
+        lease = {
+          provider: 'grok',
+          providerSessionId: ack.providerSessionId,
+          bindingVersion: ack.bindingVersion,
+          observerGeneration: ack.observerGeneration,
+          acceptedCheckpoint: ack.checkpoint,
+        }
+        const authoritativeChanged =
+          priorLease?.providerSessionId !== ack.providerSessionId ||
+          priorLease?.observerGeneration !== ack.observerGeneration ||
+          priorLease?.bindingVersion !== ack.bindingVersion
+        active?.stop()
+        active = undefined
+        if (acceptedCandidate) {
+          pendingRebind = undefined
+          start(pending.sessionId)
+          return
+        }
+        if (authoritativeChanged) {
+          pendingRebind = undefined
+          start(ack.providerSessionId ?? undefined)
+          return
+        }
+        pendingRebind = { ...pending, lastSentAt: Date.now() }
+        start(ack.providerSessionId ?? undefined)
+        host.onExactProviderRebind({
+          nextProviderSessionId: pending.sessionId,
+          resumeKind: 'grok-session',
+          rebindId: pending.rebindId,
+        })
+      },
+    }
   },
 
   discovery: createGrokConversationProvider(),

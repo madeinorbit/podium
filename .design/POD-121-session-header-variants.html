@@ -1,0 +1,442 @@
+<title>POD-121 · Session header — 3 variants</title>
+<style>
+  :root {
+    --page-bg: #f4f4f7;
+    --page-ink: #21232b;
+    --page-muted: #5d606e;
+    --page-faint: #9295a3;
+    --page-card: #ffffff;
+    --page-line: #e0e1e8;
+    --accent: #6c76a8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page-bg: #131419;
+      --page-ink: #e8e9ee;
+      --page-muted: #a2a5b2;
+      --page-faint: #6b6e7b;
+      --page-card: #1b1c23;
+      --page-line: #2a2c36;
+      --accent: #96a0c8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page-bg: #131419;
+    --page-ink: #e8e9ee;
+    --page-muted: #a2a5b2;
+    --page-faint: #6b6e7b;
+    --page-card: #1b1c23;
+    --page-line: #2a2c36;
+    --accent: #96a0c8;
+  }
+  :root[data-theme="light"] {
+    --page-bg: #f4f4f7;
+    --page-ink: #21232b;
+    --page-muted: #5d606e;
+    --page-faint: #9295a3;
+    --page-card: #ffffff;
+    --page-line: #e0e1e8;
+    --accent: #6c76a8;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--page-bg);
+    color: var(--page-ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 56px 28px 96px; }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 6px; text-wrap: balance; }
+  .sub { color: var(--page-muted); font-size: 14.5px; max-width: 68ch; margin: 0 0 14px; }
+  .meta { color: var(--page-faint); font-size: 12px; font-family: var(--mono); margin-bottom: 44px; }
+
+  h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin: 56px 0 4px; display: flex; align-items: baseline; gap: 10px; }
+  h2 .tag {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 5px; padding: 1px 7px; transform: translateY(-1px);
+  }
+  .lede { color: var(--page-muted); font-size: 13.5px; max-width: 72ch; margin: 0 0 18px; }
+
+  /* ---- mock frame: committed dark, depicts the live app ---- */
+  .mock {
+    --bg: #17181d;
+    --hdr: #23252d;
+    --hairline: rgba(150, 160, 195, 0.17);
+    --hairline-soft: rgba(150, 160, 195, 0.10);
+    --txt: #ecedf2;
+    --muted: #9a9daa;
+    --dim: #6b6e7b;
+    --claude: #d97757;
+    --issue: #96a0c8;
+    --seg-active: #33363f;
+    background: var(--bg);
+    border: 1px solid var(--page-line);
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 0 0 10px;
+  }
+  .mock-inner { min-width: 880px; }
+  .statelabel {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: var(--dim);
+    padding: 10px 14px 8px; text-transform: uppercase;
+  }
+  .term {
+    height: 74px; padding: 10px 14px; font-family: var(--mono); font-size: 11.5px;
+    color: #7f838f; line-height: 1.7; overflow: hidden; white-space: pre;
+  }
+  .chatbody {
+    height: 74px; padding: 12px 16px; font-size: 12px; color: #a6a9b4; overflow: hidden;
+  }
+  .chatbody .bubble { color: #caccd6; max-width: 60ch; }
+  .chatbody .who { font-size: 10px; letter-spacing: 0.07em; color: #6b6e7b; margin-bottom: 3px; }
+
+  /* header rows */
+  .hdr {
+    display: flex; align-items: center; height: 42px; padding: 0 10px; gap: 8px;
+    background: var(--hdr); border-bottom: 1px solid var(--hairline);
+    font-size: 11.5px; color: var(--txt); white-space: nowrap;
+  }
+  .hdr svg { flex: none; display: block; }
+  .strip {
+    display: flex; align-items: center; height: 32px; padding: 0 11px; gap: 9px;
+    border-bottom: 1px solid var(--hairline-soft);
+    font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap;
+  }
+
+  /* shared header atoms */
+  .claude-glyph { color: var(--claude); }
+  .kindchip {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--hairline);
+    background: rgba(23, 24, 29, 0.5); border-radius: 6px; padding: 3px 7px;
+    font-size: 11px; font-weight: 600;
+  }
+  .eyebrow { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+  .sname { font-size: 11.5px; color: var(--txt); }
+  .cwd { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--muted); }
+  .right { margin-left: auto; display: inline-flex; align-items: center; }
+  .iconbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 6px; color: var(--muted);
+  }
+  .iconbtn.boxed { border: 1px solid var(--hairline); background: rgba(23, 24, 29, 0.45); color: #c9cbd6; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--claude); flex: none; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--hairline);
+    background: rgba(23, 24, 29, 0.5); border-radius: 5px; padding: 1px 7px; color: var(--muted);
+  }
+  .vsep { width: 1px; height: 16px; background: var(--hairline); flex: none; }
+
+  /* annotations */
+  .pin {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; flex: none; border-radius: 50%;
+    background: #b2543a; color: #fff; font-size: 9.5px; font-weight: 700; font-family: var(--mono);
+    margin: 0 2px; transform: translateY(-8px); z-index: 2;
+  }
+  .legend { list-style: none; padding: 0; margin: 4px 0 0; }
+  .legend li {
+    display: flex; gap: 9px; font-size: 13px; color: var(--page-muted);
+    padding: 3px 0; max-width: 78ch;
+  }
+  .legend .n {
+    flex: none; width: 16px; height: 16px; border-radius: 50%; background: #b2543a; color: #fff;
+    font-size: 10px; font-weight: 700; font-family: var(--mono);
+    display: inline-flex; align-items: center; justify-content: center; margin-top: 3px;
+  }
+  .legend strong { color: var(--page-ink); font-weight: 600; }
+
+  /* variant atoms */
+  .seg {
+    display: inline-flex; align-items: stretch; height: 26px; border: 1px solid var(--hairline);
+    border-radius: 7px; background: rgba(23, 24, 29, 0.45); overflow: hidden;
+  }
+  .seg > span {
+    display: inline-flex; align-items: center; gap: 5px; padding: 0 10px;
+    font-size: 11px; font-weight: 500; color: var(--dim);
+  }
+  .seg > span.on { background: var(--seg-active); color: var(--txt); }
+  .seg > span + span { border-left: 1px solid var(--hairline-soft); }
+
+  .tab {
+    display: inline-flex; align-items: center; gap: 6px; align-self: stretch; padding: 0 11px;
+    font-size: 11.5px; font-weight: 500; color: var(--dim); position: relative;
+  }
+  .tab.on { color: var(--txt); }
+  .tab.on::after {
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px;
+    background: var(--issue); border-radius: 2px 2px 0 0;
+  }
+
+  .actionpill {
+    display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+    border: 1px solid color-mix(in srgb, var(--issue) 40%, transparent);
+    background: rgba(23, 24, 29, 0.45); border-radius: 6px;
+    font-size: 11px; font-weight: 500; color: #c9cbd6;
+  }
+  .quiet { opacity: 0.42; }
+
+  .menu {
+    position: absolute; top: 36px; right: 8px; z-index: 3;
+    background: #22242c; border: 1px solid var(--hairline); border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); padding: 5px; min-width: 218px;
+    font-size: 11.5px; color: #c9cbd6;
+  }
+  .menu .mi { display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: 5px; }
+  .menu .mi.hover { background: rgba(150, 160, 195, 0.10); }
+  .menu .mi .kbd { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+  .menu .msep { height: 1px; background: var(--hairline-soft); margin: 4px 2px; }
+  .menu .mono-sub { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin-top: 1px; }
+
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; margin: 14px 0 0; }
+  .notes div { font-size: 13px; color: var(--page-muted); max-width: 52ch; }
+  .notes b { color: var(--page-ink); font-weight: 600; display: block; margin-bottom: 2px; font-size: 12.5px; }
+  @media (max-width: 720px) { .notes { grid-template-columns: 1fr; } }
+
+  .verdict {
+    margin-top: 56px; border-top: 1px solid var(--page-line); padding-top: 22px;
+    font-size: 13.5px; color: var(--page-muted); max-width: 74ch;
+  }
+  .verdict strong { color: var(--page-ink); }
+</style>
+
+<div class="wrap">
+  <h1>Session header — three redesign variants</h1>
+  <p class="sub">
+    The agent panel header carries too much at equal weight, encodes the chat/native mode twice in
+    two disconnected places, and mixes four type sizes on mismatched baselines. All three variants
+    fix the same four defects and differ only in how the mode switch is expressed.
+  </p>
+  <div class="meta">POD-121 · apps/web AgentPanel.tsx · dark mocks depict the live app</div>
+
+  <!-- ============================================================ CURRENT -->
+  <h2><span class="tag">NOW</span> Current header, annotated</h2>
+  <p class="lede">Recreated from the live instance (native mode, 1600px viewport).</p>
+
+  <div class="mock"><div class="mock-inner">
+    <div class="hdr">
+      <span class="kindchip"><svg class="claude-glyph" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg> Claude</span><span class="pin">4</span>
+      <span class="eyebrow">NATIVE</span><span class="pin">1</span>
+      <span class="vsep"></span>
+      <span class="sname">Header variants artifact</span>
+      <span class="cwd"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg> ~/podium</span>
+      <span class="right" style="gap:3px">
+        <span class="iconbtn boxed"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg></span><span class="pin">1</span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6m20 0-3-3"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4L2.4 12.5a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></span><span class="pin">2</span>
+      </span>
+    </div>
+    <div class="strip">
+      <span style="display:inline-flex;align-items:center;gap:5px;color:#c9cbd6"><span class="dot"></span>claude</span><span class="pin">3</span>
+      <span style="color:var(--dim)">│</span>
+      <span class="pill">claude --resume 05530c77-b13a-4e5b-b092-d9a862f3f956
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></span><span class="pin">3</span>
+      <span style="margin-left:auto;color:#565963">esc to interrupt</span>
+    </div>
+    <div class="term">10:44  bun run --filter @podium/web build
+       $ vite build — 1481 modules transformed ✓</div>
+  </div></div>
+
+  <ul class="legend">
+    <li><span class="n">1</span><span><strong>Mode encoded twice, disconnected and ambiguous.</strong> A 9px <code>NATIVE</code> eyebrow states the current mode on the left; 600px away, a bordered icon button shows the icon of the <em>other</em> mode. Icon-shows-target is the classic toggle ambiguity — the chat bubble reads as "this is chat" as easily as "switch to chat", and nothing visually links it to the eyebrow.</span></li>
+    <li><span class="n">2</span><span><strong>Seven controls at equal weight.</strong> Toggle, take-control, resume, snooze, ask-superagent, hibernate, archive — used many times a day down to almost never, all rendered as identical 26px quiet glyphs. No grouping, no hierarchy.</span></li>
+    <li><span class="n">3</span><span><strong>The model strip duplicates the header.</strong> "claude" repeats the Claude chip 30px above it; the resume pill repeats the resume menu icon. Two rows spend 74px on one row of information.</span></li>
+    <li><span class="n">4</span><span><strong>Weight and alignment are inverted.</strong> The boxed identity chip is the heaviest element in the row but isn't a button; four type sizes (11 / 9 / 11.5 / 10.5px) sit on mismatched baselines with irregular gaps.</span></li>
+  </ul>
+
+  <!-- ============================================================ VARIANT A -->
+  <h2><span class="tag">A · CHOSEN</span> Segmented switch, one row — revised</h2>
+  <p class="lede">
+    Mode becomes a two-segment control — both options visible, the current one filled. Revised per
+    review: take-control and resume move into the overflow menu; snooze and archive stay always
+    visible; the git stamp chip (POD-98) returns to its header home; and the running model shows as
+    a quiet mono token. The model strip is deleted. One row, five hit targets.
+  </p>
+
+  <div class="mock"><div class="mock-inner">
+    <div class="statelabel">Native mode · overflow menu open</div>
+    <div style="position:relative">
+      <div class="hdr" style="height:40px">
+        <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+        <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+        <span class="cwd">~/podium</span>
+        <span class="pill" style="font-family:var(--mono);font-size:10.5px;gap:6px;padding:3px 8px;border-radius:6px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="3" r="2.2"/><circle cx="6" cy="15" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 5.2v7.6M18 8.2a9 9 0 0 1-9 9"/></svg>
+          <span style="max-width:16ch;overflow:hidden;text-overflow:ellipsis">pod/121-header</span>
+          <span style="width:7px;height:7px;border-radius:50%;background:linear-gradient(90deg,#d9a13b 50%,transparent 50%);border:1px solid #d9a13b"></span>
+          <span style="color:#7dbf8e;font-weight:600">✓ 3 commits</span>
+          <span style="color:#d9a13b">+2 files</span>
+        </span>
+        <span class="right" style="gap:8px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--dim);display:inline-flex;align-items:center;gap:5px"><span class="dot"></span>fable 5 · med</span>
+          <span class="seg">
+            <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</span>
+            <span class="on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2M13 15h4"/></svg> Native</span>
+          </span>
+          <span class="iconbtn" title="Snooze"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6m20 0-3-3"/></svg></span>
+          <span class="iconbtn" title="Archive"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></span>
+          <span class="iconbtn boxed"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>
+        </span>
+        <div class="menu">
+          <div class="mi hover"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>Take control</div>
+          <div class="mi"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg><span>Copy resume command<div class="mono-sub">claude --resume 05530c77…</div></span></div>
+          <div class="mi"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4L2.4 12.5a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/></svg>Ask superagent <span class="kbd">/btw</span></div>
+          <div class="msep"></div>
+          <div class="mi"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Hibernate</div>
+        </div>
+      </div>
+      <div class="term" style="height:150px">❯ bun run test
+  1481 pass · 0 fail  (12.4s)</div>
+    </div>
+
+    <div class="statelabel" style="border-top:1px solid var(--hairline-soft)">Chat mode</div>
+    <div class="hdr" style="height:40px">
+      <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+      <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+      <span class="cwd">~/podium</span>
+      <span class="pill" style="font-family:var(--mono);font-size:10.5px;gap:6px;padding:3px 8px;border-radius:6px">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="3" r="2.2"/><circle cx="6" cy="15" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M6 5.2v7.6M18 8.2a9 9 0 0 1-9 9"/></svg>
+        <span style="max-width:16ch;overflow:hidden;text-overflow:ellipsis">pod/121-header</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:#7dbf8e;border:1px solid #7dbf8e"></span>
+        <span style="color:#7dbf8e;font-weight:600">✓ 3 commits</span>
+      </span>
+      <span class="right" style="gap:8px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--dim);display:inline-flex;align-items:center;gap:5px"><span class="dot"></span>fable 5 · med</span>
+        <span class="seg">
+          <span class="on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</span>
+          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2M13 15h4"/></svg> Native</span>
+        </span>
+        <span class="iconbtn" title="Snooze"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6m20 0-3-3"/></svg></span>
+        <span class="iconbtn" title="Archive"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></span>
+        <span class="iconbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>
+      </span>
+    </div>
+    <div class="chatbody"><div class="who">CLAUDE</div><div class="bubble">The three variants are built — publishing the artifact now.</div></div>
+  </div></div>
+
+  <div class="notes">
+    <div><b>Why it works</b> The segmented control is the canonical fix for toggle ambiguity: both states are always visible and labeled, the filled segment is unmistakably "where you are". The git stamp keeps its POD-98 grammar (branch · state dot · counters) and its click-through to the Git panel. Inline actions are now exactly the operator's triage verbs — park it (snooze) or file it (archive) — while transient utilities (take control, resume, ask, hibernate) sit one click away.</div>
+    <div><b>Model token — feasibility confirmed.</b> Every Claude assistant transcript record carries <code>message.model</code>, so the server can surface the <em>observed</em> model (resolving spawn-time <code>auto</code> to e.g. "fable 5"). Effort has no runtime source — only the spawn-time requested value exists — so "med" renders from that field and hides when unknown. Small protocol addition: extract <code>message.model</code> in the transcript parser, carry last-seen model on the session snapshot.</div>
+  </div>
+
+  <!-- ============================================================ VARIANT B -->
+  <h2><span class="tag">B</span> Mode as tabs</h2>
+  <p class="lede">
+    Chat and Terminal are two views of one session — the honest affordance is tabs, using the same
+    underline grammar as the app's tab strip. The mode lives where the eyebrow was, so the right
+    side is purely actions, grouped by a divider: frequent inline, rare behind the overflow.
+  </p>
+
+  <div class="mock"><div class="mock-inner">
+    <div class="statelabel">Native mode</div>
+    <div class="hdr" style="height:40px;padding:0 10px 0 12px;gap:10px">
+      <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+      <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+      <span class="cwd">~/podium</span>
+      <span class="vsep" style="margin-left:6px"></span>
+      <span class="tab"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</span>
+      <span class="tab on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2M13 15h4"/></svg> Terminal</span>
+      <span class="right" style="gap:3px">
+        <span class="iconbtn" title="Take control"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg></span>
+        <span class="iconbtn" title="Resume in your terminal"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span>
+        <span class="vsep" style="margin:0 4px"></span>
+        <span class="iconbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>
+      </span>
+    </div>
+    <div class="strip" style="height:28px">
+      <span style="display:inline-flex;align-items:center;gap:5px"><span class="dot"></span>claude-fable-5</span>
+      <span style="margin-left:auto;color:#565963">esc to interrupt</span>
+    </div>
+    <div class="term">❯ bun run test
+  1481 pass · 0 fail  (12.4s)</div>
+
+    <div class="statelabel" style="border-top:1px solid var(--hairline-soft)">Chat mode — strip absent, actions unchanged</div>
+    <div class="hdr" style="height:40px;padding:0 10px 0 12px;gap:10px">
+      <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+      <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+      <span class="cwd">~/podium</span>
+      <span class="vsep" style="margin-left:6px"></span>
+      <span class="tab on"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat</span>
+      <span class="tab"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2M13 15h4"/></svg> Terminal</span>
+      <span class="right" style="gap:3px">
+        <span class="iconbtn" title="Resume in your terminal"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span>
+        <span class="vsep" style="margin:0 4px"></span>
+        <span class="iconbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>
+      </span>
+    </div>
+    <div class="chatbody"><div class="who">CLAUDE</div><div class="bubble">The three variants are built — publishing the artifact now.</div></div>
+  </div></div>
+
+  <div class="notes">
+    <div><b>Why it works</b> Tabs are the strongest possible statement of "two views, you are here" — no learning cost, and the underline reuses the issue-tint grammar the tab strip above already speaks. The model strip earns its keep by losing both duplicates: it keeps only what exists nowhere else (model name, interrupt hint) and shrinks to 28px.</div>
+    <div><b>Tradeoffs</b> Two tab rows stack in the panel (session tabs above, mode tabs below) — the hierarchy must stay legible via the size difference. Widest of the three variants; on mobile the tabs collapse to icons.</div>
+  </div>
+
+  <!-- ============================================================ VARIANT C -->
+  <h2><span class="tag">C</span> Labeled action pill</h2>
+  <p class="lede">
+    The conservative fix: keep the single-toggle architecture, but make the button say what it does
+    with a verbless target label — and let hover state carry the rest. The eyebrow dies (the visible
+    pane already tells you the mode); rare actions stay inline but drop to 40% opacity until the
+    header is hovered. Smallest diff from today.
+  </p>
+
+  <div class="mock"><div class="mock-inner">
+    <div class="statelabel">Native mode · header idle — rare actions recede</div>
+    <div class="hdr" style="height:40px">
+      <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+      <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+      <span class="cwd">~/podium</span>
+      <span class="right" style="gap:6px">
+        <span class="actionpill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Open chat</span>
+        <span class="iconbtn" title="Take control"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg></span>
+        <span class="iconbtn quiet"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span>
+        <span class="iconbtn quiet"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6m20 0-3-3"/></svg></span>
+        <span class="iconbtn quiet"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4L2.4 12.5a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/></svg></span>
+        <span class="iconbtn quiet"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span>
+        <span class="iconbtn quiet"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></span>
+      </span>
+    </div>
+    <div class="term">❯ bun run test
+  1481 pass · 0 fail  (12.4s)</div>
+
+    <div class="statelabel" style="border-top:1px solid var(--hairline-soft)">Chat mode · header hovered — full opacity</div>
+    <div class="hdr" style="height:40px">
+      <svg class="claude-glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.7 6.3L20 6.5l-4.6 4.4 5.6 3.1-6.4.4 1.4 6.3-4-5-4 5 1.4-6.3-6.4-.4 5.6-3.1L4 6.5l6.3 1.8z"/></svg>
+      <span style="font-size:12.5px;font-weight:600">Header variants artifact</span>
+      <span class="cwd">~/podium</span>
+      <span class="right" style="gap:6px">
+        <span class="actionpill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 11 2-2-2-2M13 15h4"/></svg> Open terminal</span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6m20 0-3-3"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4L2.4 12.5a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></span>
+        <span class="iconbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg></span>
+      </span>
+    </div>
+    <div class="chatbody"><div class="who">CLAUDE</div><div class="bubble">The three variants are built — publishing the artifact now.</div></div>
+  </div></div>
+
+  <div class="notes">
+    <div><b>Why it works</b> "Open chat" cannot be misread as a state — the verb makes the icon's target semantics explicit at the cost of ~60px. Every control keeps its current home and muscle memory; the opacity recede restores hierarchy without removing anything. This ships in an afternoon.</div>
+    <div><b>Tradeoffs</b> Still seven targets — the recede treats the symptom, not the count. Hover-reveal doesn't exist on touch, so mobile keeps full opacity (where these are already pruned by <code>isMobile</code>). The mode label changes with locale length (i18n width risk on the pill).</div>
+  </div>
+
+  <!-- ============================================================ VERDICT -->
+  <div class="verdict">
+    <strong>Decision: A, revised per review.</strong> Inline actions are the triage pair (snooze,
+    archive); take-control and resume live in the overflow with hibernate and ask-superagent; the
+    POD-98 git stamp returns to the header; and a quiet mono model token ("fable 5 · med") shows the
+    observed model plus requested effort — confirmed technically feasible via <code>message.model</code>
+    in the transcript. B and C are kept below for the record. Shared base fixes in any case: identity
+    de-boxed, two type sizes on one baseline, consistent gap rhythm, no duplicated resume affordance,
+    model strip deleted.
+  </div>
+</div>

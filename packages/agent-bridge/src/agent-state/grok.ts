@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentObservationAckMessage, ProviderCursor } from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
-import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
+import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -26,6 +28,11 @@ export interface GrokSessionPaths {
 export interface GrokStateObserver {
   readonly path: string | undefined
   stop(): void
+  onObservationAck?(ack: AgentObservationAckMessage): void
+}
+
+type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
+  providerSessionId?: string | null
 }
 
 export const grokStateProvider: AgentStateProvider = {
@@ -58,10 +65,18 @@ export function grokSessionPaths(opts: {
   }
 }
 
-export async function translateGrokUpdatePayload(payload: unknown): Promise<AgentStateEvent[]> {
+interface GrokTranslationOptions {
+  classifyIdleVerdict?: boolean
+  onVerdictRead?: () => void
+}
+
+export async function translateGrokUpdatePayload(
+  payload: unknown,
+  options: GrokTranslationOptions = {},
+): Promise<AgentStateEvent[]> {
   if (!isRecord(payload)) return []
   const directEvent = grokHookEventName(payload)
-  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload)
+  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload, options)
 
   const method = stringField(payload, 'method')
   if (method !== 'session/update' && method !== '_x.ai/session/update') return []
@@ -72,7 +87,7 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
   // The update record's own timestamp is the event-time. The observer seeks to the
   // tail on reattach and replays recent records; stamping `at` keeps those replays
   // carrying their original time so recency isn't restamped to "now".
-  const at = stringField(payload, 'timestamp')
+  const at = normalizeGrokProviderTimestamp(payload.timestamp)
   const sessionUpdate = normalizeName(stringField(update, 'sessionUpdate'))
   switch (sessionUpdate) {
     case 'user_message_chunk':
@@ -93,7 +108,10 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
       // 'working') leaves the session stuck 'working' once the turn ends. This is
       // the provider owning its run-state verdict; the reducer only transports it.
       // [spec:SP-8b0e]
-      const verdict = await classifyStopPayload(payload)
+      const verdict =
+        options.classifyIdleVerdict === false
+          ? undefined
+          : await classifyStopPayload(payload, options.onVerdictRead)
       return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
     }
     case 'retry_state': {
@@ -112,7 +130,7 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
       // after turn_completed must not resurrect an idle session.
       return []
     case 'hook_execution':
-      return withEventTime(await grokHookEvents(update, payload), at)
+      return withEventTime(await grokHookEvents(update, payload, options), at)
     default:
       return []
   }
@@ -121,7 +139,8 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
 export function classifyGrokIdleTranscript(
   records: unknown[],
 ): { kind: 'done' | 'question' | 'approval'; summary?: string } | undefined {
-  for (let i = records.length - 1; i >= 0; i--) {
+  const floor = Math.max(0, records.length - GROK_IDLE_CLASSIFICATION_RECORDS)
+  for (let i = records.length - 1; i >= floor; i--) {
     const record = records[i]
     if (!isRecord(record) || record.type !== 'assistant') continue
     const text =
@@ -138,6 +157,27 @@ export function classifyGrokIdleTranscript(
     return { kind: 'done' }
   }
   return undefined
+}
+
+/** Grok writes both ISO strings and Unix epochs. Retain the provider's instant;
+ * receipt time is never a substitute for missing or invalid source time.
+ * [spec:SP-cdb2] */
+export function normalizeGrokProviderTimestamp(value: unknown): string | undefined {
+  let epochMs: number
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return undefined
+    epochMs = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value
+  } else if (typeof value === 'string' && value.trim()) {
+    epochMs = Date.parse(value)
+  } else {
+    return undefined
+  }
+  if (!Number.isFinite(epochMs)) return undefined
+  try {
+    return new Date(epochMs).toISOString()
+  } catch {
+    return undefined
+  }
 }
 
 export async function findLatestGrokSessionPaths(opts: {
@@ -190,7 +230,14 @@ export function observeGrokState(opts: {
   pollMs?: number
   statTick?: StatTick
   onSession?: (sessionId: string) => void
-  onEvents: (events: AgentStateEvent[]) => void
+  /** Rejecting a candidate prevents every resume, transcript, and bootstrap side effect. */
+  onSessionCandidate?: (sessionId: string) => boolean
+  /** Fires after history is folded through the captured complete-record EOF. */
+  onBootstrap?: (lastCompleteRecordOffset: number) => void
+  onEvents?: (events: AgentStateEvent[]) => void
+  causal?: GrokCausalOptions
+  onLivePollComplete?: (providerCursor: ProviderCursor) => void
+  onVerdictRead?: () => void
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
   // watermarkMs is the spawn time: only sessions created at or after this point
@@ -206,11 +253,19 @@ export function observeGrokState(opts: {
 
   const attach = (paths: GrokSessionPaths): void => {
     if (attached?.sessionId === paths.sessionId) return
+    if (opts.onSessionCandidate && !opts.onSessionCandidate(paths.sessionId)) return
     updateTail?.stop()
     attached = paths
     boundId = paths.sessionId
     opts.onSession?.(paths.sessionId)
-    updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs, statTick: opts.statTick })
+    updateTail = tailGrokUpdates(paths, opts.onEvents ?? (() => {}), {
+      pollMs,
+      statTick: opts.statTick,
+      onBootstrap: opts.onBootstrap,
+      onLivePollComplete: opts.onLivePollComplete,
+      onVerdictRead: opts.onVerdictRead,
+      ...(opts.causal ? { causal: { ...opts.causal, providerSessionId: paths.sessionId } } : {}),
+    })
   }
 
   const discover = async (): Promise<void> => {
@@ -243,6 +298,9 @@ export function observeGrokState(opts: {
       stopped = true
       stopDiscovery?.()
       updateTail?.stop()
+    },
+    onObservationAck(ack) {
+      updateTail?.onObservationAck?.(ack)
     },
   }
 }
@@ -278,11 +336,12 @@ async function grokBootEvents(opts: {
 async function grokHookEvents(
   update: Record<string, unknown>,
   payload: Record<string, unknown>,
+  options: GrokTranslationOptions,
 ): Promise<AgentStateEvent[]> {
   const event = normalizeName(
     stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'),
   )
-  return event ? grokLifecycleEvents(event, update, payload) : []
+  return event ? grokLifecycleEvents(event, update, payload, options) : []
 }
 
 function grokHookEventName(payload: Record<string, unknown>): string | undefined {
@@ -295,6 +354,7 @@ async function grokLifecycleEvents(
   event: string,
   fields: Record<string, unknown>,
   payload: Record<string, unknown>,
+  options: GrokTranslationOptions,
 ): Promise<AgentStateEvent[]> {
   switch (event) {
     case 'session_start':
@@ -318,7 +378,10 @@ async function grokLifecycleEvents(
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
     case 'stop': {
-      const verdict = await classifyStopPayload(payload)
+      const verdict =
+        options.classifyIdleVerdict === false
+          ? undefined
+          : await classifyStopPayload(payload, options.onVerdictRead)
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
@@ -353,68 +416,290 @@ function grokQuestionSummary(fields: Record<string, unknown>): string | undefine
 function tailGrokUpdates(
   paths: GrokSessionPaths,
   onEvents: (events: AgentStateEvent[]) => void,
-  opts: { pollMs?: number; statTick?: StatTick } = {},
+  opts: {
+    pollMs?: number
+    statTick?: StatTick
+    onBootstrap?: (lastCompleteRecordOffset: number) => void
+    causal?: GrokObservationLease
+    onLivePollComplete?: (providerCursor: ProviderCursor) => void
+    onVerdictRead?: () => void
+  } = {},
 ): GrokStateObserver {
-  let offset = 0
-  const decoder = new LineDecoder()
+  const causal = opts.causal ? new GrokCausalObserver(opts.causal) : undefined
+  let readOffset = 0
+  let lastCompleteRecordOffset = 0
+  let fileIdentity: string | undefined
+  let segmentIdentity: Parameters<GrokCausalObserver['beginSegment']>[0] | undefined
+  let rewriteAnchors: GrokRewriteAnchor[] = []
   let first = true
-  let dropLeadingPartial = false
   let stopped = false
   let reading = false
   let observedWork = false
+  const decoder = new BoundedLineDecoder()
+  let integrityHash = createHash('sha256')
+  let integrityHashedThrough = 0
+  const integrityWitnesses = new Map<number, string>()
+
+  const extendIntegrity = (bytes: Buffer, position: number): void => {
+    if (position !== integrityHashedThrough) return
+    let start = 0
+    for (let index = 0; index < bytes.length; index += 1) {
+      if (bytes[index] !== 0x0a) continue
+      integrityHash.update(bytes.subarray(start, index + 1))
+      integrityWitnesses.set(position + index + 1, integrityHash.copy().digest('hex'))
+      start = index + 1
+    }
+    integrityHash.update(bytes.subarray(start))
+    integrityHashedThrough = position + bytes.length
+    integrityWitnesses.set(integrityHashedThrough, integrityHash.copy().digest('hex'))
+  }
+
+  const resetIntegrity = async (
+    handle: Awaited<ReturnType<typeof open>>,
+    through: number,
+  ): Promise<Map<number, string>> => {
+    const seeded = await seedGrokIntegrity(handle, through, [through])
+    integrityHash = seeded.hash
+    integrityHashedThrough = through
+    integrityWitnesses.clear()
+    return seeded.witnesses
+  }
+
+  const translateLines = async (
+    lines: DecodedGrokLine[],
+    emit: boolean,
+  ): Promise<{ backpressured: boolean; processedThrough: number | null }> => {
+    const events: AgentStateEvent[] = []
+    let processedThrough: number | null = null
+    for (const line of lines) {
+      const lineIntegrity = integrityWitnesses.get(line.endOffset)
+      integrityWitnesses.delete(line.endOffset)
+      const trimmed = line.text.trim()
+      if (!trimmed) {
+        processedThrough = line.endOffset
+        continue
+      }
+      try {
+        const record = JSON.parse(trimmed) as unknown
+        const payload = isRecord(record)
+          ? { ...record, chat_history_path: paths.chatHistoryPath }
+          : record
+        const next = await translateGrokUpdatePayload(payload, {
+          classifyIdleVerdict: emit,
+          onVerdictRead: opts.onVerdictRead,
+        })
+        if (isAvailableCommandsUpdate(payload) && (causal || observedWork)) {
+          next.push({ kind: 'turn_completed' })
+        }
+        const at = isRecord(record) ? normalizeGrokProviderTimestamp(record.timestamp) : undefined
+        const normalized = withEventTime(next, at)
+        if (causal && segmentIdentity && isRecord(record)) {
+          const evidence = {
+            record,
+            cursor: causal.cursorFor(
+              segmentIdentity,
+              line.endOffset,
+              lineIntegrity ?? segmentIdentity.integrity,
+              line.endOffset,
+            ),
+            events: normalized,
+            sourceEventKind: grokSourceEventKind(record),
+            providerAt: at ?? null,
+          }
+          if (emit && !causal.enqueue(evidence)) {
+            return { backpressured: true, processedThrough }
+          }
+          if (!emit) causal.fold(evidence)
+        } else {
+          for (const event of normalized) {
+            // Background/tool-only records are activity inside an already-open
+            // turn, never causal evidence that opens a new epoch. Likewise, a
+            // duplicate terminal after the epoch closed is inert. [spec:SP-cdb2]
+            if (
+              !observedWork &&
+              (event.kind === 'activity' ||
+                event.kind === 'needs_user' ||
+                event.kind === 'turn_completed' ||
+                event.kind === 'turn_failed' ||
+                event.kind === 'compaction' ||
+                event.kind === 'task_delta')
+            ) {
+              continue
+            }
+            observedWork = updateObservedWork(observedWork, event)
+            if (emit) events.push(event)
+          }
+        }
+      } catch {
+        // Invalid complete records are inert. Torn records remain buffered until
+        // their newline arrives and never advance the accepted record boundary.
+      }
+      processedThrough = line.endOffset
+    }
+    if (events.length > 0) onEvents(events)
+    return { backpressured: false, processedThrough }
+  }
+
+  const readRange = async (
+    handle: Awaited<ReturnType<typeof open>>,
+    start: number,
+    end: number,
+    emit: boolean,
+  ): Promise<number> => {
+    let position = start
+    while (position < end) {
+      const length = Math.min(GROK_READ_BYTES, end - position)
+      const chunk = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(chunk, 0, length, position)
+      if (bytesRead === 0) break
+      const bytes = chunk.subarray(0, bytesRead)
+      const lastNewline = bytes.lastIndexOf(0x0a)
+      if (emit) extendIntegrity(bytes, position)
+      const translated = await translateLines(decoder.push(bytes, position), emit)
+      if (translated.backpressured) {
+        decoder.reset()
+        await resetIntegrity(handle, translated.processedThrough ?? position)
+        if (translated.processedThrough !== null) {
+          lastCompleteRecordOffset = translated.processedThrough
+          return translated.processedThrough
+        }
+        return position
+      }
+      if (lastNewline >= 0) lastCompleteRecordOffset = position + lastNewline + 1
+      position += bytesRead
+    }
+    return position
+  }
+
+  const bootstrap = async (
+    handle: Awaited<ReturnType<typeof open>>,
+    size: number,
+    identity: string,
+    device: string,
+    inode: string,
+    forceSuccessor: boolean,
+  ): Promise<void> => {
+    // Capture the last complete-record EOF on this exact descriptor, fold all
+    // history once without live callbacks, then begin strictly after it.
+    // Historical files may be large, so both scanning and parsing are chunked.
+    const boundary = await lastCompleteGrokRecordOffset(handle, size)
+    const accepted = causal?.acceptedProviderCursor
+    const sameAcceptedFile =
+      accepted?.pathHint === paths.updatesPath &&
+      accepted.device === device &&
+      accepted.inode === inode
+    const acceptedOffset = accepted?.components.updates
+    const acceptedWitnessBytes = accepted?.components.integrityBytes
+    const resumableWitness =
+      sameAcceptedFile &&
+      Number.isSafeInteger(acceptedOffset) &&
+      acceptedOffset !== undefined &&
+      acceptedOffset <= boundary &&
+      acceptedWitnessBytes === acceptedOffset
+    const integrityBytes = boundary
+    const seededIntegrity = await seedGrokIntegrity(
+      handle,
+      boundary,
+      resumableWitness ? [acceptedOffset] : [],
+    )
+    const integrity = seededIntegrity.witnesses.get(boundary)!
+    const integrityMismatch = Boolean(
+      sameAcceptedFile &&
+        (!resumableWitness ||
+          accepted?.integrity === undefined ||
+          accepted.integrity !== seededIntegrity.witnesses.get(acceptedOffset!)),
+    )
+    integrityHash = seededIntegrity.hash
+    integrityHashedThrough = boundary
+    integrityWitnesses.clear()
+    segmentIdentity = {
+      segmentId: ['grok', paths.sessionId, device, inode, paths.updatesPath].join(':'),
+      pathHint: paths.updatesPath,
+      device,
+      inode,
+      integrity,
+      integrityBytes,
+    }
+    const start =
+      causal?.beginSegment(segmentIdentity, boundary, forceSuccessor || integrityMismatch) ?? 0
+    decoder.reset()
+    observedWork = false
+    await readRange(handle, start, boundary, false)
+    const finalRecord = decoder.takeValidFinalRecord(boundary)
+    if (finalRecord) await translateLines([finalRecord], false)
+    decoder.reset()
+    readOffset = boundary
+    lastCompleteRecordOffset = boundary
+    fileIdentity = identity
+    rewriteAnchors = await readGrokRewriteAnchors(handle, boundary)
+    first = false
+    if (causal && segmentIdentity) {
+      causal.finishBootstrap(causal.cursorFor(segmentIdentity, boundary))
+    }
+    opts.onBootstrap?.(lastCompleteRecordOffset)
+  }
 
   const readNew = async (): Promise<void> => {
     if (reading || stopped) return
     reading = true
     try {
+      causal?.retryPending()
       const handle = await open(paths.updatesPath, 'r')
       try {
-        const { size } = await handle.stat()
-        if (first) {
-          const start = Math.max(0, size - TAIL_BYTES)
-          offset = start
-          dropLeadingPartial = start > 0
-          first = false
+        const info = await handle.stat()
+        const identity = `${info.dev}:${info.ino}`
+        const device = String(info.dev)
+        const inode = String(info.ino)
+        const rewritten =
+          !first &&
+          identity === fileIdentity &&
+          rewriteAnchors.length > 0 &&
+          !(await grokRewriteAnchorsMatch(handle, rewriteAnchors, info.size))
+        if (first || identity !== fileIdentity || info.size < readOffset || rewritten) {
+          if (causal?.hasPendingDelivery) return
+          // Rotation/replacement/truncation is a new bootstrap segment. Never
+          // replay the replacement prefix through the live callback.
+          await bootstrap(handle, info.size, identity, device, inode, !first)
         }
-        if (size < offset) {
-          offset = 0
-          decoder.reset()
-          dropLeadingPartial = false
+        if (info.size <= readOffset) {
+          const accepted = causal?.acceptedProviderCursor
+          if (
+            accepted &&
+            !causal?.hasPendingDelivery &&
+            info.size === readOffset &&
+            lastCompleteRecordOffset === readOffset &&
+            accepted.pathHint === paths.updatesPath &&
+            accepted.device === device &&
+            accepted.inode === inode
+          ) {
+            opts.onLivePollComplete?.(accepted)
+          }
+          return
         }
-        if (size === offset) return
-        const chunk = Buffer.alloc(size - offset)
-        await handle.read(chunk, 0, chunk.length, offset)
-        offset = size
-        let lines = decoder.push(chunk)
-        if (dropLeadingPartial && lines.length > 0) {
-          lines = lines.slice(1)
-          dropLeadingPartial = false
-        }
-        const events: AgentStateEvent[] = []
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed) continue
-          try {
-            const record = JSON.parse(trimmed) as unknown
-            const payload = isRecord(record)
-              ? { ...record, chat_history_path: paths.chatHistoryPath }
-              : record
-            const next = await translateGrokUpdatePayload(payload)
-            if (isAvailableCommandsUpdate(payload) && observedWork) {
-              next.push({ kind: 'turn_completed' })
-            }
-            // Stamp the synthetic turn_completed (translate already stamped the rest)
-            // with this record's event-time so a tail replay can't restamp recency.
-            const at = isRecord(record) ? stringField(record, 'timestamp') : undefined
-            for (const event of withEventTime(next, at)) {
-              observedWork = updateObservedWork(observedWork, event)
-              events.push(event)
-            }
-          } catch {
-            // Torn writes or unexpected records are ignored; the next poll catches up.
+        const end = info.size
+        readOffset = await readRange(handle, readOffset, end, true)
+        const finalRecord = readOffset === end ? decoder.takeValidFinalRecord(readOffset) : null
+        if (finalRecord) {
+          const translated = await translateLines([finalRecord], true)
+          if (translated.backpressured) {
+            readOffset = lastCompleteRecordOffset
+            decoder.reset()
+          } else {
+            lastCompleteRecordOffset = readOffset
           }
         }
-        if (events.length > 0) onEvents(events)
+        rewriteAnchors = await readGrokRewriteAnchors(handle, readOffset)
+        const accepted = causal?.acceptedProviderCursor
+        if (
+          accepted &&
+          !causal?.hasPendingDelivery &&
+          accepted.pathHint === paths.updatesPath &&
+          accepted.device === device &&
+          accepted.inode === inode &&
+          lastCompleteRecordOffset === readOffset
+        ) {
+          opts.onLivePollComplete?.(accepted)
+        }
       } finally {
         await handle.close()
       }
@@ -437,7 +722,181 @@ function tailGrokUpdates(
       stopped = true
       stopPolling()
     },
+    onObservationAck(ack) {
+      causal?.acknowledge(ack)
+    },
   }
+}
+
+const GROK_READ_BYTES = 64 * 1024
+const GROK_MAX_RECORD_BYTES = 1024 * 1024
+const GROK_PREFIX_ANCHOR_BYTES = 256
+const GROK_IDLE_CLASSIFICATION_RECORDS = 256
+
+async function seedGrokIntegrity(
+  handle: Awaited<ReturnType<typeof open>>,
+  through: number,
+  checkpoints: number[],
+): Promise<{
+  hash: ReturnType<typeof createHash>
+  witnesses: Map<number, string>
+}> {
+  const hash = createHash('sha256')
+  const witnesses = new Map<number, string>()
+  const targets = [...new Set([...checkpoints, through])].sort((left, right) => left - right)
+  let offset = 0
+  for (const target of targets) {
+    while (offset < target) {
+      const length = Math.min(GROK_READ_BYTES, target - offset)
+      const chunk = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(chunk, 0, length, offset)
+      if (bytesRead === 0) break
+      hash.update(chunk.subarray(0, bytesRead))
+      offset += bytesRead
+    }
+    if (offset === target) witnesses.set(target, hash.copy().digest('hex'))
+  }
+  return { hash, witnesses }
+}
+
+interface GrokRewriteAnchor {
+  offset: number
+  bytes: Buffer
+}
+
+async function readGrokRewriteAnchors(
+  handle: Awaited<ReturnType<typeof open>>,
+  through: number,
+): Promise<GrokRewriteAnchor[]> {
+  if (through === 0) return []
+  const length = Math.min(GROK_PREFIX_ANCHOR_BYTES, through)
+  const offsets = [
+    ...new Set([0, Math.max(0, Math.floor((through - length) / 2)), through - length]),
+  ]
+  const anchors: GrokRewriteAnchor[] = []
+  for (const offset of offsets) {
+    const bytes = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(bytes, 0, length, offset)
+    anchors.push({ offset, bytes: bytes.subarray(0, bytesRead) })
+  }
+  return anchors
+}
+
+async function grokRewriteAnchorsMatch(
+  handle: Awaited<ReturnType<typeof open>>,
+  anchors: GrokRewriteAnchor[],
+  size: number,
+): Promise<boolean> {
+  for (const anchor of anchors) {
+    if (size < anchor.offset + anchor.bytes.length) return false
+    const actual = Buffer.alloc(anchor.bytes.length)
+    const { bytesRead } = await handle.read(actual, 0, actual.length, anchor.offset)
+    if (bytesRead !== anchor.bytes.length || !actual.equals(anchor.bytes)) return false
+  }
+  return true
+}
+
+interface DecodedGrokLine {
+  text: string
+  endOffset: number
+}
+
+/** A bounded JSONL splitter: an oversized malformed record is discarded through
+ * its newline instead of growing observer memory without limit. */
+class BoundedLineDecoder {
+  private pending = Buffer.alloc(0)
+  private dropping = false
+
+  push(chunk: Buffer, chunkOffset: number): DecodedGrokLine[] {
+    const lines: DecodedGrokLine[] = []
+    let start = 0
+    for (let index = 0; index < chunk.length; index += 1) {
+      if (chunk[index] !== 0x0a) continue
+      const part = chunk.subarray(start, index)
+      start = index + 1
+      if (this.dropping) {
+        this.dropping = false
+        this.pending = Buffer.alloc(0)
+        continue
+      }
+      if (this.pending.length + part.length > GROK_MAX_RECORD_BYTES) {
+        this.pending = Buffer.alloc(0)
+        continue
+      }
+      const line = this.pending.length === 0 ? part : Buffer.concat([this.pending, part])
+      this.pending = Buffer.alloc(0)
+      lines.push({ text: line.toString('utf8'), endOffset: chunkOffset + index + 1 })
+    }
+
+    const suffix = chunk.subarray(start)
+    if (!this.dropping && this.pending.length + suffix.length <= GROK_MAX_RECORD_BYTES) {
+      this.pending =
+        this.pending.length === 0 ? Buffer.from(suffix) : Buffer.concat([this.pending, suffix])
+    } else if (suffix.length > 0) {
+      this.pending = Buffer.alloc(0)
+      this.dropping = true
+    }
+    return lines
+  }
+
+  takeValidFinalRecord(endOffset: number): DecodedGrokLine | null {
+    if (this.dropping || !validGrokJsonRecord(this.pending)) return null
+    const record = this.pending.toString('utf8')
+    this.pending = Buffer.alloc(0)
+    return { text: record, endOffset }
+  }
+
+  reset(): void {
+    this.pending = Buffer.alloc(0)
+    this.dropping = false
+  }
+}
+
+async function lastCompleteGrokRecordOffset(
+  handle: Awaited<ReturnType<typeof open>>,
+  size: number,
+): Promise<number> {
+  if (size === 0) return 0
+
+  // A valid final JSON value is complete even when Grok has not appended its
+  // newline yet. Invalid/torn suffixes remain strictly beyond the boundary.
+  const candidateStart = Math.max(0, size - GROK_MAX_RECORD_BYTES)
+  const candidate = Buffer.alloc(size - candidateStart)
+  const { bytesRead } = await handle.read(candidate, 0, candidate.length, candidateStart)
+  const bytes = candidate.subarray(0, bytesRead)
+  const lastNewline = bytes.lastIndexOf(0x0a)
+  const suffix = bytes.subarray(lastNewline + 1)
+  if ((candidateStart === 0 || lastNewline >= 0) && validGrokJsonRecord(suffix)) return size
+  if (lastNewline >= 0) return candidateStart + lastNewline + 1
+
+  let end = candidateStart
+  while (end > 0) {
+    const start = Math.max(0, end - GROK_READ_BYTES)
+    const chunk = Buffer.alloc(end - start)
+    const read = await handle.read(chunk, 0, chunk.length, start)
+    const newline = chunk.subarray(0, read.bytesRead).lastIndexOf(0x0a)
+    if (newline >= 0) return start + newline + 1
+    end = start
+  }
+  return 0
+}
+
+function validGrokJsonRecord(bytes: Buffer): boolean {
+  const text = bytes.toString('utf8').trim()
+  if (!text) return false
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function grokSourceEventKind(record: Record<string, unknown>): string {
+  const hook = grokHookEventName(record)
+  if (hook) return `hook:${normalizeName(hook) ?? hook}`
+  const update = recordField(recordField(record, 'params'), 'update')
+  return `update:${normalizeName(stringField(update, 'sessionUpdate')) ?? 'unknown'}`
 }
 
 function isAvailableCommandsUpdate(payload: unknown): boolean {
@@ -467,12 +926,14 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
 
 async function classifyStopPayload(
   payload: Record<string, unknown>,
+  onVerdictRead?: () => void,
 ): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
   const path =
     stringField(payload, 'chat_history_path') ??
     stringField(payload, 'chatHistoryPath') ??
     grokHookChatHistoryPath(payload)
   if (!path) return undefined
+  onVerdictRead?.()
   try {
     return classifyGrokIdleTranscript(await readGrokChatHistoryTail(path))
   } catch {

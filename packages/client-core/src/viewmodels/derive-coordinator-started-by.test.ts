@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,
   isCoordinatorSession,
+  isDraftAgentVessel,
   issueIdOwningSession,
   issueVisibleInSidebar,
   nestStartedByIssues,
@@ -63,7 +64,6 @@ function issue(over: Partial<IssueNavigationModel> = {}): IssueNavigationModel {
 }
 
 const emptySections = (): SidebarSections => ({
-  pinnedPanels: [],
   pinnedWorktrees: [],
   pinnedRepos: [],
   repos: [],
@@ -95,17 +95,12 @@ describe('elevateCoordinatorSession / isCoordinatorSession', () => {
     expect(isCoordinatorSession(issue(), 'coord')).toBe(false)
   })
 
-  it('orderTabs elevates coordinator ahead of pin order', () => {
+  it('orderTabs elevates coordinator ahead of arrival order', () => {
     const a = sess('a')
     const b = sess('b')
     const c = sess('c')
-    const ordered = orderTabs(
-      [a, b, c],
-      undefined,
-      { panels: ['c'], worktrees: [], repos: [] },
-      'b',
-    )
-    expect(ordered.map((s) => s.sessionId)).toEqual(['b', 'c', 'a'])
+    const ordered = orderTabs([a, b, c], undefined, 'b')
+    expect(ordered.map((s) => s.sessionId)).toEqual(['b', 'a', 'c'])
   })
 })
 
@@ -120,6 +115,19 @@ describe('issueIdOwningSession', () => {
     const s = sess('s1', { cwd: '/r/a/wt' })
     const iss = issue({ id: 'wt-issue', worktreePath: '/r/a/wt' })
     expect(issueIdOwningSession('s1', [s], [iss], ['/r/a', '/r/a/wt'])).toBe('wt-issue')
+  })
+})
+
+describe('isDraftAgentVessel', () => {
+  it('is a draft with agents and no worktree of its own', () => {
+    const draft = issue({ draft: true })
+    const worker = sess('w')
+    expect(isDraftAgentVessel(draft, [worker])).toBe(true)
+    // A draft that earned a worktree is real work; so is any non-draft; and an
+    // agentless draft has no agent row to collapse into.
+    expect(isDraftAgentVessel({ ...draft, worktreePath: '/r/a/wt' }, [worker])).toBe(false)
+    expect(isDraftAgentVessel(issue(), [worker])).toBe(false)
+    expect(isDraftAgentVessel(draft, [])).toBe(false)
   })
 })
 
@@ -176,6 +184,31 @@ describe('nestStartedByIssues', () => {
     const nested = nestStartedByIssues([child], [starter, childSess], [])
     expect(nested).toHaveLength(1)
     expect((nested[0] as UnifiedIssueRow).issue.id).toBe('child')
+  })
+
+  it('keeps a spin-off top-level and out of the origin aggregate (POD-117)', () => {
+    // POD-85 spin-offs carry an outgoing discovered-from edge and render the
+    // ⤷ origin tick — startedBySession must not re-nest them under the origin.
+    const originSess = sess('starter', { issueId: 'origin' })
+    const spinSess = sess('spin-worker', { issueId: 'spin' })
+    const origin = row(issue({ id: 'origin', title: 'Origin' }), [originSess])
+    const spin = row(
+      issue({
+        id: 'spin',
+        title: 'Spin-off',
+        startedBySession: 'starter',
+        origin: 'agent',
+        deps: [{ id: 'origin', type: 'discovered-from' }],
+        seq: 2,
+      }),
+      [spinSess],
+    )
+    const nested = nestStartedByIssues([origin, spin], [originSess, spinSess], [])
+    expect(nested.map((r) => (r as UnifiedIssueRow).issue.id)).toEqual(['origin', 'spin'])
+    const originRow = nested[0] as UnifiedIssueRow
+    expect(originRow.startedByChildren).toBeUndefined()
+    // The origin row must not claim the spin-off's agents.
+    expect(originRow.aggregateSessions ?? originRow.sessions).toHaveLength(1)
   })
 
   it('nests formal sub-issues and lets parentId win over startedBy provenance', () => {
@@ -268,6 +301,40 @@ describe('nestStartedByIssues', () => {
     expect(rowWaitingCount(top)).toBe(1)
   })
 
+  it('keeps a draft vessel from swallowing the issue it started (POD-282)', () => {
+    // A draft vessel's row IS its agent — it renders no children, so nesting
+    // here would erase the child from the sidebar entirely.
+    const starter = sess('starter', { issueId: 'vessel' })
+    const childSess = sess('worker', { issueId: 'child' })
+    const vessel = row(issue({ id: 'vessel', title: 'Draft', draft: true }), [starter])
+    const childIssue = issue({
+      id: 'child',
+      title: 'Real work',
+      startedBySession: 'starter',
+      origin: 'agent',
+      seq: 2,
+    })
+    const nested = nestStartedByIssues(
+      [vessel, row(childIssue, [childSess])],
+      [starter, childSess],
+      [],
+    )
+    expect(nested.map((r) => (r as UnifiedIssueRow).issue.id)).toEqual(['vessel', 'child'])
+    expect((nested[0] as UnifiedIssueRow).startedByChildren).toBeUndefined()
+
+    // Self-healing: once the vessel becomes real work, nesting resumes.
+    const real = row(issue({ id: 'vessel', title: 'Named work', draft: false }), [starter])
+    const renested = nestStartedByIssues(
+      [real, row(childIssue, [childSess])],
+      [starter, childSess],
+      [],
+    )
+    expect(renested).toHaveLength(1)
+    expect((renested[0] as UnifiedIssueRow).startedByChildren?.map((c) => c.issue.id)).toEqual([
+      'child',
+    ])
+  })
+
   it('never leaves an internal issue at top level', () => {
     const worker = sess('worker', { issueId: 'internal' })
     const internal = row(issue({ id: 'internal', audience: 'agent', origin: 'agent' }), [worker])
@@ -290,6 +357,52 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     expect(sessionVisibleInSidebar({ ...stopped, unread: true }, NOW)).toBe(true)
     expect(sessionVisibleInSidebar(stopped, NOW)).toBe(false)
     expect(sessionVisibleInSidebar({ ...stopped, readAt: recentRead }, NOW)).toBe(true)
+  })
+
+  it('decays idle-done sessions attached to closed issues even when their process lingers', () => {
+    const closedAt = new Date(NOW - 48 * HOUR).toISOString()
+    const closed = issue({
+      stage: 'done',
+      closedReason: 'done',
+      closedAt,
+      updatedAt: closedAt,
+    })
+    const finished = sess('finished-delegate', {
+      issueId: closed.id,
+      status: 'hibernated',
+      agentState: {
+        phase: 'idle',
+        since: closedAt,
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+      unread: false,
+      readAt: new Date(NOW - 47 * HOUR).toISOString(),
+    })
+    expect(sessionVisibleInSidebar(finished, NOW, closed)).toBe(false)
+    expect(
+      sessionVisibleInSidebar(
+        { ...finished, readAt: new Date(NOW - HOUR).toISOString() },
+        NOW,
+        closed,
+      ),
+    ).toBe(true)
+    expect(sessionVisibleInSidebar(finished, NOW, issue({ stage: 'in_progress' }))).toBe(true)
+  })
+
+  it('bounds unseen terminal sessions instead of retaining them forever', () => {
+    const stoppedAt = new Date(NOW - 8 * 24 * HOUR).toISOString()
+    expect(
+      sessionVisibleInSidebar(
+        sess('old-unseen', {
+          status: 'hibernated',
+          stoppedAt,
+          unread: true,
+          readAt: null,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
   })
 
   it('keeps a sessionless completed MILESTONE CHILD until seen plus 24h; top-level stays out', () => {
@@ -330,7 +443,9 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       activityAt: NOW,
       rank: 1,
     }
-    expect(rowStatusLine(parent, NOW)).toContain('4/6 done')
+    // POD-85 grammar: progress speaks of subtasks ("done · 0/1 done" read as
+    // nonsense before).
+    expect(rowStatusLine(parent, NOW)).toContain('4/6 subtasks')
   })
 
   it('excludes proposed issues even if a session is attached', () => {

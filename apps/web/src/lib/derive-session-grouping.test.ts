@@ -113,6 +113,7 @@ describe('nativeSubagentLabel / sessionIssueLinkage', () => {
     expect(sessionIssueLinkage(sess('c', { displayRef: 'POD-9-B', issueId: 'iss_x' }))).toBe(
       'POD-9-B',
     )
-    expect(sessionIssueLinkage(sess('c', { issueId: 'iss_x' }))).toBe('iss_x')
+    expect(sessionIssueLinkage(sess('c', { issueId: 'iss_x' }), 'POD-9')).toBe('POD-9')
+    expect(sessionIssueLinkage(sess('c', { issueId: 'iss_x' }))).toBeNull()
   })
 })

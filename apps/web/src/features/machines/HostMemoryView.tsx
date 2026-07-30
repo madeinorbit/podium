@@ -305,6 +305,7 @@ function HibernationNote({
         </p>
       )}
       <button
+        data-pressable
         type="button"
         className="cursor-pointer self-start border-0 bg-transparent p-0 text-left text-primary underline underline-offset-2 hover:no-underline"
         onClick={onOpenSettings}

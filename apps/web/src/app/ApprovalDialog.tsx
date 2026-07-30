@@ -23,19 +23,24 @@ export function ApprovalDialog(): JSX.Element | null {
     (s) => ({ trpc: s.trpc, approvals: s.approvals, navigateToSession: s.navigateToSession }),
     shallowEqual,
   )
-  const [busy, setBusy] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'approve' | 'deny' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const busy = pendingAction !== null
   const current = approvals[0]
   if (!current) return null
 
   const decide = async (approve: boolean) => {
-    setBusy(true)
+    if (busy) return
+    setPendingAction(approve ? 'approve' : 'deny')
+    setError(null)
     try {
       if (approve) await trpc.approvals.approve.mutate({ id: current.id })
       else await trpc.approvals.deny.mutate({ id: current.id })
-    } catch {
-      // Best-effort: the broadcast will re-sync the pending list either way.
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not record the decision. Try again.')
+    } finally {
+      setPendingAction(null)
     }
-    setBusy(false)
   }
 
   const from = [
@@ -72,6 +77,11 @@ export function ApprovalDialog(): JSX.Element | null {
           one.
         </p>
       ) : null}
+      {error && (
+        <p role="alert" className="mb-2 text-xs text-destructive">
+          {error}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <Button
           variant="ghost"
@@ -82,10 +92,23 @@ export function ApprovalDialog(): JSX.Element | null {
           Go to session
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => void decide(false)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            pending={pendingAction === 'deny'}
+            pendingLabel="Denying…"
+            onClick={() => void decide(false)}
+          >
             Deny
           </Button>
-          <Button size="sm" disabled={busy} onClick={() => void decide(true)}>
+          <Button
+            size="sm"
+            disabled={busy}
+            pending={pendingAction === 'approve'}
+            pendingLabel="Approving…"
+            onClick={() => void decide(true)}
+          >
             Approve
           </Button>
         </div>

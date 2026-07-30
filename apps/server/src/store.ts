@@ -34,8 +34,8 @@ import { dirname, join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { runDrizzleMigrations } from './migrations/index'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { runDrizzleMigrations } from './migrations/index'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -44,11 +44,12 @@ import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
-import { MaintenanceRepository } from './store/maintenance'
 import { MachinesRepository } from './store/machines'
-import { MessagingTopicsRepository } from './store/messaging-topics'
+import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
+import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
+import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
@@ -69,6 +70,8 @@ export class SessionStore {
   private readonly db: SqlDatabase
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
+  /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
+  readonly observationCheckpoints: ObservationCheckpointsRepository
   readonly issues: IssuesRepository
   readonly conversations: ConversationsRepository
   readonly sync: SyncRepository
@@ -127,7 +130,8 @@ export class SessionStore {
     // Compose the per-aggregate repositories. The two cross-aggregate edges are
     // injected as late-bound lambdas: issues resolve their stable repo_id via
     // the repos aggregate, and a repo-identity upgrade dual-writes onto issues.
-    this.sessions = new SessionsRepository(this.db)
+    this.observationCheckpoints = new ObservationCheckpointsRepository(this.db)
+    this.sessions = new SessionsRepository(this.db, (id) => this.observationCheckpoints.purge(id))
     this.issues = new IssuesRepository(this.db, (repoPath) =>
       this.repos.resolveRepoIdForPath(repoPath),
     )

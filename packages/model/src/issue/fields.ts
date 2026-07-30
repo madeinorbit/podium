@@ -158,6 +158,8 @@ export const issueClassificationFields = {
   priority: z.number().int(),
   /** Sticks to the top of its list. */
   pinned: z.boolean(),
+  /** Fractional manual ordering key; null = legacy creation order. */
+  sortKey: z.string().nullable(),
   /** User-assigned colour slot [spec:SP-b4d1]; null = no colour = neutral slate flow. */
   color: IssueColor.nullable(),
   /** Estimated minutes of work; null = unestimated. */
@@ -247,6 +249,10 @@ export const issueLifecycleFields = {
   parentId: IssueId.nullable(),
   /** Why it closed; null = open, or closed without a reason. */
   closedReason: z.string().nullable(),
+  /** Stable instant when the issue most recently became closed. */
+  closedAt: Timestamp.nullable(),
+  /** Global dismissal into the sidebar Closed fold. */
+  tuckedAt: Timestamp.nullable(),
   /** The issue that replaced this one; null = not superseded. */
   supersededBy: IssueId.nullable(),
   /** The issue this one duplicates; null = not a duplicate. */

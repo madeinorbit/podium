@@ -2,8 +2,14 @@ import { stat } from 'node:fs/promises'
 import type {
   AgentCapabilities,
   AgentInstruction,
+  AgentObservation,
+  AgentObservationAckMessage,
+  AgentObservationRebindAckMessage,
   HarnessAgent,
+  ObservationProvider,
+  ProviderCursor,
   ResumeRef,
+  SessionObservationCheckpointV1,
   TranscriptItem,
 } from '@podium/protocol'
 import type { StatTick, TranscriptSource } from '@podium/transcript'
@@ -78,6 +84,9 @@ export interface HarnessExecSpec {
   args: string[]
   /** Delivered on the child's stdin (then EOF) — Claude's headless prompt path. */
   stdin?: string
+  /** Extra env for the child (merged over process.env). Codex passes the MCP
+   *  bearer token here via `bearer_token_env_var` rather than argv (POD-1021). */
+  env?: Record<string, string>
 }
 
 /** Bin resolvers for agents whose executable path isn't a fixed name. */
@@ -100,6 +109,11 @@ export interface HarnessLogin {
 export interface HarnessInventory {
   /** Candidate executable paths in probe order for this machine/home. */
   binCandidates(homeDir: string): string[]
+  /** Optional stronger identity probe for ambiguous executable names. */
+  identityProbe?: {
+    args: readonly string[]
+    accepts(output: string): boolean
+  }
   /** Read-only local credential/profile detection. Uneven support is explicit. */
   detectLogin(homeDir: string): HarnessLogin
 }
@@ -149,13 +163,35 @@ export interface HarnessHeadless {
    */
   resumeIdAllocation: 'sdk-session-uuid' | 'stream-captured' | 'daemon-minted-uuid' | 'create-chat'
   /** Pure argv builder for the child-process drivers. Absent for 'claude-sdk'
-   *  (the SDK builds its own invocation). */
-  buildExec?: (opts: HeadlessExecOptions, bins: HarnessBins) => { cmd: string; args: string[] }
+   *  (the SDK builds its own invocation). `env` (when present) is merged over the
+   *  child's environment — codex passes its MCP bearer token here (POD-1021). */
+  buildExec?: (
+    opts: HeadlessExecOptions,
+    bins: HarnessBins,
+  ) => { cmd: string; args: string[]; env?: Record<string, string> }
 }
 
 // ---------------------------------------------------------------------------
 // Per-session native-store observation — the session-observers axis (#249).
 // ---------------------------------------------------------------------------
+
+/** Exact durable lease handed to a causal provider observer. Optional on the
+ * outer input only for mixed-version controls and non-causal adapters. */
+export interface HarnessObservationLease {
+  provider: ObservationProvider
+  providerSessionId: string | null
+  bindingVersion: number
+  observerGeneration: number
+  acceptedCheckpoint: SessionObservationCheckpointV1 | null
+}
+
+/** Provider-confirmed native-session replacement. The host fences this request
+ * against the current lease and returns the resulting +1/+1 lease by ack. */
+export interface HarnessProviderRebind {
+  nextProviderSessionId: string
+  resumeKind: string
+  rebindId: string
+}
 
 export interface HarnessObserveInput {
   cwd: string
@@ -182,6 +218,8 @@ export interface HarnessObserveInput {
   /** Recorded segment evidence (reattach): absolute transcript path, checked
    *  before any cwd-derived location (conversation registry §3.3). */
   pathHint?: string
+  /** Durable causal observer lease and last accepted checkpoint [spec:SP-cdb2]. */
+  observationLease?: HarnessObservationLease
 }
 
 /**
@@ -204,6 +242,14 @@ export interface HarnessObserverHost {
   onTitle(title: string): void
   /** Normalized state events for the session's reducer. */
   onStateEvents(events: AgentStateEvent[]): void
+  /** Provider-normalized causal evidence. The host validates the exact session,
+   * provider, generation and binding before putting it on the wire. */
+  onObservation(observation: AgentObservation): void
+  /** The provider poll itself completed and found the accepted complete cursor unchanged. */
+  onLiveObservationCycle?(providerCursor: ProviderCursor): void
+  /** Request an atomic exact-provider native-session replacement. Merely
+   * rebinding never changes phase or emits downstream state effects. */
+  onExactProviderRebind(rebind: HarnessProviderRebind): void
   /** Live transcript items pushed by the observer itself (opencode: SQLite
    *  store, no file to tail; items arrive already cursor-stamped). */
   onTranscriptItems(items: TranscriptItem[], reset: boolean): void
@@ -220,6 +266,10 @@ export interface HarnessObservation {
    *  later POST is a cheap comparison. Absent for harnesses without a hook
    *  re-pin policy. */
   bindHookThread?(threadId: string): void
+  /** Server durability acknowledgement, routed only to the exact live lease. */
+  onObservationAck?(ack: AgentObservationAckMessage): void
+  /** Result of an exact native-session replacement request. */
+  onProviderRebindAck?(ack: AgentObservationRebindAckMessage): void
 }
 
 /** Start this harness's per-session native-store observation: the state

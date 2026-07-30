@@ -4,39 +4,39 @@ import type { IssueColorSlot } from '@podium/domain'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { SettingsView } from '@/features/settings/SettingsView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
 import { trayCount } from '@/features/superagent/derive-tray'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
-import { useIssueEvents } from '@/features/superagent/useIssueEvents'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { desktopReplicaFactory } from '@/lib/desktopReplica'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
+import { AsciiLoader } from './AsciiLoader'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedSuperagentBar } from './FoldedSuperagentBar'
-import { MobileApp } from './MobileApp'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import {
+  OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
-  RIGHT_PANEL_LAST_KEY,
   type RightPanelTab,
   readBooleanState,
-  readLastRightPanel,
   readRightPanel,
   readSuperagentMode,
   SIDEBAR_COLLAPSED_KEY,
@@ -53,8 +53,7 @@ import { Workspace } from './Workspace'
 function LoadingScreen(): JSX.Element {
   return (
     <div className="app-loading" role="status" aria-live="polite">
-      <span className="app-loading-spinner" aria-hidden="true" />
-      <span>Loading Podium…</span>
+      <AsciiLoader />
     </div>
   )
 }
@@ -84,7 +83,6 @@ function useDesktopReplica(): { createReplicaFn?: () => Replica } | null {
 export function AppShell(): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
-  const isMobile = useIsMobile()
   const desktopReplica = useDesktopReplica()
 
   if (!desktopReplica) {
@@ -114,7 +112,7 @@ export function AppShell(): JSX.Element {
             <ThemeUiStateMirror />
             <BrowserOpenOverlay />
             <ConfirmProvider>
-              <AppBody isMobile={isMobile} />
+              <AppBody />
             </ConfirmProvider>
           </StoreProvider>
         </ErrorBoundary>
@@ -128,7 +126,7 @@ export function AppShell(): JSX.Element {
   )
 }
 
-function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
+function AppBody(): JSX.Element {
   const {
     repos,
     reposLoaded,
@@ -153,7 +151,9 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     }),
     shallowEqual,
   )
+  const view = useStoreSelector((s) => s.view)
   const issues = useReplicaIssues()
+  const sessions = useStoreSelector((s) => s.sessions)
   const [dismissed, setDismissed] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
@@ -164,9 +164,16 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
     readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
   )
-  const [lastRightPanel, setLastRightPanel] = useState<RightPanelTab>(() =>
-    readLastRightPanel(uiState.get(RIGHT_PANEL_LAST_KEY)),
-  )
+  const commandPaletteEnabled = useFeature('command-palette')
+  const gitPanelEnabled = useFeature('git-panel')
+  const messagesPanelEnabled = useFeature('messages-panel')
+  const panelAllowed = (panel: RightPanelTab | null): boolean =>
+    panel !== 'git' && panel !== 'mail'
+      ? true
+      : panel === 'git'
+        ? gitPanelEnabled
+        : messagesPanelEnabled
+  const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
 
   const setSidebarCollapsed = (collapsed: boolean): void => {
     setSidebarCollapsedState(collapsed)
@@ -178,42 +185,47 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setSuperOpen(mode === 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
+    if (!panelAllowed(panel)) return
     setRightPanelState(panel)
     uiState.set(RIGHT_PANEL_KEY, panel ?? '')
-    if (panel) {
-      setLastRightPanel(panel)
-      uiState.set(RIGHT_PANEL_LAST_KEY, panel)
-    }
   }
 
   // superOpen (store) is how surfaces outside the shell drive the column
-  // (palette toggle, concierge/btw opens, mobile overlay). The desktop shell
-  // mirrors persisted mode back into the store once, then follows superOpen
-  // CHANGES only — and resolves close to 'folded': the column never fully
-  // disappears (#65). Skipped entirely under the mobile shell, whose overlay
-  // semantics for superOpen must not rewrite the desktop mode (the pre-#65
-  // 'closed' poisoning came exactly from that coupling).
+  // (palette toggle, concierge/btw opens). The shell mirrors persisted mode
+  // back into the store once, then follows superOpen CHANGES only — and
+  // resolves close to 'folded': the column never fully disappears (#65).
   const lastSuperOpen = useRef(superOpen)
   useEffect(() => {
-    if (isMobile) return
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
     const mode = superOpen ? 'open' : 'folded'
     setSuperModeState(mode)
     uiState.set(SUPERAGENT_MODE_KEY, mode)
-  }, [isMobile, superOpen, uiState])
+  }, [superOpen, uiState])
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted desktop mode.
   useEffect(() => {
-    if (!isMobile) setSuperOpen(superMode === 'open')
+    setSuperOpen(superMode === 'open')
   }, [])
 
-  // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
-  // while folded (the open column's own view polls otherwise).
-  const foldedFeed = useIssueEvents(trpc, uiState, false, superMode === 'folded')
+  // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
+  // via a window event — the panel state is AppShell-local. A request for a
+  // feature-gated panel falls back to the Task panel (its Git section is the
+  // next-best detail view).
+  useEffect(() => {
+    const onOpenPanel = (event: Event): void => {
+      const detail = (event as CustomEvent).detail
+      const panel = readRightPanel(typeof detail === 'string' ? detail : null)
+      if (!panel) return
+      setRightPanel(panelAllowed(panel) ? panel : 'issue')
+    }
+    window.addEventListener(OPEN_RIGHT_PANEL_EVENT, onOpenPanel)
+    return () => window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, onOpenPanel)
+  })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (
+        commandPaletteEnabled &&
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
         !event.shiftKey &&
@@ -225,7 +237,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, setPaletteOpen])
+  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
   if (!reposLoaded) return <LoadingScreen />
   if (repos.length === 0 && !dismissed) {
@@ -253,19 +265,18 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
 
   return (
     <>
-      {isMobile ? (
-        <MobileApp />
-      ) : (
-        <div
-          className="desktop-shell issue-scope"
-          data-issue-colored={effectiveHex ? 'true' : 'false'}
-          style={issueStyle}
-        >
-          <TopBar />
-          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-            {sidebarCollapsed ? (
+      <div
+        className="desktop-shell issue-scope"
+        data-issue-colored={effectiveHex ? 'true' : 'false'}
+        style={issueStyle}
+      >
+        <TopBar />
+        <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
+          {view === 'workspace' &&
+            (sidebarCollapsed ? (
               <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
                 <button
+                  data-pressable
                   type="button"
                   className="collapsed-sidebar-expand"
                   aria-label="Expand sidebar"
@@ -282,6 +293,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                   <SidebarUnified />
                 </ResizableAside>
                 <button
+                  data-pressable
                   type="button"
                   className="sidebar-collapse-control"
                   aria-label="Collapse sidebar"
@@ -291,72 +303,72 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                   <ChevronLeft size={12} aria-hidden="true" />
                 </button>
               </div>
-            )}
-            {superMode === 'open' && (
-              <ResizableColumn
-                storageKey="podium:superagent:width"
-                min={320}
-                max={860}
-                defaultWidth={460}
-                handleLabel="Resize tray and superagent"
-                className="max-w-[55vw]"
-              >
-                <aside
-                  className="engraved-column issue-base-engraved issue-glow"
-                  data-superagent-mode="open"
-                >
-                  <SuperagentView onClose={() => setSuperMode('folded')} />
-                </aside>
-              </ResizableColumn>
-            )}
-            {superMode === 'folded' && (
-              <FoldedSuperagentBar
-                issue={selectedIssue}
-                trayCount={trayCount(issues, selectedIssue?.id ?? null)}
-                unread={foldedFeed.unread}
-                onExpand={(target) => {
-                  // Land on the clicked half (3b/3d): pre-open that section so
-                  // the expanding column mounts with it visible.
-                  if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
-                  if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
-                  setSuperMode('open')
-                }}
-                onColorChange={changeIssueColor}
-              />
-            )}
-            <MainViewOutlet workspace={<Workspace />} />
-            {rightPanel && (
-              <ResizableColumn
-                storageKey="podium:rightdock:width"
-                min={280}
-                max={860}
-                defaultWidth={340}
-                handleLabel="Resize right dock"
-                handleSide="left"
-                className="max-w-[45vw]"
-              >
-                <aside className="right-dock-shell">
-                  <RightDock tab={rightPanel} onClose={() => setRightPanel(null)} />
-                </aside>
-              </ResizableColumn>
-            )}
+            ))}
+          {view === 'workspace' && superMode === 'open' && (
+            <ResizableColumn
+              storageKey="podium:superagent:width"
+              min={320}
+              max={860}
+              defaultWidth={460}
+              handleLabel="Resize tray and superagent"
+              className="max-w-[55vw]"
+            >
+              <aside className="engraved-column" data-superagent-mode="open">
+                <SuperagentView onClose={() => setSuperMode('folded')} />
+              </aside>
+            </ResizableColumn>
+          )}
+          {view === 'workspace' && superMode === 'folded' && (
+            <FoldedSuperagentBar
+              trayCount={trayCount(issues, sessions)}
+              onExpand={(target) => {
+                // Land on the clicked half (3b/3d): pre-open that section so
+                // the expanding column mounts with it visible.
+                if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
+                if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
+                setSuperMode('open')
+              }}
+            />
+          )}
+          <MainViewOutlet workspace={<Workspace />} />
+          {view === 'workspace' && visibleRightPanel && (
+            <ResizableColumn
+              storageKey="podium:rightdock:width"
+              min={280}
+              max={860}
+              defaultWidth={340}
+              handleLabel="Resize right dock"
+              handleSide="left"
+              className="max-w-[45vw]"
+            >
+              <aside className="right-dock-shell issue-base-card issue-fade">
+                <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
+              </aside>
+            </ResizableColumn>
+          )}
+          {view === 'workspace' && (
             <RightRail
               issue={selectedIssue}
-              rightPanel={rightPanel}
-              lastPanel={lastRightPanel}
+              rightPanel={visibleRightPanel}
               onPanelChange={setRightPanel}
               onColorChange={changeIssueColor}
             />
-          </div>
+          )}
         </div>
-      )}
+      </div>
+      {/* Settings is a full-viewport takeover above the shell (POD-127) — the
+          board stays mounted underneath, so closing is instant. */}
+      {view === 'settings' && <SettingsView />}
       <AutoContinueDialog />
       <ApprovalDialog />
-      <CommandPalette />
+      {commandPaletteEnabled && <CommandPalette />}
       {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show. */}
       <RefPrefixSync />
       <RefMiniviewHost />
+      {/* The issue peek drawer (POD-95): a chat ref's "open" — slides in OVER
+          the right edge (dock + rail included), above the normal UI. */}
+      <IssuePeekOverlay />
     </>
   )
 }

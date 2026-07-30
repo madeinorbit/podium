@@ -288,6 +288,82 @@ export async function killAbducoSessionAsync(label: string): Promise<void> {
   } catch {
     // already gone
   }
+  // Also sweep the session's scope cgroup (POD-108): SIGTERMing the master takes
+  // the agent down via PTY hangup, but grandchildren the agent spawned (test
+  // runs, builds, stray Xvfb) survive in the scope and stay resident — the same
+  // orphans reclaimStaleScope otherwise has to clear at the NEXT spawn, which an
+  // archived session never gets. `systemctl stop` signals the whole cgroup and
+  // escalates to SIGKILL on its stop timeout; reset-failed clears leftover unit
+  // state. Unconditional: a dead master with squatting orphans still needs it.
+  await stopSessionScopeAsync(label)
+}
+
+/**
+ * Async, guard-free counterpart of {@link reclaimStaleScope} for the kill path:
+ * stop the label's transient scope unit and clear its unit state. Best-effort —
+ * no systemd, an unscoped spawn (fallback path), or an already-gone unit all
+ * make these no-ops. tmux labels never had a scope, so it's a no-op there too.
+ */
+export async function stopSessionScopeAsync(label: string): Promise<void> {
+  for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
+    try {
+      await execFileAsync('systemctl', args, { env: scopeEnv(liveEnv()), timeout: 8000 })
+    } catch {
+      // best-effort: no such unit / no systemd
+    }
+  }
+}
+
+/**
+ * Teardown sweep for the abduco test harnesses (POD-107). Test labels embed the
+ * spawning test process's pid (`podium-abduco-itest-<pid>`, `podium-ab-retail-<pid>`,
+ * …), and the per-test `killAbducoSession` sits on the happy path only — a failed
+ * assertion or a killed runner skips it and the detached master lives for days,
+ * attributed to "project processes" in the host memory breakdown. Call this from
+ * `afterAll`: it kills every session matching one of `patterns` whose captured pid
+ * (each pattern's FIRST capture group) is this process — this run's sessions,
+ * pass or fail — or no longer alive — a previous crashed run. Sessions of a
+ * concurrent test process survive: their embedded pid is alive and not ours.
+ */
+export function reapAbducoTestSessions(patterns: RegExp[]): string[] {
+  const reaped: string[] = []
+  let sessions: AbducoSessionEntry[]
+  try {
+    sessions = listSessions()
+  } catch {
+    return reaped
+  }
+  for (const s of sessions) {
+    if (!s.alive) continue
+    const m = patterns.map((re) => re.exec(s.name)).find((x) => x?.[1])
+    if (!m?.[1]) continue
+    const spawner = Number(m[1])
+    let spawnerAlive = false
+    try {
+      process.kill(spawner, 0)
+      spawnerAlive = true
+    } catch (err) {
+      // EPERM = alive but not ours; only ESRCH means gone.
+      spawnerAlive = (err as NodeJS.ErrnoException).code === 'EPERM'
+    }
+    if (spawner !== process.pid && spawnerAlive) continue
+    try {
+      process.kill(s.pid, 'SIGTERM')
+      reaped.push(s.name)
+    } catch {
+      // raced to death
+    }
+  }
+  // An idle master parks in poll() and can sit on the pending SIGTERM; listing
+  // connects to every socket, and that wake is when the quit flag is processed.
+  if (reaped.length > 0) {
+    try {
+      listSessions()
+    } catch {
+      // best-effort nudge
+    }
+  }
+  return reaped
 }
 
 const ATTACH_CHROME = Buffer.from('\x1b[?1049h\x1b[H', 'latin1')

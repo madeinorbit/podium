@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics="">
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#f0eee9;font-family:system-ui,sans-serif}a{color:#2a78d6}a:hover{color:#1c5aa8}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(16,185,129,.55)}70%{box-shadow:0 0 0 7px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+@keyframes ignite{0%{transform:scale(.5)}55%{transform:scale(1.35)}100%{transform:scale(1)}}
+@keyframes popIn{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.18);opacity:1}100%{transform:scale(1)}}
+@keyframes rowFlash{0%{background-color:rgba(245,158,11,.32)}100%{background-color:rgba(245,158,11,.10)}}
+@keyframes tickIn{0%{transform:translateY(5px);opacity:0}100%{transform:none;opacity:1}}
+@keyframes flipAgo{0%{transform:scale(1.35);color:#10b981;opacity:.4}45%{color:#f59e0b}100%{transform:scale(1);opacity:1}}
+@keyframes iconFlash{0%{box-shadow:0 0 0 0 rgba(245,158,11,.6)}100%{box-shadow:0 0 0 9px rgba(245,158,11,0)}}
+@keyframes spB{0%{content:"⠋"}11%{content:"⠙"}22%{content:"⠹"}33%{content:"⠸"}44%{content:"⠼"}55%{content:"⠴"}66%{content:"⠦"}77%{content:"⠧"}88%{content:"⠇"}100%{content:"⠏"}}</style>
+</helmet>
+
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Issue colour — click the ID square in the sidebar to open the colour picker (4a); the 10-colour palette + reserved colours (4b)</span></div>
+<div class="dv-opts">
+
+<!-- ═══ 4a · COLOUR PICKER POPOVER ═══ -->
+<div class="dv-opt" id="4a">
+  <div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a><b>Colour picker</b> — anchored to the clicked ID square</div>
+  <div class="dv-card" style="width:460px">
+    <div style="position:relative; display:flex; flex-direction:column; gap:3px; height:400px; background:#16161c; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px; padding:12px 10px; overflow:hidden;">
+      <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:2px 4px 4px; display:flex; align-items:center; gap:6px;">LUMENFALL<span style="flex:1; height:1px; background:#25252f;"></span></div>
+      <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #f43f5e 11%, #16161c); width:250px; box-sizing:border-box;">
+        <span style="width:26px; height:26px; border-radius:7px; background:#f43f5e; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span></span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11.5px; color:#f0d2d8;">Payments refactor</div>
+          <div style="font-size:10px; color:#e79aa8;">interview waiting</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:7px; background:color-mix(in srgb, #8b5cf6 28%, #16161c); border:1px solid rgba(139,92,246,.8); width:250px; box-sizing:border-box;">
+        <span style="width:26px; height:26px; border-radius:7px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#1e0b44; box-shadow:0 0 0 2px #f3f3f8;"><span>POD</span><span>128</span></span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11.5px; font-weight:600; color:#f6f3ff;">Token refresh loop</div>
+          <div style="font-size:10px; color:#cbb8f7;">3 agents on 3 sub-issues</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; width:250px; box-sizing:border-box;">
+        <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>135</span></span>
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:11.5px; color:#d7d7e0;">Search index</div>
+          <div style="font-size:10px; color:#6c6c78;">working · subtasks 1/3</div>
+        </div>
+      </div>
+      <!-- popover · anchored to the clicked POD-128 square -->
+      <div style="position:absolute; left:56px; top:104px; z-index:3; width:196px; background:#1b1b22; border:1px solid #3a3a46; border-radius:10px; box-shadow:0 14px 34px rgba(0,0,0,.65), 0 2px 8px rgba(0,0,0,.5); padding:10px 11px;">
+        <span style="position:absolute; left:-5px; top:14px; width:8px; height:8px; background:#1b1b22; border-left:1px solid #3a3a46; border-bottom:1px solid #3a3a46; transform:rotate(45deg);"></span>
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:9px;"><span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#8d8d9a;">ISSUE COLOUR</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:8px; color:#5a5a66;">POD-128</span></div>
+        <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin-bottom:9px;">
+          <span title="Rose" style="aspect-ratio:1; border-radius:6px; background:#f43f5e; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Pink" style="aspect-ratio:1; border-radius:6px; background:#ec4899; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Fuchsia" style="aspect-ratio:1; border-radius:6px; background:#d946ef; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Violet — current" style="aspect-ratio:1; border-radius:6px; background:#8b5cf6; cursor:pointer; box-shadow:0 0 0 2px #f3f3f8; display:flex; align-items:center; justify-content:center; color:#1e0b44; font-size:10px; font-weight:700;">✓</span>
+          <span title="Indigo" style="aspect-ratio:1; border-radius:6px; background:#6366f1; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Blue" style="aspect-ratio:1; border-radius:6px; background:#3b82f6; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Cyan" style="aspect-ratio:1; border-radius:6px; background:#06b6d4; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Teal" style="aspect-ratio:1; border-radius:6px; background:#14b8a6; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Green" style="aspect-ratio:1; border-radius:6px; background:#22c55e; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+          <span title="Lime" style="aspect-ratio:1; border-radius:6px; background:#84cc16; cursor:pointer;" style-hover="box-shadow:0 0 0 2px #f3f3f8;"></span>
+        </div>
+        <div style="display:flex; align-items:center; gap:7px; border-top:1px solid #25252f; padding-top:8px;">
+          <span style="width:16px; height:16px; border-radius:5px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; align-items:center; justify-content:center; color:#8d8d9a; font-size:9px; cursor:pointer;">✕</span>
+          <span style="font-size:10.5px; color:#9a9aa8; cursor:pointer;">No colour</span>
+          <span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:8px; color:#5a5a66;">flows everywhere</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:460px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>4a:</b> clicking an issue's ID square (anywhere it appears in the sidebar; the clicked square gets a white ring) opens this popover: 10 swatches in spectrum order, current one checked, hover = white ring. “No colour” resets to the neutral square (solid/dashed border per state) and the slate flow from 1b. Picking a colour recolours the whole context flow live — row tint, bridge, engraved glow, tray cards, tab bar, rail.</div>
+</div>
+
+<!-- ═══ 4b · PALETTE REFERENCE ═══ -->
+<div class="dv-opt" id="4b">
+  <div class="dv-olabel"><a class="dv-oid" href="#4b">4b</a><b>The 10 issue colours</b> — reference for Claude Code</div>
+  <div class="dv-card" style="width:640px; box-sizing:border-box; padding:18px 20px;">
+    <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:14px 10px; font-family:ui-monospace,Menlo,monospace;">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#f43f5e; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #f43f5e 30%, #000);"><span>POD</span><span>97</span></span><span style="font-size:9.5px; color:#1a1a1a;">Rose</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#f43f5e</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#ec4899; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #ec4899 30%, #000);"><span>POD</span><span>112</span></span><span style="font-size:9.5px; color:#1a1a1a;">Pink</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#ec4899</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#d946ef; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #d946ef 30%, #000);"><span>POD</span><span>113</span></span><span style="font-size:9.5px; color:#1a1a1a;">Fuchsia</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#d946ef</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#8b5cf6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #8b5cf6 30%, #000);"><span>POD</span><span>128</span></span><span style="font-size:9.5px; color:#1a1a1a;">Violet</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#8b5cf6</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#6366f1; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #6366f1 30%, #000);"><span>POD</span><span>119</span></span><span style="font-size:9.5px; color:#1a1a1a;">Indigo</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#6366f1</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#3b82f6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #3b82f6 30%, #000);"><span>POD</span><span>121</span></span><span style="font-size:9.5px; color:#1a1a1a;">Blue</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#3b82f6</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#06b6d4; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #06b6d4 30%, #000);"><span>POD</span><span>122</span></span><span style="font-size:9.5px; color:#1a1a1a;">Cyan</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#06b6d4</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#14b8a6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #14b8a6 30%, #000);"><span>POD</span><span>104</span></span><span style="font-size:9.5px; color:#1a1a1a;">Teal</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#14b8a6</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#22c55e; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #22c55e 30%, #000);"><span>POD</span><span>125</span></span><span style="font-size:9.5px; color:#1a1a1a;">Green</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#22c55e</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:5px;"><span style="width:30px; height:30px; border-radius:8px; background:#84cc16; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:7px; font-weight:600; line-height:1.3; color:color-mix(in srgb, #84cc16 30%, #000);"><span>POD</span><span>127</span></span><span style="font-size:9.5px; color:#1a1a1a;">Lime</span><span style="font-size:8.5px; color:rgba(0,0,0,.45);">#84cc16</span></div>
+    </div>
+    <div style="border-top:1px solid rgba(0,0,0,.08); margin-top:16px; padding-top:12px; font:400 11px/1.6 system-ui,sans-serif; color:rgba(0,0,0,.65);">
+      <b>Rules:</b> square text = <span style="font-family:ui-monospace,monospace;">color-mix(in srgb, COLOUR 30%, #000)</span>; tints via <span style="font-family:ui-monospace,monospace;">color-mix(in srgb, COLOUR n%, BASE)</span> at the 1a percentages. The amber/orange band is deliberately absent: <span style="font-family:ui-monospace,monospace;">#f59e0b</span> is reserved for “waiting on you”, <span style="font-family:ui-monospace,monospace;">#D97757</span> for Claude, <span style="font-family:ui-monospace,monospace;">#10b981</span> for working — an issue colour must never be confusable with a status. Slate <span style="font-family:ui-monospace,monospace;">#94a3b8</span> is the no-colour flow, not a pickable colour.</div>
+  </div>
+  <div style="max-width:640px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>4b:</b> 10 colours in spectrum order, all tested against the dark surfaces with dark ID text. Yellow/orange/amber intentionally excluded (status collision); red folded into Rose.</div>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="c1">
+<div class="dv-thd"><a class="dv-tid" href="#c1">C</a><span class="dv-tname">Collapse states — every region has an open and a closed state: sidebar rail (3a), Tray / Super agent collapsed inside the engraved column (3b), column-state overview (3c)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="cnotes">
+  <div class="dv-olabel"><a class="dv-oid" href="#cnotes">★</a><b>Collapse rules for Claude Code</b></div>
+  <div class="dv-card" style="width:1256px; box-sizing:border-box; padding:20px 24px;">
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:18px 28px; font:400 11.5px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.72);">
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">1 · Independent + persisted</div>Every region collapses independently and its state persists (repo: <span style="font-family:ui-monospace,monospace;">uiState</span> keys like <span style="font-family:ui-monospace,monospace;">podium:superagent:width</span>, <span style="font-family:ui-monospace,monospace;">podium.rightPanel</span>). Left sidebar: 262px ↔ 52px icon rail. Engraved column: resizable 320–860 (default 460) or fully closed — reopen via ✦ in the right rail. Right dock: 44px rail ↔ rail + one panel (280–860, default 340).</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">2 · The rail keeps the full language</div>The collapsed sidebar is ID squares only — same grammar as everywhere: solid colour / solid grey border / dashed, numbered amber badge for waiting, green braille-spinner corner badge while computing, and the selected square keeps its bridge notch into the engraved column, so context flow survives collapse. Project groups become thin hairlines.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">3 · Tray and Super agent collapse to their bars</div>NEW vs. the repo: inside the engraved column, Tray and Super agent each collapse to their compact header bar (chevron on the right: ⌄ open, ▸ closed). The bars never disappear. Collapsed Tray keeps its amber count — the “needs you” signal stays visible; collapsed Super agent keeps an unread dot and the input moves up with it. Both collapsed ≈ the column is just two bars + whichever one is open gets the space. The WHOLE column can also fold to a 44px vertical bar in place (<a class="dv-oid" href="#3d">3d</a>) — one step short of fully closing it into the right rail.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 3a · SIDEBAR RAIL ═══ -->
+<div class="dv-opt" id="3a">
+  <div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a><b>Left sidebar collapsed</b> — 52px ID-square rail; badges, spinner and bridge survive</div>
+  <div class="dv-card" style="width:400px">
+    <div style="display:flex; height:560px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="flex:0 0 52px; display:flex; flex-direction:column; align-items:center; gap:10px; background:#16161c; border-right:1px solid #2a2a34; padding:10px 0;">
+        <span style="color:#6c6c78; font-size:11px;" title="Expand sidebar">⟩</span>
+        <span style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:1px solid #3a3a46; background:#25252f; border-radius:8px;" title="New Claude"><svg viewBox="0 0 24 24" width="13" height="13" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></span>
+        <span style="width:26px; height:1px; background:#25252f;" title="Lumenfall"></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#f43f5e; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#4a0715;" title="POD-97 Payments refactor — 1 waiting"><span>POD</span><span>97</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">1</span></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#8b5cf6; box-shadow:0 0 0 2px rgba(139,92,246,.35); display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#1e0b44;" title="POD-128 Token refresh loop — selected, 2 waiting"><span>POD</span><span>128</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">2</span><span style="position:absolute; right:-14px; top:7px; bottom:7px; width:10px; border-radius:0 3px 3px 0; background:linear-gradient(90deg, rgba(139,92,246,.85), rgba(139,92,246,.12));"></span></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#c5c5d0;" title="POD-135 Search index — working"><span>POD</span><span>135</span><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:8px; color:#34d399;"><span style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span></span></span>
+        <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; opacity:.6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#8d8d9a;" title="POD-140 queued"><span>POD</span><span>140</span></span>
+        <span style="width:26px; height:1px; background:#25252f;" title="Tartlet"></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#14b8a6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#032e28;" title="POD-104 Onboarding video — 1 waiting"><span>POD</span><span>104</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">1</span></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#c5c5d0;" title="POD-136 Release notes — working"><span>POD</span><span>136</span><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:8px; color:#34d399;"><span style-before="content:'⠧'; animation:spB .8s steps(1,end) infinite;"></span></span></span>
+        <span style="margin-top:auto; display:flex; flex-direction:column; gap:9px; color:#9a9aa8; padding-bottom:2px;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        </span>
+      </div>
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:radial-gradient(300px 200px at 50% 10%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%), #0a0a0e; box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85);">
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+          <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;">⌄</span>
+        </div>
+        <div style="flex:none; padding:8px 10px 10px;">
+          <div style="border:1px solid rgba(139,92,246,.6); border-radius:10px; background:color-mix(in srgb, #8b5cf6 20%, #0e0e12); padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11.5px; font-weight:600; color:#f6f3ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">POD-129 Refresh-timer fix · review</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; flex:none;">2m ago</span></div>
+            <div style="display:flex; gap:6px;"><span style="border-radius:6px; background:#8b5cf6; color:#160b30; font-size:10.5px; font-weight:600; padding:3px 10px;">✓ Done — merge</span><span style="border:1px solid rgba(233,226,255,.3); border-radius:6px; font-size:10.5px; color:#e9e2ff; padding:3px 9px;">Send back</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-top:1px solid #2e2e38; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;">⌄</span>
+        </div>
+        <div style="flex:1;"></div>
+        <div style="flex:none; padding:8px 10px 10px;">
+          <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #f59e0b; border-radius:9px; background:rgba(8,8,12,.7); padding:8px 11px; font-family:'Geist Mono',monospace;"><span style="color:#9a9aa8;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b;"></span><span style="flex:1; font-size:11px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything…</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:400px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>3a:</b> collapsed sidebar = 52px rail of ID squares under the ⟩ expand control and the compact new-Claude button. Everything the wide rows carry survives: numbered amber badges, spinner corner badges, project groups as hairlines, and the selected square's bridge notch — the colour still flows into the engraved column.</div>
+</div>
+
+<!-- ═══ 3b · TRAY / SUPER AGENT COLLAPSED ═══ -->
+<div class="dv-opt" id="3b">
+  <div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a><b>Engraved column, collapsed halves</b> — left: Tray folded to its bar; right: Super agent folded</div>
+  <div class="dv-card" style="width:740px">
+    <div style="display:flex; height:560px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <!-- variant 1: tray collapsed -->
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:radial-gradient(300px 200px at 50% 10%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%), #0a0a0e; border-right:1px solid #2a2a34;">
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+          <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+          <span style="min-width:13px; height:13px; border-radius:99px; background:#f59e0b; display:inline-flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7.5px; font-weight:700; color:#161006;">2</span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;" title="Expand tray">▸</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; box-shadow:0 5px 10px -5px rgba(0,0,0,.9); padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+          <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">OVERARCHING · KNOWS THIS ISSUE</span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;">⌄</span>
+        </div>
+        <div style="flex:1; min-height:0; overflow:hidden; padding:12px 13px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:11</span><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh finished POD-129 → tray <span style="color:#f59e0b;">↑</span></div>
+          <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#3b82f6;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.5;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#9a9aa8;">YOU</span>Does the mobile app share this timer?</div></div>
+          <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#10b981;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.55;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#f59e0b;">SUPER AGENT</span>It does — split out as <b style="color:#f6f3ff;">POD-130</b>; its question is in your tray.</div></div>
+        </div>
+        <div style="flex:none; padding:8px 10px 10px;">
+          <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #f59e0b; border-radius:9px; background:rgba(8,8,12,.7); padding:8px 11px; font-family:'Geist Mono',monospace;"><span style="color:#9a9aa8;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b;"></span><span style="flex:1; font-size:11px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything…</span></div>
+        </div>
+      </div>
+      <!-- variant 2: super agent collapsed -->
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:radial-gradient(300px 200px at 50% 10%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%), #0a0a0e;">
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+          <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;">⌄</span>
+        </div>
+        <div style="flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; gap:6px; padding:8px 10px;">
+          <div style="border:1px solid rgba(139,92,246,.6); border-radius:10px; background:color-mix(in srgb, #8b5cf6 20%, #0e0e12); padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11.5px; font-weight:600; color:#f6f3ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">POD-129 Refresh-timer fix · review</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; flex:none;">2m ago</span></div>
+            <div style="font-size:11px; line-height:1.5; color:#cfc8e2;">Failing test first, 12/12 green, branch only.</div>
+            <div style="display:flex; gap:6px;"><span style="border-radius:6px; background:#8b5cf6; color:#160b30; font-size:10.5px; font-weight:600; padding:3px 10px;">✓ Done — merge</span><span style="border:1px solid rgba(233,226,255,.3); border-radius:6px; font-size:10.5px; color:#e9e2ff; padding:3px 9px;">Send back</span></div>
+          </div>
+          <div style="border:1px solid rgba(139,92,246,.4); border-radius:10px; background:color-mix(in srgb, #8b5cf6 10%, #0e0e12); padding:8px 11px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11px; line-height:1.5; color:#cfc8e2;">POD-130 · align refresh-token lifetime with web's 14d?</span></div>
+            <div style="display:flex; gap:5px; padding-left:15px;"><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:2px 8px;">Align · 14d</span><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:2px 8px;">Keep 30d</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-top:1px solid #2e2e38; padding:5px 13px;">
+          <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+          <span style="width:7px; height:7px; border-radius:99px; background:#f59e0b;" title="1 new"></span>
+          <span style="margin-left:auto; color:#6c6c78; font-size:11px;" title="Expand super agent">▸</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:740px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>3b:</b> Tray and Super agent collapse to their header bars (⌄ open / ▸ closed), never further. Collapsed Tray keeps the amber count in the bar — “2 things need you” stays visible; the chat + input take all the space. Collapsed Super agent keeps an unread dot and drops to a single bottom bar; the tray takes the space and the input goes with the chat (a collapsed Super agent has no input).</div>
+</div>
+
+<!-- ═══ 3d · WHOLE COLUMN AS VERTICAL BAR ═══ -->
+<div class="dv-opt" id="3d">
+  <div class="dv-olabel"><a class="dv-oid" href="#3d">3d</a><b>Tray + Super agent as a vertical bar</b> — the whole engraved column folded to 44px, in place</div>
+  <div class="dv-card" style="width:560px">
+    <div style="display:flex; height:560px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="flex:0 0 52px; display:flex; flex-direction:column; align-items:center; gap:10px; background:#16161c; border-right:1px solid #2a2a34; padding:10px 0;">
+        <span style="color:#6c6c78; font-size:11px;" title="Expand sidebar">⟩</span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#f43f5e; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">1</span></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#8b5cf6; box-shadow:0 0 0 2px rgba(139,92,246,.35); display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">2</span><span style="position:absolute; right:-14px; top:7px; bottom:7px; width:10px; border-radius:0 3px 3px 0; background:linear-gradient(90deg, rgba(139,92,246,.85), rgba(139,92,246,.12));"></span></span>
+        <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>135</span><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:8px; color:#34d399;"><span style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span></span></span>
+        <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; opacity:.6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>140</span></span>
+      </div>
+      <!-- the folded engraved column · 44px vertical bar -->
+      <div style="flex:0 0 44px; display:flex; flex-direction:column; align-items:center; gap:12px; background:linear-gradient(180deg, color-mix(in srgb, #8b5cf6 14%, #0a0a0e), #0a0a0e 300px), #0a0a0e; border-right:1px solid rgba(139,92,246,.35); box-shadow:inset 2px 0 5px -2px rgba(0,0,0,.85), inset -2px 0 5px -2px rgba(0,0,0,.85); padding:10px 0;">
+        <span style="color:#8d84a6; font-size:11px;" title="Expand tray + super agent">⟩</span>
+        <span style="position:relative; display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:7px; background:#16161c; border:1px solid #2e2e38;" title="Tray — 2 waiting"><span style="color:#f59e0b; font-size:12px;">▤</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #0a0a0e; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7.5px; font-weight:700; color:#161006;">2</span></span>
+        <span style="position:relative; display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:7px; background:#16161c; border:1px solid #2e2e38;" title="Super agent — 1 new"><span style="color:#f59e0b; font-size:12px;">✦</span><span style="position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:99px; background:#f59e0b; border:2px solid #0a0a0e;"></span></span>
+        <span style="flex:1; display:flex; align-items:center; font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.18em; color:#5a5a66; writing-mode:vertical-rl;">TRAY · SUPER AGENT</span>
+        <span style="width:22px; height:22px; border-radius:6px; background:#8b5cf6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:5.5px; font-weight:600; line-height:1.3; color:#1e0b44;" title="CTX — POD-128"><span>POD</span><span>128</span></span>
+      </div>
+      <!-- native pane gets the width -->
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; background:color-mix(in srgb, #8b5cf6 12%, #0e0e12);">
+        <div style="display:flex; align-items:stretch; gap:2px; height:34px; flex:none; background:color-mix(in srgb, #8b5cf6 18%, #101016); border-bottom:1px solid rgba(139,92,246,.5); padding:4px 6px 0;">
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; background:color-mix(in srgb, #8b5cf6 28%, #0e0e12); border:1px solid rgba(139,92,246,.5); border-bottom:0; box-shadow:inset 0 2px 0 #8b5cf6; padding:0 11px; font-size:10.5px; font-weight:600; color:#f6f3ff;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; padding:0 11px; font-size:10.5px; color:#a89fc2;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; opacity:.55;"></span>mobile-session<span style="width:6px; height:6px; border-radius:99px; background:#f59e0b;"></span></span>
+          <span style="display:inline-flex; align-items:center; padding:0 9px; font-size:12px; color:#6c6c78;">＋</span>
+        </div>
+        <div style="flex:1; min-height:0; overflow:hidden; padding:12px 13px; font-family:'Geist Mono',monospace; font-size:10.5px; line-height:1.7; color:#c9c5d8;">
+          <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Bash</span>(npm test -- refresh)</div>
+          <div style="color:#8d84a6; padding-left:12px; margin-bottom:8px;">⎿ <span style="color:#f87171;">FAIL</span> auth/refresh.test.ts (241 ms)</div>
+          <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Update</span>(auth/refresh.ts)</div>
+          <div style="color:#8d84a6; padding-left:12px;">⎿ Updated 1 file · <span style="color:#10b981;">+14</span> <span style="color:#f87171;">−3</span></div>
+        </div>
+        <div style="flex:none; padding:0 13px 7px; font-family:'Geist Mono',monospace;">
+          <div style="border-top:1px solid rgba(139,92,246,.35); border-bottom:1px solid rgba(139,92,246,.35); display:flex; align-items:center; gap:8px; padding:8px 2px;"><span style="color:#c5bede;">›</span><span style="width:8px; height:15px; border:1.5px solid #D97757; flex:none;"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:560px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>3d:</b> the whole Tray + Super agent column folded to a 44px vertical bar, in place (one step before fully closing into the right rail, state C in <a class="dv-oid" href="#3c">3c</a>). The bar keeps the engraved surface + context glow, the ▤ with the amber waiting count, ✦ with an unread dot, a rotated label, and the CTX ID square at the bottom — so the selected issue's colour still bridges from the sidebar through the bar into the native pane. ⟩ (or clicking ▤/✦) expands back, landing on the clicked half.</div>
+</div>
+
+<!-- ═══ 3c · COLUMN-STATE OVERVIEW ═══ -->
+<div class="dv-opt" id="3c">
+  <div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a><b>Column states</b> — the four desktop configurations, schematic</div>
+  <div class="dv-card" style="width:1256px; box-sizing:border-box; padding:18px 22px; background:#111116;">
+    <div style="display:flex; gap:22px; font-family:'Geist Mono',monospace;">
+      <div style="flex:1; display:flex; flex-direction:column; gap:7px;">
+        <div style="display:flex; gap:3px; height:96px;">
+          <div style="flex:0 0 20%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">SIDEBAR 262</div>
+          <div style="flex:0 0 26%; border:1px solid rgba(139,92,246,.5); border-radius:5px; background:color-mix(in srgb, #8b5cf6 14%, #111116); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:8px; color:#cbb8f7;"><span>TRAY</span><span>SUPER AGENT</span><span style="color:#6c6478;">320–860</span></div>
+          <div style="flex:1; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">NATIVE AGENTS</div>
+          <div style="flex:0 0 5%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8; writing-mode:vertical-rl;">RAIL 44</div>
+        </div>
+        <div style="font-size:9px; letter-spacing:.06em; color:#8d8d9a;">A · DEFAULT — everything open</div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:7px;">
+        <div style="display:flex; gap:3px; height:96px;">
+          <div style="flex:0 0 5%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8; writing-mode:vertical-rl;">RAIL 52</div>
+          <div style="flex:0 0 28%; border:1px solid rgba(139,92,246,.5); border-radius:5px; background:color-mix(in srgb, #8b5cf6 14%, #111116); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:8px; color:#cbb8f7;"><span>TRAY</span><span>SUPER AGENT</span></div>
+          <div style="flex:1; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">NATIVE AGENTS</div>
+          <div style="flex:0 0 5%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8; writing-mode:vertical-rl;">RAIL 44</div>
+        </div>
+        <div style="font-size:9px; letter-spacing:.06em; color:#8d8d9a;">B · SIDEBAR COLLAPSED → ID-square rail (<a class="dv-oid" href="#3a" style="background:#25252f; color:#d7d7e0;">3a</a>)</div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:7px;">
+        <div style="display:flex; gap:3px; height:96px;">
+          <div style="flex:0 0 20%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">SIDEBAR 262</div>
+          <div style="flex:1; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">NATIVE AGENTS (WIDE)</div>
+          <div style="flex:0 0 5%; border:1px solid rgba(139,92,246,.5); border-radius:5px; background:color-mix(in srgb, #8b5cf6 14%, #111116); display:flex; align-items:center; justify-content:center; font-size:8px; color:#cbb8f7; writing-mode:vertical-rl;">✦ IN RAIL</div>
+        </div>
+        <div style="font-size:9px; letter-spacing:.06em; color:#8d8d9a;">C · ENGRAVED COLUMN CLOSED — reopen via ✦ in the rail</div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:7px;">
+        <div style="display:flex; gap:3px; height:96px;">
+          <div style="flex:0 0 5%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8; writing-mode:vertical-rl;">RAIL 52</div>
+          <div style="flex:0 0 24%; border:1px solid rgba(139,92,246,.5); border-radius:5px; background:color-mix(in srgb, #8b5cf6 14%, #111116); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:8px; color:#cbb8f7;"><span>TRAY</span><span>SUPER AGENT</span></div>
+          <div style="flex:1; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8;">NATIVE</div>
+          <div style="flex:0 0 20%; border:1px solid rgba(139,92,246,.4); border-radius:5px; background:color-mix(in srgb, #8b5cf6 8%, #111116); display:flex; align-items:center; justify-content:center; font-size:8px; color:#cbb8f7;">DOCK 340</div>
+          <div style="flex:0 0 5%; border:1px solid #3a3a46; border-radius:5px; background:#1b1b22; display:flex; align-items:center; justify-content:center; font-size:8px; color:#9a9aa8; writing-mode:vertical-rl;">RAIL 44</div>
+        </div>
+        <div style="font-size:9px; letter-spacing:.06em; color:#8d8d9a;">D · RIGHT DOCK OPEN — one panel (Issue/Git/Files/Shell), 280–860</div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:1256px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>3c:</b> the four desktop configurations. All toggles are independent, so combinations are legal (B+C = maximum native width, like the old 1c). The engraved column tint marks where the context colour lives in each state; when it's closed (C), the ✦ moves into the right rail and the amber tray count moves onto it.</div>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="m1">
+<div class="dv-thd"><a class="dv-tid" href="#m1">R</a><span class="dv-tname">Responsive — the repo's mobile concept (single 768px breakpoint, separate MobileApp shell) carried over to the final design: Home list (2a), Workspace + panel dropdown (2b), Superagent overlay (2c)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="mnotes">
+  <div class="dv-olabel"><a class="dv-oid" href="#mnotes">★</a><b>Responsive notes for Claude Code</b> — how the old layout did it (apps/web) and how it maps to the new design</div>
+  <div class="dv-card" style="width:1256px; box-sizing:border-box; padding:20px 24px;">
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:18px 28px; font:400 11.5px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.72);">
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">1 · One breakpoint, two shells</div>The repo uses a single 768px breakpoint (<span style="font-family:ui-monospace,monospace;">lib/hooks/use-is-mobile.ts</span>, <span style="font-family:ui-monospace,monospace;">matchMedia('(max-width: 768px)')</span>). Below it, <span style="font-family:ui-monospace,monospace;">AppShell.tsx</span> renders a completely separate <span style="font-family:ui-monospace,monospace;">MobileApp.tsx</span> — never a squeezed desktop. Keep that: the desktop layout (1a/1b) is columns; mobile is one pane at a time.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">2 · Desktop degrades by folding, not scaling</div>Above 768px the shell flexes via collapsible/resizable columns, not media queries: Super-agent column 320–860px (default 460, collapsible via ✦), right dock 280–860 (default 340, one panel at a time from the rail), sidebar resizable. On narrow desktops you close columns — the engraved column and native pane never shrink below readable.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">3 · Mobile header = nav + context</div>44px header (+ safe-area top): three bordered icon cells — Home, ✦ Super agent (toggle), Issues — then ONE dropdown for the selected issue (the context), then “+” (new agent), then compact host dot. In the new design the dropdown carries the issue's <b>ID square</b>, so the context colour reaches the header.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">4 · Panel dropdown replaces the tab bar</div>The native pane's tabs become the header dropdown: it drops OVER the content (overlay, max-height ~70vh, scrolls; opening it closes the “+” menu and vice-versa — repo #97). Rows = the issue's agents + open files, each with status (spinner / amber count), pin, kill. Rows reuse the desktop tab colours.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">5 · Super agent = full-screen overlay</div>On mobile the engraved column becomes an overlay (<span style="font-family:ui-monospace,monospace;">absolute inset-0</span>) toggled by the header ✦ — Tray on top (issue-scoped, only actionable items, same empty state as 1c), Super agent chat below. The right rail's Issue/Git/Files/Shell fold into the panel dropdown + issue page on mobile.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">6 · Keyboard & viewport</div>Copy the repo's <span style="font-family:ui-monospace,monospace;">useVisualViewportHeight</span> trick verbatim: pin the shell to <span style="font-family:ui-monospace,monospace;">--viewport-h</span> (visualViewport), snap document scroll back to 0, flag <span style="font-family:ui-monospace,monospace;">--kb-open</span> when the soft keyboard eats &gt;150px so the key bar drops its safe-area padding and sits flush above the keyboard. Terminal key bar (esc/tab/arrows/⏎) is bottom-anchored.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 2a · MOBILE HOME ═══ -->
+<div class="dv-opt" id="2a">
+  <div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a><b>Mobile · Home</b> — the work list full-width; header carries nav + the selected issue</div>
+  <div class="dv-card" style="width:390px">
+    <div style="display:flex; flex-direction:column; height:720px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="display:flex; align-items:stretch; height:44px; flex:none; border-bottom:1px solid #2a2a34; background:#16161c;">
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#f59e0b;" title="Home"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg></span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#9a9aa8;" title="Super agent">✦</span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#9a9aa8;" title="Issues"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="12" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect></svg></span>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:0 10px;">
+          <span style="width:18px; height:18px; border-radius:5px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:4.5px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span></span>
+          <div style="flex:1; min-width:0; line-height:1.2;">
+            <div style="font-size:9px; color:#8d84a6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</div>
+            <div style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:500; color:#f3f3f8;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">auth-refresh</span><span style="color:#8d84a6; font-size:9px; flex:none;">▾</span><span style="font-family:'Geist Mono',monospace; font-size:9px; color:#6c6c78; flex:none;">+3</span></div>
+          </div>
+          <span style="flex:none; color:#9a9aa8; font-size:15px; padding:0 3px;">＋</span>
+        </div>
+        <span style="display:flex; align-items:center; gap:5px; padding:0 11px; border-left:1px solid #2a2a34;"><span style="width:6px; height:6px; border-radius:99px; background:#34d399;"></span></span>
+      </div>
+      <div style="flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; gap:3px; padding:10px 10px 6px;">
+        <div style="display:flex; align-items:center; gap:8px; border:1px solid #3a3a46; background:#25252f; border-radius:8px; padding:9px 11px; margin:0 0 4px; font-size:12px; font-weight:500; color:#eaeaf0;"><svg viewBox="0 0 24 24" width="14" height="14" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>New Claude in podium<span style="margin-left:auto; color:#7a7a86; font-size:10px;">▾</span></div>
+        <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:4px 4px 2px; display:flex; align-items:center; gap:6px;">LUMENFALL<span style="flex:1; height:1px; background:#25252f;"></span></div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; background:color-mix(in srgb, #f43f5e 11%, #16161c);">
+          <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#f43f5e; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:12px; color:#f0d2d8; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Payments refactor</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#e79aa8;">interview waiting<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">2h ago</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; background:color-mix(in srgb, #8b5cf6 28%, #16161c); border:1px solid rgba(139,92,246,.8);">
+          <span style="width:26px; height:26px; border-radius:7px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:12px; font-weight:600; color:#f6f3ff; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">2</span></div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#cbb8f7;">3 agents on 3 sub-issues<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">12m ago</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>135</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:12px; color:#d7d7e0;">Search index</div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#6c6c78;">working · subtasks 1/3<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span>6:30</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; opacity:.65;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>140</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:12px; color:#9a9aa8;">Flaky CI on macOS</div>
+            <div style="font-size:10px; color:#6c6c78;">queued</div>
+          </div>
+        </div>
+        <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:8px 4px 2px; display:flex; align-items:center; gap:6px;">TARTLET<span style="flex:1; height:1px; background:#25252f;"></span></div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; background:color-mix(in srgb, #14b8a6 13%, #16161c);">
+          <span style="width:26px; height:26px; border-radius:7px; background:#14b8a6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#032e28;"><span>POD</span><span>104</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:12px; color:#c9ebe6; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Onboarding video</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#8fd8cd;">asked: “16:9 or vertical?”<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">38m ago</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>136</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:12px; color:#d7d7e0;">Release notes 0.9</div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#6c6c78;">drafting · started by you<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠧'; animation:spB .8s steps(1,end) infinite;"></span>2:12</span></div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:7px; opacity:.65;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>141</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:12px; color:#9a9aa8;">Docs search embeddings</div>
+            <div style="font-size:10px; color:#6c6c78;">queued</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; border-top:1px solid #25252f; padding:9px 10px 4px; display:flex; align-items:center; justify-content:space-around; color:#9a9aa8;">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"></path><path d="M9 13h6"></path><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"></path></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:390px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>2a:</b> the Home view is the desktop sidebar full-width (repo: <span style="font-family:ui-monospace,monospace;">MobileHomeView</span> reuses the sidebar's sections). The header dropdown is NOT an issue picker — it's the panel selector for the current work (issue above, active panel + count below; tapping it opens the panel list from <a class="dv-oid" href="#2b">2b</a>). Issues are chosen here on Home; the dropdown is the way back into the current issue's panels from any view. Square language, spinners and amber counts identical to 1a.</div>
+</div>
+
+<!-- ═══ 2b · MOBILE WORKSPACE + PANEL MENU ═══ -->
+<div class="dv-opt" id="2b">
+  <div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a><b>Mobile · Workspace</b> — one native pane at a time; the panel dropdown replaces the tab bar (shown open)</div>
+  <div class="dv-card" style="width:390px">
+    <div style="position:relative; display:flex; flex-direction:column; height:720px; background:color-mix(in srgb, #8b5cf6 10%, #0e0e12); font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px; overflow:hidden;">
+      <div style="display:flex; align-items:stretch; height:44px; flex:none; border-bottom:1px solid rgba(139,92,246,.45); background:color-mix(in srgb, #8b5cf6 16%, #16161c);">
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid rgba(139,92,246,.3); color:#9a9aa8;" title="Home"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg></span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid rgba(139,92,246,.3); color:#9a9aa8;" title="Super agent">✦</span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid rgba(139,92,246,.3); color:#9a9aa8;" title="Issues"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="12" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect></svg></span>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:0 10px;">
+          <span style="width:18px; height:18px; border-radius:5px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:4.5px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span></span>
+          <div style="flex:1; min-width:0; line-height:1.2;">
+            <div style="font-size:9px; color:#a89fc2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</div>
+            <div style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:500; color:#f3f3f8;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">auth-refresh</span><span style="color:#a89fc2; font-size:9px; flex:none;">▴</span></div>
+          </div>
+          <span style="flex:none; color:#a89fc2; font-size:15px; padding:0 3px;">＋</span>
+        </div>
+        <span style="display:flex; align-items:center; gap:5px; padding:0 11px; border-left:1px solid rgba(139,92,246,.3);"><span style="width:6px; height:6px; border-radius:99px; background:#34d399;"></span></span>
+      </div>
+      <!-- panel dropdown · overlays the pane -->
+      <div style="position:absolute; left:0; right:0; top:44px; z-index:3; background:#16161c; border-bottom:1px solid rgba(139,92,246,.5); box-shadow:0 8px 24px rgba(0,0,0,.55);">
+        <div style="display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid #25252f; background:color-mix(in srgb, #8b5cf6 18%, #16161c);"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; flex:none;"></span><span style="font-size:12px; font-weight:600; color:#f6f3ff;">auth-refresh</span><span style="font-size:10px; color:#8d84a6;">· <span style="color:#D97757;">◆</span> Claude Code</span><span style="margin-left:auto; display:inline-flex; gap:14px; color:#8d84a6; font-size:11px;"><span title="Pin">⌖</span><span title="Kill">✕</span></span></div>
+        <div style="display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid #25252f;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; opacity:.55; flex:none;"></span><span style="font-size:12px; color:#c5bede;">mobile-session</span><span style="margin-left:auto; display:inline-flex; align-items:center; gap:12px;"><span style="min-width:13px; height:13px; border-radius:99px; background:#f59e0b; display:inline-flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7.5px; font-weight:700; color:#161006;">1</span><span style="color:#8d84a6; font-size:11px;">⌖</span><span style="color:#8d84a6; font-size:11px;">✕</span></span></div>
+        <div style="display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid #25252f;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; opacity:.55; flex:none;"></span><span style="font-size:12px; color:#c5bede;">logout-telemetry</span><span style="margin-left:auto; display:inline-flex; align-items:center; gap:12px;"><span style="display:inline-block; min-width:9px; font-family:'Geist Mono',monospace; font-size:10px; color:#10b981;" style-before="content:'⠸'; animation:spB .8s steps(1,end) infinite;"></span><span style="color:#8d84a6; font-size:11px;">⌖</span><span style="color:#8d84a6; font-size:11px;">✕</span></span></div>
+        <div style="display:flex; align-items:center; gap:9px; padding:10px 12px;"><svg viewBox="0 0 24 24" width="12" height="12" style="flex:none; color:#8d84a6;" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg><span style="font-size:12px; color:#c5bede; font-family:'Geist Mono',monospace; font-size:11px;">auth/refresh.ts</span><span style="margin-left:auto; color:#8d84a6; font-size:11px;">✕</span></div>
+      </div>
+      <!-- native pane behind -->
+      <div style="flex:1; min-height:0; display:flex; flex-direction:column; opacity:.55;">
+        <div style="display:flex; align-items:center; gap:8px; height:38px; flex:none; padding:0 10px; background:color-mix(in srgb, #8b5cf6 24%, #0e0e12); border-bottom:1px solid rgba(139,92,246,.45);">
+          <span style="display:inline-flex; flex:none; align-items:center; gap:5px; border:1px solid rgba(139,92,246,.35); border-radius:6px; background:rgba(14,14,18,.5); padding:3px 7px;"><svg viewBox="0 0 24 24" width="12" height="12" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg><span style="font-size:11px; font-weight:600; color:#f3f3f8;">Claude Code</span></span>
+          <span style="flex:none; font-size:9px; font-weight:600; letter-spacing:.06em; color:#8d84a6;">NATIVE</span>
+          <span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:10px; color:#a89fc2;">~/src/podium</span>
+        </div>
+        <div style="flex:1; min-height:0; overflow:hidden; padding:12px 12px; font-family:'Geist Mono',monospace; font-size:10.5px; line-height:1.7; color:#c9c5d8;">
+          <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Bash</span>(npm test -- refresh)</div>
+          <div style="color:#8d84a6; padding-left:12px; margin-bottom:8px;">⎿ <span style="color:#f87171;">FAIL</span> auth/refresh.test.ts (241 ms)</div>
+          <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Update</span>(auth/refresh.ts)</div>
+          <div style="color:#8d84a6; padding-left:12px; margin-bottom:8px;">⎿ Updated 1 file · <span style="color:#10b981;">+14</span> <span style="color:#f87171;">−3</span></div>
+          <div><span style="color:#f0edf8;">●</span> Fixed and holding — 12/12 green, branch only.</div>
+        </div>
+        <div style="flex:none; padding:0 12px 6px; font-family:'Geist Mono',monospace;">
+          <div style="border-top:1px solid rgba(139,92,246,.35); border-bottom:1px solid rgba(139,92,246,.35); display:flex; align-items:center; gap:8px; padding:8px 2px;"><span style="color:#c5bede;">›</span><span style="width:8px; height:15px; border:1.5px solid #D97757; flex:none;"></span></div>
+        </div>
+      </div>
+      <!-- bottom key bar · flush above the soft keyboard -->
+      <div style="flex:none; display:flex; align-items:stretch; gap:1px; background:#08080c; border-top:1px solid #2a2a34; padding:6px 8px 8px; font-family:'Geist Mono',monospace; font-size:10px; color:#9a9aa8;">
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0;">esc</span>
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0; margin-left:5px;">tab</span>
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0; margin-left:5px;">ctrl</span>
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0; margin-left:5px;">↑</span>
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0; margin-left:5px;">↓</span>
+        <span style="flex:1; display:flex; align-items:center; justify-content:center; border:1px solid #2e2e38; border-radius:6px; background:#16161c; padding:7px 0; margin-left:5px; color:#e8c477;">⏎</span>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:390px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>2b:</b> one pane at a time; the header dropdown (▴ open) is the tab bar — the issue's agents with the same status grammar (amber count, braille spinner) plus open files, each with pin/kill (repo: <span style="font-family:ui-monospace,monospace;">MobileApp.tsx</span> panel menu, overlay, max-height 70vh). POD-128's violet tints header, menu and pane chrome exactly like the desktop tab bar. The key bar is pinned above the soft keyboard via <span style="font-family:ui-monospace,monospace;">--viewport-h</span>.</div>
+</div>
+
+<!-- ═══ 2c · MOBILE SUPERAGENT OVERLAY ═══ -->
+<div class="dv-opt" id="2c">
+  <div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a><b>Mobile · Super agent overlay</b> — ✦ toggles the engraved column as a full-screen layer</div>
+  <div class="dv-card" style="width:390px">
+    <div style="display:flex; flex-direction:column; height:720px; background:radial-gradient(340px 220px at 50% 6%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%), #0a0a0e; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="display:flex; align-items:stretch; height:44px; flex:none; border-bottom:1px solid #2a2a34; background:#16161c;">
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#9a9aa8;" title="Home"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg></span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#f59e0b;" title="Super agent — open">✦</span>
+        <span style="display:flex; align-items:center; padding:0 13px; border-right:1px solid #2a2a34; color:#9a9aa8;" title="Issues"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="12" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect></svg></span>
+        <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:0 10px;">
+          <span style="width:18px; height:18px; border-radius:5px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:4.5px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span></span>
+          <div style="flex:1; min-width:0; line-height:1.2;">
+            <div style="font-size:9px; color:#8d84a6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">feat/auth-refresh</div>
+            <div style="display:flex; align-items:center; gap:5px; font-size:12px; font-weight:500; color:#f3f3f8;"><span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</span><span style="color:#8d84a6; font-size:9px; flex:none;">▾</span></div>
+          </div>
+          <span style="flex:none; color:#9a9aa8; font-size:15px; padding:0 3px;">＋</span>
+        </div>
+        <span style="display:flex; align-items:center; gap:5px; padding:0 11px; border-left:1px solid #2a2a34;"><span style="width:6px; height:6px; border-radius:99px; background:#34d399;"></span></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+        <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+        <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+        <span style="margin-left:auto; color:#6c6c78; font-size:11px;" title="Minimize">⌄</span>
+      </div>
+      <div style="flex:none; display:flex; flex-direction:column; gap:6px; padding:8px 10px 10px;">
+        <div style="border:1px solid rgba(139,92,246,.6); border-radius:10px; background:color-mix(in srgb, #8b5cf6 20%, #0e0e12); padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11.5px; font-weight:600; color:#f6f3ff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">POD-129 Refresh-timer fix · review</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; flex:none;">2m ago</span></div>
+          <div style="font-size:11px; line-height:1.5; color:#cfc8e2;">Failing test first, 12/12 green, branch only.</div>
+          <div style="display:flex; gap:6px;"><span style="border-radius:6px; background:#8b5cf6; color:#160b30; font-size:10.5px; font-weight:600; padding:4px 10px;">✓ Done — merge</span><span style="border:1px solid rgba(233,226,255,.3); border-radius:6px; font-size:10.5px; color:#e9e2ff; padding:4px 9px;">Send back</span></div>
+        </div>
+        <div style="border:1px solid rgba(139,92,246,.4); border-radius:10px; background:color-mix(in srgb, #8b5cf6 10%, #0e0e12); padding:8px 11px; display:flex; flex-direction:column; gap:6px;">
+          <div style="display:flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11px; line-height:1.5; color:#cfc8e2;">POD-130 · mobile keeps a 30-day refresh token — align with web's 14?</span></div>
+          <div style="display:flex; gap:5px; padding-left:15px;"><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:3px 8px;">Align · 14d</span><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:3px 8px;">Keep 30d</span><span style="border:1px solid #3a3a46; border-radius:5px; font-size:10px; color:#9a9aa8; padding:3px 8px;">Reply…</span></div>
+        </div>
+      </div>
+      <div style="flex:none; display:flex; align-items:center; gap:8px; background:#08080c; border-top:1px solid #2e2e38; border-bottom:1px solid #2e2e38; box-shadow:0 5px 10px -5px rgba(0,0,0,.9); padding:5px 13px;">
+        <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+        <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">OVERARCHING · KNOWS THIS ISSUE</span>
+      </div>
+      <div style="flex:1; min-height:0; overflow:hidden; padding:12px 12px; display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:11</span><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh finished POD-129 → tray <span style="color:#f59e0b;">↑</span></div>
+        <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#3b82f6;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.5;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#9a9aa8;">YOU</span>Does the mobile app share this timer?</div></div>
+        <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#10b981;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.55;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#f59e0b;">SUPER AGENT <span style="color:#8d84a6; letter-spacing:0; font-weight:400;">· POD-128 context</span></span>It does — split out as <b style="color:#f6f3ff;">POD-130</b>; its question is in your tray ↑.</div></div>
+      </div>
+      <div style="flex:none; padding:8px 10px 10px;">
+        <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #f59e0b; border-radius:9px; background:rgba(8,8,12,.7); padding:9px 11px; font-family:'Geist Mono',monospace;">
+          <span style="color:#9a9aa8; flex:none;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b; flex:none;"></span>
+          <span style="flex:1; min-width:0; font-size:11.5px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything…</span>
+          <svg viewBox="0 0 24 24" width="13" height="13" style="color:#8d8d9a; flex:none;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:390px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>2c:</b> ✦ (lit amber in the header) opens the engraved column as a full-screen overlay over whatever pane was showing (repo: <span style="font-family:ui-monospace,monospace;">superOpen</span> → <span style="font-family:ui-monospace,monospace;">absolute inset-0 z-20</span>); ⌄ minimizes it back. Structure is identical to desktop — Tray (issue-scoped, actionable only, same empty state as 1c) above the Super agent chat — so nothing has to be relearned between form factors.</div>
+</div>
+
+</div>
+</section>
+
+<section class="dv-turn" id="h1">
+<div class="dv-thd"><a class="dv-tid" href="#h1">H</a><span class="dv-tname">Handoff — final Podium layout: coloured flow (1a), neutral flow (1b), empty tray (1c), live micro-motion demo (1d), build notes</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="notes">
+  <div class="dv-olabel"><a class="dv-oid" href="#notes">★</a><b>Build notes for Claude Code</b> — read before implementing; 1a/1b are the reference screens, 1c the empty state, 1d the live motion spec</div>
+  <div class="dv-card" style="width:1340px; box-sizing:border-box; padding:20px 24px;">
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:18px 28px; font:400 11.5px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.72);">
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">1 · Anatomy</div>Top bar 44px (logo <span style="font-family:ui-monospace,monospace;">podium-logo.svg</span>, nav, machine + quota meters). Left: Work sidebar 262px, issues grouped by project (LUMENFALL / TARTLET, mono 8.5px labels). Middle: the <b>engraved column</b> — darker surface (#0a0a0e) with inset shadows on top/left/right — holding Tray + Super agent. Right of it: Native agents pane (tabs, Claude Code session, terminal, prompt). Far right: 44px rail (Issue / Git / Files / Shell), expandable.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">2 · Context flow</div>The selected issue's colour flows through everything downstream: selected row + bridge notch out of the sidebar → faint radial glow at the top of the engraved column → tray cards → native tab bar + chrome → right rail gradient + its ID square. Always mixed, never flat: <span style="font-family:ui-monospace,monospace;">color-mix(in srgb, ISSUE n%, BASE)</span> at 8–28%. Uncoloured issues run the identical mechanics in slate <span style="font-family:ui-monospace,monospace;">#94a3b8</span> (see 1b). The Super agent area itself stays neutral — only the glow behind it and the tray items carry the colour.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">3 · ID squares</div>Linear-style IDs (POD-128) rendered as 26px rounded squares, Geist Mono 6.5px, two stacked lines (POD / 128). Language: <b>solid colour fill</b> = coloured issue · <b>solid grey border</b> on #25252f = active but uncoloured · <b>dashed border</b> = queued/idle (dimmed, opacity .65). The same square repeats identically in the sidebar, Tray header, CTX badge, and rail — it IS the issue's identity everywhere.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">4 · Motion rules</div>Permanent animation ONLY while an agent is computing: braille spinner ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ (CSS <span style="font-family:ui-monospace,monospace;">content</span> keyframes, .8s steps) + the timer counting up, both mono + green #10b981. Every phase change is one single one-shot morph (.4–.9s): amber row flash, badge pop-in, ignite scale on start, ✓ pop on done — then total stillness; stillness is the “needs you” signal. The timer anchors every morph: green counting → freezes and flips to amber “2m ago” → grey total ∑. Rail corner badges: green spinner = computing, amber numbered = waiting count, ✓ = done.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">5 · Type & colour</div>Geist (UI) / Geist Mono (IDs, timers, terminal, section labels). Surfaces: bg #0e0e12 · panels #16161c · engraved #0a0a0e · hairlines #2a2a34 / #25252f. Text #f3f3f8 / #d7d7e0, muted #9a9aa8 / #6c6c78. Semantics: attention #f59e0b (amber = “waiting on you”, everywhere) · working #10b981 · Claude #D97757 · neutral flow #94a3b8. Issue palette samples: #8b5cf6, #f43f5e, #14b8a6. Wordmark is white, ~15px tall in the top bar.</div>
+      <div><div style="font:700 12px/1.3 system-ui,sans-serif; color:#1a1a1a; margin-bottom:5px;">6 · Tray & Super agent</div><b>Tray</b> (▤, top of engraved column): scoped to the selected issue, shows ONLY items needing a human — reviews with actions, questions with answer chips. Never shows working/status rows; when nothing needs you it collapses to one quiet line (1c). <b>Super agent</b> (✦, header “OVERARCHING · KNOWS THIS ISSUE”): one chat across all issues — feed shows cross-project events — answering with the selected issue as context (CTX). Both headers share the same compact bar style (#08080c, hairline top+bottom).</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ 1a · FINAL · COLOURED ISSUE SELECTED ═══ -->
+<div class="dv-opt" id="1a">
+  <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><b>Coloured selection</b> — POD-128 (violet) selected: bridge → engraved column glow → Tray items → native tab bar → right rail</div>
+  <div class="dv-card" style="width:1340px">
+    <div style="display:flex; flex-direction:column; height:730px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="display:flex; align-items:center; gap:10px; height:44px; flex:none; border-bottom:1px solid #2a2a34; background:#16161c; padding:0 14px;">
+        <img src="podium-logo.svg" height="15" style="display:block; flex:none;" alt="PODIUM">
+        <span style="display:inline-flex; gap:2px; margin-left:10px; font-size:11.5px;">
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; color:#f3f3f8; font-weight:600;">Home<span style="border-radius:99px; background:#25252f; color:#f59e0b; font-size:9.5px; padding:0 6px;">4</span></span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Issues</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Specs</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Automations</span>
+        </span>
+        <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:#9a9aa8;"><span style="width:6px; height:6px; border-radius:99px; background:#34d399;"></span>studio-mbp<span style="width:34px; height:3.5px; border-radius:2px; background:#25252f; overflow:hidden; display:inline-block;"><span style="display:block; height:100%; width:59%; background:#34d399;"></span></span></span>
+        <span style="display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:#6c6c78;">quota<span style="width:34px; height:3.5px; border-radius:2px; background:#25252f; overflow:hidden; display:inline-block;"><span style="display:block; height:100%; width:68%; background:#34d399;"></span></span></span>
+      </div>
+      <div style="display:flex; flex:1; min-height:0;">
+        <!-- WORK sidebar · grouped by project -->
+        <div style="flex:0 0 262px; display:flex; flex-direction:column; gap:3px; background:#16161c; border-right:1px solid #2a2a34; padding:10px 8px 6px;">
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid #3a3a46; background:#25252f; border-radius:8px; padding:8px 10px; margin:0 0 4px; font-size:12px; font-weight:500; color:#eaeaf0;"><svg viewBox="0 0 24 24" width="14" height="14" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>New Claude in podium<span style="margin-left:auto; color:#7a7a86; font-size:10px;">▾</span></div>
+          <div style="height:1px; background:#25252f; margin:4px 2px 6px;"></div>
+          <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:4px 4px 2px; display:flex; align-items:center; gap:6px;">LUMENFALL<span style="flex:1; height:1px; background:#25252f;"></span></div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #f43f5e 11%, #16161c);">
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#f43f5e; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#f0d2d8; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Payments refactor</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#e79aa8;">interview waiting<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">2h ago</span></div>
+            </div>
+          </div>
+          <!-- SELECTED -->
+          <div style="position:relative; display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:7px; background:color-mix(in srgb, #8b5cf6 28%, #16161c); border:1px solid rgba(139,92,246,.8);">
+            <span style="position:absolute; right:-10px; top:9px; bottom:9px; width:10px; border-radius:0 3px 3px 0; background:linear-gradient(90deg, rgba(139,92,246,.85), rgba(139,92,246,.12));"></span>
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#1e0b44; box-shadow:0 0 0 2px rgba(139,92,246,.35);"><span>POD</span><span>128</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; font-weight:600; color:#f6f3ff; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">2</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#cbb8f7;">3 agents on 3 sub-issues<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">12m ago</span></div>
+            </div>
+          </div>
+          <!-- working, uncoloured: solid border -->
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>135</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#d7d7e0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Search index</div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#6c6c78;">working · subtasks 1/3<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span>6:30</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>140</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#9a9aa8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Flaky CI on macOS</div>
+              <div style="font-size:10px; color:#6c6c78;">queued</div>
+            </div>
+          </div>
+          <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:8px 4px 2px; display:flex; align-items:center; gap:6px;">TARTLET<span style="flex:1; height:1px; background:#25252f;"></span></div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #14b8a6 13%, #16161c);">
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#14b8a6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#032e28;"><span>POD</span><span>104</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#c9ebe6; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Onboarding video</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#8fd8cd;">asked: “16:9 or vertical?”<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">38m ago</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>136</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#d7d7e0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Release notes 0.9</div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#6c6c78;">drafting · started by you<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠧'; animation:spB .8s steps(1,end) infinite;"></span>2:12</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>141</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#9a9aa8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Docs search embeddings</div>
+              <div style="font-size:10px; color:#6c6c78;">queued</div>
+            </div>
+          </div>
+          <div style="margin-top:auto; border-top:1px solid #25252f; padding:8px 10px 4px; display:flex; align-items:center; justify-content:space-around;">
+            <span title="Add repo" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"></path><path d="M9 13h6"></path><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg></span>
+            <span title="Stats" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></span>
+            <span title="Settings" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
+            <span title="Search" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
+          </div>
+        </div>
+        <!-- ENGRAVED COLUMN · Tray (issue-scoped) above · Super agent (overarching) below -->
+        <div style="flex:1.05 1 0; min-width:0; display:flex; flex-direction:column; border-right:1px solid #2a2a34; background:radial-gradient(560px 300px at 50% 12%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%), #0a0a0e; box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85), inset -3px 0 6px -3px rgba(0,0,0,.85), inset 0 3px 6px -3px rgba(0,0,0,.85);">
+          <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+            <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+            <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+            
+          </div>
+          <div style="flex:none; display:flex; flex-direction:column; gap:6px; padding:8px 12px 10px;">
+            <div style="border:1px solid rgba(139,92,246,.6); border-radius:10px; background:color-mix(in srgb, #8b5cf6 20%, #0e0e12); padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6;"></span><span style="font-size:11.5px; font-weight:600; color:#f6f3ff;">POD-129 Refresh-timer fix · ready for review</span><span style="font-size:9.5px; color:#8d84a6;">· <span style="color:#D97757;">◆</span> auth-refresh</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b;">2m ago</span></div>
+              <div style="font-size:11px; line-height:1.5; color:#cfc8e2;">Scheduler read a stale <span style="font-family:'Geist Mono',monospace; color:#f0edf8;">expiresAt</span>; now reads the live session. Failing test first, 12/12 green, branch only.</div>
+              <div style="display:flex; gap:6px;"><span style="border-radius:6px; background:#8b5cf6; color:#160b30; font-size:10.5px; font-weight:600; padding:3px 10px;">✓ Done — merge</span><span style="border:1px solid rgba(233,226,255,.3); border-radius:6px; font-size:10.5px; color:#e9e2ff; padding:3px 9px;">Send back</span><span style="border:1px solid #3a3a46; border-radius:6px; font-size:10.5px; color:#9a9aa8; padding:3px 9px;">Discuss ↓</span><span style="margin-left:auto; font-size:10px; color:#8d84a6; padding:3px 0;">session →</span></div>
+            </div>
+            <div style="border:1px solid rgba(139,92,246,.4); border-radius:10px; background:color-mix(in srgb, #8b5cf6 10%, #0e0e12); padding:8px 11px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:3px; background:#8b5cf6; flex:none;"></span><span style="min-width:0; font-size:11px; line-height:1.5; color:#cfc8e2;">POD-130 Mobile session path · <span style="color:#8d84a6;"><span style="color:#D97757;">◆</span> mobile-session asks:</span> “mobile keeps a 30-day refresh token — align with web's 14?”</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; flex:none;">9m ago</span></div>
+              <div style="display:flex; gap:5px; padding-left:15px;"><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:2px 8px; white-space:nowrap;">Align · 14d</span><span style="border:1px solid rgba(139,92,246,.45); border-radius:5px; font-size:10px; color:#cbb8f7; padding:2px 8px; white-space:nowrap;">Keep 30d</span><span style="border:1px solid #3a3a46; border-radius:5px; font-size:10px; color:#9a9aa8; padding:2px 8px; white-space:nowrap;">Reply…</span></div>
+            </div>
+          </div>
+          <!-- SUPER AGENT · overarching -->
+          <div style="flex:none; display:flex; align-items:center; gap:8px; background:#08080c; border-top:1px solid #2e2e38; border-bottom:1px solid #2e2e38; box-shadow:0 5px 10px -5px rgba(0,0,0,.9); padding:5px 13px;">
+            <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+            <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">OVERARCHING · KNOWS THIS ISSUE</span>
+            
+          </div>
+          <div style="flex:1; min-height:0; overflow:hidden; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:07</span><span style="width:7px; height:7px; border-radius:2.5px; background:#14b8a6;"></span>POD-104 onboarding video asked a question (Tartlet) <span style="color:#f59e0b;">→ Home</span></div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:11</span><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh finished POD-129 → landed in your tray <span style="color:#f59e0b;">↑</span></div>
+            <div style="display:flex; align-items:center; gap:10px; margin:1px 0;"><span style="flex:1; height:1px; background:rgba(245,158,11,.4);"></span><span style="font-family:'Geist Mono',monospace; font-size:9px; letter-spacing:.08em; color:#f59e0b;">YOU WERE HERE · 14:20</span><span style="flex:1; height:1px; background:rgba(245,158,11,.4);"></span></div>
+            <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#3b82f6;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.5;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#9a9aa8;">YOU</span>Does the mobile app share this timer? I don't want the same logout bug there.</div></div>
+            <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#10b981;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.55;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#f59e0b;">SUPER AGENT <span style="color:#8d84a6; letter-spacing:0; font-weight:400;">· answering with POD-128 context</span></span>It does — I split it out as <b style="color:#f6f3ff;">POD-130 Mobile session path</b> and put <b style="color:#f6f3ff;">mobile-session</b> on it. Its one question is in your tray ↑. <b style="color:#f6f3ff;">POD-131 logout telemetry</b> can verify the fix in prod once POD-129 merges.</div></div>
+          </div>
+          <div style="flex:none; padding:8px 12px 7px;">
+            <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #f59e0b; border-radius:9px; background:rgba(8,8,12,.7); padding:8px 11px; font-family:'Geist Mono',monospace;">
+              <span style="color:#9a9aa8; flex:none;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b; flex:none;"></span>
+              <span style="flex:1; min-width:0; font-size:11.5px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything — @ to pull other issues into context</span>
+              <span style="display:inline-flex; gap:8px; color:#8d8d9a; flex:none;">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; padding:5px 3px 0; font-family:'Geist Mono',monospace; font-size:9.5px; color:#6c6c78;"><span style="color:#f59e0b;">⏵⏵</span><span style="color:#c5c5d0;">auto-delegate on</span><span>(shift+tab to cycle)</span><span style="margin-left:auto;">? for shortcuts</span></div>
+          </div>
+        </div>
+        <!-- NATIVE AGENTS -->
+        <div style="flex:1.45 1 0; min-width:0; display:flex; flex-direction:column; border-right:1px solid #2a2a34; background:color-mix(in srgb, #8b5cf6 12%, #0e0e12);">
+          <div style="display:flex; align-items:stretch; gap:2px; height:34px; flex:none; background:color-mix(in srgb, #8b5cf6 18%, #101016); border-bottom:1px solid rgba(139,92,246,.5); padding:4px 6px 0;">
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; background:color-mix(in srgb, #8b5cf6 28%, #0e0e12); border:1px solid rgba(139,92,246,.5); border-bottom:0; box-shadow:inset 0 2px 0 #8b5cf6; padding:0 11px; font-size:10.5px; font-weight:600; color:#f6f3ff;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh<span style="color:#8d84a6; font-weight:400;">✕</span></span>
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; padding:0 11px; font-size:10.5px; color:#a89fc2;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; opacity:.55;"></span>mobile-session<span style="width:6px; height:6px; border-radius:99px; background:#f59e0b;"></span></span>
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; padding:0 11px; font-size:10.5px; color:#a89fc2;"><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6; opacity:.55;"></span>logout-telemetry<span style="display:inline-block; min-width:8px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;" style-before="content:'⠸'; animation:spB .8s steps(1,end) infinite;"></span></span>
+            <span style="display:inline-flex; align-items:center; padding:0 9px; font-size:12px; color:#6c6c78;">＋</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; height:42px; flex:none; padding:0 10px; background:color-mix(in srgb, #8b5cf6 24%, #0e0e12); border-bottom:1px solid rgba(139,92,246,.45);">
+            <span style="display:inline-flex; flex:none; align-items:center; gap:5px; border:1px solid rgba(139,92,246,.35); border-radius:6px; background:rgba(14,14,18,.5); padding:3px 7px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>
+              <span style="font-size:11px; font-weight:600; color:#f3f3f8; white-space:nowrap;">Claude Code</span>
+            </span>
+            <span style="flex:none; font-size:9px; font-weight:600; letter-spacing:.06em; color:#8d84a6;">NATIVE</span>
+            <span style="display:inline-flex; min-width:0; align-items:center; gap:4px; font-size:10.5px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="11" height="11" style="flex:none;" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">~/src/podium</span></span>
+            <span style="margin-left:auto; display:inline-flex; gap:3px;">
+              <span title="Switch: native terminal / chat view" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; background:rgba(14,14,18,.45); border:1px solid rgba(139,92,246,.3); color:#c5bede;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></span>
+              <span title="Resume command" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg></span>
+              <span title="Ask the super agent about this session" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg></span>
+              <span title="Hibernate" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></span>
+              <span title="Archive session" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path></svg></span>
+            </span>
+          </div>
+          <div style="display:flex; align-items:center; gap:9px; height:32px; flex:none; overflow:hidden; border-bottom:1px solid rgba(139,92,246,.3); padding:0 11px; font-family:'Geist Mono',monospace; font-size:10px; color:#8d84a6;">
+            <span style="flex:none; display:inline-flex; align-items:center; gap:5px; color:#c5bede;"><span style="width:6px; height:6px; border-radius:99px; background:#D97757; flex:none;"></span>claude-sonnet-4.5</span>
+            <span style="flex:none; color:#4d4466;">│</span>
+            <span style="flex:none; display:inline-flex; align-items:center; gap:5px; border:1px solid rgba(139,92,246,.3); border-radius:5px; background:rgba(14,14,18,.5); padding:1px 7px; color:#a89fc2;">claude --resume 7f3ac1</span>
+            <span style="margin-left:auto; flex:none; color:#6c6478;">esc to interrupt</span>
+          </div>
+          <div style="flex:1; min-height:0; overflow:hidden; padding:12px 13px; font-family:'Geist Mono',monospace; font-size:10.5px; line-height:1.7; color:#c9c5d8; display:flex; flex-direction:column;">
+            <div style="color:#8f8a9e; margin-bottom:8px;">&gt; [orchestrator] Investigate the token refresh loop on <span style="color:#8ea7f5;">feat/auth-refresh</span>.<br>&nbsp;&nbsp;Failing test first. Do not merge.</div>
+            <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Bash</span>(npm test -- refresh)</div>
+            <div style="color:#8d84a6; padding-left:12px; margin-bottom:8px;">⎿ <span style="color:#f87171;">FAIL</span> auth/refresh.test.ts · ✗ rotates before the old token expires (241 ms)</div>
+            <div><span style="color:#D97757;">⏺</span> <span style="color:#f0edf8;">Update</span>(auth/refresh.ts)</div>
+            <div style="color:#8d84a6; padding-left:12px; margin-bottom:8px;">⎿ Updated 1 file · <span style="color:#10b981;">+14</span> <span style="color:#f87171;">−3</span></div>
+            <div style="margin-bottom:6px;"><span style="color:#f0edf8;">●</span> Fixed and holding. Summary:</div>
+            <div style="color:#b5b0c6; padding-left:12px; margin-bottom:2px;">- <b style="color:#f0edf8;">Cause</b>: scheduler captured <span style="color:#8ea7f5;">expiresAt</span> by closure before rotation resolved.</div>
+            <div style="color:#b5b0c6; padding-left:12px; margin-bottom:2px;">- <b style="color:#f0edf8;">Fix</b>: read the live session inside the tick (<span style="color:#8ea7f5;">auth/refresh.ts</span>, +14/−3).</div>
+            <div style="color:#b5b0c6; padding-left:12px; margin-bottom:8px;">- <b style="color:#f0edf8;">Verified</b>: failing test first, now 12/12; mobile path shares the timer and is covered. Holding on <span style="color:#8ea7f5;">feat/auth-refresh</span> — nothing touched <span style="color:#8ea7f5;">main</span>.</div>
+            <div style="color:#8d84a6; margin-top:auto;"><span style="color:#a89fc2;">✻</span> Churned for 5m 40s</div>
+          </div>
+          <div style="flex:none; padding:0 13px 7px; font-family:'Geist Mono',monospace;">
+            <div style="border-top:1px solid rgba(139,92,246,.35); border-bottom:1px solid rgba(139,92,246,.35); display:flex; align-items:center; gap:8px; padding:8px 2px;">
+              <span style="color:#c5bede;">›</span><span style="width:8px; height:15px; border:1.5px solid #D97757; flex:none;"></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; padding:5px 2px 0; font-size:9.5px; color:#6c6478;"><span style="color:#f59e0b;">⏵⏵</span><span style="color:#e8c477;">auto mode on</span><span>(shift+tab to cycle)</span><span>· ⇤ for agents</span><span style="margin-left:auto;">? for shortcuts</span></div>
+          </div>
+        </div>
+        <!-- right rail · coloured by the selected issue -->
+        <div style="flex:0 0 44px; display:flex; flex-direction:column; align-items:center; gap:6px; background:linear-gradient(180deg, color-mix(in srgb, #8b5cf6 16%, #16161c), #16161c 240px), #16161c; border-left:1px solid rgba(139,92,246,.35); padding:10px 0;">
+          <span style="color:#8d84a6; font-size:11px;" title="Expand panel">⟨</span>
+          <span title="Issue POD-128 — 2 waiting" style="position:relative; width:30px; height:30px; border-radius:7px; background:#8b5cf6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #16161c; display:flex; align-items:center; justify-content:center; font-size:7.5px; font-weight:700; color:#161006;">2</span></span>
+          <span title="Git" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg></span>
+          <span title="Files" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg></span>
+          <span title="Shell" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#a89fc2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:1340px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>1a:</b> sidebar grouped into Lumenfall / Tartlet; square language: solid colour = coloured issue, solid grey border = working but uncoloured, dashed = queued. Working rows and the logout-telemetry tab carry the braille spinner + timer from <a class="dv-oid" href="#1d">1d</a>. Middle column splits into <b>Tray</b> (scoped to POD-128, violet items only) and <b>Super agent</b> (overarching, all-work feed — note the teal Tartlet event — answering with the POD-128 CTX square). Violet flows: bridge → engraved glow → tray items → tab bar → right rail.</div>
+</div>
+
+
+<!-- ═══ 1b · FINAL · UNCOLOURED ISSUE SELECTED ═══ -->
+<div class="dv-opt" id="1b">
+  <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><b>Uncoloured selection</b> — POD-135 (no colour) selected: the same flow runs in neutral slate, so “context is flowing” reads even without a hue</div>
+  <div class="dv-card" style="width:1340px">
+    <div style="display:flex; flex-direction:column; height:730px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="display:flex; align-items:center; gap:10px; height:44px; flex:none; border-bottom:1px solid #2a2a34; background:#16161c; padding:0 14px;">
+        <img src="podium-logo.svg" height="15" style="display:block; flex:none;" alt="PODIUM">
+        <span style="display:inline-flex; gap:2px; margin-left:10px; font-size:11.5px;">
+          <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; color:#f3f3f8; font-weight:600;">Home<span style="border-radius:99px; background:#25252f; color:#f59e0b; font-size:9.5px; padding:0 6px;">4</span></span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Issues</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Specs</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; border-radius:6px; color:#9a9aa8; padding:4px 12px;">Automations</span>
+        </span>
+        <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:#9a9aa8;"><span style="width:6px; height:6px; border-radius:99px; background:#34d399;"></span>studio-mbp<span style="width:34px; height:3.5px; border-radius:2px; background:#25252f; overflow:hidden; display:inline-block;"><span style="display:block; height:100%; width:59%; background:#34d399;"></span></span></span>
+        <span style="display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:#6c6c78;">quota<span style="width:34px; height:3.5px; border-radius:2px; background:#25252f; overflow:hidden; display:inline-block;"><span style="display:block; height:100%; width:68%; background:#34d399;"></span></span></span>
+      </div>
+      <div style="display:flex; flex:1; min-height:0;">
+        <div style="flex:0 0 262px; display:flex; flex-direction:column; gap:3px; background:#16161c; border-right:1px solid #2a2a34; padding:10px 8px 6px;">
+          <div style="display:flex; align-items:center; gap:8px; border:1px solid #3a3a46; background:#25252f; border-radius:8px; padding:8px 10px; margin:0 0 4px; font-size:12px; font-weight:500; color:#eaeaf0;"><svg viewBox="0 0 24 24" width="14" height="14" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>New Claude in podium<span style="margin-left:auto; color:#7a7a86; font-size:10px;">▾</span></div>
+          <div style="height:1px; background:#25252f; margin:4px 2px 6px;"></div>
+          <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:4px 4px 2px; display:flex; align-items:center; gap:6px;">LUMENFALL<span style="flex:1; height:1px; background:#25252f;"></span></div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #f43f5e 11%, #16161c);">
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#f43f5e; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#f0d2d8; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Payments refactor</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#e79aa8;">interview waiting<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">2h ago</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #8b5cf6 13%, #16161c);">
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#8b5cf6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#1e0b44;"><span>POD</span><span>128</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#e0d5fb; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Token refresh loop</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">2</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#cbb8f7;">3 agents on 3 sub-issues<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">12m ago</span></div>
+            </div>
+          </div>
+          <!-- SELECTED · uncoloured, working -->
+          <div style="position:relative; display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:7px; background:color-mix(in srgb, #94a3b8 20%, #16161c); border:1px solid rgba(148,163,184,.7);">
+            <span style="position:absolute; right:-10px; top:9px; bottom:9px; width:10px; border-radius:0 3px 3px 0; background:linear-gradient(90deg, rgba(148,163,184,.75), rgba(148,163,184,.1));"></span>
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #c8d2e0; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#e8edf5; box-shadow:0 0 0 2px rgba(148,163,184,.3);"><span>POD</span><span>135</span><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:8px; color:#34d399;"><span style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; font-weight:600; color:#f2f5fa; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Search index</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#aab6c8;">working · subtasks 1/3<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠼'; animation:spB .8s steps(1,end) infinite;"></span>6:30</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>140</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#9a9aa8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Flaky CI on macOS</div>
+              <div style="font-size:10px; color:#6c6c78;">queued</div>
+            </div>
+          </div>
+          <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:8px 4px 2px; display:flex; align-items:center; gap:6px;">TARTLET<span style="flex:1; height:1px; background:#25252f;"></span></div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #14b8a6 13%, #16161c);">
+            <span style="position:relative; width:26px; height:26px; border-radius:7px; background:#14b8a6; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#032e28;"><span>POD</span><span>104</span><span style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:99px; background:#f59e0b; border:2px solid #16161c;"></span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#c9ebe6; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Onboarding video</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#8fd8cd;">asked: “16:9 or vertical?”<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">38m ago</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px solid #8d8d9a; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#c5c5d0;"><span>POD</span><span>136</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#d7d7e0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Release notes 0.9</div>
+              <div style="display:flex; align-items:center; font-size:10px; color:#6c6c78;">drafting · started by you<span style="margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠧'; animation:spB .8s steps(1,end) infinite;"></span>2:12</span></div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+            <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>141</span></span>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:11.5px; color:#9a9aa8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Docs search embeddings</div>
+              <div style="font-size:10px; color:#6c6c78;">queued</div>
+            </div>
+          </div>
+          <div style="margin-top:auto; border-top:1px solid #25252f; padding:8px 10px 4px; display:flex; align-items:center; justify-content:space-around;">
+            <span title="Add repo" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10v6"></path><path d="M9 13h6"></path><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg></span>
+            <span title="Stats" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg></span>
+            <span title="Settings" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
+            <span title="Search" style="display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:6px; color:#9a9aa8;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
+          </div>
+        </div>
+        <!-- ENGRAVED COLUMN · slate flow -->
+        <div style="flex:1.05 1 0; min-width:0; display:flex; flex-direction:column; border-right:1px solid #2a2a34; background:radial-gradient(560px 300px at 50% 12%, rgba(148,163,184,.09), rgba(148,163,184,0) 72%), #0a0a0e; box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85), inset -3px 0 6px -3px rgba(0,0,0,.85), inset 0 3px 6px -3px rgba(0,0,0,.85);">
+          <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+            <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+            <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+            
+          </div>
+          <div style="flex:none; display:flex; flex-direction:column; gap:6px; padding:8px 12px 10px;">
+            <div style="border:1px solid rgba(148,163,184,.55); border-radius:10px; background:color-mix(in srgb, #94a3b8 14%, #0e0e12); padding:9px 11px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:3px; background:#94a3b8;"></span><span style="font-size:11.5px; font-weight:600; color:#f2f5fa;">POD-137 Index schema · ready for review</span><span style="font-size:9.5px; color:#8b93a2;">· <span style="color:#D97757;">◆</span> index-builder</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b;">4m ago</span></div>
+              <div style="font-size:11px; line-height:1.5; color:#cdd5e0;">Proposes one flat <span style="font-family:'Geist Mono',monospace; color:#f0f3f8;">documents</span> table + trigram index; migration is reversible, benchmarked on 40k docs.</div>
+              <div style="display:flex; gap:6px;"><span style="border-radius:6px; background:#94a3b8; color:#141a24; font-size:10.5px; font-weight:600; padding:3px 10px;">✓ Approve schema</span><span style="border:1px solid rgba(226,233,242,.3); border-radius:6px; font-size:10.5px; color:#e2e9f2; padding:3px 9px;">Send back</span><span style="border:1px solid #3a3a46; border-radius:6px; font-size:10.5px; color:#9a9aa8; padding:3px 9px;">Discuss ↓</span><span style="margin-left:auto; font-size:10px; color:#8b93a2; padding:3px 0;">session →</span></div>
+            </div>
+            <div style="border:1px solid rgba(148,163,184,.4); border-radius:10px; background:color-mix(in srgb, #94a3b8 8%, #0e0e12); padding:8px 11px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:3px; background:#94a3b8; flex:none;"></span><span style="min-width:0; font-size:11px; line-height:1.5; color:#cdd5e0;">POD-138 Crawler scope · <span style="color:#8b93a2;"><span style="color:#D97757;">◆</span> crawler asks:</span> “index archived workspaces too, or live only?”</span><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; flex:none;">11m ago</span></div>
+              <div style="display:flex; gap:5px; padding-left:15px;"><span style="border:1px solid rgba(148,163,184,.45); border-radius:5px; font-size:10px; color:#c3cddb; padding:2px 8px; white-space:nowrap;">Live only</span><span style="border:1px solid rgba(148,163,184,.45); border-radius:5px; font-size:10px; color:#c3cddb; padding:2px 8px; white-space:nowrap;">Include archived</span><span style="border:1px solid #3a3a46; border-radius:5px; font-size:10px; color:#9a9aa8; padding:2px 8px; white-space:nowrap;">Reply…</span></div>
+            </div>
+          </div>
+          <div style="flex:none; display:flex; align-items:center; gap:8px; background:#08080c; border-top:1px solid #2e2e38; border-bottom:1px solid #2e2e38; box-shadow:0 5px 10px -5px rgba(0,0,0,.9); padding:5px 13px;">
+            <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+            <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">OVERARCHING · KNOWS THIS ISSUE</span>
+            
+          </div>
+          <div style="flex:1; min-height:0; overflow:hidden; padding:12px 14px; display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:07</span><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>auth-refresh finished POD-129 (Token refresh loop) <span style="color:#f59e0b;">→ Home</span></div>
+            <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:14</span><span style="width:7px; height:7px; border-radius:2.5px; background:#94a3b8;"></span>index-builder finished the schema → landed in your tray <span style="color:#f59e0b;">↑</span></div>
+            <div style="display:flex; align-items:center; gap:10px; margin:1px 0;"><span style="flex:1; height:1px; background:rgba(245,158,11,.4);"></span><span style="font-family:'Geist Mono',monospace; font-size:9px; letter-spacing:.08em; color:#f59e0b;">YOU WERE HERE · 14:20</span><span style="flex:1; height:1px; background:rgba(245,158,11,.4);"></span></div>
+            <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#3b82f6;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.5;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#9a9aa8;">YOU</span>How big will the index get, and does it slow down writes?</div></div>
+            <div style="display:flex; gap:9px;"><div style="flex:0 0 3px; border-radius:2px; background:#10b981;"></div><div style="flex:1; min-width:0; font-size:11.5px; line-height:1.55;"><span style="display:block; font-size:9px; font-weight:600; letter-spacing:.07em; color:#f59e0b;">SUPER AGENT <span style="color:#8b93a2; letter-spacing:0; font-weight:400;">· answering with POD-135 context</span></span>~180 MB on the 40k-doc benchmark, and writes stay under 2 ms because the trigram index updates async — <b style="color:#f2f5fa;">index-builder</b> put the numbers in the schema review ↑. If you want archived workspaces too (<b style="color:#f2f5fa;">POD-138</b>'s question), budget roughly 3× that.</div></div>
+          </div>
+          <div style="flex:none; padding:8px 12px 7px;">
+            <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #f59e0b; border-radius:9px; background:rgba(8,8,12,.7); padding:8px 11px; font-family:'Geist Mono',monospace;">
+              <span style="color:#9a9aa8; flex:none;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b; flex:none;"></span>
+              <span style="flex:1; min-width:0; font-size:11.5px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything — @ to pull other issues into context</span>
+              <span style="display:inline-flex; gap:8px; color:#8d8d9a; flex:none;">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg>
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg>
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; padding:5px 3px 0; font-family:'Geist Mono',monospace; font-size:9.5px; color:#6c6c78;"><span style="color:#f59e0b;">⏵⏵</span><span style="color:#c5c5d0;">auto-delegate on</span><span>(shift+tab to cycle)</span><span style="margin-left:auto;">? for shortcuts</span></div>
+          </div>
+        </div>
+        <!-- NATIVE AGENTS · slate -->
+        <div style="flex:1.45 1 0; min-width:0; display:flex; flex-direction:column; border-right:1px solid #2a2a34; background:color-mix(in srgb, #94a3b8 9%, #0e0e12);">
+          <div style="display:flex; align-items:stretch; gap:2px; height:34px; flex:none; background:color-mix(in srgb, #94a3b8 14%, #101016); border-bottom:1px solid rgba(148,163,184,.45); padding:4px 6px 0;">
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; background:color-mix(in srgb, #94a3b8 22%, #0e0e12); border:1px solid rgba(148,163,184,.45); border-bottom:0; box-shadow:inset 0 2px 0 #94a3b8; padding:0 11px; font-size:10.5px; font-weight:600; color:#f2f5fa;"><span style="width:7px; height:7px; border-radius:2.5px; background:#94a3b8;"></span>index-builder<span style="color:#8b93a2; font-weight:400;">✕</span></span>
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; padding:0 11px; font-size:10.5px; color:#9aa3b2;"><span style="width:7px; height:7px; border-radius:2.5px; background:#94a3b8; opacity:.55;"></span>crawler<span style="width:6px; height:6px; border-radius:99px; background:#f59e0b;"></span></span>
+            <span style="display:inline-flex; align-items:center; gap:6px; border-radius:7px 7px 0 0; padding:0 11px; font-size:10.5px; color:#9aa3b2;"><span style="width:7px; height:7px; border-radius:2.5px; background:#94a3b8; opacity:.55;"></span>ranking-eval<span style="display:inline-block; min-width:8px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;" style-before="content:'⠸'; animation:spB .8s steps(1,end) infinite;"></span></span>
+            <span style="display:inline-flex; align-items:center; padding:0 9px; font-size:12px; color:#6c6c78;">＋</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; height:42px; flex:none; padding:0 10px; background:color-mix(in srgb, #94a3b8 18%, #0e0e12); border-bottom:1px solid rgba(148,163,184,.4);">
+            <span style="display:inline-flex; flex:none; align-items:center; gap:5px; border:1px solid rgba(148,163,184,.35); border-radius:6px; background:rgba(14,14,18,.5); padding:3px 7px;">
+              <svg viewBox="0 0 24 24" width="12" height="12" style="flex:none;" fill="#D97757"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg>
+              <span style="font-size:11px; font-weight:600; color:#f3f3f8; white-space:nowrap;">Claude Code</span>
+            </span>
+            <span style="flex:none; font-size:9px; font-weight:600; letter-spacing:.06em; color:#8b93a2;">NATIVE</span>
+            <span style="display:inline-flex; min-width:0; align-items:center; gap:4px; font-size:10.5px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="11" height="11" style="flex:none;" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">~/src/podium</span></span>
+            <span style="margin-left:auto; display:inline-flex; gap:3px;">
+              <span title="Switch: native terminal / chat view" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; background:rgba(14,14,18,.45); border:1px solid rgba(148,163,184,.3); color:#c3cddb;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></span>
+              <span title="Resume command" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6"></path><path d="M12 19h8"></path></svg></span>
+              <span title="Ask the super agent about this session" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .962 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg></span>
+              <span title="Hibernate" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></span>
+              <span title="Archive session" style="display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path></svg></span>
+            </span>
+          </div>
+          <div style="display:flex; align-items:center; gap:9px; height:32px; flex:none; overflow:hidden; border-bottom:1px solid rgba(148,163,184,.3); padding:0 11px; font-family:'Geist Mono',monospace; font-size:10px; color:#8b93a2;">
+            <span style="flex:none; display:inline-flex; align-items:center; gap:5px; color:#c3cddb;"><span style="width:6px; height:6px; border-radius:99px; background:#D97757; flex:none;"></span>claude-sonnet-4.5</span>
+            <span style="flex:none; color:#4a5261;">│</span>
+            <span style="flex:none; display:inline-flex; align-items:center; gap:5px; border:1px solid rgba(148,163,184,.3); border-radius:5px; background:rgba(14,14,18,.5); padding:1px 7px; color:#9aa3b2;">claude --resume 2e9bd4</span>
+            <span style="margin-left:auto; flex:none; color:#6b7280;">esc to interrupt</span>
+          </div>
+          <div style="flex:1; min-height:0; overflow:hidden; padding:12px 13px; font-family:'Geist Mono',monospace; font-size:10.5px; line-height:1.7; color:#c9cdd8; display:flex; flex-direction:column;">
+            <div style="color:#8f95a2; margin-bottom:8px;">&gt; [orchestrator] Design the search index schema on <span style="color:#8ea7f5;">feat/search-index</span>.<br>&nbsp;&nbsp;Benchmark before proposing. Do not migrate prod.</div>
+            <div><span style="color:#D97757;">⏺</span> <span style="color:#f0f3f8;">Bash</span>(npm run bench -- --docs 40000)</div>
+            <div style="color:#8b93a2; padding-left:12px; margin-bottom:8px;">⎿ p50 lookup <span style="color:#10b981;">3.1 ms</span> · p99 <span style="color:#10b981;">11 ms</span> · index 182 MB</div>
+            <div><span style="color:#D97757;">⏺</span> <span style="color:#f0f3f8;">Write</span>(migrations/012_documents.sql)</div>
+            <div style="color:#8b93a2; padding-left:12px; margin-bottom:8px;">⎿ Wrote 1 file · <span style="color:#10b981;">+46</span> <span style="color:#f87171;">−0</span></div>
+            <div style="margin-bottom:6px;"><span style="color:#f0f3f8;">●</span> Schema proposed and holding. Summary:</div>
+            <div style="color:#b5bac6; padding-left:12px; margin-bottom:2px;">- <b style="color:#f0f3f8;">Shape</b>: one flat <span style="color:#8ea7f5;">documents</span> table, trigram GIN index, async updates.</div>
+            <div style="color:#b5bac6; padding-left:12px; margin-bottom:2px;">- <b style="color:#f0f3f8;">Cost</b>: 182 MB @ 40k docs; writes stay &lt; 2 ms (index updates off the hot path).</div>
+            <div style="color:#b5bac6; padding-left:12px; margin-bottom:8px;">- <b style="color:#f0f3f8;">Open</b>: archived workspaces would ~3× the size — crawler is asking you (POD-138). Holding on <span style="color:#8ea7f5;">feat/search-index</span>.</div>
+            <div style="color:#8b93a2; margin-top:auto;"><span style="color:#9aa3b2;">✻</span> Churned for 3m 05s</div>
+          </div>
+          <div style="flex:none; padding:0 13px 7px; font-family:'Geist Mono',monospace;">
+            <div style="border-top:1px solid rgba(148,163,184,.35); border-bottom:1px solid rgba(148,163,184,.35); display:flex; align-items:center; gap:8px; padding:8px 2px;">
+              <span style="color:#c3cddb;">›</span><span style="width:8px; height:15px; border:1.5px solid #D97757; flex:none;"></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; padding:5px 2px 0; font-size:9.5px; color:#6b7280;"><span style="color:#f59e0b;">⏵⏵</span><span style="color:#e8c477;">auto mode on</span><span>(shift+tab to cycle)</span><span>· ⇤ for agents</span><span style="margin-left:auto;">? for shortcuts</span></div>
+          </div>
+        </div>
+        <!-- right rail · slate -->
+        <div style="flex:0 0 44px; display:flex; flex-direction:column; align-items:center; gap:6px; background:linear-gradient(180deg, color-mix(in srgb, #94a3b8 13%, #16161c), #16161c 240px), #16161c; border-left:1px solid rgba(148,163,184,.3); padding:10px 0;">
+          <span style="color:#8b93a2; font-size:11px;" title="Expand panel">⟨</span>
+          <span title="Issue POD-135 — working" style="position:relative; width:30px; height:30px; border-radius:7px; background:#25252f; border:1px solid #c8d2e0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7px; font-weight:600; line-height:1.3; color:#e8edf5;"><span>POD</span><span>135</span></span>
+          <span title="Git" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg></span>
+          <span title="Files" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg></span>
+          <span title="Shell" style="display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:7px; color:#9aa3b2;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:1340px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>1b:</b> POD-135 has no colour, so the flow runs in a quiet slate — same bridge, same engraved glow, same tinted tab bar and rail, just neutral. Its square (solid border = working) repeats in the Tray header, CTX badge, and the rail, where the corner spinner badge from <a class="dv-oid" href="#1d">1d</a> shows it's computing. The violet POD-128 row above shows a coloured issue sitting unselected next to it.</div>
+</div>
+
+
+<!-- ═══ 1c · EMPTY TRAY ═══ -->
+<div class="dv-opt" id="1c">
+  <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><b>Empty tray</b> — nothing needs attention: one quiet line, no cards</div>
+  <div class="dv-card" style="width:440px">
+    <div style="display:flex; flex-direction:column; background:radial-gradient(300px 120px at 50% 0%, rgba(139,92,246,.08), rgba(139,92,246,0) 75%), #0a0a0e; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="display:flex; align-items:center; gap:8px; flex:none; background:#08080c; border-bottom:1px solid #2e2e38; padding:5px 13px;">
+        <span style="color:#f59e0b; font-size:11px;">▤</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Tray</span>
+        <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">ISSUE SCOPE</span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:center; gap:9px; padding:16px 12px 17px;">
+        <span style="color:#3f3f4a; font-size:12px;">✓</span>
+        <span style="font-size:11px; color:#6c6c78;">Nothing waiting on you</span>
+        <span style="display:inline-flex; align-items:center; gap:5px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠹'; animation:spB .8s steps(1,end) infinite;"></span>3 agents working</span>
+      </div>
+      <div style="flex:none; display:flex; align-items:center; gap:8px; background:#08080c; border-top:1px solid #2e2e38; border-bottom:1px solid #2e2e38; box-shadow:0 5px 10px -5px rgba(0,0,0,.9); padding:5px 13px;">
+        <span style="color:#f59e0b; font-size:11px;">✦</span><span style="font-size:12px; font-weight:600; color:#f3f3f8;">Super agent</span>
+        <span style="font-family:'Geist Mono',monospace; font-size:8px; letter-spacing:.12em; color:#5a5a66;">OVERARCHING · KNOWS THIS ISSUE</span>
+      </div>
+      <div style="padding:12px 14px; display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; color:#6c6c78;"><span style="font-family:'Geist Mono',monospace; font-size:9px;">14:26</span><span style="width:7px; height:7px; border-radius:2.5px; background:#8b5cf6;"></span>logout-telemetry started the prod alert draft</div>
+        <div style="display:flex; align-items:center; gap:8px; border:1.5px solid #3a3a46; border-radius:9px; background:rgba(8,8,12,.7); padding:8px 11px; font-family:'Geist Mono',monospace;">
+          <span style="color:#9a9aa8; flex:none;">&gt;</span><span style="width:7px; height:14px; background:#f59e0b; flex:none;"></span>
+          <span style="flex:1; min-width:0; font-size:11.5px; color:#6c6c78; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">Ask about anything — @ to pull other issues into context</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:440px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>1c:</b> when everything is delegated and running, the tray shrinks to a single quiet line — a dim check, “nothing waiting on you”, and the live spinner counting agents still at work. No cards, no colour pull; the Super agent bar and chat move up.</div>
+</div>
+
+
+<!-- ═══ 1d · ASCII SPINNER MOTION ═══ -->
+<div class="dv-opt" id="1d">
+  <div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a><b>Micro-motion, developer edition</b> — no pulses: a braille ASCII spinner (the CLI's own) is the working indicator; phase changes stay one-shot morphs; the timer still anchors the morph</div>
+  <div class="dv-card" style="width:900px">
+    <div style="display:flex; height:560px; background:#0e0e12; font-family:'Geist',sans-serif; color:#d7d7e0; font-size:12px;">
+      <div style="flex:0 0 262px; display:flex; flex-direction:column; gap:3px; background:#16161c; border-right:1px solid #2a2a34; padding:12px 8px;">
+        <div style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#7a7a86; padding:2px 4px 6px;">WORK</div>
+        <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; background:color-mix(in srgb, #f43f5e 11%, #16161c);">
+          <span style="width:26px; height:26px; border-radius:7px; background:#f43f5e; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#4a0715;"><span>POD</span><span>97</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="display:flex; align-items:center; gap:6px;"><span style="font-size:11.5px; color:#f0d2d8;">Payments refactor</span><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px;">1</span></div>
+            <div style="display:flex; align-items:center; font-size:10px; color:#e79aa8;">interview waiting<span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; opacity:.85;">2h ago</span></div>
+          </div>
+        </div>
+        <!-- LIVE row -->
+        <div style="{{ m2RowStyle }}">
+          <span style="{{ m2SquareStyle }}"><span style="{{ m2SqText }}">POD</span><span style="{{ m2SqText }}">128</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="{{ m2TitleStyle }}">Token refresh loop</span>
+              <sc-if value="{{ m2Waiting }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto; border-radius:99px; background:#f59e0b; color:#161006; font-size:9px; font-weight:700; padding:0 5px; animation:popIn .45s cubic-bezier(.34,1.56,.64,1);">1</span></sc-if>
+              <sc-if value="{{ m2Done }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto; color:#10b981; font-size:10px; font-weight:700; animation:popIn .45s cubic-bezier(.34,1.56,.64,1);">✓</span></sc-if>
+            </div>
+            <div style="display:flex; align-items:center; font-size:10px; gap:4px; color:#8d84a6;">
+              <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ m2StatusText }}</span>
+              <sc-if value="{{ m2Working }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-family:'Geist Mono',monospace; font-size:9px; color:#10b981; animation:tickIn .35s ease; flex:none;"><span style="display:inline-block; min-width:8px;" style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span>{{ m2TimerText }}</span></sc-if>
+              <sc-if value="{{ m2Waiting }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#f59e0b; animation:flipAgo .5s ease; flex:none;">{{ m2AgoText }}</span></sc-if>
+              <sc-if value="{{ m2Done }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto; font-family:'Geist Mono',monospace; font-size:9px; color:#6c6c78; flex:none;">{{ m2TotalText }}</span></sc-if>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>136</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:11.5px; color:#9a9aa8;">Release notes 0.9</div>
+            <div style="font-size:10px; color:#6c6c78;">queued</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:7px; opacity:.65;">
+          <span style="width:26px; height:26px; border-radius:7px; background:#25252f; border:1px dashed #6c6c78; flex:none; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6.5px; font-weight:600; line-height:1.3; color:#8d8d9a;"><span>POD</span><span>140</span></span>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;">
+            <div style="font-size:11.5px; color:#9a9aa8;">Flaky CI on macOS</div>
+            <div style="font-size:10px; color:#6c6c78;">queued</div>
+          </div>
+        </div>
+        <div style="margin-top:auto; font-size:10px; color:#5a5a66; padding:0 6px 2px; line-height:1.5;">Second row is live — drive it with the phase buttons →</div>
+      </div>
+      <div style="flex:0 0 52px; display:flex; flex-direction:column; align-items:center; gap:10px; background:#131318; border-right:1px solid #2a2a34; padding:12px 0;">
+        <div style="font-family:'Geist Mono',monospace; font-size:7.5px; letter-spacing:.1em; color:#5a5a66;">RAIL</div>
+        <span style="position:relative; width:26px; height:26px; border-radius:8px; background:#f43f5e; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#4a0715;" title="POD-97 Payments — waiting"><span>POD</span><span>97</span><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #131318; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7.5px; font-weight:700; color:#161006;">1</span></span>
+        <span style="{{ m2IconStyle }}" title="Token refresh loop — live">
+          <span style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3;"><span style="{{ m2RailIdStyle }}">POD</span><span style="{{ m2RailIdStyle }}">128</span></span>
+          <sc-if value="{{ m2Working }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:8px; color:#34d399; animation:tickIn .35s ease;"><span style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span></span></sc-if>
+          <sc-if value="{{ m2Waiting }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; top:-5px; right:-5px; min-width:13px; height:13px; border-radius:99px; background:#f59e0b; border:1px solid #131318; display:flex; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:7.5px; font-weight:700; color:#161006; animation:popIn .45s cubic-bezier(.34,1.56,.64,1);">1</span></sc-if>
+          <sc-if value="{{ m2Done }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; top:-5px; right:-5px; width:13px; height:13px; border-radius:99px; background:#0c1f18; border:1px solid #10b981; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:700; color:#34d399; animation:popIn .4s ease;">✓</span></sc-if>
+        </span>
+        <span style="width:26px; height:26px; border-radius:8px; background:#25252f; border:1px dashed #6c6c78; opacity:.6; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:'Geist Mono',monospace; font-size:6px; font-weight:600; line-height:1.3; color:#8d8d9a;" title="POD-140 queued"><span>POD</span><span>140</span></span>
+      </div>
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:14px; padding:18px 20px 16px;">
+        <div>
+          <div style="font-size:14px; font-weight:600; color:#f3f3f8;">Micro-motion · developer edition</div>
+          <div style="font-size:11px; line-height:1.6; color:#9a9aa8; margin-top:4px;">No pulses, no glows. The working indicator is the CLI's own braille spinner in the terminal's mono — permanent motion only while an agent is actually computing. Phase changes remain single one-shot morphs, then stillness.</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-family:'Geist Mono',monospace; font-size:8.5px; letter-spacing:.12em; color:#6c6c78;">PHASE</span>
+          <span style="{{ m2PhaseChipStyle }}">{{ m2PhaseLabel }}</span>
+          <span onClick="{{ m2ToggleAuto }}" style="{{ m2AutoStyle }}">{{ m2AutoLabel }}</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:7px;">
+          <span onClick="{{ m2Start }}" style="border:1px solid #3a3a46; border-radius:7px; padding:6px 12px; font-size:11px; color:#d7d7e0; background:#1b1b22; cursor:pointer;" style-hover="border-color:#10b981; color:#c9f7e6;">▶ Start work</span>
+          <span onClick="{{ m2Ask }}" style="border:1px solid #3a3a46; border-radius:7px; padding:6px 12px; font-size:11px; color:#d7d7e0; background:#1b1b22; cursor:pointer;" style-hover="border-color:#f59e0b; color:#fbe3b5;">✋ Needs input</span>
+          <span onClick="{{ m2Answer }}" style="border:1px solid #3a3a46; border-radius:7px; padding:6px 12px; font-size:11px; color:#d7d7e0; background:#1b1b22; cursor:pointer;" style-hover="border-color:#10b981; color:#c9f7e6;">↩ Answer</span>
+          <span onClick="{{ m2Finish }}" style="border:1px solid #3a3a46; border-radius:7px; padding:6px 12px; font-size:11px; color:#d7d7e0; background:#1b1b22; cursor:pointer;" style-hover="border-color:#8b5cf6; color:#e0d5fb;">✓ Complete</span>
+          <span onClick="{{ m2Reset }}" style="border:1px solid #3a3a46; border-radius:7px; padding:6px 12px; font-size:11px; color:#9a9aa8; background:#16161c; cursor:pointer;" style-hover="color:#d7d7e0;">⟲ Reset</span>
+        </div>
+        <div style="font-size:10.5px; line-height:1.6; color:#8d84a6; min-height:34px;">{{ m2PhaseHint }}</div>
+        <div style="display:flex; flex-direction:column; gap:10px; border-top:1px solid #25252f; padding-top:13px; margin-top:auto;">
+          <div style="display:flex; gap:9px; align-items:flex-start;"><span style="flex:none; font-family:'Geist Mono',monospace; font-size:11px; color:#10b981; width:12px;" style-before="content:'⠋'; animation:spB .8s steps(1,end) infinite;"></span><span style="font-size:10.5px; line-height:1.55; color:#9a9aa8;"><b style="color:#d7d7e0;">Working</b> — braille spinner + timer counting up, both in terminal mono. The spinner is the same character set the CLI prints, so “alive” reads the same in both worlds.</span></div>
+          <div style="display:flex; gap:9px; align-items:flex-start;"><span style="flex:none; width:8px; height:8px; border-radius:99px; background:#f59e0b; margin-top:3px;"></span><span style="font-size:10.5px; line-height:1.55; color:#9a9aa8;"><b style="color:#d7d7e0;">Waiting on you</b> — one-shot morph: amber flash, badge pop, the counting timer freezes and flips into an “ago” stamp. Then perfectly still — stillness is the ask.</span></div>
+          <div style="display:flex; gap:9px; align-items:flex-start;"><span style="flex:none; width:8px; height:8px; border-radius:99px; background:#4a4a56; margin-top:3px;"></span><span style="font-size:10.5px; line-height:1.55; color:#9a9aa8;"><b style="color:#d7d7e0;">Queued / idle</b> — no motion at all, dimmed.</span></div>
+          <div style="display:flex; gap:9px; align-items:flex-start;"><span style="flex:none; width:8px; height:8px; border-radius:99px; background:#8b5cf6; margin-top:3px;"></span><span style="font-size:10.5px; line-height:1.55; color:#9a9aa8;"><b style="color:#d7d7e0;">Done</b> — a single check pop; the timer becomes the total.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:900px; font:400 11px/1.65 system-ui,sans-serif; color:rgba(0,0,0,.6);"><b>1d:</b> live demo of the motion grammar — drive the POD-128 row through queued → working → waiting → done with the phase buttons (auto-demo loops it). The braille spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏, pure CSS content keyframes) is the only permanent motion and runs only while computing; every phase change is a single one-shot morph anchored on the timer (green counting → frozen amber “ago” → grey total). In the rail, squares always keep their ID; state lives in the corner badge — green spinner = computing, amber numbered = waiting count, ✓ = done.</div>
+</div>
+
+</div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoPlay&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Animation demo&quot;},&quot;pulseSpeed&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:2.2,&quot;min&quot;:1,&quot;max&quot;:4,&quot;step&quot;:0.1,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Animation demo&quot;}}">
+class Component extends DCLogic {
+  state = { phase: 'queued', sec: 0, waitSec: 0, autoOff: false, autoI: 0, autoT: 0,
+            p2: 'queued', sec2: 0, wait2: 0, off2: false, i2: 0, t2: 0 };
+  script = [['queued',2],['working',7],['waiting',6],['working',4],['done',4]];
+  componentDidMount() { this.iv = setInterval(() => this.tick(), 1000); }
+  componentWillUnmount() { clearInterval(this.iv); }
+  isAuto() { return !this.state.autoOff && (this.props.autoPlay ?? true); }
+  applyPhase(n, p, prev) {
+    n.phase = p;
+    if (p === 'queued') { n.sec = 0; n.waitSec = 0; }
+    if (p === 'working' && (prev === 'queued' || prev === 'done')) n.sec = 0;
+    if (p === 'waiting') n.waitSec = 0;
+  }
+  tick() {
+    this.setState(s => {
+      const n = { ...s };
+      if (s.phase === 'working') n.sec = s.sec + 1;
+      if (s.phase === 'waiting') n.waitSec = s.waitSec + 1;
+      if (this.isAuto()) {
+        n.autoT = s.autoT + 1;
+        if (n.autoT >= this.script[s.autoI][1]) {
+          const i = (s.autoI + 1) % this.script.length;
+          n.autoI = i; n.autoT = 0;
+          this.applyPhase(n, this.script[i][0], s.phase);
+        }
+      }
+      if (s.p2 === 'working') n.sec2 = s.sec2 + 1;
+      if (s.p2 === 'waiting') n.wait2 = s.wait2 + 1;
+      if (!s.off2 && (this.props.autoPlay ?? true)) {
+        n.t2 = s.t2 + 1;
+        if (n.t2 >= this.script[s.i2][1]) {
+          const j = (s.i2 + 1) % this.script.length;
+          n.i2 = j; n.t2 = 0;
+          this.applyPhase2(n, this.script[j][0], s.p2);
+        }
+      }
+      return n;
+    });
+  }
+  set(p) {
+    this.setState(s => {
+      const n = { ...s, autoOff: true, autoT: 0 };
+      this.applyPhase(n, p, s.phase);
+      return n;
+    });
+  }
+  fmt(sec) { return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+  applyPhase2(n, p, prev) {
+    n.p2 = p;
+    if (p === 'queued') { n.sec2 = 0; n.wait2 = 0; }
+    if (p === 'working' && (prev === 'queued' || prev === 'done')) n.sec2 = 0;
+    if (p === 'waiting') n.wait2 = 0;
+  }
+  set2(p) {
+    this.setState(s => {
+      const n = { ...s, off2: true, t2: 0 };
+      this.applyPhase2(n, p, s.p2);
+      return n;
+    });
+  }
+  m2Vals() {
+    const P = this.state.p2;
+    const rowBase = { display:'flex', alignItems:'center', gap:8, padding:'5px 8px', borderRadius:7, transition:'background .4s, border-color .4s, opacity .4s', border:'1px solid transparent' };
+    const m2RowStyle =
+      P === 'queued'  ? { ...rowBase, opacity:.8 } :
+      P === 'working' ? { ...rowBase, background:'color-mix(in srgb, #8b5cf6 20%, #16161c)', border:'1px solid rgba(139,92,246,.5)' } :
+      P === 'waiting' ? { ...rowBase, background:'rgba(245,158,11,.10)', border:'1px solid rgba(245,158,11,.45)', animation:'rowFlash .9s ease-out' } :
+                        { ...rowBase, background:'color-mix(in srgb, #8b5cf6 8%, #16161c)', border:'1px solid rgba(139,92,246,.25)', opacity:.85 };
+    const sqBase = { width:26, height:26, borderRadius:7, flex:'none', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', transition:'background .4s, border-color .4s' };
+    const m2SquareStyle =
+      P === 'queued'  ? { ...sqBase, background:'#25252f', border:'1px dashed #6c6c78' } :
+      P === 'working' ? { ...sqBase, background:'#8b5cf6', animation:'ignite .55s cubic-bezier(.34,1.56,.64,1)' } :
+      P === 'waiting' ? { ...sqBase, background:'#8b5cf6' } :
+                        { ...sqBase, background:'#8b5cf6', opacity:.6 };
+    const m2SqText = { fontFamily:"'Geist Mono',monospace", fontSize:6.5, fontWeight:600, lineHeight:1.3, color: P === 'queued' ? '#8d8d9a' : '#1e0b44' };
+    const m2TitleStyle = P === 'queued'
+      ? { fontSize:11.5, color:'#9a9aa8', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
+      : { fontSize:11.5, fontWeight:600, color:'#f6f3ff', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
+    const iconBase = { position:'relative', width:26, height:26, borderRadius:8, flex:'none', transition:'background .4s, border-color .4s, opacity .4s', display:'inline-block' };
+    const m2IconStyle =
+      P === 'queued'  ? { ...iconBase, background:'#25252f', border:'1px dashed #6c6c78', opacity:.7 } :
+      P === 'working' ? { ...iconBase, background:'#8b5cf6', border:'1px solid rgba(139,92,246,.9)', animation:'ignite .55s cubic-bezier(.34,1.56,.64,1)' } :
+      P === 'waiting' ? { ...iconBase, background:'#8b5cf6', border:'1px solid rgba(245,158,11,.7)', animation:'iconFlash 1s ease-out' } :
+                        { ...iconBase, background:'#8b5cf6', border:'1px solid rgba(139,92,246,.5)', opacity:.75 };
+    const m2RailIdStyle = { color: P === 'queued' ? '#8d8d9a' : '#1e0b44' };
+    const chipCol = { queued:['#4a4a56','#25252f'], working:['#10b981','rgba(16,185,129,.14)'], waiting:['#f59e0b','rgba(245,158,11,.14)'], done:['#8b5cf6','rgba(139,92,246,.14)'] }[P];
+    const labels = { queued:'QUEUED', working:'WORKING', waiting:'WAITING ON YOU', done:'DONE' };
+    const hints = {
+      queued:  'No motion. The row is dimmed and silent — nothing is asking for attention.',
+      working: 'Permanent but quiet: the braille spinner turns and the timer ticks up, both in terminal mono. In the rail the ID square keeps its label; the spinner turns in the corner badge.',
+      waiting: 'The one-shot morph just played — amber flash, badge pop, and the counting timer froze into an “ago” stamp. Now it holds perfectly still until you act.',
+      done:    'Check popped once, the timer became the total, the row cools to a faint tint.'
+    };
+    const w = this.state.wait2;
+    const auto = !this.state.off2 && (this.props.autoPlay ?? true);
+    return {
+      m2Working: P === 'working', m2Waiting: P === 'waiting', m2Done: P === 'done', m2Idle: P === 'queued',
+      m2RowStyle, m2SquareStyle, m2SqText, m2TitleStyle, m2IconStyle, m2RailIdStyle,
+      m2StatusText: P === 'queued' ? 'queued' : P === 'working' ? 'working · auth-refresh on POD-129' : P === 'waiting' ? 'asks: “merge POD-129 to main?”' : 'done · merged, 12/12 green',
+      m2TimerText: this.fmt(this.state.sec2),
+      m2AgoText: w < 4 ? 'just now' : Math.max(1, Math.floor(w / 5)) + 'm ago',
+      m2TotalText: '∑ ' + this.fmt(this.state.sec2),
+      m2PhaseLabel: labels[P],
+      m2PhaseHint: hints[P],
+      m2PhaseChipStyle: { fontFamily:"'Geist Mono',monospace", fontSize:9, letterSpacing:'.08em', color:chipCol[0], background:chipCol[1], border:'1px solid ' + chipCol[0] + '44', borderRadius:5, padding:'2px 8px' },
+      m2AutoLabel: auto ? '◉ auto demo' : '○ auto demo',
+      m2AutoStyle: { marginLeft:'auto', fontFamily:"'Geist Mono',monospace", fontSize:9.5, color:auto ? '#34d399' : '#6c6c78', border:'1px solid ' + (auto ? 'rgba(52,211,153,.4)' : '#3a3a46'), borderRadius:99, padding:'3px 10px', cursor:'pointer', userSelect:'none' },
+      m2ToggleAuto: () => this.setState(s => {
+        const off = !s.off2;
+        const n = { ...s, off2: off };
+        if (!off) { const i = this.script.findIndex(x => x[0] === s.p2); n.i2 = i < 0 ? 0 : i; n.t2 = 0; }
+        return n;
+      }),
+      m2Start: () => this.set2('working'),
+      m2Ask: () => this.set2('waiting'),
+      m2Answer: () => this.set2('working'),
+      m2Finish: () => this.set2('done'),
+      m2Reset: () => this.set2('queued')
+    };
+  }
+  renderVals() {
+    const P = this.state.phase, pulse = this.props.pulseSpeed ?? 2.2;
+    const auto = this.isAuto();
+    const base = { display:'flex', flexDirection:'column', gap:2, padding:'5px 8px', borderRadius:7, transition:'background .4s, border-color .4s, opacity .4s', border:'1px solid transparent' };
+    const rowStyle =
+      P === 'queued'  ? { ...base } :
+      P === 'working' ? { ...base, background:'color-mix(in srgb, #8b5cf6 20%, #16161c)', border:'1px solid rgba(139,92,246,.5)' } :
+      P === 'waiting' ? { ...base, background:'rgba(245,158,11,.10)', border:'1px solid rgba(245,158,11,.45)', animation:'rowFlash .9s ease-out' } :
+                        { ...base, background:'color-mix(in srgb, #8b5cf6 8%, #16161c)', border:'1px solid rgba(139,92,246,.25)', opacity:.85 };
+    const chipBase = { width:8, height:8, borderRadius:3, flex:'none', transition:'background .4s' };
+    const chipStyle =
+      P === 'queued'  ? { ...chipBase, background:'#4a4a56', border:'1px dashed #6c6c78' } :
+      P === 'working' ? { ...chipBase, background:'#8b5cf6', animation:'ignite .55s cubic-bezier(.34,1.56,.64,1)', boxShadow:'0 0 8px rgba(139,92,246,.6)' } :
+      P === 'waiting' ? { ...chipBase, background:'#8b5cf6' } :
+                        { ...chipBase, background:'#8b5cf6', opacity:.55 };
+    const titleStyle = P === 'queued'
+      ? { fontSize:11.5, color:'#9a9aa8', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }
+      : { fontSize:11.5, fontWeight:600, color:'#f6f3ff', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
+    const statusText =
+      P === 'queued'  ? 'POD-128 · queued' :
+      P === 'working' ? 'working · auth-refresh on POD-129' :
+      P === 'waiting' ? 'asks: “merge POD-129 to main?”' :
+                        'done · merged, 12/12 green';
+    const iconBase = { position:'relative', width:26, height:26, borderRadius:8, flex:'none', transition:'background .4s, border-color .4s, opacity .4s', display:'inline-block' };
+    const iconStyle =
+      P === 'queued'  ? { ...iconBase, background:'#25252f', border:'1px dashed #6c6c78', opacity:.7 } :
+      P === 'working' ? { ...iconBase, background:'color-mix(in srgb, #8b5cf6 55%, #16161c)', border:'1px solid rgba(139,92,246,.6)', animation:'ignite .55s cubic-bezier(.34,1.56,.64,1)' } :
+      P === 'waiting' ? { ...iconBase, background:'color-mix(in srgb, #8b5cf6 40%, #16161c)', border:'1px solid rgba(245,158,11,.6)', animation:'iconFlash 1s ease-out' } :
+                        { ...iconBase, background:'color-mix(in srgb, #8b5cf6 25%, #16161c)', border:'1px solid rgba(139,92,246,.35)', opacity:.85 };
+    const pulseAnim = 'ping ' + pulse + 's cubic-bezier(0,0,.2,1) infinite';
+    const chipCol = { queued:['#4a4a56','#25252f'], working:['#10b981','rgba(16,185,129,.14)'], waiting:['#f59e0b','rgba(245,158,11,.14)'], done:['#8b5cf6','rgba(139,92,246,.14)'] }[P];
+    const labels = { queued:'QUEUED', working:'WORKING', waiting:'WAITING ON YOU', done:'DONE' };
+    const hints = {
+      queued:  'No motion. The row is dimmed and silent — nothing is asking for attention.',
+      working: 'Permanent but quiet: the status dot breathes a ' + pulse + 's ring and the timer ticks up. That ticking IS the progress indicator.',
+      waiting: 'The one-shot morph just played — amber flash, badge pop, and the counting timer froze into an “ago” stamp. Now it holds perfectly still until you act.',
+      done:    'Check popped once, the timer became the total, the row cools to a faint tint.'
+    };
+    const wm = this.state.waitSec;
+    return {
+      ...this.m2Vals(),
+      isWorking: P === 'working', isWaiting: P === 'waiting', isDone: P === 'done',
+      rowStyle, chipStyle, titleStyle, statusText, iconStyle,
+      pulseDotStyle: { position:'absolute', inset:0, borderRadius:99, background:'#10b981', animation:pulseAnim },
+      iconPulseDot: { position:'absolute', top:-3, right:-3, width:9, height:9, borderRadius:99, background:'#10b981', border:'2px solid #131318', animation:pulseAnim },
+      timerText: this.fmt(this.state.sec),
+      agoText: wm < 4 ? 'just now' : Math.max(1, Math.floor(wm / 5)) + 'm ago',
+      totalText: '∑ ' + this.fmt(this.state.sec),
+      phaseLabel: labels[P],
+      phaseHint: hints[P],
+      phaseChipStyle: { fontFamily:"'Geist Mono',monospace", fontSize:9, letterSpacing:'.08em', color:chipCol[0], background:chipCol[1], border:'1px solid ' + chipCol[0] + '44', borderRadius:5, padding:'2px 8px' },
+      autoLabel: auto ? '◉ auto demo' : '○ auto demo',
+      autoStyle: { marginLeft:'auto', fontFamily:"'Geist Mono',monospace", fontSize:9.5, color:auto ? '#34d399' : '#6c6c78', border:'1px solid ' + (auto ? 'rgba(52,211,153,.4)' : '#3a3a46'), borderRadius:99, padding:'3px 10px', cursor:'pointer', userSelect:'none' },
+      toggleAuto: () => this.setState(s => {
+        const off = !s.autoOff;
+        const n = { ...s, autoOff: off };
+        if (!off) { const i = this.script.findIndex(x => x[0] === s.phase); n.autoI = i < 0 ? 0 : i; n.autoT = 0; }
+        return n;
+      }),
+      bStart: () => this.set('working'),
+      bAsk: () => this.set('waiting'),
+      bAnswer: () => this.set('working'),
+      bDone: () => this.set('done'),
+      bReset: () => this.set('queued')
+    };
+  }
+}
+</script>
+</body>
+</html>

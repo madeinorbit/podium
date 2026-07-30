@@ -12,6 +12,14 @@ function setup() {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
   store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  const inventory = JSON.stringify({
+    os: 'linux',
+    arch: 'x64',
+    agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
+    tools: [],
+  })
+  store.machines.setMachineInventory('m1', inventory)
+  store.machines.setMachineInventory('m2', inventory)
   const registry = new SessionRegistry(store)
   registries.push(registry)
   const m1: ControlMessage[] = []

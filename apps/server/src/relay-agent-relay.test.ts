@@ -148,6 +148,61 @@ describe('server agent relay handler (P1b)', () => {
     expect(r.error).toMatch(/not permitted via relay/)
   })
 
+  it('relays the read-only multi-machine quota summary used by the panel', async () => {
+    const reply = new Promise<RelayResult>((resolve) => {
+      registry.modules.sessions.attachDaemon(machineId, (msg) => {
+        if (msg.type === 'agentQuotaRequest') {
+          registry.modules.sessions.onDaemonMessageFrom(machineId, {
+            type: 'agentQuotaResult',
+            requestId: msg.requestId,
+            hostname: 'devbox',
+            agents: [
+              {
+                agent: 'codex',
+                status: 'ok',
+                account: { email: 'codex@example.com', plan: 'plus' },
+                windows: [
+                  {
+                    key: '5h',
+                    label: '5-hour',
+                    usedPercent: 37,
+                    resetsAt: '2026-07-29T18:00:00.000Z',
+                    windowMinutes: 300,
+                  },
+                ],
+                fetchedAt: '2026-07-29T16:00:00.000Z',
+              },
+            ],
+          })
+        }
+        if (msg.type === 'agentRelayResult') resolve(msg)
+      })
+    })
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'ir-quota-summary',
+      sessionId: sA,
+      router: 'quota',
+      proc: 'summary',
+    })
+
+    const result = await reply
+    expect(result.ok).toBe(true)
+    expect(result.result).toEqual([
+      expect.objectContaining({
+        machineId,
+        hostname: 'devbox',
+        agents: [
+          expect.objectContaining({
+            agent: 'codex',
+            status: 'ok',
+            windows: [expect.objectContaining({ key: '5h', usedPercent: 37 })],
+          }),
+        ],
+      }),
+    ])
+  })
+
   it('scope-gates direct messages to a session on another issue', async () => {
     const target = registry.modules.sessions.createSession({
       cwd: '/r/other',

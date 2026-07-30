@@ -73,8 +73,8 @@ describe('buildHarnessExec', () => {
     expect(args).not.toContain('-c')
   })
 
-  it('translates the MCP config into codex -c overrides (url + http_headers)', () => {
-    const { cmd, args } = buildHarnessExec(
+  it('translates the MCP config into codex -c overrides (url + bearer env + identity http_headers)', () => {
+    const { cmd, args, env } = buildHarnessExec(
       'codex',
       {
         prompt: 'go',
@@ -83,7 +83,7 @@ describe('buildHarnessExec', () => {
             podium: {
               type: 'http',
               url: 'http://127.0.0.1:1878/mcp',
-              headers: { 'x-podium-mcp-token': 'tok', 'x-podium-mcp-thread': 'thr' },
+              headers: { 'x-podium-mcp-token': 'sekretval', 'x-podium-mcp-thread': 'thr' },
             },
           },
         }),
@@ -94,9 +94,16 @@ describe('buildHarnessExec', () => {
     expect(cmd).toBe('codex')
     expect(args[0]).toBe('exec')
     expect(args).toContain('mcp_servers."podium".url="http://127.0.0.1:1878/mcp"')
-    expect(args).toContain(
-      'mcp_servers."podium".http_headers={"x-podium-mcp-token"="tok","x-podium-mcp-thread"="thr"}',
-    )
+    // Auth token is declared as a first-class bearer_token_env_var (POD-1021),
+    // NOT smuggled as an http_header — otherwise codex 0.144.5's rmcp client
+    // attempts OAuth and dies with Auth(AuthorizationRequired).
+    expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
+    expect(env).toEqual({ PODIUM_MCP_BEARER_PODIUM: 'sekretval' })
+    // Non-auth identity headers still ride http_headers.
+    expect(args).toContain('mcp_servers."podium".http_headers={"x-podium-mcp-thread"="thr"}')
+    // The auth token value must never appear in argv.
+    expect(args.some((a) => a.includes('x-podium-mcp-token'))).toBe(false)
+    expect(args.some((a) => a.includes('sekretval'))).toBe(false)
     // No allowedTools flag on codex — MCP tools run without an approval flag.
     expect(args).not.toContain('--allowedTools')
     expect(args.at(-1)).toBe('go')

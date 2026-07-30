@@ -7,8 +7,9 @@ import { findRefMatches, rowCells } from './ref-link-provider'
  *
  * xterm link decorations only appear on hover, so tokens like `POD-441` are
  * invisible affordances until the mouse happens to cross them. This layer draws
- * a dotted accent underline (matching the chat `.ref-link` style) under every
- * known-prefix ref in the CURRENT VIEWPORT, so mentions stand out at a glance.
+ * an accent-tinted pill with a solid underline (matching the chat `.ref-link`
+ * chip style) behind every known-prefix ref in the CURRENT VIEWPORT, so
+ * mentions stand out at a glance.
  *
  * Mechanism: an absolutely-positioned, pointer-events-none div appended into
  * `.xterm-screen` (position: relative, sized exactly cols×cellW / rows×cellH by
@@ -148,10 +149,14 @@ export class RefUnderlineOverlay {
     const doc = this.layer.ownerDocument
     while (this.pool.length < rects.length) {
       const el = doc.createElement('div')
-      // Match the chat `.ref-link` visual language: dotted accent underline.
+      // Match the chat `.ref-link` chip language: accent-tinted rounded pill
+      // with a solid hairline underline. Deliberately no dotted border — WebKit
+      // (the Tauri shell) and Chromium rasterize dotted 1px borders differently,
+      // and at fractional cell widths the dots smear.
       el.style.cssText =
-        'position:absolute;box-sizing:border-box;' +
-        'border-bottom:1px dotted var(--primary, #D97757)'
+        'position:absolute;box-sizing:border-box;border-radius:3px;' +
+        'background:color-mix(in srgb, var(--primary, #D97757) 10%, transparent);' +
+        'border-bottom:1px solid color-mix(in srgb, var(--primary, #D97757) 60%, transparent)'
       this.layer.appendChild(el)
       this.pool.push(el)
     }

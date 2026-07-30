@@ -9,25 +9,40 @@ vi.mock('./store', () => ({
 }))
 import { RightRail } from './RightRail'
 
-afterEach(cleanup)
+const featureEnabled = vi.hoisted(() => ({ value: true }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => featureEnabled.value,
+}))
+
+afterEach(() => {
+  cleanup()
+  featureEnabled.value = true
+})
 
 describe('RightRail', () => {
-  it('reopens the last panel and switches one panel at a time — with no superagent control (#65)', () => {
+  it('switches one panel at a time — with no superagent control (#65)', () => {
     const onPanelChange = vi.fn()
-    render(<RightRail rightPanel={null} lastPanel="git" onPanelChange={onPanelChange} />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Open last panel' }))
-    expect(onPanelChange).toHaveBeenLastCalledWith('git')
+    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+
     expect(onPanelChange).toHaveBeenLastCalledWith('files')
 
     expect(screen.queryByRole('button', { name: /superagent/i })).toBeNull()
   })
 
+  it('hides experimental panels behind their feature flags', () => {
+    featureEnabled.value = false
+    const onPanelChange = vi.fn()
+    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
+
+    expect(screen.queryByRole('button', { name: 'Git' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Messages' })).toBeNull()
+  })
+
   it('toggles the active panel closed', () => {
     const onPanelChange = vi.fn()
-    render(<RightRail rightPanel="shell" lastPanel="shell" onPanelChange={onPanelChange} />)
+    render(<RightRail rightPanel="shell" onPanelChange={onPanelChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Shell' }))
     expect(onPanelChange).toHaveBeenCalledWith(null)
   })
@@ -39,7 +54,6 @@ describe('RightRail', () => {
       <RightRail
         issue={issue}
         rightPanel={null}
-        lastPanel="issue"
         onPanelChange={onPanelChange}
         onColorChange={vi.fn()}
       />,
@@ -47,7 +61,7 @@ describe('RightRail', () => {
     const square = screen.getByTestId('issue-id-square')
     // The square language's chrome, not the old borderless text cell.
     expect(square.style.border).not.toBe('')
-    expect(square.style.background).toBe('#25252f') // uncoloured fill
+    expect(square.style.background).toBe('#141d30') // uncoloured navy fill (resting, POD-293)
     fireEvent.click(square)
     expect(onPanelChange).toHaveBeenLastCalledWith('issue')
   })
@@ -59,7 +73,6 @@ describe('RightRail', () => {
       <RightRail
         issue={issue}
         rightPanel="issue"
-        lastPanel="issue"
         onPanelChange={onPanelChange}
         onColorChange={vi.fn()}
       />,
@@ -71,7 +84,7 @@ describe('RightRail', () => {
 
   it('falls back to a dashed resting square when no issue is selected', () => {
     const onPanelChange = vi.fn()
-    render(<RightRail rightPanel={null} lastPanel="issue" onPanelChange={onPanelChange} />)
+    render(<RightRail rightPanel={null} onPanelChange={onPanelChange} />)
     const fallback = screen.getByRole('button', { name: 'Task' })
     expect(fallback.className).toContain('border-dashed')
     fireEvent.click(fallback)

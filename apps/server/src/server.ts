@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import {
+  type ControlMessage,
+  type LocalDaemonLink,
+  MIN_SUPPORTED_VERSION,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
@@ -82,6 +88,13 @@ export interface ServerHandle {
    * daemon (host.ts) can pass it straight through without re-reading the file.
    */
   bootstrapToken: string
+  /**
+   * In-process daemon seam [POD-196]: hands the all-in-one daemon a direct
+   * message channel so per-frame traffic skips the loopback WebSocket + JSON +
+   * schema re-validation. Only the composition root wires this; remote daemons
+   * keep the authenticated WS path.
+   */
+  localDaemonLink: LocalDaemonLink
   close(): Promise<void>
 }
 
@@ -123,6 +136,8 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
+    redirectPhoneRootToMobile?: boolean
     /** Request-scoped publication worlds. Both transports must resolve through
      *  the same authority source so catch-up and live publication cannot drift. */
     resolvePublicationAuthority?: {
@@ -169,6 +184,9 @@ export async function startServer(
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     telegramNotice: () => messaging,
+    // Rollout diagnostic only: compare legacy/new semantics while continuing
+    // to deliver the worker publication [spec:SP-c29e].
+    publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
@@ -410,10 +428,14 @@ export async function startServer(
       mobileWebDir = ''
     }
   }
-  const expoMobileServed = mobileWebDir
-    ? registerWebStatic(app, mobileWebDir, { basePath: '/mobile' })
-    : false
-  registerMobileRouting(app, { expoMobileServed })
+  // Routing first so its /mobile fallback middleware owns the dist-absent case;
+  // presence is probed per request (the mobile dist may be exported after boot).
+  const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
+  registerMobileRouting(app, {
+    expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
+    redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
+  })
+  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile', lazy: true })
 
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {
@@ -510,11 +532,39 @@ export async function startServer(
               )
             },
           })
+        // In-process daemon link [POD-196]: the local-machine equivalent of
+        // wireDaemonSocket's post-handshake wiring (attachDaemon / inventory
+        // routing / detach on close), minus the socket. Handshake auth is
+        // skipped on purpose: only the composition root can reach this object,
+        // which is the same trust as holding the in-memory bootstrapToken.
+        // queueMicrotask keeps delivery async so neither side re-enters the
+        // other's call stack (the ordering the WS transport implied).
+        const localDaemonLink: LocalDaemonLink = {
+          attach: ({ deliver }) => {
+            // ensureLocalMachine already registered the local machine at startup.
+            const machineId = LOCAL_MACHINE_ID
+            const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
+            registry.modules.sessions.attachDaemon(machineId, send)
+            return {
+              machineId,
+              deliver: (msg) =>
+                queueMicrotask(() => {
+                  if (msg.type === 'inventoryReport') {
+                    registry.modules.machines.recordInventory(machineId, msg.inventory)
+                  } else {
+                    registry.modules.sessions.onDaemonMessageFrom(machineId, msg)
+                  }
+                }),
+              close: () => registry.modules.sessions.detachDaemon(machineId, send),
+            }
+          },
+        }
         resolve({
           port: info.port,
           instanceId,
           registry,
           bootstrapToken,
+          localDaemonLink,
           // Deterministic fast shutdown (POD-611): terminate WS intake, persist
           // state unconditionally, THEN force-close lingering http sockets —
           // see closeServerFast for the full ordering rationale. Step order

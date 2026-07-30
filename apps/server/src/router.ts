@@ -10,7 +10,7 @@ import {
   WorkState,
 } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
-import { loadConfig } from '@podium/runtime/config'
+import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -369,8 +369,9 @@ export const appRouter = t.router({
       // sessions.create is an operator action (web UI / CLI). Programmatic creators
       // (issues, superagent) call registry.createSession directly with their own tag.
       .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', () => {
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', async () => {
           const { draftIssue, mutationId: _m, ...rest } = input
+          const target = await mods(ctx).sessions.prepareSessionTarget(rest)
           const issueId =
             rest.issueId ??
             (draftIssue
@@ -382,6 +383,7 @@ export const appRouter = t.router({
               : undefined)
           return mods(ctx).sessions.createSession({
             ...rest,
+            ...target,
             ...(issueId ? { issueId } : {}),
             spawnedBy: 'user',
           })
@@ -1176,14 +1178,20 @@ export const appRouter = t.router({
     }),
     // Mint a short-lived pairing code the user types into a new machine's daemon to
     // join it to this server.
-    pairingCode: hubProc.mutation(({ ctx }) => {
-      const code = mods(ctx).machines.mintPairingCode()
-      const publicUrl = loadConfig().publicUrl
-      return {
-        code,
-        joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code }) : null,
-      }
-    }),
+    pairingCode: hubProc
+      .input(z.object({ copyAgentCredentials: z.boolean().optional() }).optional())
+      .mutation(({ ctx, input }) => {
+        const code = mods(ctx).machines.mintPairingCode({
+          ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
+        })
+        const config = loadConfig()
+        const publicUrl = config.publicUrl
+        const channel = resolveUpdateChannel(config)
+        return {
+          code,
+          joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code, channel }) : null,
+        }
+      }),
   }),
   // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
   // reaches these instead of importing @podium/runtime/setup directly, which would pull node:fs
@@ -1394,6 +1402,38 @@ export const appRouter = t.router({
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'awaitAgent', input)!,
       ),
+  }),
+  // Git dock panel [POD-114] — read-only checkout inspection for the web
+  // RightDock: working-tree status, recent commits, one file's diff. Same
+  // repo-root allowlist gate as `files`; each query maps to a fixed lock-free
+  // daemon repo op (never a shell string).
+  git: t.router({
+    status: t.procedure
+      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('statusProbe', input.root, undefined, input.machineId)
+      }),
+    log: t.procedure
+      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('logPanel', input.root, undefined, input.machineId)
+      }),
+    diffFile: t.procedure
+      .input(
+        z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
+      )
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('diffFile', input.root, { path: input.path }, input.machineId)
+      }),
   }),
   files: t.router({
     read: t.procedure

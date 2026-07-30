@@ -22,6 +22,9 @@ export interface HomeGroups {
 export type AttentionGroup = keyof HomeGroups
 
 export function attentionGroup(s: SessionMeta): AttentionGroup {
+  // Offers are explicit requests for a human decision. Reading the transcript
+  // clears unread, but it must not make the offer (or its issue row) look idle.
+  if (s.offer) return 'needsYou'
   const phase = s.agentState?.phase
   if (phase === 'needs_user' || phase === 'errored') return 'needsYou'
   if (phase === 'idle') {

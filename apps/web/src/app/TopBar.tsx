@@ -1,18 +1,19 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { Minus, Square, X } from 'lucide-react'
+import { BarChart3, Minus, Settings, Square, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { type MainView, useReplicaIssues, useStoreSelector } from './store'
 
 /**
  * The desktop 44px command header per the handoff v2 desktop anatomy
- * (.design/specs/shell-layout.md §2.1): logo · text nav (Tasks · Workflows ·
+ * (.design/specs/shell-layout.md §2.1): logo · text nav (Work · Tasks · Workflows ·
  * Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
- * belongs to the MOBILE shell (MobileApp.tsx), not here.
+ * belonged to the retired responsive shell, not here.
  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
  */
 export function TopBar(): JSX.Element {
@@ -21,6 +22,9 @@ export function TopBar(): JSX.Element {
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  const workflowsEnabled = useFeature('workflows')
+  const specsEnabled = useFeature('specs')
+  const automationsEnabled = useFeature('automations')
 
   // Proposals are a curation inbox, distinct from agents asking questions. [spec:SP-6144]
   const proposedCount = issues.filter(
@@ -31,13 +35,14 @@ export function TopBar(): JSX.Element {
 
   return (
     <header className="desktop-topbar" data-testid="desktop-topbar" {...dragRegion}>
-      <span className="desktop-topbar-logo" {...dragRegion}>
-        <PodiumLogo className="flex-none" />
+      <span className="desktop-topbar-logo ml-[15px]" {...dragRegion}>
+        <PodiumLogo height={19} className="flex-none" />
       </span>
       <nav
         className="desktop-topbar-nav ml-[10px] inline-flex flex-none items-center gap-0.5"
         aria-label="Primary"
       >
+        <NavItem label="Work" target="workspace" view={view} onSelect={setView} />
         <NavItem
           label="Tasks"
           target="issues"
@@ -45,17 +50,69 @@ export function TopBar(): JSX.Element {
           onSelect={setView}
           badge={proposedCount}
         />
-        <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
-        <NavItem label="Specs" target="specs" view={view} onSelect={setView} />
-        <NavItem label="Automations" target="automations" view={view} onSelect={setView} />
+        {workflowsEnabled && (
+          <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
+        )}
+        {specsEnabled && <NavItem label="Specs" target="specs" view={view} onSelect={setView} />}
+        {automationsEnabled && (
+          <NavItem label="Automations" target="automations" view={view} onSelect={setView} />
+        )}
       </nav>
-      <div className="ml-auto min-w-0 overflow-hidden">
+      <div className="ml-auto inline-flex flex-none items-center gap-0.5">
+        <UtilityNavItem
+          label="Usage & analytics"
+          target="usage"
+          view={view}
+          onSelect={setView}
+          icon={<BarChart3 size={14} aria-hidden="true" />}
+        />
+        <UtilityNavItem
+          label="Settings"
+          target="settings"
+          view={view}
+          onSelect={setView}
+          icon={<Settings size={14} aria-hidden="true" />}
+        />
+      </div>
+      <div className="min-w-0 overflow-hidden">
         <HeaderHostIndicators />
       </div>
       {desktopBridge && desktopBridge.platform !== 'macos' && (
         <NativeWindowControls bridge={desktopBridge} />
       )}
     </header>
+  )
+}
+
+function UtilityNavItem({
+  label,
+  target,
+  view,
+  onSelect,
+  icon,
+}: {
+  label: string
+  target: MainView
+  view: MainView
+  onSelect: (view: MainView) => void
+  icon: JSX.Element
+}): JSX.Element {
+  const active = view === target
+  return (
+    <button
+      data-pressable
+      type="button"
+      onClick={() => onSelect(target)}
+      aria-current={active ? 'page' : undefined}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+        active && 'bg-secondary text-foreground',
+      )}
+    >
+      {icon}
+    </button>
   )
 }
 
@@ -69,6 +126,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
   return (
     <div className="native-window-controls" role="group" aria-label="Window controls">
       <button
+        data-pressable
         type="button"
         className="native-window-control"
         aria-label="Minimize window"
@@ -78,6 +136,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
         <Minus size={15} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
+        data-pressable
         type="button"
         className="native-window-control"
         aria-label="Maximize window"
@@ -87,6 +146,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
         <Square size={11} strokeWidth={1.5} aria-hidden="true" />
       </button>
       <button
+        data-pressable
         type="button"
         className="native-window-control native-window-control-close"
         aria-label="Close window"
@@ -115,11 +175,12 @@ function NavItem({
   const active = view === target
   return (
     <button
+      data-pressable
       type="button"
       onClick={() => onSelect(target)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1 text-[11.5px] text-muted-foreground hover:text-foreground',
+        'inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1 text-[13px] text-muted-foreground hover:text-foreground',
         active && 'px-2.5 font-semibold text-[var(--text-strong)]',
       )}
     >

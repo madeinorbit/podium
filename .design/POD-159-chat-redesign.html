@@ -1,0 +1,320 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Chat View — Flat Field</title>
+<style>
+  /* Superade theme — deliberately single-theme: the dark navy chassis IS the product's
+     signature; these are in-product mocks, not a document. */
+  :root {
+    --yellow: #f5c518;
+    --navy: #0a0f1c;
+    --panel: #121b30;
+    --chip: #16223c;
+    --engraved: #070b16;
+    --bar: #050912;
+    --red: #e5303f;
+    --blue: #2f6bff;
+    --terracotta: #d97757;
+    --ink-strong: #f3f3f8;
+    --ink: #d7d7e0;
+    --ink-muted: #9a9aa8;
+    --ink-dim: #6c7690;
+    --ink-faint: #525c78;
+    --label: #7a84a0;
+    --seam: #243356;
+    --hairline: #1e2a4c;
+    --border-strong: #364a78;
+    --sans: "Geist", "Geist Variable", -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: "Geist Mono", "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  html { background: var(--navy); }
+  body { font-family: var(--sans); color: var(--ink); font-size: 13px; line-height: 1.5; margin: 0; padding: 0 0 80px; }
+  * { box-sizing: border-box; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 20px; }
+  header.doc { padding: 44px 0 8px; }
+  header.doc h1 { font-size: 22px; font-weight: 600; color: var(--ink-strong); margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.doc p { color: var(--ink-muted); max-width: 62ch; margin: 0 0 10px; }
+  .doc h2 { font-size: 15px; font-weight: 600; color: var(--ink-strong); margin: 40px 0 6px; }
+  .doc h2 .vtag { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.1em; color: var(--navy); background: var(--yellow); border-radius: 4px; padding: 2px 6px; margin-right: 8px; vertical-align: 2px; }
+  .doc p.lede { color: var(--ink-muted); max-width: 68ch; margin: 0 0 14px; }
+  .doc code { font-family: var(--mono); font-size: 11px; background: var(--chip); border: 1px solid var(--hairline); border-radius: 4px; padding: 1px 5px; color: var(--ink); }
+
+  .inventory { border: 1px solid var(--seam); border-radius: 8px; background: var(--panel); padding: 14px 16px; margin: 18px 0 6px; }
+  .inventory h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ink-strong); }
+  .inventory ul { margin: 0; padding-left: 18px; color: var(--ink-muted); font-size: 12px; column-count: 2; column-gap: 28px; }
+  .inventory li { margin: 2px 0; break-inside: avoid; }
+  @media (max-width: 640px) { .inventory ul { column-count: 1; } }
+
+  /* ————— mock chassis ————— */
+  .mock {
+    border: 1px solid var(--seam); border-radius: 10px; overflow: hidden;
+    background: var(--navy); margin: 14px 0 8px;
+    box-shadow: inset 0 3px 6px -3px rgb(0 0 0 / 0.85);
+  }
+  .mock-titlebar {
+    display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    background: var(--bar); border-bottom: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; color: var(--label); text-transform: uppercase;
+  }
+  .mock-titlebar .issue-sq { width: 7px; height: 7px; border-radius: 2.5px; background: #8b5cf6; }
+  .mock-titlebar .working { margin-left: auto; color: var(--red); letter-spacing: 0.04em; display: flex; gap: 6px; align-items: center; }
+  .mock-titlebar .timer { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .spin { display: inline-block; width: 1ch; animation: braille 1s steps(10) infinite; }
+  .spin::before { content: "⠋"; }
+  @keyframes braille {
+    0% { content:"⠋" } 10% { content:"⠙" } 20% { content:"⠹" } 30% { content:"⠸" } 40% { content:"⠼" }
+    50% { content:"⠴" } 60% { content:"⠦" } 70% { content:"⠧" } 80% { content:"⠇" } 90% { content:"⠏" }
+  }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  .stream { padding: 18px 22px 22px; }
+
+  .note { color: var(--ink-dim); font-size: 12px; max-width: 68ch; margin: 6px 0 0; }
+  .note b { color: var(--ink-muted); font-weight: 600; }
+
+  /* shared md-ish body */
+  .md p { margin: 0 0 8px; max-width: 66ch; }
+  .md p:last-child { margin-bottom: 0; }
+  .md code { font-family: var(--mono); font-size: 11px; background: var(--chip); border-radius: 3px; padding: 0.5px 4px; color: var(--ink); }
+  .chipbtn {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--hairline);
+    border-radius: 5px; padding: 1.5px 7px; font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-muted); background: transparent; cursor: pointer;
+  }
+  .chipbtn:hover { background: var(--chip); color: var(--ink); }
+
+  /* =========================================================
+     V4 — FLAT FIELD: agent lies flat on the chassis, user is lifted
+     ========================================================= */
+  .v4 .scroller { height: 620px; overflow-y: auto; padding: 0 26px 0; scrollbar-width: thin; scrollbar-color: var(--chip) transparent; }
+  .v4 .beat { margin: 26px auto; max-width: 720px; }
+  .v4 .agent-md { color: var(--ink); font-size: 13px; line-height: 1.65; }
+  .v4 .agent-md p { max-width: 68ch; }
+
+  /* user interaction — ELEVATED (default) */
+  .v4 .you {
+    position: sticky; top: 10px; z-index: 5;
+    max-width: 720px; margin: 30px auto;
+    border: 1px solid var(--border-strong); border-radius: 9px;
+    background: var(--chip); padding: 10px 15px;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.5), 0 1px 4px rgb(0 0 0 / 0.4);
+  }
+  .v4 .you .ylabel { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--blue); margin-bottom: 3px; display: flex; }
+  .v4 .you .ytime { margin-left: auto; color: var(--ink-faint); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .v4 .you .md { color: var(--ink-strong); font-weight: 500; font-size: 13px; }
+  /* user interaction — EMBOSSED variation (toggle) */
+  .v4:has(.emboss-toggle input:checked) .you {
+    background: var(--engraved); border-color: var(--hairline);
+    box-shadow: inset 0 3px 7px -2px rgb(0 0 0 / 0.9), inset 0 -1px 0 rgb(54 74 120 / 0.35), 0 1px 0 rgb(54 74 120 / 0.18);
+  }
+  .emboss-toggle { display: flex; gap: 8px; align-items: center; padding: 6px 14px; background: var(--bar); border-bottom: 1px solid var(--hairline); font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--label); cursor: pointer; user-select: none; }
+  .emboss-toggle input { accent-color: var(--yellow); margin: 0; }
+
+  /* tool activity — muted, boxless, useful */
+  .v4 .tools { margin: 12px 0; padding-left: 2px; display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .v4 .trow { display: flex; gap: 9px; align-items: baseline; min-width: 0; }
+  .v4 .trow .g { flex: none; width: 12px; text-align: center; color: var(--ink-faint); font-size: 10px; }
+  .v4 .trow .g.ok { color: var(--blue); } .v4 .trow .g.err { color: var(--red); } .v4 .trow .g.run { color: var(--red); }
+  .v4 .trow .tv { color: var(--ink-muted); flex: none; }
+  .v4 .trow .td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .v4 .trow .tm { margin-left: auto; flex: none; color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .v4 .trow .flink { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid rgb(82 92 120 / 0.4); cursor: pointer; }
+  .v4 .trow .flink:hover { color: var(--ink); border-bottom-color: var(--ink-dim); }
+  /* churn bar: proportional +/− */
+  .v4 .churnbar { display: inline-flex; align-items: center; gap: 5px; }
+  .v4 .churnbar .bar { display: inline-flex; height: 3px; border-radius: 2px; overflow: hidden; width: 46px; background: var(--chip); }
+  .v4 .churnbar .bar i { display: block; height: 100%; }
+  .v4 .churnbar .bar .a { background: var(--blue); } .v4 .churnbar .bar .d { background: var(--red); }
+  .v4 .out-preview { margin: 1px 0 2px 21px; padding: 3px 9px; border-left: 2px solid var(--hairline); color: var(--ink-faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .v4 .subagent { margin: 2px 0 2px 21px; color: var(--ink-dim); font-size: 10.5px; }
+  .v4 .subagent .sa-name { color: var(--terracotta); }
+  .v4 .quiet-sum { color: var(--ink-faint); font-size: 10px; cursor: pointer; padding-left: 21px; }
+  .v4 .quiet-sum:hover { color: var(--ink-muted); }
+
+  /* answer: still flat, marked by a signal keyline above, not a box */
+  .v4 .answer { border-top: 2px solid rgb(245 197 24 / 0.55); padding-top: 12px; margin-top: 22px; }
+  .v4 .answer .alabel { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--yellow); margin-bottom: 6px; display: flex; gap: 10px; }
+  .v4 .answer .alabel .am { color: var(--ink-faint); margin-left: auto; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+
+  /* ask card — the ONLY other elevated surface class besides .you:
+     pending = yellow signal; answered = collapses to a quiet receipt */
+  .v4 .ask-done { max-width: 720px; margin: 18px auto; font-size: 12px; color: var(--ink-dim); display: flex; gap: 9px; align-items: baseline; }
+  .v4 .ask-done .qg { font-family: var(--mono); color: var(--ink-faint); flex: none; }
+  .v4 .ask-done .q { color: var(--ink-muted); }
+  .v4 .ask-done .picked { color: var(--ink); font-weight: 500; border: 1px solid var(--hairline); border-radius: 5px; padding: 0 7px; font-size: 11px; flex: none; }
+
+  /* offer bar — the agent's proposed next actions, docked above the composer.
+     It is the turn's "needs you" → it owns the yellow while it's live. */
+  .v4 .offer { margin: 0 14px 10px; border: 1px solid rgb(245 197 24 / 0.4); background: rgb(245 197 24 / 0.05); border-radius: 10px; padding: 10px 14px 11px; }
+  .v4 .offer .olab { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--yellow); display: flex; gap: 8px; margin-bottom: 5px; }
+  .v4 .offer .olab .otime { margin-left: auto; color: var(--ink-faint); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .v4 .offer .ohead { color: var(--ink-strong); font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .v4 .offer .obody { color: var(--ink-muted); font-size: 12px; max-width: 66ch; }
+  .v4 .offer .oacts { display: flex; gap: 7px; margin-top: 9px; flex-wrap: wrap; align-items: center; }
+  .v4 .offer .ob { height: 26px; display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 0 11px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: opacity 150ms, background 150ms; }
+  .v4 .offer .ob.primary { background: var(--yellow); color: var(--navy); }
+  .v4 .offer .ob.primary:hover { opacity: 0.85; }
+  .v4 .offer .ob.outline { background: var(--chip); border-color: var(--border-strong); color: var(--ink); }
+  .v4 .offer .ob.outline:hover { background: var(--panel); }
+  .v4 .offer .ob.ghost { color: var(--ink-muted); }
+  .v4 .offer .ob.ghost:hover { color: var(--ink); }
+  .v4 .offer .ob .pen { font-size: 10px; color: var(--ink-dim); }
+  .v4 .offer .othumbs { display: flex; gap: 6px; margin-top: 8px; }
+  .v4 .offer .othumbs .thumb { width: 86px; height: 52px; }
+
+  /* superagent-style composer */
+  .v4 .composer { border-top: 1px solid var(--hairline); padding: 10px 14px calc(12px); font-family: var(--mono); background: var(--navy); }
+  .v4 .field { display: flex; align-items: flex-end; gap: 9px; border: 1px solid #3a3a46; border-radius: 8px; background: rgb(8 8 12 / 0.7); padding: 7px 12px; transition: border-color 150ms; }
+  .v4 .field:hover { border-color: var(--border-strong); }
+  .v4 .field.focus { border-color: var(--yellow); }
+  .v4 .field .gt { color: #6c6c78; font-size: 13px; line-height: 1.45; }
+  .v4 .field .txt { flex: 1; font-size: 13px; line-height: 1.45; color: var(--ink); }
+  .v4 .field .caret { display: inline-block; width: 7px; height: 15px; background: var(--ink); vertical-align: -2px; animation: caretblink 1.1s steps(1) infinite; }
+  @keyframes caretblink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .v4 .field .caret { animation: none; } }
+  .v4 .field .icons { display: flex; gap: 6px; color: var(--ink-dim); font-size: 12px; }
+  .v4 .chints { display: flex; gap: 10px; padding: 6px 4px 0; font-size: 10.5px; color: #4d4d59; }
+  .v4 .chints .mode { color: #6c6c78; }
+  .v4 .chints .right { margin-left: auto; }
+
+  .ux { margin: 10px 0 0; padding-left: 18px; color: var(--ink-muted); font-size: 12.5px; }
+  .ux li { margin: 5px 0; max-width: 70ch; }
+  .ux b { color: var(--ink); font-weight: 600; }
+
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+</style>
+
+<div class="wrap doc">
+  <header class="doc">
+    <h1>Agent chat view — Flat Field</h1>
+    <p>The chosen direction for Podium's transcript view, built against the real message vocabulary the view renders today. The design manages attention the way the rest of the product does: the agent's work lies flat and quiet on the chassis, and only the surfaces that involve <em>you</em> — your prompts, a pending question, the agent's offer — get elevation or signal color.</p>
+  </header>
+
+  <div class="inventory">
+    <h3>What the view has to render (from <code>chat.ts</code> / <code>ChatBlockView.tsx</code>)</h3>
+    <ul>
+      <li>Operator prompts (+ file/image tags, sending / sent / failed)</li>
+      <li>Agent narration vs. the final <b>Answer</b> block</li>
+      <li>Tool batches — "Read 3 files, ran a command", expandable</li>
+      <li>Single Bash with the agent's own description</li>
+      <li>AskUserQuestion — interactive card, live-pending state</li>
+      <li>SendUserFile — image thumbnails → lightbox, file chips</li>
+      <li>Inter-agent mail envelopes (from → to, question / reply-requested, machine note)</li>
+      <li>System recap ("while you were gone"), churn dividers, interrupts</li>
+      <li>Machine-context rows (collapsed concierge seeds)</li>
+      <li>Search highlight/dim + minimap ticks</li>
+    </ul>
+  </div>
+
+  <!-- ============================ V4 ============================ -->
+  <h2>The design</h2>
+  <p class="lede">Tuned for attention management. The agent's output lies <em>flat on the chassis</em> — no boxes, no rails, generous air — because it's the agent's room and its prose is the wallpaper. The one thing that pops is <b>you</b>: operator turns are the only elevated element, and they stick to the top while their turn scrolls (scroll the mock). Tool activity is visually muted but information-dense: every call type gets a purpose-built one-liner. Toggle the header switch to compare <b>elevated</b> vs. <b>embossed</b> user styling.</p>
+
+  <div class="mock v4">
+    <div class="mock-titlebar">
+      <span class="issue-sq" style="background:#38bdf8"></span> POD-147 · flaky reattach on mobile
+      <span class="working" style="color:var(--yellow)">idle · needs you <span class="timer">2m</span></span>
+    </div>
+    <label class="emboss-toggle"><input type="checkbox"> user turns: elevated ⇄ embossed (check to emboss)</label>
+    <div class="scroller">
+
+      <div class="you">
+        <div class="ylabel">You <span class="ytime">09:14</span></div>
+        <div class="md"><p>Reattaching from the phone sometimes shows a stale transcript for ~10s. Find out why and fix it. Don't touch the desktop path.</p></div>
+      </div>
+
+      <div class="beat agent-md">
+        <p>I'll reproduce with a throttled connection first — a 10-second window smells like a timeout somewhere in the reattach handshake, not a rendering bug.</p>
+      </div>
+
+      <div class="beat">
+        <div class="tools">
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Read</span><span class="td"><span class="flink">reattach.ts</span> · <span class="flink">transcript-tail.ts</span> · <span class="flink">ws-hub.ts</span></span><span class="tm">3 files</span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Grep</span><span class="td">"changesSince" — 11 hits across apps/server</span><span class="tm"></span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Bash</span><span class="td">Reattach probe with 3g throttle + dropped socket</span><span class="tm">1m 12s</span></div>
+          <div class="out-preview">stale window: 9.7s — tail resumes only after the ws retry backoff cycles twice</div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Task</span><span class="td">Explore: where the backoff schedule is defined and who else consumes it</span><span class="tm">2m 03s</span></div>
+          <div class="subagent"><span class="sa-name">↳ Explore</span> — backoff lives in <span class="flink">ws-hub.ts:88</span> (1s → 4s → 10s); only the mobile reattach path waits for a full cycle before re-seeding.</div>
+          <div class="quiet-sum">▸ 3 more calls</div>
+        </div>
+      </div>
+
+      <div class="beat agent-md">
+        <p>Root cause: on reattach the mobile client waits for the WebSocket retry backoff to complete before re-seeding the transcript, instead of seeding immediately over HTTP and letting the socket catch up. The desktop path already does the HTTP-first seed — I'll mirror it.</p>
+      </div>
+
+      <div class="beat">
+        <div class="tools">
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Edit</span><span class="td"><span class="flink">reattach.ts</span> — seed over HTTP before the socket settles</span><span class="tm churnbar"><span class="bar"><i class="a" style="width:80%"></i><i class="d" style="width:20%"></i></span> +47 −12</span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Edit</span><span class="td"><span class="flink">ws-hub.ts</span> — expose seed-complete signal</span><span class="tm churnbar"><span class="bar"><i class="a" style="width:60%"></i><i class="d" style="width:40%"></i></span> +9 −6</span></div>
+          <div class="trow"><span class="g err">✕</span><span class="tv">Bash</span><span class="td">bun run test reattach</span><span class="tm">2 failed</span></div>
+          <div class="out-preview">reattach.test.ts:141 — expected seed before socket open; got after (ordering assert)</div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Edit</span><span class="td"><span class="flink">reattach.test.ts</span> — assert the new HTTP-first ordering</span><span class="tm churnbar"><span class="bar"><i class="a" style="width:90%"></i><i class="d" style="width:10%"></i></span> +18 −2</span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Bash</span><span class="td">bun run test reattach</span><span class="tm">14 pass</span></div>
+        </div>
+      </div>
+
+      <div class="ask-done">
+        <span class="qg">?</span>
+        <span class="q">Backport the seed fix to the 0.9 branch too?</span>
+        <span class="picked">No — 0.9 is EOL next week</span>
+      </div>
+
+      <div class="you">
+        <div class="ylabel">You <span class="ytime">09:31</span></div>
+        <div class="md"><p>Good. Also make sure the stale window can't show a half-rendered ask card — that's the worst case on the phone.</p></div>
+      </div>
+
+      <div class="beat agent-md">
+        <p>Checked — the ask card renders only from the seeded snapshot, so with the HTTP-first seed it can no longer appear half-hydrated. Adding a regression test for exactly that sequence anyway.</p>
+      </div>
+
+      <div class="beat">
+        <div class="tools">
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Write</span><span class="td"><span class="flink">reattach.ask-card.test.ts</span></span><span class="tm churnbar"><span class="bar"><i class="a" style="width:100%"></i></span> +52</span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">WebSearch</span><span class="td">"safari background tab websocket suspend timing" — 6 sources</span><span class="tm"></span></div>
+          <div class="trow"><span class="g ok">✓</span><span class="tv">Bash</span><span class="td">bun run test — full suite</span><span class="tm">566 pass</span></div>
+        </div>
+      </div>
+
+      <div class="beat">
+        <div class="answer">
+          <div class="alabel">Answer <span class="am">turn 2 · 17m · +126 −20</span></div>
+          <div class="agent-md">
+            <p>Fixed. Mobile reattach now seeds the transcript over HTTP immediately and lets the WebSocket catch up, mirroring the desktop path — the stale window drops from ~10s to under 300ms on a throttled 3G profile. The ask card can no longer render half-hydrated (regression test added). Desktop path untouched.</p>
+          </div>
+          <div class="thumbrow"><div class="thumb" data-cap="reattach-before-9.7s.png"></div><div class="thumb" data-cap="reattach-after-0.3s.png"></div></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="offer">
+      <div class="olab">Offer · needs you <span class="otime">2m ago</span></div>
+      <div class="ohead">Mobile reattach fix ready to merge</div>
+      <div class="obody">Stale window down from ~10s to &lt;300ms; 566/566 tests pass, desktop path untouched. Judge the before/after shots below.</div>
+      <div class="othumbs"><div class="thumb" data-cap="before-9.7s.png"></div><div class="thumb" data-cap="after-0.3s.png"></div></div>
+      <div class="oacts">
+        <button class="ob primary">Merge to main</button>
+        <button class="ob outline">Send back <span class="pen">✎</span></button>
+        <button class="ob ghost">Run on my phone</button>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="field focus">
+        <span class="gt">&gt;</span>
+        <span class="txt">ship it to the branch and move the issue to review<span class="caret"></span></span>
+        <span class="icons"><span title="Voice">🎙</span><span title="Send">➤</span></span>
+      </div>
+      <div class="chints"><span class="mode">⏵⏵ auto-accept edits</span><span>(shift+tab to cycle)</span><span class="right">@ context · ? shortcuts</span></div>
+    </div>
+  </div>
+  <p class="note"><b>Why it works:</b> attention is managed by elevation, not color — exactly one surface class (the operator) lifts off an otherwise flat field, so your eye finds the conversation's hinge points instantly, and the sticky prompt keeps "what did I ask for" pinned while you audit the work below it. Tool calls answer their own questions inline: Edits carry a proportional churn bar, a failed command shows its failing line without expanding, a subagent reports its one-line conclusion, and the live suite shows a ticking count. The Answer earns the page's only yellow — a keyline, not a box. An <b>answered ask collapses to a one-line receipt</b> (question + chosen option) so past decisions stay auditable without spending attention. The <b>offer is designed in</b>: it docks above the composer as the turn's single "needs you" surface — headline judged in five seconds, evidence thumbnails, primary action in yellow first, the feedback action (✎) swaps to an input field, a ghost for the low-commitment path. While an offer or a pending ask is live it owns the yellow; once consumed, the field goes flat again. The composer is the super-agent field verbatim: mono, <code>&gt;</code> prompt, block caret, yellow focus border, mode hints below.</p>
+
+  <h2>Design principles carried into implementation</h2>
+  <ul class="ux">
+    <li><b>Failure is currently invisible.</b> Today a failed Bash call renders identically to a success until expanded. The design surfaces a per-call verdict; this is the single highest-leverage fix.</li>
+    <li><b>Answer blocks deserve the yellow.</b> The Signal Rule says yellow marks what needs you — the final answer and a pending ask are exactly that; narration and tools must stay in the ink ramp.</li>
+    <li><b>Promote churn to the transcript.</b> <code>+118 −9</code> per tool stripe tells the operator the blast radius before they open anything.</li>
+    <li><b>Pending ask = stillness + timer.</b> Per the motion grammar, the ask card shows a counting "waiting on you" timer; the spinner belongs to work, never to waiting.</li>
+    <li><b>Envelopes stay blue and framed</b> — inter-agent mail must never be mistakable for the human, and the question badge is the operator's cue that another agent is blocked.</li>
+  </ul>
+</div>

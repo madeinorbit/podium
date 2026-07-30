@@ -1,6 +1,7 @@
 import { shallowEqual } from '@podium/client-core'
 import { type IssuePanelArtifact, issueDisplayRef } from '@podium/protocol'
 import {
+  Archive,
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
@@ -52,6 +53,7 @@ import { cn } from '@/lib/utils'
 import { issueIdTitle, issueRefLong, STAGE_LABELS } from './issue-card'
 import type { IssueEventIcon } from './issue-events'
 import { AssigneeAvatar, StageGlyph } from './issue-glyphs'
+import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import {
   type IssueMailMessage,
   type IssuePageCommands,
@@ -95,6 +97,7 @@ export function IssuePage({
   const [editingDesc, setEditingDesc] = useState(false)
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
+  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -159,6 +162,7 @@ export function IssuePage({
         <span className="text-[13px] text-muted-foreground">{repoName}</span>
         <span className="text-[13px] text-muted-foreground">›</span>
         <button
+          data-pressable
           type="button"
           className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
           title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
@@ -167,16 +171,6 @@ export function IssuePage({
           }
         >
           {issueDisplayRef(issue)}
-        </button>
-        {/* The internal id agents quote in transcripts/CLI output — shown so it can
-            be matched by eye, click-to-copy for pasting into commands (#21). */}
-        <button
-          type="button"
-          className="max-w-44 cursor-pointer truncate rounded font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
-          title={`${issue.id} — click to copy`}
-          onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
-        >
-          {issue.id}
         </button>
         <div className="ml-auto flex items-center gap-1">
           <Button
@@ -294,6 +288,7 @@ export function IssuePage({
               />
             ) : (
               <button
+                data-pressable
                 type="button"
                 className="mb-2 block w-full break-words text-left font-semibold text-[22px] text-foreground leading-snug tracking-tight hover:opacity-80"
                 onClick={() => setEditingTitle(true)}
@@ -328,6 +323,7 @@ export function IssuePage({
                 />
               ) : (
                 <button
+                  data-pressable
                   type="button"
                   className={cn(
                     'block w-full whitespace-pre-wrap break-words text-left text-[13px] leading-relaxed',
@@ -373,6 +369,7 @@ export function IssuePage({
               </SectionHeading>
               {openChildren.map((c) => (
                 <button
+                  data-pressable
                   key={c.id}
                   type="button"
                   className={cn(
@@ -401,6 +398,7 @@ export function IssuePage({
                   <div className="mt-1 flex flex-col gap-1">
                     {doneChildren.map((child) => (
                       <button
+                        data-pressable
                         key={child.id}
                         type="button"
                         className="flex items-center gap-2 rounded px-1 py-1 text-left text-[12px] opacity-65 hover:bg-muted/50"
@@ -469,6 +467,7 @@ export function IssuePage({
                   busy={busy}
                   commands={commands}
                   onNavigate={onNavigate}
+                  onRequestClose={setCloseReason}
                 />
               </div>
             </details>
@@ -573,9 +572,23 @@ export function IssuePage({
           data-testid="issue-aside"
           className="hidden w-[280px] shrink-0 overflow-y-auto border-border border-l px-4 py-4 md:block"
         >
-          <IssueProperties issue={issue} busy={busy} commands={commands} onNavigate={onNavigate} />
+          <IssueProperties
+            issue={issue}
+            busy={busy}
+            commands={commands}
+            onNavigate={onNavigate}
+            onRequestClose={setCloseReason}
+          />
         </aside>
       </div>
+
+      <IssueCloseDialog
+        issue={issue}
+        reason={closeReason}
+        busy={busy}
+        onOpenChange={(open) => !open && setCloseReason(null)}
+        onConfirm={(reason) => commands.selectStatus(`close:${reason}`)}
+      />
 
       {toast && (
         <div
@@ -710,6 +723,7 @@ function LifecycleBanner({
       <p className="text-[13px] text-foreground">
         {verb}{' '}
         <button
+          data-pressable
           type="button"
           className="font-medium text-primary hover:underline"
           onClick={() => target && onNavigate(id)}
@@ -787,6 +801,7 @@ function LongFormFields({
             />
           ) : (
             <button
+              data-pressable
               type="button"
               className="block w-full whitespace-pre-wrap break-words text-left text-[13px] text-foreground/85 leading-relaxed hover:text-foreground"
               onClick={() => setEditing(field)}
@@ -891,11 +906,13 @@ function PanelSections({
       return
     }
     if (!root) return
-    // Legacy path-only artifacts open from the live worktree.
+    // Legacy path-only artifacts open from the live worktree, owned by this
+    // issue (POD-149) so the tab lands in — and stays in — its strip.
     openFileInWorktree({
       machineId: issue.machineId,
       root,
       path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+      issueId: issue.id,
     })
   }
 
@@ -961,6 +978,7 @@ function PanelSections({
                 return (
                   <figure key={a.path}>
                     <button
+                      data-pressable
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={kind === 'image' ? `View ${label} full size` : `Play ${label}`}
@@ -1173,6 +1191,15 @@ function IssueOverflowMenu({
     commands.deleteIssue(onDeleted)
   }
   const handleRestore = (): void => commands.restoreIssue(onDeleted)
+  const handleArchive = (): void => {
+    if (!issue.archived && !issue.closedReason && issue.stage !== 'done') {
+      const ok = window.confirm(
+        'Archive this open issue? It will leave active views, but it will not be closed and its sessions will not be retired.',
+      )
+      if (!ok) return
+    }
+    commands.toggleArchived()
+  }
 
   return (
     <DropdownMenu>
@@ -1208,6 +1235,19 @@ function IssueOverflowMenu({
             ) : (
               <>
                 <Pin size={14} aria-hidden="true" /> Pin
+              </>
+            )}
+          </DropdownMenuItem>
+        )}
+        {!issue.deletedAt && (
+          <DropdownMenuItem onClick={handleArchive}>
+            {issue.archived ? (
+              <>
+                <ArchiveRestore size={14} aria-hidden="true" /> Unarchive issue
+              </>
+            ) : (
+              <>
+                <Archive size={14} aria-hidden="true" /> Archive issue
               </>
             )}
           </DropdownMenuItem>

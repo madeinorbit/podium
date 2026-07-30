@@ -1,16 +1,18 @@
 /* Motion grammar (redesign handoff option 1d, .design/specs/motion.md).
-   The braille spinner + the green counting timer are the ONLY permanent motion,
-   running only while an agent computes; every phase change is a single one-shot
-   morph, then total stillness — stillness means "needs you". No pulses, no
-   glows, no breathing rings. Keyframe values are verbatim from the handoff. */
+   The braille spinner + the calm-blue counting timer are the ONLY permanent
+   motion, running only while an agent computes; every phase change is a single
+   one-shot morph, then total stillness — stillness means "needs you". No
+   pulses, no glows, no breathing rings. Keyframe values are verbatim from the
+   handoff. */
 
 :root {
-  /* Reserved motion colours (handoff 4b): the issue palette deliberately
-     excludes the emerald and amber bands, so these never collide with an
-     issue colour and are safe to hardcode here. */
-  --motion-working: #10b981; /* spinner + counting timer */
-  --motion-working-bright: #34d399; /* spinner/✓ glyph inside dark badges */
-  --motion-badge-bg: #0c1f18; /* dark green badge fill behind the glyph */
+  /* Reserved motion colours (handoff 4b, retuned by POD-166 R10: working is
+     calm blue, never green or red). The issue palette's blue slot (#3b82f6)
+     stays a different hue band, and the amber band is excluded entirely, so
+     these never collide with an issue colour and are safe to hardcode here. */
+  --motion-working: #6f9dff; /* spinner + counting timer */
+  --motion-working-bright: #9dbcff; /* spinner/✓ glyph inside dark badges */
+  --motion-badge-bg: #0e1a2e; /* dark navy badge fill behind the glyph */
   --motion-waiting: #f59e0b; /* amber: waiting on you */
   --motion-waiting-ink: #161006; /* text on an amber pill */
   --motion-total: #6c6c78; /* grey ∑ total on done rows */
@@ -78,8 +80,10 @@
     transform: scale(1);
   }
 }
+/* Hold the amber attention flash for ~2s, then ease out (POD-323). */
 @keyframes podium-row-flash {
-  0% {
+  0%,
+  69% {
     background-color: rgba(245, 158, 11, 0.32);
   }
   100% {
@@ -99,7 +103,7 @@
 @keyframes podium-flip-ago {
   0% {
     transform: scale(1.35);
-    color: #10b981;
+    color: #6f9dff;
     opacity: 0.4;
   }
   45% {
@@ -126,12 +130,82 @@
   min-width: 8px;
   font-family: var(--font-mono, ui-monospace, monospace);
   /* Contexts retint via --spb-color (e.g. the dark badge uses the brighter
-     emerald); default is the reserved working green. */
+     blue); default is the reserved working blue. */
   color: var(--spb-color, var(--motion-working));
 }
 .spb::before {
   content: "⠋";
   animation: podium-spb 0.8s steps(1, end) infinite;
+}
+
+/* Handover transit wire (POD-337): a session moving to another machine covers
+   its pane, and the only motion there is this stream of character cells crossing
+   from the source station to the target one in the reserved working blue — the
+   spinner's "the machine is busy" voice, laid out as a route. Two mono layers on
+   one cell grid (a dim rail, and carets travelling along it) translated in whole
+   `ch` steps, so they advance cell by cell like terminal output rather than
+   sliding continuously. The caret period is 12 cells, so a 12ch travel loops
+   seamlessly; both ends are masked so carets fade in leaving the source and out
+   as they reach the target. */
+@keyframes podium-wire {
+  to {
+    transform: translateX(12ch);
+  }
+}
+.handover-wire {
+  position: relative;
+  /* Never collapses to nothing: a dragged-narrow pane keeps a stub of route
+     rather than butting the two station names together. */
+  flex: 1;
+  min-width: 24px;
+  overflow: hidden;
+  height: 1em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0;
+  mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 90%, transparent 100%);
+}
+.handover-wire-base,
+.handover-wire-flow {
+  position: absolute;
+  top: 0;
+  left: -12ch;
+  right: 0;
+  white-space: nowrap;
+}
+.handover-wire-base {
+  color: color-mix(in srgb, var(--motion-working) 26%, transparent);
+}
+.handover-wire-flow {
+  color: var(--motion-working);
+  animation: podium-wire 1.2s steps(12, end) infinite;
+}
+/* Arrival: the stream stops and the route settles into a brighter, quiet line. */
+.handover-wire-done .handover-wire-base {
+  color: color-mix(in srgb, var(--motion-working) 38%, transparent);
+}
+.handover-wire-done .handover-wire-flow {
+  animation: none;
+  opacity: 0;
+}
+/* The veil dissolves into the terminal reattaching behind it. */
+.handover-veil {
+  transition:
+    opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  /* The veil covers the TERMINAL surface, which is dark in every theme (xterm's
+     own background, issue-tinted) — so it pins its own ink ramp instead of
+     inheriting the theme's, whose ink goes dark on a light theme and would
+     vanish here. Same mixes as .issue-scope, with the dark-surface ramp
+     constants inlined, so the issue-colour channel still tints the copy. */
+  --handover-ink: color-mix(in srgb, var(--issue) 10%, #f3f3f8);
+  --handover-bright: color-mix(in srgb, var(--issue) 25%, #d7d7e0);
+  --handover-muted: color-mix(in srgb, var(--issue) 26%, #9aa3b2);
+  --handover-dim: color-mix(in srgb, var(--issue) 28%, #6c7690);
+  --handover-label: #7a84a0;
+}
+.handover-veil-out {
+  opacity: 0;
+  filter: blur(3px);
 }
 
 .morph-ignite {
@@ -144,7 +218,8 @@
   animation: podium-pop-in 0.4s ease;
 }
 .morph-row-flash {
-  animation: podium-row-flash 0.9s ease-out;
+  /* 2s hold + ~0.9s fade (matches previous fade length). */
+  animation: podium-row-flash 2.9s ease-out;
 }
 .morph-tick-in {
   animation: podium-tick-in 0.35s ease;
@@ -154,6 +229,68 @@
 }
 .morph-icon-flash {
   animation: podium-icon-flash 1s ease-out;
+}
+/* Tray-card arrival flash (POD-113 v3): the tray card owns a tinted background,
+   so the one-shot amber flash rides an inset shadow overlay instead of
+   background-color, ending fully transparent (the card's own tint returns). */
+@keyframes podium-card-flash {
+  0% {
+    box-shadow: inset 0 0 0 200px rgba(245, 158, 11, 0.32);
+  }
+  100% {
+    box-shadow: inset 0 0 0 200px rgba(245, 158, 11, 0);
+  }
+}
+.morph-card-flash {
+  animation: podium-card-flash 0.9s ease-out;
+}
+/* Tray-card insertion unfold (POD-113 v3): grid-template-rows 0fr→1fr — the
+   only sanctioned way to animate a card's arrival height (height:auto
+   transitions snap; see the repo's height-transition trap). */
+.tray-ins {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.tray-ins-open {
+  grid-template-rows: 1fr;
+}
+.tray-ins > div {
+  overflow: hidden;
+  min-height: 0;
+}
+/* Lineage flash (POD-85): selecting a spin-off briefly outlines its ORIGIN row —
+   provenance as a gesture, not persistent chrome. */
+@keyframes podium-lineage {
+  0% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+  }
+  25% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.9);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0);
+  }
+}
+.morph-lineage {
+  animation: podium-lineage 1.6s ease-out;
+}
+
+/* Sidebar row flow (POD-167, POD-242, POD-254): Motion owns geometry, opacity,
+   and the interruptible spring settle. CSS keeps only the quiet colour wash —
+   a self-contained flourish that does not affect layout. Yellow is never used:
+   this motion communicates structure, not a request. */
+@keyframes podium-arrive-wash {
+  0% {
+    background: color-mix(in srgb, var(--arrive-tint, #64748b) 26%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.row-arrive > * {
+  border-radius: 7px;
+  animation: podium-arrive-wash 1.45s 0.12s cubic-bezier(0.4, 0, 0.2, 1) backwards;
 }
 
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
@@ -166,10 +303,18 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The spinner freezes on its first frame — the green mono glyph alone still
+  /* The spinner freezes on its first frame — the blue mono glyph alone still
      reads "computing" (colour + the ticking timer carry the state). */
   .spb::before {
     animation: none;
+  }
+  /* The transit wire stops travelling — the blue carets pointing at the target
+     still read as "on its way" — and the veil snaps instead of dissolving. */
+  .handover-wire-flow {
+    animation: none;
+  }
+  .handover-veil {
+    transition: none;
   }
   /* One-shot morphs are dropped entirely; the end state is the resting style,
      so nothing is lost but the flourish. */
@@ -177,12 +322,20 @@
   .morph-pop,
   .morph-pop-soft,
   .morph-row-flash,
+  .morph-card-flash,
   .morph-tick-in,
   .morph-flip-ago,
-  .morph-icon-flash {
+  .morph-icon-flash,
+  .morph-lineage,
+  .row-arrive > * {
     animation: none;
   }
   .phase-surface {
+    transition: none;
+  }
+  /* Cards appear instantly — no unfold morph. */
+  .tray-ins {
+    grid-template-rows: 1fr;
     transition: none;
   }
 }

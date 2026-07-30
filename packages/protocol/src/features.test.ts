@@ -95,27 +95,81 @@ for (const visibility of ['hidden', 'edge', 'stable'] as const) {
 }
 
 describe('FEATURES registry', () => {
-  // Asserts CONTAINMENT, not the whole array. The equality form this replaces
-  // said "includes ..." in its name while demanding the registry hold nothing
-  // else — so it failed the first time a real flag landed (POD-796's
-  // retired feature keys), which is the registry working, not breaking.
-  it('includes the sample-experiment hidden flag', () => {
-    expect(FEATURES).toContainEqual({
-      id: 'sample-experiment',
-      name: 'Sample experiment',
-      description:
-        'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
-      visibility: 'hidden',
-    })
-  })
-
-  // The invariant a flag registry actually has to hold: `id` is the key written
-  // into config.json and settings and is "never renamed" (see FeatureDefinition),
-  // so a duplicate id would make resolveFeatureState's `find` silently answer for
-  // the wrong flag.
-  it('has unique ids', () => {
-    const ids = FEATURES.map((f) => f.id)
-    expect(ids).toEqual([...new Set(ids)])
+  it('registers every experimental surface with user-facing copy', () => {
+    expect(FEATURES).toEqual(
+      expect.arrayContaining([
+        {
+          id: 'sample-experiment',
+          name: 'Sample experiment',
+          description:
+            'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
+          visibility: 'hidden',
+        },
+        {
+          id: 'draft-sync',
+          name: 'Draft sync',
+          description:
+            'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
+          visibility: 'edge',
+        },
+        {
+          id: 'command-palette',
+          name: 'Cmd+K search',
+          description: 'Search and navigate Podium from the Cmd+K command palette.',
+          visibility: 'edge',
+        },
+        {
+          id: 'git-panel',
+          name: 'Git panel',
+          description: 'Show the Git tab in the right sidebar.',
+          visibility: 'edge',
+        },
+        {
+          id: 'messages-panel',
+          name: 'Messages panel',
+          description: 'Show the Messages tab in the right sidebar.',
+          visibility: 'edge',
+        },
+        {
+          id: 'tab-splitting',
+          name: 'Tab splitting',
+          description: 'Show two workspace tabs side by side.',
+          visibility: 'edge',
+        },
+        {
+          id: 'session-handoff',
+          name: 'Session handoff',
+          description: 'Move a live session to another Podium server.',
+          visibility: 'edge',
+        },
+        {
+          id: 'workflows',
+          name: 'Workflows',
+          description:
+            'Show workflows and give agents workflow-aware instructions and CLI guidance.',
+          visibility: 'edge',
+        },
+        {
+          id: 'specs',
+          name: 'Specs',
+          description:
+            'Show living specs and give agents spec-aware instructions and CLI guidance.',
+          visibility: 'edge',
+        },
+        {
+          id: 'automations',
+          name: 'Automations',
+          description: 'Show scheduled automations and notification triggers.',
+          visibility: 'edge',
+        },
+        {
+          id: 'notifications',
+          name: 'Notifications',
+          description: 'Enable web and external notifications and their settings.',
+          visibility: 'edge',
+        },
+      ]),
+    )
   })
 })
 

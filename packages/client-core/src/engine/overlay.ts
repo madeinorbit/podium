@@ -254,6 +254,22 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
         (r) => (r as IssueProjection).readAt == null,
       )
     }
+    case 'issueSetTucked': {
+      const i = entry.input as OutboxKinds['issueSetTucked']
+      // The server stamps its own clock, so covering truth is judged on the
+      // PRESENCE of tuckedAt, not on the timestamp value (same reasoning as
+      // sessionMarkRead's readAt). Until it lands, the pending entry keeps the
+      // row folded across every replica write — including a reconnect heal
+      // snapshot taken before the mutation reached the server, which is exactly
+      // the un-fold flicker the old ui-state path could not avoid.
+      return patchOverlay(
+        'issues',
+        i.id,
+        entry.mutationId,
+        { tuckedAt: i.tucked ? new Date(entry.queuedAt).toISOString() : null },
+        (r) => ((r as IssueWire).tuckedAt != null) === i.tucked,
+      )
+    }
     case 'resumeAndSend':
       return null // no row-visible optimism (delivery, not curation)
     default:

@@ -18,7 +18,7 @@ export interface HeadlessDeps {
   getSession(sessionId: string): Session | undefined
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string): string
+  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): string
   defaultMachine(): string
   toMachine(machineId: string, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
@@ -67,7 +67,7 @@ export class HeadlessService {
     machineId?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
-    const machineId = this.deps.resolveMachine(input.machineId, input.cwd)
+    const machineId = this.deps.resolveMachine(input.machineId, input.cwd, input.agentKind)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,

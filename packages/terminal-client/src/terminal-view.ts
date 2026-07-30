@@ -5,6 +5,7 @@ import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
 import { makeRefLinkProvider, type RefLinkConfig } from './ref-link-provider'
 import { RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-overlay'
 import type { TerminalDiagnosticData } from './terminal-diagnostics'
+import { wireTouchScroll } from './touch-scroll'
 import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
@@ -327,6 +328,10 @@ export class TerminalView {
     this.tryLoadWebgl()
     this.wireRefOverlay(el)
     this.wireClipboard(el)
+    // Finger scrolling (#339). xterm's own touch fallback goes dead as soon as
+    // the application enables mouse tracking — which Claude Code does — so the
+    // pane must translate drags into wheel events itself.
+    this.cleanup.push(wireTouchScroll(el, this.term))
   }
 
   /** Mount the persistent ref-underline layer (#517) into `.xterm-screen` and
@@ -642,7 +647,17 @@ export class TerminalView {
       // xterm's Meta handling.
       const cmdBackspace =
         ev.key === 'Backspace' && ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey
-      if (shiftEnter || cmdBackspace) {
+      // Cmd+Left/Right must jump to line start/end (macOS text convention; native
+      // terminals map it too). xterm has no encoding for a Meta-modified arrow —
+      // the chord dies in its keydown handler. Substitute Ctrl+A / Ctrl+E, the
+      // emacs line-motion bytes Claude Code and readline both honor.
+      const cmdArrow =
+        (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') &&
+        ev.metaKey &&
+        !ev.ctrlKey &&
+        !ev.altKey &&
+        !ev.shiftKey
+      if (shiftEnter || cmdBackspace || cmdArrow) {
         // preventDefault is load-bearing: returning false only skips xterm's OWN
         // handling of THIS event. Without it the browser still runs the default
         // action — Shift+Enter fires a keypress and inserts a newline into xterm's
@@ -652,7 +667,15 @@ export class TerminalView {
         // shows it). Swallow keypress/keyup echoes of the chord too.
         if (ev.type === 'keydown') {
           ev.preventDefault()
-          this.dataSink?.(shiftEnter ? '\x1b\r' : '\x15')
+          this.dataSink?.(
+            shiftEnter
+              ? '\x1b\r'
+              : cmdBackspace
+                ? '\x15'
+                : ev.key === 'ArrowLeft'
+                  ? '\x01'
+                  : '\x05',
+          )
         }
         return false
       }

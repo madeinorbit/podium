@@ -7,6 +7,7 @@ import type {
   ResumeRef,
   ServerMessage,
   SessionMeta,
+  SessionObservationCheckpointV1,
   SessionOffer,
   SessionOrigin,
   TranscriptItem,
@@ -111,11 +112,15 @@ export interface SessionInit {
   lastActiveAt?: string
   /** Persisted completed working/compacting time; absent for legacy sessions. */
   workingMsTotal?: number
+  inputCount?: number
+  outputCount?: number
+  activityCount?: number
   lastOutputAt?: string | null
   lastInputAt?: string | null
   lastResumedAt?: string | null
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
+  spawnFailure?: string
   name?: string
   /** WHO set `name` (#490): 'user' (sovereign) | 'agent' (self-named). */
   nameSource?: 'user' | 'agent'
@@ -203,10 +208,13 @@ export interface SessionDurableState {
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode: number | undefined
+  spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
   workingMsTotal: number | undefined
   incomingWorkingMsTotal: number | undefined
   agentColor: string | undefined
+  observedModel: string | undefined
+  observedEffort: string | undefined
   snoozedUntil: string | null | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
@@ -218,6 +226,9 @@ export interface SessionDurableState {
   outputAtMs: number
   inputAtMs: number
   resumedAtMs: number
+  inputCount: number
+  outputCount: number
+  activityCount: number
   activityDirty: boolean
   shellBusy: boolean
   shellCommandRunning: boolean
@@ -285,12 +296,22 @@ export class Session {
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
+  /** Exact daemon diagnosis when a spawn never reached a running process. */
+  spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
   private workingMsTotal: number | undefined
   private incomingWorkingMsTotal: number | undefined
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
+  /** The model OBSERVED producing assistant turns, learned from the transcript
+   *  tail (`message.model`). Resolves a spawn-time `auto` selection to the real
+   *  id and follows mid-session `/model` switches. Not persisted: like
+   *  agentColor it is re-learned from the tail's seed window on reattach. */
+  observedModel: string | undefined
+  /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
+   *  learned alongside observedModel. */
+  observedEffort: string | undefined
   /** Snooze deadline — orthogonal to agentState. undefined = not snoozed; null =
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
@@ -330,6 +351,9 @@ export class Session {
   private outputAtMs = 0
   private inputAtMs = 0
   private resumedAtMs = 0
+  private inputCount_ = 0
+  private outputCount_ = 0
+  private activityCount_ = 0
   // Set when any of the three counters above advances; the registry's periodic
   // flush persists dirty sessions and clears this. Keeps the hot path off the DB.
   private activityDirty_ = false
@@ -397,8 +421,12 @@ export class Session {
     this.outputAtMs = seedMs(init.lastOutputAt)
     this.inputAtMs = seedMs(init.lastInputAt)
     this.resumedAtMs = seedMs(init.lastResumedAt)
+    this.inputCount_ = init.inputCount ?? 0
+    this.outputCount_ = init.outputCount ?? 0
+    this.activityCount_ = init.activityCount ?? 0
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
+    if (init.spawnFailure !== undefined) this.spawnFailure = init.spawnFailure
     if (init.name) this.name = init.name
     if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
@@ -425,6 +453,15 @@ export class Session {
   get lastResumedAtMs(): number {
     return this.resumedAtMs
   }
+  get inputCount(): number {
+    return this.inputCount_
+  }
+  get outputCount(): number {
+    return this.outputCount_
+  }
+  get activityCount(): number {
+    return this.activityCount_
+  }
   get activityDirty(): boolean {
     return this.activityDirty_
   }
@@ -441,7 +478,9 @@ export class Session {
   markResumed(): void {
     this.stoppedAt = undefined
     this.stopReason = undefined
+    this.spawnFailure = undefined
     this.resumedAtMs = Date.now()
+    this.activityCount_ += 1
     this.activityDirty_ = true
   }
 
@@ -607,10 +646,23 @@ export class Session {
         this.shellCommandRunning = true
         this.markShellBusy()
       }
-      this.inputAtMs = Date.now()
-      this.activityDirty_ = true
-      this.toDaemon({ type: 'input', sessionId: this.sessionId, data })
+      this.recordInputActivity()
+      this.toDaemon({ type: 'input', sessionId: this.sessionId, data, inputOrigin: 'human' })
     }
+  }
+
+  /** Every server-authorized PTY input path calls this before enqueueing bytes. */
+  recordInputActivity(at = Date.now()): void {
+    this.inputAtMs = at
+    this.inputCount_ += 1
+    this.activityCount_ += 1
+    this.activityDirty_ = true
+  }
+
+  /** Count one accepted live provider observation; bootstrap/replay never call this. */
+  recordObservationActivity(): void {
+    this.activityCount_ += 1
+    this.activityDirty_ = true
   }
 
   handleResize(clientId: string, cols: number, rows: number): void {
@@ -717,6 +769,7 @@ export class Session {
     this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
     this.outputAtMs = Date.now()
+    this.outputCount_ += 1
     this.activityDirty_ = true
     // Shells have no harness instrumentation, so output is our only progress
     // signal — but only *after* a command was submitted. Output that arrives
@@ -781,10 +834,8 @@ export class Session {
     this.stoppedAt ??= new Date().toISOString()
     this.stopReason ??= 'exited'
     this.readAt = null
-    // The harness-observed phase described a running agent; that agent is gone.
-    // Leaving it set would make the home board / superagent / Continue button
-    // keep treating a dead session as 'working' or 'errored'.
-    this.agentState = undefined
+    // Preserve the final turn diagnosis; lifecycle status owns liveness while
+    // the causal checkpoint remains inspectable [spec:SP-cdb2].
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
   }
 
@@ -792,6 +843,7 @@ export class Session {
   markSpawnError(message: string): void {
     this.status = 'exited'
     this.exitCode = -1
+    this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
     this.stoppedAt ??= new Date().toISOString()
@@ -803,6 +855,19 @@ export class Session {
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   /** Harness-observed runtime state (hooks-driven). The cumulative compute base is persisted. */
+  applyObservationCheckpoint(checkpoint: SessionObservationCheckpointV1): void {
+    const state = checkpoint.turnState
+    this.workingMsTotal = state.workingMsTotal
+    this.incomingWorkingMsTotal = undefined
+    this.agentState = state
+    const providerAt = checkpoint.providerAt
+    if (providerAt && providerAt > this.lastActiveAt) this.lastActiveAt = providerAt
+  }
+
+  /**
+   * Legacy unfenced state path. Kept during mixed deployment only; causal v1
+   * sessions bypass its daemon-counter reset heuristic.
+   */
   setAgentState(state: AgentRuntimeState): void {
     // The daemon reducer's total restarts at zero with each tracker. Persist only
     // positive deltas within one tracker epoch on top of our durable total; a
@@ -855,6 +920,21 @@ export class Session {
   clearOffer(): boolean {
     if (this.offer === undefined) return false
     this.offer = undefined
+    return true
+  }
+
+  /** Adopt an observed-model sighting from the transcript tail. Returns true
+   *  when it actually changed (so the caller can skip a redundant broadcast). */
+  setObservedModel(model: string, effort?: string): boolean {
+    const nextModel = model.trim()
+    const nextEffort = effort?.trim() || undefined
+    if (!nextModel) return false
+    const changed =
+      nextModel !== this.observedModel ||
+      (nextEffort !== undefined && nextEffort !== this.observedEffort)
+    if (!changed) return false
+    this.observedModel = nextModel
+    if (nextEffort !== undefined) this.observedEffort = nextEffort
     return true
   }
 
@@ -923,10 +1003,13 @@ export class Session {
       cmd: this.cmd,
       status: this.status,
       exitCode: this.exitCode,
+      spawnFailure: this.spawnFailure,
       agentState: this.agentState ? structuredClone(this.agentState) : undefined,
       workingMsTotal: this.workingMsTotal,
       incomingWorkingMsTotal: this.incomingWorkingMsTotal,
       agentColor: this.agentColor,
+      observedModel: this.observedModel,
+      observedEffort: this.observedEffort,
       snoozedUntil: this.snoozedUntil,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
@@ -938,6 +1021,9 @@ export class Session {
       outputAtMs: this.outputAtMs,
       inputAtMs: this.inputAtMs,
       resumedAtMs: this.resumedAtMs,
+      inputCount: this.inputCount_,
+      outputCount: this.outputCount_,
+      activityCount: this.activityCount_,
       activityDirty: this.activityDirty_,
       shellBusy: this.shellBusy,
       shellCommandRunning: this.shellCommandRunning,
@@ -968,10 +1054,13 @@ export class Session {
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
     this.exitCode = state.exitCode
+    this.spawnFailure = state.spawnFailure
     this.agentState = state.agentState ? structuredClone(state.agentState) : undefined
     this.workingMsTotal = state.workingMsTotal
     this.incomingWorkingMsTotal = state.incomingWorkingMsTotal
     this.agentColor = state.agentColor
+    this.observedModel = state.observedModel
+    this.observedEffort = state.observedEffort
     this.snoozedUntil = state.snoozedUntil
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
@@ -983,6 +1072,9 @@ export class Session {
     this.outputAtMs = state.outputAtMs
     this.inputAtMs = state.inputAtMs
     this.resumedAtMs = state.resumedAtMs
+    this.inputCount_ = state.inputCount
+    this.outputCount_ = state.outputCount
+    this.activityCount_ = state.activityCount
     this.activityDirty_ = state.activityDirty
     this.shellBusy = state.shellBusy
     this.shellCommandRunning = state.shellCommandRunning
@@ -1007,11 +1099,15 @@ export class Session {
       resumeValue: this.resume?.value ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
+      spawnFailure: this.spawnFailure ?? null,
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
       geometry: { ...this.geometry },
       ...(this.workingMsTotal !== undefined ? { workingMsTotal: this.workingMsTotal } : {}),
+      inputCount: this.inputCount_,
+      outputCount: this.outputCount_,
+      activityCount: this.activityCount_,
       lastOutputAt: Session.msToIso(this.outputAtMs),
       lastInputAt: Session.msToIso(this.inputAtMs),
       lastResumedAt: Session.msToIso(this.resumedAtMs),
@@ -1057,6 +1153,7 @@ export class Session {
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
+      ...(this.spawnFailure ? { spawnFailure: this.spawnFailure } : {}),
       ...(this.agentState ? { agentState: this.agentState } : {}),
       controllerId: this.controllerId,
       geometry: { ...this.geometry },
@@ -1064,6 +1161,9 @@ export class Session {
       clientCount: this.clients.size,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      // Last human (controller) input — the offer-artifact freshness fallback
+      // [POD-120] compares issue-artifact addedAt against this on the client.
+      ...(this.inputAtMs > 0 ? { lastInputAt: new Date(this.inputAtMs).toISOString() } : {}),
       origin: this.origin,
       archived: this.archived,
       // Email-style read state (issue #124). unread = there is activity the operator
@@ -1083,6 +1183,8 @@ export class Session {
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
+      ...(this.observedModel ? { observedModel: this.observedModel } : {}),
+      ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),

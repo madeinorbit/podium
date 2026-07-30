@@ -110,8 +110,9 @@ export function isKnownRefPrefix(prefix: string): boolean {
  * tag's own attributes — so it can't double-link or corrupt markup. Only tokens
  * whose prefix is a registered repo prefix become links.
  *
- * Emits `<a class="ref-link" data-ref="POD-13">POD-13</a>` (no href, so
- * externalizeLinks leaves it in-window); the click handler reads data-ref.
+ * Emits `<a class="ref-link ref-link--issue" data-ref="POD-13">POD-13</a>` (no
+ * href, so externalizeLinks leaves it in-window); the click handler reads
+ * data-ref. The kind modifier picks the chip icon (issue vs session).
  */
 export function linkifyRefs(html: string): string {
   if (knownRefPrefixes.size === 0) return html
@@ -131,7 +132,7 @@ export function linkifyRefs(html: string): string {
     parts[i] = p.replace(anyRefMatcher(), (tok) => {
       const ref = parseAnyRef(tok)
       if (!ref || !knownRefPrefixes.has(ref.prefix)) return tok
-      return `<a class="ref-link" data-ref="${tok}">${tok}</a>`
+      return `<a class="ref-link ref-link--${ref.kind}" data-ref="${tok}">${tok}</a>`
     })
   }
   return parts.join('')

@@ -10,15 +10,17 @@ const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex
 /** Minimal `ws` socket double: records sent frames, lets tests drive `message`/`close`. */
 function fakeWs() {
   const sent: string[] = []
-  const handlers: Record<string, (...a: unknown[]) => void> = {}
+  const handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
   return {
     sent,
     readyState: 1,
     send: (s: string) => sent.push(s),
     on: (ev: string, cb: (...a: unknown[]) => void) => {
-      handlers[ev] = cb
+      ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => handlers[ev]?.(...a),
+    emit: (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) handler(...a)
+    },
   }
 }
 
@@ -119,7 +121,7 @@ describe('daemon socket auth', () => {
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
 
-  it('a pair frame redeems a code, replies paired with a token, then helloOk + attach', () => {
+  it('a pair frame redeems a code, replies once with paired, then attaches', () => {
     const store = new SessionStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
@@ -144,7 +146,7 @@ describe('daemon socket auth', () => {
     expect(paired).toBeDefined()
     expect(typeof paired.token).toBe('string')
     expect(paired.token.length).toBeGreaterThan(0)
-    expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
+    expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(false)
     expect(attach).toHaveBeenCalledWith('mNew', expect.any(Function))
   })
 

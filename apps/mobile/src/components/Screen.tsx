@@ -1,49 +1,59 @@
-import { LinearGradient } from 'expo-linear-gradient'
 import { ChevronLeft } from 'lucide-react-native'
 import type { ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, font, radius, space } from '../theme/theme'
+import { flow } from '../theme/issueColors'
+import { alpha } from '../theme/mix'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 
 /**
- * Screen scaffold on the app's gradient canvas.
+ * Screen scaffold on the flat near-black canvas (#0e0e12).
  *
  * Two header modes:
- *  - `large` (tab roots): an iOS-style large title block with the actions row
- *    floating on the same line — friendly, roomy.
- *  - compact (pushed screens): back chevron + centered-weight title.
+ *  - `large` (tab roots): title block with the actions row on the same line.
+ *  - compact (pushed screens): back chevron + title, 44px-bar density.
+ *
+ * `accent` runs the issue colour flow through the chrome (colour-flow §2.8):
+ * header 16% tint over the card surface with a .45-alpha bottom hairline, body
+ * 10% over the canvas. Pass FLOW_SLATE for issues without a colour.
  */
 export function Screen({
   title,
   subtitle,
   onBack,
   backLabel,
+  leading,
   right,
   children,
   large,
   noHeader,
+  accent,
 }: {
   title?: string
   subtitle?: string
   onBack?: () => void
   backLabel?: string
+  /** Slot between the back chevron and the titles (the 18px ID square). */
+  leading?: ReactNode
   right?: ReactNode
   children: ReactNode
   large?: boolean
   noHeader?: boolean
+  accent?: string
 }) {
   const insets = useSafeAreaInsets()
+  const tint = accent
+    ? {
+        header: { backgroundColor: flow.headerBg(accent), borderBottomColor: alpha(accent, 0.45) },
+        body: { backgroundColor: flow.paneBg(accent) },
+      }
+    : null
   return (
-    <View style={styles.root}>
-      <LinearGradient
-        colors={[color.bgGradientTop, color.bg]}
-        style={StyleSheet.absoluteFill}
-        end={{ x: 0.3, y: 0.45 }}
-      />
-      <View style={[styles.inner, { paddingTop: insets.top }]}>
+    <View style={[styles.root, tint ? tint.body : null]}>
+      <View style={[styles.inner, noHeader ? { paddingTop: insets.top } : null]}>
         {noHeader ? null : large ? (
-          <View style={styles.largeHeader}>
+          <View style={[styles.largeHeader, { paddingTop: insets.top + space.md }]}>
             <View style={styles.largeTitles}>
               <Text style={styles.largeTitle} numberOfLines={1}>
                 {title}
@@ -57,7 +67,7 @@ export function Screen({
             {right ? <View style={styles.right}>{right}</View> : null}
           </View>
         ) : (
-          <View style={styles.header}>
+          <View style={[styles.header, tint ? tint.header : null, { paddingTop: insets.top + 6 }]}>
             {onBack ? (
               <Pressable
                 accessibilityRole="button"
@@ -66,9 +76,10 @@ export function Screen({
                 style={styles.back}
                 hitSlop={10}
               >
-                <Icon as={ChevronLeft} size={22} color={color.accent} />
+                <Icon as={ChevronLeft} size={17} color={color.textDim} />
               </Pressable>
             ) : null}
+            {leading}
             <View style={styles.titles}>
               {title ? (
                 <Text style={styles.title} numberOfLines={1}>
@@ -90,7 +101,7 @@ export function Screen({
   )
 }
 
-/** Round soft icon button for header action rows. */
+/** Square chip icon button for header action rows (28px, #16161c on #2e2e38). */
 export function HeaderButton({
   label,
   onPress,
@@ -125,9 +136,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: space.xl,
-    paddingTop: space.lg,
-    paddingBottom: space.md,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    paddingBottom: space.sm,
     gap: space.md,
   },
   largeTitles: {
@@ -136,30 +147,33 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   largeTitle: {
+    ...sans(600),
     color: color.text,
-    fontSize: font.largeTitle,
-    fontWeight: '800',
-    letterSpacing: -0.8,
+    fontSize: 20,
+    letterSpacing: -0.3,
   },
   largeSubtitle: {
+    ...sans(400),
     color: color.textFaint,
-    fontSize: font.small,
-    fontWeight: '500',
+    fontSize: font.tiny + 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 44,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    paddingVertical: 6,
     gap: space.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border,
   },
   back: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
+    width: 28,
+    height: 28,
+    borderRadius: radius.md,
     backgroundColor: color.surface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    borderColor: color.hairlineBar,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -168,12 +182,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
+    ...sans(600),
     color: color.text,
-    fontSize: font.heading,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontSize: font.body,
+    letterSpacing: -0.1,
   },
   subtitle: {
+    ...sans(400),
     color: color.textFaint,
     fontSize: font.tiny,
     marginTop: 1,
@@ -184,12 +199,12 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   headerBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
+    width: 28,
+    height: 28,
+    borderRadius: radius.md,
     backgroundColor: color.surface,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    borderColor: color.hairlineBar,
     alignItems: 'center',
     justifyContent: 'center',
   },

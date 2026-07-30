@@ -30,11 +30,11 @@ beforeEach(() => {
 })
 
 describe('replica ui-state collection', () => {
-  it('migrates a persisted removed Home view to Tasks', () => {
+  it('migrates a persisted removed Home view to Work', () => {
     const { storage } = makeStorage()
     const ui = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     ui.set('podium.view', 'home')
-    expect(readStoredView(ui)).toBe('issues')
+    expect(readStoredView(ui)).toBe('workspace')
   })
 
   it('migrates the old ad-hoc localStorage keys once and removes them', () => {

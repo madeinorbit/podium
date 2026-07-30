@@ -64,6 +64,28 @@ describe('runDrizzleMigrations', () => {
     db.close()
   })
 
+  it('accepts the deployed pre-rebase enrollment migration name without replaying its SQL', () => {
+    const db = openDatabase(':memory:')
+    const canonical: DrizzleMigration = {
+      name: '20260724134702_session-spawn-failure',
+      sql: 'ALTER TABLE a ADD COLUMN spawn_failure TEXT;',
+    }
+    runDrizzleMigrations(db, [A, canonical])
+    db.prepare('UPDATE __drizzle_migrations SET name = ? WHERE name = ?').run(
+      '20260722210552_session-spawn-failure',
+      canonical.name,
+    )
+
+    const applied = runDrizzleMigrations(db, [A, canonical])
+
+    expect(applied).toEqual([])
+    expect(appliedDrizzleNames(db)).toEqual(
+      new Set([A.name, '20260722210552_session-spawn-failure']),
+    )
+    expect(db.prepare('SELECT spawn_failure FROM a LIMIT 1').all()).toEqual([])
+    db.close()
+  })
+
   it('#472 back-fill: a DB that applied A and C (not B) applies exactly B, regardless of position', () => {
     const db = openDatabase(':memory:')
     // Build a DB that has a hole at B — the scenario #472 exists to guard

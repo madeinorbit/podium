@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -157,6 +157,9 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
 
   it('a working session lifted into WORKING is not emphasized', () => {
     render(<SidebarUnified />)
+    // Non-pinned rosters fold by default now (POD-293) — open it to inspect the
+    // lifted working session's weight.
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Partially working' }))
     const lifted = screen.getByText('working-child').closest('button')
     // A non-active unread PanelRow normally gets `font-medium text-foreground`;
     // under WORKING that emphasis is suppressed. `font-medium` is the tell (the

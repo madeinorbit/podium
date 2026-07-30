@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
-import { SuperagentService } from './modules/superagent'
 
 function machineCaller() {
   const store = new SessionStore(':memory:')
   // Pre-register a machine so listMachines returns it
-  store.machines.upsertMachine({ id: 'm1', name: 'machine-one', hostname: 'host-one', tokenHash: 'h1' })
+  store.machines.upsertMachine({
+    id: 'm1',
+    name: 'machine-one',
+    hostname: 'host-one',
+    tokenHash: 'h1',
+  })
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.modules.machines.ensureLocalMachine()
@@ -68,7 +73,21 @@ describe('machines router', () => {
 describe('sessions.create with machineId', () => {
   it('sessions.create accepts and forwards machineId', async () => {
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm2', name: 'machine-two', hostname: 'host-two', tokenHash: 'h2' })
+    store.machines.upsertMachine({
+      id: 'm2',
+      name: 'machine-two',
+      hostname: 'host-two',
+      tokenHash: 'h2',
+    })
+    store.machines.setMachineInventory(
+      'm2',
+      JSON.stringify({
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      }),
+    )
     const registry = new SessionRegistry(store)
     registry.modules.sessions.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)

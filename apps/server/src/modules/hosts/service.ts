@@ -51,7 +51,14 @@ export interface HostsDeps {
   machineName(id: string): string
   /** Live sessions, projected — the auto-hibernate candidate pool. */
   sessions(): Iterable<HostSessionView>
-  hibernateSession(input: { sessionId: string }): { ok: boolean; reason?: string }
+  hibernateSession(input: { sessionId: string; requireTerminalProof?: boolean }): {
+    ok: boolean
+    reason?: string
+  }
+  /** Server-authoritative, atomically revalidated two-pass terminal proof. */
+  hasValidTerminalProof(sessionId: string): boolean
+  /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
+  terminalProofMissing(sessionId: string): boolean
   /** The registry's shared daemon request/response plumbing (timeout + resolver
    *  registration + control-message routing). `machineId` undefined = default machine. */
   daemonRequest<T>(
@@ -80,6 +87,7 @@ export class HostsService {
   private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
   private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
   private readonly lastCapUnmetByMachine = new Map<string, string>()
+  private readonly missingProofLogged = new Set<string>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
 
   constructor(
@@ -146,7 +154,10 @@ export class HostsService {
       while (true) {
         const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
         if (!target) break
-        const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+        const result = this.deps.hibernateSession({
+          sessionId: target.sessionId,
+          requireTerminalProof: true,
+        })
         if (!result.ok) {
           failed.add(target.sessionId)
           continue
@@ -201,7 +212,10 @@ export class HostsService {
 
       const target = candidates[0]
       if (!target) return undefined
-      const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+      const result = this.deps.hibernateSession({
+        sessionId: target.sessionId,
+        requireTerminalProof: true,
+      })
       if (!result.ok) {
         failed.add(target.sessionId)
         continue
@@ -232,7 +246,7 @@ export class HostsService {
     return this.idleLiveSessions(machineId)
       .filter((session) => {
         const phase = session.agentState?.phase
-        return (
+        const otherwiseEligible =
           !excluded.has(session.sessionId) &&
           session.resume !== undefined &&
           (phase === 'idle' || phase === 'ended') &&
@@ -240,7 +254,23 @@ export class HostsService {
           // A foreground turn can end while a background task keeps painting its
           // TUI. A full quiet minute keeps that work protected.
           now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
-        )
+        if (!otherwiseEligible) return false
+        if (this.deps.hasValidTerminalProof(session.sessionId)) {
+          this.missingProofLogged.delete(session.sessionId)
+          return true
+        }
+        if (
+          this.deps.terminalProofMissing(session.sessionId) &&
+          !this.missingProofLogged.has(session.sessionId)
+        ) {
+          this.missingProofLogged.add(session.sessionId)
+          console.warn(
+            '[podium] auto-hibernate skipped terminal candidate ' +
+              session.sessionId +
+              ': missing durable terminal proof (possible mixed-version observer)',
+          )
+        }
+        return false
       })
       .sort((a, b) => this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b))
   }

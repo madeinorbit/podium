@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { issueRefLong, STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import type { IssueCloseReason } from './issue-lifecycle'
 import type { IssuePageCommands } from './issue-page-commands'
 import {
   assigneeOptionsOf,
@@ -152,13 +153,15 @@ export function IssueProperties({
   busy,
   commands,
   onNavigate,
+  onRequestClose,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   onNavigate: (id: string) => void
+  onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const { trpc, sessions, machines, navigateToSession } = useStoreSelector(
+  const { trpc, machines, sessions, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       sessions: s.sessions,
@@ -190,6 +193,10 @@ export function IssueProperties({
     const m = byId.get(id)
     return m ? issueRefLong(m) : id
   }
+  const issueStageGlyph = (id: string): JSX.Element | null => {
+    const target = byId.get(id)
+    return target ? <StageGlyph stage={target.stage} size={13} /> : null
+  }
   const mateOptions = mateOptionsOf(repoMates)
   const assigneeOptions = assigneeOptionsOf(issues)
   const labelPool = labelPoolOf(issues, issue)
@@ -205,9 +212,15 @@ export function IssueProperties({
   const relations = groupRelations(issue)
   const parent = issue.parentId ? byId.get(issue.parentId) : undefined
 
-  // ---- Status: 6 stages + Close done/wontfix. Reopen is intentionally omitted:
-  // the `update` router can't clear `closedReason` (string, no null), and an empty
-  // string still reads as closed server-side (isClosed: closedReason != null). ----
+  // Forwarding ghosts (POD-89): sessions BORN here (permanent refIssueId) that
+  // re-homed elsewhere. "No agents" was misread as work lost — the honest shape
+  // is "the agent moved on to POD-x".
+  const movedOn = (sessions ?? []).filter(
+    (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
+  )
+
+  // ---- Status: lifecycle stages reopen a closed issue; close choices are guarded
+  // by the shared dialog mounted on the full page. ----
   const statusOptions: PropertyOption[] = [
     ...ISSUE_STAGES.map((s) => ({
       value: `stage:${s}`,
@@ -226,7 +239,11 @@ export function IssueProperties({
           <PropertyMenu
             selectedValue={`stage:${issue.stage}`}
             options={statusOptions}
-            onSelect={commands.selectStatus}
+            onSelect={(value) => {
+              if (value === 'close:done') onRequestClose('done')
+              else if (value === 'close:wontfix') onRequestClose('wontfix')
+              else commands.selectStatus(value)
+            }}
             trigger={
               <TriggerButton disabled={busy} testId="status-trigger">
                 <StageGlyph stage={issue.stage} />
@@ -290,6 +307,7 @@ export function IssueProperties({
               >
                 {label}
                 <button
+                  data-pressable
                   type="button"
                   aria-label={`Remove label ${label}`}
                   title={`Remove ${label}`}
@@ -417,6 +435,7 @@ export function IssueProperties({
           <div className="flex items-center gap-1">
             {parent && (
               <button
+                data-pressable
                 type="button"
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline"
                 onClick={() => onNavigate(parent.id)}
@@ -479,15 +498,19 @@ export function IssueProperties({
                 className="group flex items-center justify-between gap-2"
               >
                 <button
+                  data-pressable
                   type="button"
-                  className="min-w-0 flex-1 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
                   onClick={() => byId.has(entry.id) && onNavigate(entry.id)}
                   title={issueLabel(entry.id)}
                 >
-                  {issueLabel(entry.id)}
+                  {issueStageGlyph(entry.id)}
+                  <span className="truncate">{issueLabel(entry.id)}</span>
                 </button>
                 <button
+                  data-pressable
                   type="button"
+                  data-hover-reveal
                   aria-label={`Remove relation ${entry.type} ${entry.id}`}
                   title="Remove relation"
                   disabled={busy}
@@ -622,6 +645,30 @@ export function IssueProperties({
                 {sessionDisplayName(s)}
               </Button>
             ))}
+          </div>
+        )}
+        {movedOn.length > 0 && (
+          <div className="flex flex-col gap-1" data-testid="moved-on-sessions">
+            {movedOn.map((s) => {
+              const dest = s.issueId ? byId.get(s.issueId) : undefined
+              return (
+                <Button
+                  key={s.sessionId}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal text-muted-foreground opacity-80"
+                  title={dest ? `Session continued on ${issueRefLong(dest)}` : 'Session moved on'}
+                  onClick={() => openSession(s)}
+                >
+                  <span className="mr-1.5" aria-hidden="true">
+                    ⤷
+                  </span>
+                  {sessionDisplayName(s)} · continued on{' '}
+                  {dest ? issueDisplayRef(dest) : 'another issue'}
+                </Button>
+              )
+            })}
           </div>
         )}
         {issue.worktreePath ? (

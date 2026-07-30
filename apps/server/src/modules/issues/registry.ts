@@ -1,3 +1,4 @@
+import { isSortKey } from '@podium/domain'
 import {
   type CommandConcurrency,
   type CommandDef,
@@ -877,6 +878,8 @@ const defs = {
           deferUntil: z.string().optional(),
           closedReason: z.string().optional(),
           pinned: z.boolean().optional(),
+          // Manual order (POD-168): fractional key, validated before persistence.
+          sortKey: z.string().max(128).refine(isSortKey, "malformed sort key").optional(),
           // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
           color: IssueColor.nullable().optional(),
           estimateMin: z.number().int().optional(),
@@ -949,6 +952,8 @@ const defs = {
         // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
         // from the caller below, exactly like issues.create, so it cannot be forged.
         newSubissue: z.object({ title: z.string().min(1) }).optional(),
+        // POD-85: top-level issue with a discovered-from provenance edge.
+        newSpinoff: z.object({ title: z.string().min(1) }).optional(),
       })
       .merge(env),
     action: 'write',
@@ -963,10 +968,12 @@ const defs = {
       if (input.targetId != null) {
         assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
-      const { newSubissue, mutationId: _mutationId, ...rest } = input
-      return ctx.issues.attachSession(
-        newSubissue ? { ...rest, newSubissue: { title: newSubissue.title, origin } } : { ...rest },
-      )
+      const { newSubissue, newSpinoff, mutationId: _mutationId, ...rest } = input
+      return ctx.issues.attachSession({
+        ...rest,
+        ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
+        ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),
+      })
     },
   }),
   archive: def({
@@ -1291,6 +1298,17 @@ const defs = {
     // field-LWW read-tracking — see markRead.
     concurrency: cmd('field-LWW read-tracking; last stamp wins, no precondition'),
     handler: (ctx, input) => ctx.issues.markIssueUnread(input.id),
+  }),
+  // Tuck a finished issue into the sidebar's Closed fold, or bring it back
+  // (POD-333). Sidebar curation the operator performs while reading the board —
+  // node-local like markRead (deliberately NOT issueWrite / never hub-forwarded)
+  // and 'read' authority, despite being a mutation on the wire.
+  setTucked: def({
+    kind: 'mutation',
+    input: z.object({ id: z.string(), tucked: z.boolean() }).merge(env),
+    action: 'read',
+    concurrency: cmd('field-LWW sidebar curation; last tuck state wins'),
+    handler: (ctx, input) => ctx.issues.setIssueTucked(input.id, input.tucked),
   }),
   setNeedsHuman: def({
     kind: 'mutation',

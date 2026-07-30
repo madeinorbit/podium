@@ -39,6 +39,11 @@ export interface SuperagentThread {
   repoPath?: string
   title?: string
   podiumSessionId?: string
+  /** The harness's own session id — present once the thread has a real session. */
+  harnessSessionId?: string
+  /** Query-backed running state, so a reload or late join mid-turn still knows a
+   *  turn is in flight (headlessActivity frames are ephemeral). */
+  turnRunning?: boolean
   createdAt: string
   updatedAt: string
   archived: boolean
@@ -87,6 +92,10 @@ interface MobileTrpcExtras {
     >
     /** Spawn the issue's default agent on it (issue-as-workspace). */
     start: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
+    promote: MutationProcedure<{ id: string }, IssueWire>
+    /** Close an issue — the server writes stage `done` + the closure reason. */
+    close: MutationProcedure<{ id: string; reason?: string; mutationId?: string }, IssueWire>
     update: MutationProcedure<{
       id: string
       patch: {
@@ -97,6 +106,10 @@ interface MobileTrpcExtras {
         priority?: number
         type?: IssueType
         notes?: string
+        /** Desktop sidebar parity — pin floats into the Pinned band. */
+        pinned?: boolean
+        /** Manual order key (POD-168); lexicographic ASC within a band. */
+        sortKey?: string
       }
       mutationId?: string
     }>
@@ -106,6 +119,10 @@ interface MobileTrpcExtras {
       body: string
       mutationId?: string
     }>
+    /** Quiet-dismiss a humanQuestion card (the tray's resolve ✓). */
+    clearNeedsHuman: MutationProcedure<{ id: string }>
+    /** Acknowledge a finished task — removes its card and board row. */
+    archive: MutationProcedure<{ id: string }>
   }
   repos: {
     /** Flat list of registered repo root paths. */

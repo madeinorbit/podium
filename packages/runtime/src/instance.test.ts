@@ -92,6 +92,11 @@ describe('instance namespaces', () => {
 })
 
 describe('state ownership marker', () => {
+  it('reads missing markers without a preflight existence check', () => {
+    const dir = join(temp(), 'state')
+    expect(readInstanceStateIdentity(dir)).toBeUndefined()
+  })
+
   it('claims empty roots and rejects another selected instance', () => {
     const dir = join(temp(), 'state')
     expect(ensureInstanceStateIdentity({ instanceId: 'blue', dir })).toEqual({

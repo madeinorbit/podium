@@ -1,6 +1,6 @@
 import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
 import type { IssueDepProjection, IssueProjection, RepoProjection } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueGitState, IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
@@ -24,6 +24,8 @@ import type { IssueDeps } from './types'
  * persist/broadcast tail every mutation funnels through.
  */
 export abstract class IssueServiceCore {
+  /** Ephemeral checkout state, published only for the issue whose probe changed. */
+  protected readonly gitStates = new Map<string, IssueGitState>()
   /** Hydrated row cache; null until the first {@link init}/lazy access. Kept out
    *  of the constructor so constructing the service can never crash-loop the
    *  server boot on bad data (the composition root calls init() explicitly;
@@ -168,6 +170,7 @@ export abstract class IssueServiceCore {
       priority: row.priority,
       type: row.type as IssueWire['type'],
       pinned: row.pinned,
+      ...(row.sortKey ? { sortKey: row.sortKey } : {}),
       // Guarded so a corrupt/unknown stored value degrades to "no colour"
       // rather than failing the whole issue's wire parse [spec:SP-b4d1].
       ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),
@@ -189,6 +192,9 @@ export abstract class IssueServiceCore {
       ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
       ...(row.closedReason ? { closedReason: row.closedReason } : {}),
       ...(row.closedAt ? { closedAt: row.closedAt } : {}),
+      // Always on the wire (like readAt, not spread-when-truthy): the client
+      // reads absence as "not tucked", and an untuck must be able to say so.
+      tuckedAt: row.tuckedAt ?? null,
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
       ...(row.panel ? { panel: this.parsePanel(row) } : {}),
       labels,
@@ -205,6 +211,7 @@ export abstract class IssueServiceCore {
       archived: row.archived,
       readAt: row.readAt ?? null,
       ...(row.deletedAt ? { deletedAt: row.deletedAt } : {}),
+      ...(this.gitStates.get(row.id) ? { gitState: this.gitStates.get(row.id) } : {}),
       origin: row.origin === 'agent' ? 'agent' : 'human',
       audience: row.audience === 'agent' ? 'agent' : 'human',
       draft: row.draft ?? false,
@@ -498,10 +505,11 @@ export abstract class IssueServiceCore {
     // A brand-new row has no committed state (backup null): the post-commit
     // rows.set() below is what keeps a failed create out of the map.
     const backup = this.deps.store.issues.getIssue(row.id)
-    // touch:false = read-tracking writes (markIssueRead/Unread): reading is not
-    // activity, so it must not bump updatedAt — the stamp would land a tick AFTER
-    // markIssueRead's readAt and computeUnread (lastActivity > readAt) would flip
-    // the issue straight back to unread. It also must not reorder sidebar recency.
+    // touch:false = non-activity writes: (1) read-tracking (markIssueRead/Unread)
+    // and (2) organizational-only patches (pinned/sortKey via update). Those must
+    // not bump updatedAt — the stamp would land a tick AFTER readAt and
+    // computeUnread (lastActivity > readAt) would flip the issue straight back to
+    // unread. It also must not reorder sidebar recency.
     if (opts?.touch !== false) row.updatedAt = this.now()
     let wire: IssueWire
     try {
@@ -560,6 +568,30 @@ export abstract class IssueServiceCore {
   protected broadcastListForDerivedRipple(): void {
     this.broadcastList()
   }
+
+  /** Publish one write-less derived issue update (for example ephemeral Git
+   * state). Unlike broadcastList this does not rebuild every issue merely
+   * because one row's computed field changed. The reconcile keeps delta clients
+   * and the durable change log aligned with the legacy single-row snapshot. */
+  protected broadcastIssue(row: IssueRow): void {
+    const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
+    // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
+    // the entity kind and diffs removes against the whole baseline — fed a
+    // single row it would journal a remove for every OTHER issue, which the
+    // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
+    // remove+upsert pairs per targeted git-state publish). capture dedups the
+    // one row against the baseline and never diffs the list.
+    this.deps.ledger.capture(
+      spec.rows.map((r) => ({
+        entity: 'issue' as const,
+        id: r.id,
+        op: 'upsert' as const,
+        value: r.value,
+      })),
+    )
+    this.deps.funnel.publishComputed(spec.snapshot)
+  }
+
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {
     const r = this.rows.get(this.resolveRef(id))

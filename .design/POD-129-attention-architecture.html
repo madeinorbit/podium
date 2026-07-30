@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-129 · Attention architecture — Map, Queue, Voice</title>
+<style>
+  :root{
+    --bg:#0a0f1c; --panel:#121b30; --chip:#16223c; --engraved:#070b16; --bar:#050912;
+    --rail:#0e1626; --yellow:#f5c518; --blue:#2f6bff; --red:#e5303f;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --muted:#9a9aa8; --dim:#6c7690; --faint:#525c78;
+    --label:#7a84a0; --seam:#243356; --hair:#1e2a4c; --border:#364a78;
+    --terracotta:#d97757; --slate:#94a3b8; --green:#10b981; --amber:#f59e0b;
+    --sans:"Geist Variable","Geist",-apple-system,"Segoe UI",sans-serif;
+    --mono:"Geist Mono Variable","Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;padding:48px 20px 90px}
+  .page{max-width:880px;margin:0 auto}
+  a{color:var(--blue);text-decoration:none}
+
+  .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--label);text-transform:uppercase;margin-bottom:10px}
+  .kicker b{color:var(--yellow);font-weight:500}
+  h1{font-size:27px;font-weight:650;color:var(--ink-strong);letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
+  .lede{font-size:15px;color:var(--muted);max-width:64ch;margin-bottom:8px}
+  .lede b{color:var(--ink);font-weight:550}
+
+  h2{font-size:17px;font-weight:620;color:var(--ink-strong);letter-spacing:-.01em;margin:54px 0 6px}
+  h2 .no{font-family:var(--mono);font-size:11px;color:var(--faint);font-weight:400;margin-right:10px;letter-spacing:.08em}
+  h3{font-size:13.5px;font-weight:600;color:var(--ink-strong);margin:22px 0 4px}
+  p{margin:10px 0;max-width:72ch}
+  p b,li b{color:var(--ink-strong);font-weight:560}
+  ul{margin:8px 0 8px 20px} li{margin:5px 0;max-width:70ch}
+  .hr{height:1px;background:var(--hair);margin:20px 0}
+  code{font-family:var(--mono);font-size:.86em;background:var(--chip);border:1px solid var(--hair);border-radius:4px;padding:1px 5px;color:var(--ink)}
+  .quiet{color:var(--dim)}
+  .callout{border:1px solid var(--seam);border-left:3px solid var(--yellow);background:var(--panel);
+    border-radius:8px;padding:13px 16px;margin:18px 0;max-width:76ch}
+  .callout .t{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--yellow);margin-bottom:5px}
+
+  /* ---------- shell schematic ---------- */
+  .shell{display:flex;gap:0;border:1px solid var(--seam);border-radius:12px;overflow:hidden;
+    margin:22px 0 8px;background:var(--bar);min-height:300px}
+  .col{padding:12px 10px;display:flex;flex-direction:column;gap:7px;position:relative}
+  .col .cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;color:var(--label);margin-bottom:2px}
+  .scopechip{position:absolute;top:-1px;left:50%;transform:translate(-50%,-50%);white-space:nowrap;
+    font-family:var(--mono);font-size:8px;letter-spacing:.1em;padding:2px 8px;border-radius:99px;z-index:3}
+  .shellwrap{padding-top:14px}
+  .c-side{flex:0 0 21%;background:var(--rail);border-right:1px solid var(--seam)}
+  .c-eng{flex:0 0 30%;background:var(--engraved);border-right:1px solid var(--seam);
+    box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85), inset -3px 0 6px -3px rgba(0,0,0,.85)}
+  .c-native{flex:1;background:var(--panel)}
+  .c-rail{flex:0 0 34px;background:var(--rail);border-left:1px solid var(--seam);align-items:center;padding:12px 4px}
+  .mrow{display:flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--hair);
+    border-radius:6px;padding:5px 7px;font-size:10px;color:var(--muted)}
+  .sq{width:16px;height:16px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:5.5px;font-weight:600}
+  .sq.v{background:#8b5cf6;color:#1e0b44}.sq.t{background:#14b8a6;color:#032e28}.sq.r{background:#f43f5e;color:#4a0715}
+  .sq.n{background:var(--chip);border:1px solid var(--dim);color:var(--muted)}
+  .dotb{margin-left:auto;min-width:12px;height:12px;border-radius:99px;background:var(--amber);color:#161006;
+    font-family:var(--mono);font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  .spin{margin-left:auto;color:var(--green);font-family:var(--mono);font-size:9px}
+  .mcard{border-radius:8px;padding:7px 9px;font-size:9.5px;line-height:1.45;color:var(--ink)}
+  .mcard .h{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:8px;color:var(--muted)}
+  .mcard .h .ago{margin-left:auto;color:var(--amber)}
+  .mcard .ttl{font-weight:600;font-size:10px;color:var(--ink-strong);margin:3px 0}
+  .mcard .acts{display:flex;gap:4px;margin-top:5px}
+  .mcard .acts span{font-size:8.5px;padding:2px 7px;border-radius:5px;border:1px solid rgba(243,243,248,.25)}
+  .mcard .acts .pri{border:none;font-weight:600}
+  .card-v{background:color-mix(in srgb,#8b5cf6 16%, var(--engraved));border:1px solid rgba(139,92,246,.55)}
+  .card-v .pri{background:#8b5cf6;color:#1e0b44}
+  .card-t{background:color-mix(in srgb,#14b8a6 12%, var(--engraved));border:1px solid rgba(20,184,166,.45)}
+  .card-t .pri{background:#14b8a6;color:#032e28}
+  .secbar{background:var(--bar);border-top:1px solid var(--seam);border-bottom:1px solid var(--seam);
+    padding:4px 9px;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;color:var(--ink-strong)}
+  .secbar .g{color:var(--amber);font-size:10px}
+  .secbar .lbl{font-family:var(--mono);font-size:7px;letter-spacing:.12em;color:var(--faint);font-weight:400}
+  .composer{margin-top:auto;border:1.5px solid var(--amber);border-radius:8px;background:rgba(5,9,18,.7);
+    padding:6px 9px;font-family:var(--mono);font-size:9.5px;color:var(--dim);display:flex;gap:6px;align-items:center}
+  .composer .pr{color:var(--muted)} .composer .caret{width:5px;height:11px;background:var(--yellow)}
+  .tabs{display:flex;gap:4px}
+  .tab{background:var(--chip);border:1px solid var(--hair);border-radius:6px 6px 0 0;padding:4px 9px;font-size:9.5px;color:var(--muted)}
+  .tab.on{background:var(--bg);color:var(--ink-strong);border-bottom-color:var(--bg)}
+  .pty{flex:1;background:var(--bar);border:1px solid var(--hair);border-radius:0 8px 8px 8px;padding:9px;
+    font-family:var(--mono);font-size:9px;color:var(--dim);line-height:1.7}
+  .pty .gr{color:var(--green)}
+  .railcell{width:24px;height:24px;border-radius:6px;background:var(--chip);border:1px solid var(--hair);
+    display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)}
+  .s-map{background:color-mix(in srgb,var(--blue) 25%, var(--bar));border:1px solid var(--blue);color:#cfe0ff}
+  .s-queue{background:color-mix(in srgb,var(--amber) 25%, var(--bar));border:1px solid var(--amber);color:#ffe9c2}
+  .s-voice{background:color-mix(in srgb,var(--yellow) 22%, var(--bar));border:1px solid var(--yellow);color:#fdf3c8}
+  .s-stage{background:color-mix(in srgb,var(--green) 20%, var(--bar));border:1px solid var(--green);color:#c9f5e4}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 0;font-size:12px;color:var(--muted)}
+  .legend .scopechip{position:static;transform:none;font-size:8.5px}
+  .legend span{display:flex;align-items:center;gap:7px}
+
+  /* ---------- law table ---------- */
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:12.5px}
+  th{font-family:var(--mono);font-size:9px;letter-spacing:.13em;color:var(--label);text-align:left;
+    font-weight:500;padding:7px 12px;border-bottom:1px solid var(--seam);text-transform:uppercase}
+  td{padding:9px 12px;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink)}
+  td:first-child{white-space:nowrap;font-weight:600;color:var(--ink-strong)}
+  td .sub{display:block;font-size:11px;color:var(--dim);font-weight:400}
+
+  /* ---------- option cards ---------- */
+  .opt{border:1px solid var(--seam);border-radius:10px;background:var(--panel);padding:15px 18px;margin:14px 0}
+  .opt .head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+  .opt .id{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .opt .name{font-size:14px;font-weight:620;color:var(--ink-strong)}
+  .verdict{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;padding:3px 9px;border-radius:99px;white-space:nowrap}
+  .v-yes{background:color-mix(in srgb,var(--green) 18%, var(--panel));border:1px solid var(--green);color:#7ee8bf}
+  .v-no{background:color-mix(in srgb,var(--red) 14%, var(--panel));border:1px solid color-mix(in srgb,var(--red) 60%, var(--panel));color:#ff9aa4}
+  .v-part{background:color-mix(in srgb,var(--amber) 14%, var(--panel));border:1px solid color-mix(in srgb,var(--amber) 55%, var(--panel));color:#ffd28a}
+  .opt p{font-size:13px;margin:7px 0}
+  .opt .keep{font-size:12px;color:var(--muted);border-top:1px solid var(--hair);margin-top:10px;padding-top:9px}
+  .opt .keep b{color:var(--ink)}
+
+  /* ---------- altitudes ---------- */
+  .alts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}
+  .alt{border:1px solid var(--seam);border-radius:10px;background:var(--panel);padding:13px 15px}
+  .alt .where{font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;color:var(--label);margin-bottom:6px}
+  .alt .what{font-size:13px;font-weight:600;color:var(--ink-strong)}
+  .alt p{font-size:12px;color:var(--muted);margin:6px 0 0}
+
+  /* ---------- posture mocks ---------- */
+  .postures{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0 6px}
+  .posture{border:1px solid var(--seam);border-radius:12px;overflow:hidden;background:var(--engraved);
+    display:flex;flex-direction:column;min-height:330px;
+    box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.8), inset -3px 0 6px -3px rgba(0,0,0,.8)}
+  .posture .pcap{font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;color:var(--label);
+    background:var(--bar);padding:7px 12px;border-bottom:1px solid var(--seam)}
+  .posture .pbody{flex:1;display:flex;flex-direction:column;gap:7px;padding:10px}
+  .feedline{display:flex;gap:7px;font-size:9.5px;color:var(--muted);line-height:1.5}
+  .feedline .rule{flex:0 0 3px;border-radius:2px}
+  .feedline .who{font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;color:var(--label);display:block}
+  .postnote{font-size:12px;color:var(--muted);margin-top:6px}
+  @media (max-width:720px){.postures,.alts{grid-template-columns:1fr}.shell{flex-wrap:wrap}.c-side,.c-eng{flex:1 1 45%}}
+
+  /* ---------- ladder ---------- */
+  .ladder{display:flex;align-items:stretch;gap:0;margin:18px 0}
+  .rung{flex:1;border:1px solid var(--seam);background:var(--panel);padding:12px 14px;position:relative}
+  .rung:first-child{border-radius:10px 0 0 10px}.rung:last-child{border-radius:0 10px 10px 0}
+  .rung+.rung{border-left:none}
+  .rung .rl{font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;color:var(--yellow);margin-bottom:4px}
+  .rung .rn{font-size:13px;font-weight:600;color:var(--ink-strong)}
+  .rung p{font-size:11.5px;color:var(--muted);margin:4px 0 0}
+  .rung .arrow{position:absolute;right:-7px;top:50%;transform:translateY(-50%);color:var(--faint);z-index:2;background:var(--panel);
+    font-size:11px;padding:2px 0}
+
+  .decisions{counter-reset:d;margin:14px 0}
+  .dec{display:flex;gap:14px;border-bottom:1px solid var(--hair);padding:12px 4px}
+  .dec::before{counter-increment:d;content:"D" counter(d);font-family:var(--mono);font-size:10px;color:var(--yellow);
+    flex:0 0 26px;padding-top:2px}
+  .dec .q{font-weight:600;color:var(--ink-strong);font-size:13px}
+  .dec p{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+  .dec p b{color:var(--ink)}
+  footer{margin-top:60px;font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.08em}
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="kicker">POD-129 · CONCEPT · <b>ATTENTION ARCHITECTURE</b> · 2026-07-21</div>
+<h1>Map, Queue, Voice — one scope rule for every attention surface</h1>
+<p class="lede">Podium's promise is <b>multiplying parallel throughput by holding the operator's attention for them</b>. That takes exactly three surfaces, and each one's scope follows from the question it answers. The current confusion (tray vs. sidebar overlap, where the superagent lives, issue vs. repo vs. global scope) dissolves once the surfaces are named and the rule is applied.</p>
+
+<h2><span class="no">01</span>Three surfaces, three questions</h2>
+<p>Every mature attention-heavy tool converges on the same trio — Linear has sidebar + Inbox, email has folders + inbox, Slack has the channel list + Activity. Podium's version:</p>
+
+<div class="shellwrap">
+<div class="shell">
+  <div class="col c-side">
+    <span class="scopechip s-map">MAP · structured</span>
+    <div class="cap">SIDEBAR</div>
+    <div class="mrow"><span class="sq v">P<br>128</span> Token refresh <span class="dotb">2</span></div>
+    <div class="mrow"><span class="sq t">P<br>121</span> Header redesign <span class="spin">⠹ 6:30</span></div>
+    <div class="mrow"><span class="sq n">P<br>131</span> Mobile paths</div>
+    <div class="mrow" style="opacity:.55"><span class="sq r">P<br>119</span> Palette pass</div>
+  </div>
+  <div class="col c-eng">
+    <span class="scopechip s-queue">QUEUE · global</span>
+    <div class="secbar"><span class="g">▤</span> Tray <span class="lbl">ALL TASKS · NEWEST FIRST</span></div>
+    <div class="mcard card-v">
+      <div class="h"><span class="sq v" style="width:8px;height:8px;border-radius:3px"></span> POD-128 · ◆ auth-refresh <span class="ago">2m</span></div>
+      <div class="ttl">Login screen ready to merge</div>
+      <div class="acts"><span class="pri">✓ Merge</span><span>Send back</span><span>Discuss ↓</span></div>
+    </div>
+    <div class="mcard card-t">
+      <div class="h"><span class="sq t" style="width:8px;height:8px;border-radius:3px"></span> POD-130 · ◆ mobile <span class="ago">9m</span></div>
+      <div class="ttl">asks: "16:9 or vertical?"</div>
+      <div class="acts"><span>Reply…</span><span>resolve ✓</span></div>
+    </div>
+    <div class="secbar" style="margin-top:4px"><span class="g" style="color:var(--yellow)">✦</span> Super agent <span class="lbl">GLOBAL · SEES YOUR VIEW</span></div>
+    <div class="composer"><span class="pr">&gt;</span><span class="caret"></span> Ask about anything…</div>
+    <span class="scopechip s-voice" style="top:auto;bottom:-1px;transform:translate(-50%,50%)">VOICE · global + focus CTX</span>
+  </div>
+  <div class="col c-native">
+    <span class="scopechip s-stage">STAGE · engaged</span>
+    <div class="cap">NATIVE PANE</div>
+    <div class="tabs"><span class="tab on">◆ auth-refresh</span><span class="tab">login.tsx</span></div>
+    <div class="pty">$ claude --resume<br><span class="gr">⠸ Refactoring token refresh loop…</span><br>src/auth/refresh.ts +84 −22<br>tests 14/14 <span class="gr">passing</span></div>
+  </div>
+  <div class="col c-rail">
+    <div class="railcell" style="font-family:var(--mono);font-size:6px;font-weight:600">P<br>128</div>
+    <div class="railcell">⎇</div><div class="railcell">▤</div><div class="railcell">&gt;_</div>
+  </div>
+</div>
+<div class="legend">
+  <span><span class="scopechip s-map">MAP</span> where is everything, what state — <i>signals only</i></span>
+  <span><span class="scopechip s-queue">QUEUE</span> what needs me next — <i>actionable cards</i></span>
+  <span><span class="scopechip s-voice">VOICE</span> say anything from anywhere — <i>command line</i></span>
+  <span><span class="scopechip s-stage">STAGE</span> the actual work — <i>real PTYs</i></span>
+</div>
+</div>
+
+<table>
+  <tr><th>Surface</th><th>Question it answers</th><th>Organizing principle</th><th>Scope</th></tr>
+  <tr><td>Sidebar <span class="sub">the map</span></td><td>"How is <i>X</i> doing?"</td><td>Spatial — stable positions, manual sort, issue structure (POD-100)</td><td>Everything, organized by structure</td></tr>
+  <tr><td>Tray <span class="sub">the queue</span></td><td>"What needs me <i>next</i>?"</td><td>Temporal — decisions first, newest first, stable sort</td><td><b>Global.</b> Non-negotiable (§3)</td></tr>
+  <tr><td>Super agent <span class="sub">the voice</span></td><td>"Do / tell me <i>Y</i>" — without picking an agent</td><td>Conversation — one thread, context injected per turn</td><td>Global agent, <b>per-turn</b> context</td></tr>
+  <tr><td>Native pane <span class="sub">the stage</span></td><td>"Let me work on this one"</td><td>Engagement — tabs, splits, terminals</td><td>Selected issue's context</td></tr>
+</table>
+
+<div class="callout">
+  <div class="t">THE SCOPE LAW</div>
+  <b>State surfaces are structured. Decision surfaces are complete. Command surfaces are global with injected context.</b><br>
+  <span class="quiet">A map you can filter is still a map. A queue you filter is no longer an inbox — the moment the operator has to wonder "is this everything?", they fall back to scanning the map, and the queue's entire value is gone. A command line that must be re-scoped before speaking isn't a command line.</span>
+</div>
+
+<h2><span class="no">02</span>The tray does not overlap the sidebar</h2>
+<p>They overlap in <b>membership</b> — the same waiting item appears in both — but not in <b>function</b>, and the duplication is the mechanism, not a bug. The sidebar's amber badge says <i>that</i> something waits (ambient, glanceable, spatially stable). The tray card says <i>what</i> and lets you act without navigating (full decision: headline, evidence, buttons). Email never made you choose between the folder tree's unread counts and the inbox; Linear never made you choose between the sidebar and Inbox. The pair is the pattern.</p>
+<p>What keeps them from competing is a strict <b>role rule</b>: the map carries <i>signals only</i> (count pill, spinner, unread dot — never buttons, never card content), the queue carries the <i>one actionable rendering</i>. If the sidebar ever grows action buttons, or the tray ever grows status rows, the two really would collide — that's the line to hold, and it's the answer to "drop the tray / make the sidebar more complex": decision cards are transient and churny; embedding them in the sidebar would destroy exactly the fixed-position stability POD-100 requirement #1 demands. The map must not churn; the queue must churn.</p>
+
+<h2><span class="no">03</span>The five options, judged by the law</h2>
+
+<div class="opt">
+  <div class="head"><span class="id">A</span><span class="name">Sidebar + global tray + global chat in the engraved column</span><span class="verdict v-yes">ADOPT — IT'S THE LAW APPLIED</span></div>
+  <p>This is the POD-113-approved direction, and it's correct on every axis: the tray is complete (trustworthy queue), the chat is one global thread with the <code>[USER VIEW]</code> focus block injected per turn (global voice, contextual answers), the sidebar stays a pure map. Selection influences the tray only as a highlight ring — never membership, never sort.</p>
+  <div class="keep">The backend already implements the voice correctly: <code>THREAD_ID='global'</code> + per-turn focus payload. Your "item-unrelated-but-still-getting-the-context" instinct <b>is</b> this mechanism — it has a name now: <b>global agent, injected context</b>. Stop treating it as unresolved.</div>
+</div>
+
+<div class="opt">
+  <div class="head"><span class="id">B</span><span class="name">Tray-only column; superagent as a spawned tab (like files/artifacts)</span><span class="verdict v-part">REJECT — BUT KEEP THE ESCALATION</span></div>
+  <p>Moving the superagent into a workspace tab kills its defining property: <b>zero-friction availability</b>. A voice you must spawn and find is a destination, not a command line — and the native pane is issue-scoped, issue-tinted territory; one global tab inside it muddies the context flow that the whole colour system exists to make legible. Worst of all, <code>Discuss ↓</code> on a tray card would become a navigation instead of a glance-down.</p>
+  <div class="keep"><b>Keep the good half:</b> when a chat becomes <i>work</i>, promote it — the "open in terminal" affordance is exactly this. Tabs are for engagement; the column is for triage. See the escalation ladder (§6).</div>
+</div>
+
+<div class="opt">
+  <div class="head"><span class="id">C</span><span class="name">Tray + chat scoped to the selected issue (the code today)</span><span class="verdict v-no">REJECT — QUEUE CAN'T BE SCOPED</span></div>
+  <p>"The sidebar catches attention, a click brings you in" sounds right but inverts the flow: once you've selected the issue you are already <i>engaged</i> — the issue page, session view and OfferBar show its needs in full. An issue-scoped tray answers a question nobody asks from that position, and cannot answer the one question a tray exists for: <i>what's next across everything?</i> With it, cross-issue triage degrades to click-scan-click-scan through sidebar badges — the exact loop the product promises to eliminate.</p>
+  <div class="keep">Concretely: delete <code>trayScopeIssues</code> (derive-tray.ts) per the approved POD-113 spec. The current code state is just the un-shipped half of a decision already made.</div>
+</div>
+
+<div class="opt">
+  <div class="head"><span class="id">D</span><span class="name">Richer sidebar; drop the tray (or the whole column)</span><span class="verdict v-no">REJECT — MAP MUST NOT CHURN</span></div>
+  <p>Cards need width (action rows, artifact thumbnails, feedback inputs) and they arrive/expire constantly. Hosting them in the sidebar breaks fixed positions, breaks the 52px rail collapse, and leaves the phone with nothing: on mobile the tray-as-overlay <b>is</b> the check-in surface PRODUCT.md promises ("glance at the board, answer an agent's question"). A sidebar can't be that.</p>
+</div>
+
+<div class="opt">
+  <div class="head"><span class="id">E</span><span class="name">Tray scoped to the selected issue's repo (colleague's proposal)</span><span class="verdict v-no">REJECT — IMPLICIT FILTERS BREAK TRUST</span></div>
+  <p>The steelman: a repo is a natural working-set boundary, especially for a teammate who owns one area. But deriving the filter <i>from selection</i> is the worst of both worlds — the inbox silently changes contents as a side effect of navigation. That violates the same principle POD-113 already settled at smaller scale ("never re-sort on selection") at a bigger one: <b>never re-filter on selection</b>. An inbox whose completeness depends on where you happen to be standing cannot be trusted, and an untrusted inbox is furniture.</p>
+  <div class="keep"><b>If team-scale focus is ever needed:</b> an explicit, visible, user-set filter chip on the tray bar (<code>ALL TASKS ▾</code> → per-repo), sticky until cleared, never selection-derived. Default remains All. File it for when the second user shows up.</div>
+</div>
+
+<h2><span class="no">04</span>Offers in "two places" is actually three altitudes — all correct</h2>
+<p>The uncertainty ("we render offers in 2 places because we don't know where it's best") resolves the same way: it's <b>one item rendered at three altitudes</b>, one job per altitude, acting at any altitude clears all three.</p>
+<div class="alts">
+  <div class="alt"><div class="where">AT THE SOURCE · session view</div><div class="what">OfferBar above the composer</div><p>In-context: you're already looking at this agent; the decision sits where the evidence is. Full detail.</p></div>
+  <div class="alt"><div class="where">IN THE QUEUE · tray</div><div class="what">The actionable card</div><p>The only place to act <i>without</i> navigating. Judged in five seconds, cold — headline, state line, buttons, thumbnails.</p></div>
+  <div class="alt"><div class="where">ON THE MAP · sidebar</div><div class="where"></div><div class="what">Amber count pill only</div><p>Pure signal. Never a button, never content. Clicking the badge may deep-link to the tray card (§7) — it never acts.</p></div>
+</div>
+
+<h2><span class="no">05</span>One refinement to the approved design: the composer never leaves</h2>
+<p>Your unease about the superagent is real, but it's not a <i>placement</i> problem — it's a <i>posture</i> problem. A 460px standing chat pane is a lot of furniture for something used in bursts. The v2 handoff already has the right collapse grammar, with one wrong detail: <b>a collapsed super agent loses its composer</b> (3b). Flip that. The <b>feed</b> is what collapses; the <b>composer is the product's command line and never disappears</b> while the column is open.</p>
+
+<div class="postures">
+  <div class="posture">
+    <div class="pcap">DEFAULT POSTURE — TRIAGE · feed collapsed, composer standing</div>
+    <div class="pbody">
+      <div class="secbar"><span class="g">▤</span> Tray <span class="lbl">ALL TASKS</span></div>
+      <div class="mcard card-v">
+        <div class="h"><span class="sq v" style="width:8px;height:8px;border-radius:3px"></span> POD-128 · ◆ auth-refresh <span class="ago">2m</span></div>
+        <div class="ttl">Login screen ready to merge</div>
+        <div class="acts"><span class="pri">✓ Merge</span><span>Send back</span><span>Discuss ↓</span></div>
+      </div>
+      <div class="mcard card-t">
+        <div class="h"><span class="sq t" style="width:8px;height:8px;border-radius:3px"></span> POD-130 · ◆ mobile <span class="ago">9m</span></div>
+        <div class="ttl">asks: "16:9 or vertical?"</div>
+        <div class="acts"><span>Reply…</span><span>resolve ✓</span></div>
+      </div>
+      <div class="composer"><span class="pr">&gt;</span><span class="caret"></span> Ask about anything — @ to pull context…</div>
+    </div>
+  </div>
+  <div class="posture">
+    <div class="pcap">CONVERSATION POSTURE — feed expands on send / Discuss / ✦</div>
+    <div class="pbody">
+      <div class="secbar"><span class="g">▤</span> Tray <span class="lbl">ALL TASKS</span><span class="dotb" style="margin-left:auto">2</span></div>
+      <div class="secbar" style="border-top:none"><span class="g" style="color:var(--yellow)">✦</span> Super agent <span class="lbl">GLOBAL · SEES YOUR VIEW</span></div>
+      <div class="feedline"><span class="rule" style="background:var(--blue)"></span><span><span class="who">YOU</span>what changed while I was out?</span></div>
+      <div class="feedline"><span class="rule" style="background:var(--green)"></span><span><span class="who">SUPER AGENT · POD-128 CTX</span>Two merges landed; POD-130's agent is blocked on the aspect-ratio question sitting in your tray.</span></div>
+      <div class="composer"><span class="pr">&gt;</span><span class="caret"></span></div>
+    </div>
+  </div>
+</div>
+<p class="postnote">Typing or sending expands the feed in place; going idle (or <code>Esc</code>) lets it fall back to triage posture. The column's identity flips from "a chat with an inbox on top" to <b>"an inbox with a command line"</b> — which is what an attention manager is. The global feeling you're after comes precisely from the composer being <i>always there, one keystroke away</i> (give it a global shortcut, e.g. <code>⌘J</code>), not from the feed occupying space.</p>
+
+<h2><span class="no">06</span>The escalation ladder (why B's instinct still gets served)</h2>
+<div class="ladder">
+  <div class="rung"><div class="rl">ONE-SHOT</div><div class="rn">Composer</div><p>Ask, command, answer a card. No ceremony, no navigation. Always standing.</p><span class="arrow">▸</span></div>
+  <div class="rung"><div class="rl">CONVERSATION</div><div class="rn">Feed expands</div><p>A real exchange in the column; per-turn CTX suffix shows what it knows.</p><span class="arrow">▸</span></div>
+  <div class="rung"><div class="rl">WORK</div><div class="rn">Promote to the stage</div><p>"Open in terminal" moves a thread that became work into a native-pane tab, where work lives.</p></div>
+</div>
+<p>This is the honest version of "superagent as a tab": the tab is the <i>third rung</i>, reached by promotion, not the default home. Triage altitudes live in the column; engagement lives on the stage.</p>
+
+<h2><span class="no">07</span>Cross-links and clearing — the contract that makes it one system</h2>
+<ul>
+  <li><b>Map → Queue:</b> clicking a sidebar amber badge focuses + flashes the corresponding tray card (don't navigate into the issue — the badge is the queue's doorbell, not the issue's).</li>
+  <li><b>Queue → Map/Stage:</b> the card's ID square selects the issue; <code>session →</code> opens the agent on the stage. Already specced.</li>
+  <li><b>One item, one fate:</b> acting anywhere (OfferBar, tray card, chip answer) clears every rendering at once. No per-surface read state.</li>
+  <li><b>Stillness is the signal</b> everywhere: one arrival morph, then nothing moves until the human does. The motion grammar is already right — it's the scope discipline that makes it legible.</li>
+</ul>
+
+<h2><span class="no">08</span>What this means for the code, today</h2>
+<ul>
+  <li><b>Ship POD-113 as approved:</b> delete <code>trayScopeIssues</code> — the tray renders all live offers/questions/finished, decisions-first, newest-first, ring-only selection effect. The spec text in <code>.design/specs/engraved-column.md</code> §5 already says this; the code is just behind it.</li>
+  <li><b>Keep the superagent exactly where and how it is</b> (global thread + focus injection). Retire the visible thread-switcher ambition; concierge/btw threads stay backend plumbing.</li>
+  <li><b>Amend the 3b collapse rule:</b> collapsed super agent = feed hidden, composer kept (§5 above). Add a global focus-composer shortcut.</li>
+  <li><b>Hold the role rule</b> in review: no actions in the sidebar, no status rows in the tray — ever.</li>
+</ul>
+
+<h2><span class="no">09</span>Decisions for Till</h2>
+<div class="decisions">
+  <div class="dec"><div><div class="q">Adopt the scope law as the standing rule?</div><p>Map structured · queue complete/global · voice global with injected context. This closes options C and E permanently and becomes review-able doctrine (a line in DESIGN.md).</p></div></div>
+  <div class="dec"><div><div class="q">Composer-always: amend handoff 3b?</div><p>Collapsed super agent keeps a one-line composer; the feed is what collapses. Default column posture = triage (tray + composer). <b>Recommended.</b></p></div></div>
+  <div class="dec"><div><div class="q">Global shortcut for the voice?</div><p>One chord (⌘J?) focuses the composer from anywhere, even with the column folded — the folded 44px bar would pop the composer as an overlay. Cheap, and it's where the "global feeling" actually comes from.</p></div></div>
+  <div class="dec"><div><div class="q">Badge → card deep-link?</div><p>Sidebar amber badge focuses the tray card instead of selecting the issue. Small wiring, big legibility win. Defer if contentious.</p></div></div>
+</div>
+
+<footer>POD-129 · ATTENTION ARCHITECTURE V1 · SOURCES: PRODUCT.MD · DESIGN.MD · ENGRAVED-COLUMN.MD · SHELL-LAYOUT.MD · SIDEBAR.MD · POD-113 V3.1 · CODE AUDIT 2026-07-21</footer>
+</div>
+</body>
+</html>

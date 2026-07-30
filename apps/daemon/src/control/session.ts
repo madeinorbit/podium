@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import {
   type AgentSession,
   abducoHasSessionAsync,
@@ -61,7 +61,27 @@ export function spawnEnv(opts: {
   harnessEnv?: Record<string, string>
   podiumEnv: Record<string, string>
 }): Record<string, string> {
-  return { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+  const merged = { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+  const home = merged.HOME
+  if (!home) return merged
+
+  // Detached installs inherit the setup process's non-login PATH. On bare images
+  // that PATH does not contain ~/.local/bin, even though install.sh puts every
+  // requested harness there. Inventory deliberately finds those binaries by
+  // absolute path, so without the matching spawn invariant a machine reports
+  // "Codex installed + logged in" and then fails every session with execvp ENOENT.
+  // Keep custom/system entries, but make the same user install roots used by the
+  // systemd unit authoritative for every spawned agent.
+  const inherited = merged.PATH ?? process.env.PATH ?? ''
+  merged.PATH = [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+    ...inherited.split(delimiter),
+  ]
+    .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
+    .join(delimiter)
+  return merged
 }
 
 export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
@@ -257,6 +277,19 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
+    // Capture legacy state before observer replacement. A freshly fenced
+    // reattach lease is authoritative even when this daemon still holds the PTY:
+    // rebuild the observer registry so every subsequent observation uses the new
+    // generation/binding/cursor fence. Causal adapters re-bootstrap a snapshot;
+    // they must not also publish this legacy agentState as a live effect.
+    const state = ctx.observers.trackedState(msg.sessionId)
+    const hasAuthoritativeObservationLease =
+      msg.observationGeneration !== undefined && msg.observationBindingVersion !== undefined
+    if (hasAuthoritativeObservationLease) {
+      ctx.observers.initSessionObservers(msg, existing, agentStateProviderFor(msg.agentKind), {
+        seedOnFrame: false,
+      })
+    }
     const cmd =
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
@@ -283,8 +316,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // WORKING. We still hold the live tracker, so resend its current phase. Skip
     // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
     // branch below, not here.
-    const state = ctx.observers.trackedState(msg.sessionId)
-    if (state && state.phase !== 'unknown') {
+    if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
     }
     // Re-seed the transcript even though we already hold the bridge: a freshly
@@ -385,6 +417,8 @@ export const sessionHandlers: Pick<
   | 'resize'
   | 'redraw'
   | 'draftTarget'
+  | 'agentObservationAck'
+  | 'agentObservationRebindAck'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
   | 'sessionOpenUrlCallback'
@@ -423,6 +457,10 @@ export const sessionHandlers: Pick<
     removeSessionInstructions(ctx, msg.sessionId)
   },
   input: (ctx, msg) => {
+    const input = Buffer.from(msg.data, 'base64').toString('utf8')
+    if (input.includes('\r') || input.includes('\n')) {
+      ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
+    }
     ctx.bridges.get(msg.sessionId)?.write(msg.data)
     // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
     // replica is hot, so the engine defers injection. No-op for unflagged sessions.
@@ -438,6 +476,12 @@ export const sessionHandlers: Pick<
   },
   redraw: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.redraw()
+  },
+  agentObservationAck: (ctx, msg) => {
+    ctx.observers.onObservationAck(msg)
+  },
+  agentObservationRebindAck: (ctx, msg) => {
+    ctx.observers.onProviderRebindAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.codexIdentityReceipts

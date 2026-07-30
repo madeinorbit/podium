@@ -4,7 +4,11 @@
  */
 
 import type { IssueColorSlot } from '@podium/domain'
-import type { Geometry } from '@podium/protocol'
+import type {
+  Geometry,
+  ObservationProvider,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -20,7 +24,9 @@ export type SnoozeMap = Record<string, string | null>
 /** One agent action offer [spec:SP-c7f1] — decoded from the `offers` row. */
 export interface OfferRecord {
   message: string
-  actions: { label: string; prompt: string }[]
+  actions: { label: string; prompt: string; input?: boolean }[]
+  /** Issue-artifact paths the offer names as evidence [POD-120]; absent = none. */
+  artifacts?: string[]
   createdAt: string
 }
 /** sessionId → its live offer. */
@@ -28,6 +34,68 @@ export type OfferMap = Record<string, OfferRecord>
 
 export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
+
+/** Durable observer lease plus the last accepted causal checkpoint. */
+export interface ObservationLeaseRecord {
+  sessionId: string
+  provider: ObservationProvider
+  providerSessionId: string | null
+  bindingVersion: number
+  observationGeneration: number
+  checkpoint: SessionObservationCheckpointV1 | null
+  updatedAt: string
+}
+
+export interface TerminalCandidateFacts {
+  schemaVersion: 1
+  sessionId: string
+  terminalTransitionId: string
+  terminalTurnEpoch: number
+  provider: ObservationProvider
+  providerSessionId: string | null
+  bindingVersion: number
+  observerGeneration: number
+  providerCursor: import('@podium/protocol').ProviderCursor
+  lastLiveReceiptAt: string | null
+  lastTransitionId: string | null
+  lastActiveAt: string
+  lastInputAtMs: number
+  lastOutputAtMs: number
+  lastResumedAtMs: number
+  inputCount: number
+  outputCount: number
+  activityCount: number
+  queuedInputCount: number
+  pendingMessages: Array<{
+    id: string
+    status: string
+    deliveredAt: string | null
+    injectedAt: string | null
+    ackedBy: string | null
+  }>
+  autoContinueActive: boolean
+  activeWork: {
+    nativeSubagentCount: number
+    nativeSubagentIds: string[]
+    awaitingSubagents: boolean
+    childSessions: Array<{ sessionId: string; status: string; activityCount: number }>
+    queueDrainActive: boolean
+    draftPending: boolean
+    draftVersion: string | null
+    offerPending: boolean
+  }
+  resumable: boolean
+  machineId: string
+}
+
+export interface TerminalCandidateRecord {
+  facts: TerminalCandidateFacts
+  firstLivePollSequence: number
+  lastLivePollSequence: number
+  confirmedAt: string | null
+  consumedAt: string | null
+  updatedAt: string
+}
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
@@ -53,6 +121,8 @@ export interface SessionRow {
   resumeValue: string | null
   status: SessionStatusPersisted
   exitCode: number | null
+  /** Daemon-reported reason a spawn never started; null for ordinary exits. */
+  spawnFailure?: string | null
   durableLabel: string
   /** Last authoritative PTY grid. Optional only for legacy/test callers; repository
    * reads always materialize the migration defaults when no valid values exist. */
@@ -61,6 +131,9 @@ export interface SessionRow {
   lastActiveAt: string
   /** Completed working/compacting time in milliseconds; absent for legacy rows. */
   workingMsTotal?: number | null
+  inputCount?: number
+  outputCount?: number
+  activityCount?: number
   /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */
   lastOutputAt: string | null
   /** Last controller input — any keys/mouse/paste (ISO); null = none. Hibernation signal only. */
@@ -187,9 +260,18 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
+  /** Tuck-away (POD-333): ISO time the operator dismissed this finished issue into
+   *  the sidebar's Closed fold; null/absent = not tucked. Global like readAt, and
+   *  cleared whenever the closed predicate flips back open. Optional so
+   *  pre-existing row literals stay valid. */
+  tuckedAt?: string | null
   supersededBy: string | null
   duplicateOf: string | null
   pinned: boolean
+  /** Manual order (POD-168): fractional sort key, ascending = top of the row's
+   *  sibling scope. Optional so pre-existing row literals stay valid; null/
+   *  absent = legacy row (sorts after keyed siblings). */
+  sortKey?: string | null
   /** User-assigned colour SLOT NAME [spec:SP-b4d1] ('rose' … 'lime', the palette
    *  in @podium/domain); null/absent = no colour = the neutral slate flow.
    *  Optional so pre-existing row literals stay valid. */

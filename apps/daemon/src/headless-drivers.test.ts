@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import type { HarnessBins } from './harness-exec.js'
-import { buildHeadlessExec } from './headless-drivers.js'
+import { buildClaudeSdkOptions, buildHeadlessExec } from './headless-drivers.js'
 
 const bins: HarnessBins = { opencode: () => '/opt/opencode', cursor: () => '/opt/cursor-agent' }
 
 describe('buildHeadlessExec argv shapes', () => {
+  it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
+    const options = buildClaudeSdkOptions({
+      agent: 'claude-code',
+      cwd: '/repo',
+      prompt: 'Why?',
+      systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
+      contextPrompt: 'current context',
+      resumeValue: 'claude-thread-1',
+    })
+
+    expect(options.resume).toBe('claude-thread-1')
+    expect(options).not.toHaveProperty('sessionId')
+    expect(options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'NORMAL: HARD LIMIT 80 words total\n\ncurrent context',
+    })
+  })
+
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, bins)
     expect(cmd).toBe('codex')
@@ -45,6 +64,23 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(() => buildHeadlessExec('codex', { prompt: 'p', mcpConfig: '{oops' }, bins)).toThrow(
       /malformed MCP config/,
     )
+  })
+
+  it('codex routes the MCP auth token to a bearer env var, not argv (POD-1021)', () => {
+    const mcpConfig = JSON.stringify({
+      mcpServers: {
+        podium: {
+          url: 'http://127.0.0.1:1/mcp',
+          headers: { 'x-podium-mcp-token': 'sekret', 'x-podium-mcp-thread': 'thr' },
+        },
+      },
+    })
+    const { args, env } = buildHeadlessExec('codex', { prompt: 'p', mcpConfig }, bins)
+    expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
+    expect(env).toEqual({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
+    expect(args).toContain('mcp_servers."podium".http_headers={"x-podium-mcp-thread"="thr"}')
+    // The token never leaks into argv.
+    expect(args.some((a) => a.includes('sekret'))).toBe(false)
   })
 
   it('grok: -p with the pinned --session-id (create-or-resume) and positional prompt', () => {

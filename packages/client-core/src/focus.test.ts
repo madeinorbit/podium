@@ -56,6 +56,22 @@ describe('shared focus selectors', () => {
     expect(attentionGroup(meta({ sessionId: 'idle', status: 'exited' }))).toBe('idle')
   })
 
+  it('keeps a pending offer in needs-you after unread is cleared', () => {
+    expect(
+      attentionGroup(
+        meta({
+          sessionId: 'offer',
+          unread: false,
+          offer: {
+            message: 'Ready to merge',
+            actions: [{ label: 'Merge', prompt: 'Merge it' }],
+            createdAt: '2026-07-01T01:00:00.000Z',
+          },
+        }),
+      ),
+    ).toBe('needsYou')
+  })
+
   it('a process that has exited or hibernated is not working, however stale its last phase', () => {
     // A harness that emits no terminal event on an abrupt exit (Grok, killed
     // mid-turn) leaves its last live phase at 'working'. A gone process is not

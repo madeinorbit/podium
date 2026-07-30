@@ -2,6 +2,8 @@ import type { JSX } from 'react'
 import { type ThemeMode, type ThemePreset, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -16,9 +18,12 @@ import { Row, Section } from './shared'
  *  blob), so it applies instantly via useTheme and persists on its own. */
 export function AppearanceSection(): JSX.Element {
   const { preset, mode, setPreset, setMode } = useTheme()
+  const stickyPrompts = useStickyPromptsPreference()
+  // 'superade' is the canonical Podium look (DESIGN.md), so it carries the
+  // product name; the older 'podium' preset stays available as "Classic".
   const presets: { value: ThemePreset; label: string }[] = [
-    { value: 'podium', label: 'Podium' },
-    { value: 'superade', label: 'Superade' },
+    { value: 'superade', label: 'Podium' },
+    { value: 'podium', label: 'Classic' },
     { value: 'shadcn', label: 'shadcn' },
   ]
   const modes: { value: ThemeMode; label: string }[] = [
@@ -62,6 +67,16 @@ export function AppearanceSection(): JSX.Element {
             </Button>
           ))}
         </div>
+      </Row>
+      <Row
+        label="Sticky prompts"
+        description="Keep the current operator prompt visible while its response scrolls. This device only."
+      >
+        <Switch
+          aria-label="Sticky prompts"
+          checked={stickyPrompts.enabled}
+          onCheckedChange={stickyPrompts.setEnabled}
+        />
       </Row>
       <TerminalAppearanceRows />
     </Section>

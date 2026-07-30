@@ -21,6 +21,7 @@ import {
 } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import {
   defaultHighlight,
@@ -113,7 +114,6 @@ function PaletteDialog({
     repos,
     sessions,
     pins,
-    setPinned,
     paneA,
     setPane,
     setView,
@@ -135,7 +135,6 @@ function PaletteDialog({
       repos: s.repos,
       sessions: s.sessions,
       pins: s.pins,
-      setPinned: s.setPinned,
       paneA: s.paneA,
       setPane: s.setPane,
       setView: s.setView,
@@ -156,6 +155,8 @@ function PaletteDialog({
   )
   const issues = useReplicaIssues()
   const { guardedKill, guardedArchive } = useSessionGuard()
+  const workflowsEnabled = useFeature('workflows')
+  const automationsEnabled = useFeature('automations')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -294,12 +295,14 @@ function PaletteDialog({
     const views = [
       ['issues', 'Go to Tasks', ['kanban', 'board', 'tracker']],
       ['workflows', 'Go to Workflows', ['agent', 'process', 'steps']],
-      ['workspace', 'Go to Workspace', ['terminal', 'agents']],
+      ['workspace', 'Go to Work', ['workspace', 'terminal', 'agents']],
       ['automations', 'Go to Automations', []],
       ['usage', 'Go to Usage', ['quota']],
       ['settings', 'Go to Settings', ['preferences', 'config']],
     ] as const
     for (const [view, label, keywords] of views) {
+      if (view === 'workflows' && !workflowsEnabled) continue
+      if (view === 'automations' && !automationsEnabled) continue
       out.push({
         id: `global:view-${view}`,
         group: 'global',
@@ -322,15 +325,9 @@ function PaletteDialog({
       const id = focused.sessionId
       const { canHibernate, canResume, canClose } = sessionMenuEligibility(focused)
       const snoozed = isSnoozed(focused, Date.now())
-      const pinned = pins.panels.includes(id)
       const sess = (cmd: Omit<PaletteCommand, 'group'>): void => {
         out.push({ ...cmd, group: 'session' })
       }
-      sess({
-        id: 'session:pin',
-        label: pinned ? 'Unpin session' : 'Pin session',
-        run: () => setPinned('panel', id, !pinned),
-      })
       if (snoozed) {
         sess({ id: 'session:unsnooze', label: 'Un-snooze session', run: () => clearSnooze(id) })
       } else {
@@ -383,7 +380,19 @@ function PaletteDialog({
       })
     }
     return out
-  }, [sessions, repos, issues, serverIssueHits, pins, paneA, spawnTargets, defaultAgent, superOpen])
+  }, [
+    sessions,
+    repos,
+    issues,
+    serverIssueHits,
+    pins,
+    paneA,
+    spawnTargets,
+    defaultAgent,
+    superOpen,
+    workflowsEnabled,
+    automationsEnabled,
+  ])
 
   const groups = useMemo(() => filterCommands(query, commands), [query, commands])
   const flat = useMemo(() => flattenGroups(groups), [groups])
@@ -493,6 +502,7 @@ function PaletteDialog({
                 const idx = rowIndex++
                 return (
                   <button
+                    data-pressable
                     key={cmd.id}
                     id={`palette-item-${idx}`}
                     type="button"
@@ -523,6 +533,7 @@ function PaletteDialog({
             const idx = flat.length + i
             return (
               <button
+                data-pressable
                 key={target.path}
                 id={`palette-item-${idx}`}
                 type="button"

@@ -8,8 +8,11 @@ import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildHandoffSeed,
+  explicitlyRequestsExpandedResponse,
+  NORMAL_RESPONSE_WORD_LIMIT,
   RESUME_KIND,
   SuperagentService,
+  superagentResponseContract,
   TURN_FAILED_MARKER,
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -95,6 +98,37 @@ async function harness() {
     settle,
   }
 }
+
+describe('superagent response contract', () => {
+  it.each([
+    'Why?',
+    'How did this happen?',
+    'Explain the failure',
+    'Why? Explain briefly.',
+  ])('keeps ordinary diagnostics inside the normal budget: %s', (prompt) => {
+    expect(explicitlyRequestsExpandedResponse(prompt)).toBe(false)
+    expect(superagentResponseContract(prompt)).toContain(
+      'HARD LIMIT ' + NORMAL_RESPONSE_WORD_LIMIT + ' words',
+    )
+  })
+
+  it.each([
+    'Give me a detailed explanation.',
+    'I want a thorough answer.',
+    'Provide a walkthrough of the failure.',
+  ])('allows expansion only for an explicit cue: %s', (prompt) => {
+    expect(explicitlyRequestsExpandedResponse(prompt)).toBe(true)
+    expect(superagentResponseContract(prompt)).toContain('EXPANDED:')
+  })
+
+  it.each([
+    "Don't give me a detailed answer.",
+    'Is the detailed log present?',
+    'Why is the walkthrough test failing?',
+  ])('does not treat a negated or incidental cue as an opt-in: %s', (prompt) => {
+    expect(explicitlyRequestsExpandedResponse(prompt)).toBe(false)
+  })
+})
 
 describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('re-primes with the seed after clear() — a cleared thread starts a fresh harness session', async () => {
@@ -265,6 +299,10 @@ describe('sendTurn (headless harness turns)', () => {
     expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.agentKind).toBe(
       'claude-code',
     )
+    expect(h.sa.listThreads().find((thread) => thread.id === 'global')?.turnRunning).toBe(true)
+    h.resolveTurn(req, { harnessSessionId: 'h1' })
+    await h.settle()
+    expect(h.sa.listThreads().find((thread) => thread.id === 'global')?.turnRunning).toBe(false)
   })
 
   it('forwards turn events + boundary markers as headlessActivity broadcasts', async () => {
@@ -313,6 +351,23 @@ describe('sendTurn (headless harness turns)', () => {
     expect(second.sessionUuid).toBeUndefined()
   })
 
+  it('reasserts the normal budget on a resumed Claude thread after an expanded turn', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'Give me a detailed walkthrough.' })
+    const first = h.turnReqs[0]!
+    expect(first.systemPrompt).toContain('EXPANDED:')
+    h.resolveTurn(first, { harnessSessionId: 'claude-thread-1' })
+    await h.settle()
+
+    await h.sa.sendTurn({ threadId: 'global', text: 'Why?' })
+    const resumed = h.turnReqs[1]!
+    expect(resumed.resumeValue).toBe('claude-thread-1')
+    expect(resumed.systemPrompt).toContain(
+      'NORMAL: HARD LIMIT ' + NORMAL_RESPONSE_WORD_LIMIT + ' words',
+    )
+    expect(resumed.systemPrompt).not.toContain('EXPANDED:')
+  })
+
   it('rejects a second send while a turn is running (per-thread turn lock)', async () => {
     const h = await harness()
     await h.sa.sendTurn({ threadId: 'global', text: 'one' })
@@ -330,9 +385,11 @@ describe('sendTurn (headless harness turns)', () => {
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     h.resolveTurn(h.turnReqs[0]!, { ok: false, error: 'claude: command not found' })
     await h.settle()
-    // Honest, persisted failure — no silent fallback to the buffered path.
+    // Honest, persisted failure — no silent fallback to the buffered path. The
+    // raw harness stderr is interpreted into a user-facing message (POD-1021):
+    // "command not found" → a "CLI couldn't be launched" notice.
     const notice = h.sa.history('global').find((m) => m.content.startsWith(TURN_FAILED_MARKER))
-    expect(notice?.content).toContain('claude: command not found')
+    expect(notice?.content).toMatch(/Claude CLI couldn't be launched/)
     expect(
       h
         .activity()
@@ -340,7 +397,7 @@ describe('sendTurn (headless harness turns)', () => {
         .at(-1),
     ).toEqual({
       kind: 'turn-end',
-      error: 'claude: command not found',
+      error: "The Claude CLI couldn't be launched — it isn't installed or isn't on PATH.",
     })
     // No harness session was learned; the next send is a fresh first turn again.
     expect(

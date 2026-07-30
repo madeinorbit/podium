@@ -1,0 +1,592 @@
+<!-- POD-113 — Global offer tray & rich offer cards · visual handoff v3 -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-113 · Offer tray — visual mock v3</title>
+<style>
+  /* ═ tokens (.design/specs/tokens.md · podium dark) ═ */
+  :root{
+    --bg:#0e0e12; --card:#16161c; --col:#0a0a0e; --sbar:#08080c; --chip:#1b1b22; --elev:#25252f;
+    --hl:#2a2a34; --hl-soft:#25252f; --hl-bar:#2e2e38; --hl-strong:#3a3a46;
+    --amber:#f59e0b; --amber-fg:#161006; --live:#10b981; --success:#34d399; --info:#3b82f6;
+    --bad:#f87171; --claude:#D97757; --slate:#94a3b8;
+    --tstrong:#f3f3f8; --fg:#d7d7e0; --muted:#9a9aa8; --dim:#6c6c78; --faint:#5a5a66; --label:#7a7a86;
+    --sans:'Geist',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+    --mono:'Geist Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --ease-out:cubic-bezier(.25,1,.5,1);
+  }
+  html{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:12px;
+       -webkit-font-smoothing:antialiased}
+  .board{max-width:1240px;margin:0 auto;padding:44px 32px 120px}
+
+  /* board chrome */
+  .bd-head{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--hl-soft);
+           padding-bottom:16px;margin-bottom:44px;flex-wrap:wrap}
+  .bd-head h1{font-size:16px;font-weight:650;color:var(--tstrong);letter-spacing:-.01em;margin:0}
+  .bd-head .ref{font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.08em}
+  .bd-head .meta{font-family:var(--mono);font-size:9px;color:var(--faint);margin-left:auto;letter-spacing:.06em}
+  .screen{margin:0 0 72px}
+  .sc-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--label);margin:0 0 14px;
+            display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  .sc-label b{color:var(--amber);font-weight:500}
+  .demo-btn{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--live);
+            background:none;border:1px solid rgba(16,185,129,.35);border-radius:5px;padding:3px 10px;
+            cursor:pointer;margin-left:auto;transition:border-color .15s var(--ease-out)}
+  .demo-btn:hover{border-color:rgba(16,185,129,.7)}
+  .demo-btn:active{transform:translateY(1px)}
+
+  /* ═ engraved column shell (spec §2.1) ═ */
+  .col{width:460px;flex:none;display:flex;flex-direction:column;overflow:hidden;border-radius:2px;
+       background:radial-gradient(560px 300px at 50% 12%, rgba(139,92,246,.10), rgba(139,92,246,0) 72%),#0a0a0e;
+       border:1px solid var(--hl);
+       box-shadow:inset 3px 0 6px -3px rgba(0,0,0,.85),inset -3px 0 6px -3px rgba(0,0,0,.85),inset 0 3px 6px -3px rgba(0,0,0,.85)}
+
+  /* section bars (spec §2.2) */
+  .bar{background:var(--sbar);padding:5px 13px;display:flex;align-items:center;gap:8px;flex:none}
+  .bar.tray{border-bottom:1px solid var(--hl-bar)}
+  .bar.super{border-top:1px solid var(--hl-bar);border-bottom:1px solid var(--hl-bar);
+             box-shadow:0 5px 10px -5px rgba(0,0,0,.9);position:relative;z-index:1}
+  .bar .g{color:var(--amber);font-size:11px}
+  .bar .t{font-size:12px;font-weight:600;color:var(--tstrong)}
+  .bar .pill{min-width:13px;height:13px;border-radius:99px;background:var(--amber);color:var(--amber-fg);
+             font-family:var(--mono);font-size:7.5px;font-weight:700;display:inline-flex;
+             align-items:center;justify-content:center;padding:0 3px}
+  .bar .scope{font-family:var(--mono);font-size:8px;letter-spacing:.12em;color:var(--faint)}
+  .bar .chev{margin-left:auto;color:var(--dim);font-size:11px}
+  .bar .acts .chev{margin-left:2px}
+  .bar .acts{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .bar .ib{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;
+           background:none;border:none;border-radius:5px;color:var(--dim);cursor:pointer;padding:0;
+           transition:color .15s var(--ease-out),background .15s var(--ease-out)}
+  .bar .ib:hover{color:var(--tstrong);background:var(--chip)}
+  .bar .ib svg{display:block}
+
+  .traybox{display:flex;flex-direction:column;gap:6px;padding:8px 12px 10px;flex:none}
+  .handle{height:7px;flex:none;display:flex;align-items:center;justify-content:center;cursor:row-resize}
+  .handle::after{content:"";width:30px;height:2px;border-radius:2px;background:var(--hl-strong)}
+
+  /* ═ motion grammar (spec .design/specs/motion.md §2.1 — house keyframes) ═ */
+  @keyframes popIn{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.18);opacity:1}100%{transform:scale(1)}}
+  @keyframes rowFlash{0%{box-shadow:inset 0 0 0 200px rgba(245,158,11,.32)}100%{box-shadow:inset 0 0 0 200px rgba(245,158,11,0)}}
+  @keyframes flipAgo{0%{transform:scale(1.35);color:#10b981;opacity:.4}45%{color:#f59e0b}100%{transform:scale(1);opacity:1}}
+  @keyframes tickIn{0%{transform:translateY(5px);opacity:0}100%{transform:none;opacity:1}}
+  .ins{display:grid;grid-template-rows:0fr;transition:grid-template-rows .35s var(--ease-out)}
+  .ins.open{grid-template-rows:1fr}
+  .ins>div{overflow:hidden;min-height:0}
+  .ins .card{margin-bottom:0}
+  .arrive{animation:rowFlash .9s ease-out 1}
+  .arrive .c-ago{animation:flipAgo .5s ease 1}
+  .arrive .c-act{animation:tickIn .35s ease 1}
+  .pill.pop{animation:popIn .45s cubic-bezier(.34,1.56,.64,1) 1}
+  @media(prefers-reduced-motion:reduce){
+    .ins{transition:none}.arrive,.arrive .c-ago,.arrive .c-act,.pill.pop{animation:none}
+    .caret{animation:none}.spin::before{content:"⠿";animation:none}
+  }
+
+  /* ═ tray cards — colour = ISSUE IDENTITY (user-assigned), never state ═ */
+  .card{--issue:var(--slate);display:flex;flex-direction:column;gap:6px;border-radius:10px;padding:9px 11px;
+        background:color-mix(in srgb,var(--issue) 16%,#0e0e12);
+        border:1px solid color-mix(in srgb,var(--issue) 55%,transparent);cursor:pointer;
+        transition:border-color .15s var(--ease-out)}
+  .card:hover{border-color:color-mix(in srgb,var(--issue) 80%,transparent)}
+  .card.q{background:color-mix(in srgb,var(--issue) 9%,#0e0e12);
+          border-color:color-mix(in srgb,var(--issue) 38%,transparent)}
+  .card.done{background:color-mix(in srgb,var(--issue) 7%,#0e0e12);
+             border-color:color-mix(in srgb,var(--issue) 30%,transparent);padding:7px 11px;opacity:.88}
+  .card.ring{box-shadow:0 0 0 1px color-mix(in srgb,var(--issue) 35%,transparent),
+             0 0 14px -4px color-mix(in srgb,var(--issue) 45%,transparent)}
+
+  .c-top{display:flex;align-items:center;gap:6px;min-width:0}
+  .c-sq{width:8px;height:8px;border-radius:3px;background:var(--issue);flex:none}
+  .c-ref{font-family:var(--mono);font-size:9.5px;color:color-mix(in srgb,var(--issue) 65%,#f3f3f8);flex:none}
+  .c-title{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .c-agent{font-size:9.5px;color:var(--dim);flex:none;white-space:nowrap}
+  .c-agent b{color:var(--claude);font-weight:400}
+  .c-ago{font-family:var(--mono);font-size:9px;color:var(--amber);margin-left:auto;flex:none;font-variant-numeric:tabular-nums}
+
+  .c-head{font-size:12px;font-weight:600;line-height:1.35;
+          color:color-mix(in srgb,var(--issue) 10%,#f3f3f8);text-wrap:balance}
+  .c-meta{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.02em;font-variant-numeric:tabular-nums}
+  .c-meta .warn{color:var(--bad)}
+  .c-body{font-size:11px;line-height:1.5;color:color-mix(in srgb,var(--issue) 6%,#b9b9c6)}
+
+  .c-shots{display:flex;gap:6px;align-items:center}
+  .shot{width:70px;height:44px;border-radius:5px;overflow:hidden;flex:none;cursor:zoom-in;padding:0;
+        border:1px solid color-mix(in srgb,var(--issue) 35%,var(--hl-strong));background:#0b0b10;
+        transition:border-color .15s var(--ease-out)}
+  .shot:hover{border-color:color-mix(in srgb,var(--issue) 70%,var(--hl-strong))}
+  .shot:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+  .shot svg{display:block;width:100%;height:100%}
+  .c-shots .n{font-family:var(--mono);font-size:8.5px;color:var(--faint)}
+
+  .c-act{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .c-act button{font-family:var(--sans);cursor:pointer;transition:opacity .15s var(--ease-out),border-color .15s var(--ease-out)}
+  .c-act button:active{transform:translateY(1px)}
+  .c-act button:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+  /* xs control scale (DESIGN.md: 24px) — matches shipped button sizing */
+  .b-pri,.b-sec,.b-ter{min-height:24px;font-size:11px;border-radius:6px;padding:3px 12px;
+                       display:inline-flex;align-items:center}
+  .b-pri{border:none;background:var(--issue);font-weight:600;color:color-mix(in srgb,var(--issue) 25%,#000)}
+  .b-pri:hover{opacity:.85}
+  .b-sec{border:1px solid rgba(243,243,248,.28);background:none;color:var(--fg)}
+  .b-sec:hover{border-color:rgba(243,243,248,.5)}
+  .b-ter{border:1px solid var(--hl-strong);background:none;color:var(--muted)}
+  .b-ter:hover{border-color:var(--dim);color:var(--fg)}
+  .b-arch{margin-left:auto}
+  .b-sess{margin-left:auto;font-size:10px;color:var(--dim);cursor:pointer;white-space:nowrap}
+  .b-sess:hover{color:var(--muted)}
+
+  .q-line{font-size:11px;line-height:1.5;color:color-mix(in srgb,var(--issue) 6%,#b9b9c6)}
+  .q-line i{font-style:normal;color:var(--tstrong)}
+  .done-line{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .done-line .b-arch{cursor:pointer;transition:border-color .15s var(--ease-out),color .15s var(--ease-out)}
+
+  .c-input{width:100%;background:rgba(8,8,12,.7);border:1px solid color-mix(in srgb,var(--issue) 40%,var(--hl));
+           border-radius:6px;color:var(--fg);font-family:var(--sans);font-size:11px;line-height:1.45;
+           padding:6px 9px;resize:none}
+  .c-input:focus{outline:none;border-color:color-mix(in srgb,var(--issue) 70%,transparent)}
+  .c-note{font-family:var(--mono);font-size:8px;color:var(--faint);margin-left:auto;letter-spacing:.04em}
+
+  /* ═ super agent chat (spec §2.5) ═ */
+  .feed{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .m{display:flex;gap:8px}
+  .m .acc{flex:0 0 3px;border-radius:2px}
+  .m.you .acc{background:var(--info)}.m.sa .acc{background:var(--live)}
+  .m .w{min-width:0}
+  .m .who{font-size:8.5px;font-weight:600;letter-spacing:.07em;color:var(--muted);margin-bottom:1px;
+          display:flex;align-items:baseline;gap:6px}
+  .m.sa .who{color:var(--amber)}
+  .m .who .ctx{font-weight:400;letter-spacing:0;color:var(--dim)}
+  .m .who .clk{font-family:var(--mono);font-size:8px;font-weight:400;letter-spacing:.04em;
+               color:var(--faint);margin-left:auto}
+  .m .tx{font-size:11px;line-height:1.5;color:var(--fg)}
+  .m .tx b{color:#f6f3ff;font-weight:600}
+  .m .tx .next{display:block;margin-top:3px;font-family:var(--mono);font-size:9px;color:var(--amber)}
+  .here{display:flex;align-items:center;gap:8px;margin:2px 0}
+  .here::before,.here::after{content:"";flex:1;height:1px;background:rgba(245,158,11,.4)}
+  .here span{font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--amber)}
+
+  .compwrap{padding:8px 12px 7px;flex:none}
+  .comp{border:1.5px solid var(--amber);border-radius:9px;background:rgba(8,8,12,.7);
+        padding:8px 11px;display:flex;align-items:center;gap:8px;font-family:var(--mono)}
+  .comp .p{color:var(--muted);font-size:11.5px}
+  .caret{width:7px;height:14px;background:var(--amber);flex:none;animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .comp .ph{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .comp .ics{margin-left:auto;display:flex;gap:9px;color:#8d8d9a;flex:none}
+  .comp .ics svg{display:block}
+  .hint{display:flex;gap:6px;padding:5px 3px 0;font-family:var(--mono);font-size:9.5px;color:var(--dim)}
+  .hint .ff{color:var(--amber)}.hint .on{color:#c5c5d0}.hint .sr{margin-left:auto}
+
+  /* empty tray (spec §2.4) */
+  .empty{display:flex;align-items:center;justify-content:center;gap:9px;padding:16px 12px 17px}
+  .empty .ok{color:#3f3f4a;font-size:12px}
+  .empty .msg{font-size:11px;color:var(--dim)}
+  .spin{font-family:var(--mono);font-size:9px;color:var(--live);display:inline-flex;gap:5px;align-items:center}
+  .spin::before{content:"⠋";min-width:8px;animation:spB .8s steps(1,end) infinite}
+  @keyframes spB{0%{content:"⠋"}11%{content:"⠙"}22%{content:"⠹"}33%{content:"⠸"}44%{content:"⠼"}
+                 55%{content:"⠴"}66%{content:"⠦"}77%{content:"⠧"}88%{content:"⠇"}100%{content:"⠏"}}
+
+  /* legends & galleries */
+  .row{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap}
+  .legend{flex:1;min-width:300px;max-width:460px;display:flex;flex-direction:column;gap:12px;padding-top:6px}
+  .lg{display:flex;gap:10px;align-items:baseline}
+  .lg .k{font-family:var(--mono);font-size:9px;color:var(--amber);flex:none;width:16px}
+  .lg .v{font-size:12px;line-height:1.55;color:var(--muted)}
+  .lg .v b{color:var(--fg);font-weight:600}
+  .gal{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .gi{width:436px;display:flex;flex-direction:column;gap:9px}
+  .gi .cap{font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--faint);line-height:1.6}
+  .gi .cap b{color:var(--label);font-weight:500}
+  .gi .card{cursor:default}
+
+  /* colour legend */
+  .pal{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 0 2px}
+  .pal .sw{width:14px;height:14px;border-radius:4px}
+  .pal .divider{width:1px;height:16px;background:var(--hl-strong);margin:0 5px}
+  .pal .lab{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--faint)}
+  .pal .res{width:14px;height:14px;border-radius:4px;position:relative;opacity:.85}
+  .pal .res::after{content:"";position:absolute;inset:0;background:
+    linear-gradient(45deg,transparent 44%,#0e0e12 44% 56%,transparent 56%)}
+
+  /* lightbox */
+  .lb{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.87);display:none;
+      align-items:center;justify-content:center;flex-direction:column;gap:14px;cursor:zoom-out}
+  .lb.open{display:flex}
+  .lb .fr{width:min(720px,86vw);border-radius:10px;overflow:hidden;border:1px solid var(--hl-strong);
+          box-shadow:0 40px 120px rgba(0,0,0,.6);cursor:default;line-height:0}
+  .lb .fr svg{width:100%;height:auto}
+  .lb .cap{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.05em}
+
+  .foot{border-top:1px solid var(--hl-soft);margin-top:24px;padding-top:14px;display:flex;
+        flex-wrap:wrap;gap:8px 32px;font-family:var(--mono);font-size:9px;color:var(--faint);letter-spacing:.05em}
+  @media(max-width:1020px){.col{width:100%;max-width:460px}.gi{width:100%;max-width:436px}}
+</style>
+
+<div class="board">
+  <div class="bd-head">
+    <span class="ref">POD-113</span>
+    <h1>Global offer tray — tray cards &amp; superagent column</h1>
+    <span class="meta">v3 · colour = issue identity · house motion grammar · wire-real content</span>
+  </div>
+
+  <!-- ═══ S1 · the global column ═══ -->
+  <section class="screen">
+    <p class="sc-label"><b>S1</b> · THE GLOBAL COLUMN — TRAY (ALL TASKS) + SUPER AGENT + COMPOSER
+      <button class="demo-btn" id="demo">▸ SIMULATE NEW OFFER ARRIVING</button>
+    </p>
+    <div class="row">
+      <div class="col" style="height:790px">
+        <div class="bar tray">
+          <span class="g">▤</span><span class="t">Tray</span><span class="pill" id="pill">4</span>
+          <span class="scope">ALL TASKS · NEWEST FIRST</span><span class="chev">⌄</span>
+        </div>
+        <div class="traybox" id="traybox">
+          <!-- offer · review handoff · violet issue, selected → ring -->
+          <div class="card ring" style="--issue:#8b5cf6">
+            <div class="c-top">
+              <span class="c-sq"></span><span class="c-ref">POD-105</span>
+              <span class="c-title">Fused-bar login screen</span>
+              <span class="c-agent">· <b>◆</b> ada</span><span class="c-ago">2m ago</span>
+            </div>
+            <div class="c-head">Login screen ready to merge</div>
+            <div class="c-meta">review · ⎇ pod-105 · 2 ahead · clean</div>
+            <div class="c-shots">
+              <button class="shot" data-shot="login" data-cap="login-final.png · POD-105"></button>
+              <button class="shot" data-shot="narrow" data-cap="wordmark-380px.png · POD-105"></button>
+            </div>
+            <div class="c-act">
+              <button class="b-pri">✓ Merge to main</button>
+              <button class="b-sec">Send back…</button>
+              <span class="b-sess">session →</span>
+            </div>
+          </div>
+          <!-- offer · failure decision · TEAL issue (colour ≠ state) -->
+          <div class="card" style="--issue:#14b8a6">
+            <div class="c-top">
+              <span class="c-sq"></span><span class="c-ref">POD-84</span>
+              <span class="c-title">Wedged read transaction</span>
+              <span class="c-agent">· <b>◆</b> mux</span><span class="c-ago">11m ago</span>
+            </div>
+            <div class="c-head">E2E fails on the Safari shim — needs a call</div>
+            <div class="c-meta">in progress · ⎇ pod-84 · 1 ahead · <span class="warn">3 dirty</span></div>
+            <div class="c-body">osc52.spec:42 — clipboard write needs a user gesture on Safari. pendingCopy flush fixes it (~20 min), or we drop Safari from the matrix.</div>
+            <div class="c-act">
+              <button class="b-pri">Fix via pendingCopy</button>
+              <button class="b-sec">Drop Safari</button>
+              <span class="b-sess">session →</span>
+            </div>
+          </div>
+          <!-- question · PINK issue -->
+          <div class="card q" style="--issue:#ec4899">
+            <div class="c-top">
+              <span class="c-sq"></span><span class="c-ref">POD-101</span>
+              <span class="c-title">File-tab workspace routing</span>
+              <span class="c-agent">· <b>◆</b> tab</span><span class="c-ago">26m ago</span>
+            </div>
+            <div class="q-line">asks: <i>"reuse the current workspace pane for artifact tabs, or always open a new one?"</i></div>
+            <div class="c-act">
+              <button class="b-ter">Reply…</button>
+              <button class="b-ter">resolve ✓</button>
+              <span class="b-sess">session →</span>
+            </div>
+          </div>
+          <!-- finished · ROSE issue (colour ≠ state) -->
+          <div class="card done" style="--issue:#f43f5e">
+            <div class="c-top">
+              <span class="c-sq"></span><span class="c-ref">POD-98</span>
+              <span class="c-title">Git-state visibility</span>
+              <span class="c-ago">2h ago</span>
+            </div>
+            <div class="done-line">merged to main · fff77ff<button class="b-ter b-arch">Archive ✓</button></div>
+          </div>
+        </div>
+        <div class="handle"></div>
+        <div class="bar super">
+          <span class="g">✦</span><span class="t">Super agent</span>
+          <span class="scope">OVERARCHING · KNOWS THIS ISSUE</span>
+          <span class="acts">
+            <button class="ib" title="Open in terminal"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg></button>
+            <button class="ib" title="Clear context"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H8L3 15a2 2 0 010-2.8l8.2-8.2a2 2 0 012.8 0l6 6a2 2 0 010 2.8L14 19"/><path d="M8.5 8.5l7 7"/></svg></button>
+            <span class="chev">⌄</span>
+          </span>
+        </div>
+        <div class="feed">
+          <div class="here"><span>YOU WERE HERE · 14:20</span></div>
+          <div class="m you"><div class="acc"></div><div class="w">
+            <div class="who">YOU <span class="clk">14:31</span></div>
+            <div class="tx">what's still blocking the login rollout?</div>
+          </div></div>
+          <div class="m sa"><div class="acc"></div><div class="w">
+            <div class="who">SUPER AGENT <span class="ctx">· POD-105 context</span> <span class="clk">14:31</span></div>
+            <div class="tx">Only <b>POD-105</b> — top card in your tray, merge is one click. <b>POD-98</b> merged today; <b>POD-84</b> waits on your Safari call.
+            <span class="next">→ next: merge POD-105 from its card</span></div>
+          </div></div>
+        </div>
+        <div class="compwrap">
+          <div class="comp">
+            <span class="p">&gt;</span><span class="caret"></span>
+            <span class="ph">Ask about anything — @ to pull other issues into context</span>
+            <span class="ics">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5l-8.5 8.5a5 5 0 01-7-7l8.5-8.5a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3l8-8"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </span>
+          </div>
+          <div class="hint"><span class="ff">⏵⏵</span><span class="on">auto-delegate on</span><span>(shift+tab to cycle)</span><span class="sr">? for shortcuts</span></div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="lg"><span class="k">01</span><span class="v"><b>Colour is issue identity, never state.</b> Every card tints with its issue's <i>user-assigned</i> palette colour (slate when unassigned) — the same colour the issue wears in the sidebar, tabs and workspace, so a glance maps card → issue. Here the <i>failing</i> card is teal and the <i>merged</i> one rose: state never picks the hue.</span></div>
+        <div class="lg"><span class="k">02</span><span class="v"><b>State has its own reserved channels:</b> amber attention chrome (ago-stamp, count pill, composer focus), working-green motion, and the mono state line. The issue palette deliberately excludes those hues, so identity and state can't collide.</span></div>
+        <div class="lg"><span class="k">03</span><span class="v"><b>Arrival choreography</b> (press the green demo button): the tray pill pops (<i>popIn .45s</i>), the card unfolds (<i>.35s ease-out</i>, grid-rows — no height snap), its surface flashes amber once (<i>rowFlash .9s</i>), the ago-stamp flips green→amber (<i>flipAgo .5s</i>), actions tick in (<i>tickIn .35s</i>). Then <b>total stillness</b> — stillness is the "needs you" signal. Reduced-motion: everything appears instantly.</span></div>
+        <div class="lg"><span class="k">04</span><span class="v"><b>State line is machine-set from gitState:</b> stage · branch · ahead-count · dirty/clean — exactly the fields the wire carries today. No invented test counts or ±line stats.</span></div>
+        <div class="lg"><span class="k">05</span><span class="v"><b>Every action is a real affordance:</b> buttons send their offer prompt to the agent session; <i>Send back…</i> collects feedback first (--action-input); <i>session →</i> opens the session. Nothing on the card pretends to be a view we don't have.</span></div>
+        <div class="lg"><span class="k">06</span><span class="v"><b>The tray is global</b> — every offer/question/finished item across all tasks, stable sort (decisions first, finished last, newest-first within each). The selected issue only adds the colour ring on POD-105. Changelog removed; chat owns the space.</span></div>
+        <div class="lg"><span class="k">07</span><span class="v"><b>The super agent bar keeps its actions:</b> open-in-terminal and <b>clear context</b> (sends <i>/clear</i> to the headless thread — one global chat, so clearing starts a fresh thread; the tray is untouched). Controls sit on the app's compact scale: bar icons 20px, card buttons 24px <i>xs</i> — same as the shipped UI, not smaller.</span></div>
+        <div class="lg"><span class="k">08</span><span class="v"><b>The chat is column-sized:</b> body 11px/1.5, labels 8.5px with mono timestamps, 8px rhythm. The super agent's own prompt now carries the answer-first response shape (lead with the answer, 1–3 sentences, numbered steps, restate in-flight state, ≤1 next action in mono amber, no preamble/closers) — the same discipline as the offer cards, tuned for a narrow column read at a glance.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S2 · card anatomy states ═══ -->
+  <section class="screen">
+    <p class="sc-label"><b>S2</b> · CARD STATES — REAL WIDTH · CLICK THE THUMBNAILS</p>
+    <div class="gal">
+      <div class="gi">
+        <div class="card" style="--issue:#8b5cf6">
+          <div class="c-top">
+            <span class="c-sq"></span><span class="c-ref">POD-105</span>
+            <span class="c-title">Fused-bar login screen</span>
+            <span class="c-agent">· <b>◆</b> ada</span><span class="c-ago">2m ago</span>
+          </div>
+          <div class="c-head">Login screen ready to merge</div>
+          <div class="c-meta">review · ⎇ pod-105 · 2 ahead · clean</div>
+          <div class="c-body">Fused bar + ASCII wordmark landed. Riskiest bit: wordmark scaling under 380px — second shot.</div>
+          <div class="c-shots">
+            <button class="shot" data-shot="login" data-cap="login-final.png · POD-105"></button>
+            <button class="shot" data-shot="narrow" data-cap="wordmark-380px.png · POD-105"></button>
+            <button class="shot" data-shot="diff" data-cap="board-after.png · POD-105"></button>
+            <span class="n">+1</span>
+          </div>
+          <div class="c-act">
+            <button class="b-pri">✓ Merge to main</button>
+            <button class="b-sec">Send back…</button>
+            <span class="b-sess">session →</span>
+          </div>
+        </div>
+        <p class="cap"><b>OFFER · FULL</b> — headline = message line 1 · state line from gitState · body clamps at 2 lines · artifact strip = agent-curated --artifact paths, ≤3 thumbs + "+N" (shipped, POD-120) · first action renders primary in the issue colour</p>
+      </div>
+
+      <div class="gi">
+        <div class="card" style="--issue:#8b5cf6">
+          <div class="c-top">
+            <span class="c-sq"></span><span class="c-ref">POD-105</span>
+            <span class="c-title">Fused-bar login screen</span>
+            <span class="c-agent">· <b>◆</b> ada</span><span class="c-ago">2m ago</span>
+          </div>
+          <div class="c-head">Send back — what should change?</div>
+          <textarea class="c-input" rows="2" placeholder="The wordmark still clips at 380px — drop to the compact mark instead of scaling…"></textarea>
+          <div class="c-act">
+            <button class="b-pri">Send</button>
+            <button class="b-ter">Cancel</button>
+            <span class="c-note">appended to "Revise the login screen:"</span>
+          </div>
+        </div>
+        <p class="cap"><b>OFFER · INPUT STATE</b> — an --action-input button swaps the card body for a 2-row feedback field; send composes prompt + feedback as one user turn</p>
+      </div>
+
+      <div class="gi">
+        <div class="card" style="--issue:var(--slate)">
+          <div class="c-top">
+            <span class="c-sq"></span><span class="c-ref">POD-117</span>
+            <span class="c-title">Spin-off sidebar counts</span>
+            <span class="c-agent">· <b>◆</b> kit</span><span class="c-ago">44m ago</span>
+          </div>
+          <div class="c-head">Sidebar spin-off fix ready to merge</div>
+          <div class="c-meta">review · ⎇ pod-117 · 1 ahead · clean</div>
+          <div class="c-act">
+            <button class="b-pri">✓ Merge to main</button>
+            <button class="b-sec">Send back…</button>
+            <span class="b-sess">session →</span>
+          </div>
+        </div>
+        <p class="cap"><b>OFFER · UNCOLOURED ISSUE</b> — no assigned colour runs the identical mechanics in flow slate, quieter (handoff 1b). No artifacts named, none fresh → no strip.</p>
+        <div class="pal">
+          <span class="sw" style="background:#f43f5e"></span><span class="sw" style="background:#ec4899"></span>
+          <span class="sw" style="background:#d946ef"></span><span class="sw" style="background:#8b5cf6"></span>
+          <span class="sw" style="background:#6366f1"></span><span class="sw" style="background:#3b82f6"></span>
+          <span class="sw" style="background:#06b6d4"></span><span class="sw" style="background:#14b8a6"></span>
+          <span class="sw" style="background:#22c55e"></span><span class="sw" style="background:#84cc16"></span>
+          <span class="sw" style="background:#94a3b8;border-radius:99px"></span>
+          <span class="divider"></span>
+          <span class="res" style="background:#f59e0b"></span>
+          <span class="res" style="background:#10b981"></span>
+          <span class="res" style="background:#D97757"></span>
+          <span class="lab">10 PICKABLE + SLATE FALLBACK · AMBER/GREEN/TERRACOTTA RESERVED FOR STATE</span>
+        </div>
+      </div>
+
+      <div class="gi" style="display:flex;flex-direction:column;gap:9px">
+        <div class="card q" style="--issue:#ec4899">
+          <div class="c-top">
+            <span class="c-sq"></span><span class="c-ref">POD-101</span>
+            <span class="c-title">File-tab workspace routing</span>
+            <span class="c-agent">· <b>◆</b> tab</span><span class="c-ago">26m ago</span>
+          </div>
+          <div class="q-line">asks: <i>"reuse the current workspace pane for artifact tabs, or always open a new one?"</i></div>
+          <div class="c-act">
+            <button class="b-ter">Reply…</button>
+            <button class="b-ter">resolve ✓</button>
+            <span class="b-sess">session →</span>
+          </div>
+        </div>
+        <div class="card done" style="--issue:#f43f5e">
+          <div class="c-top">
+            <span class="c-sq"></span><span class="c-ref">POD-98</span>
+            <span class="c-title">Git-state visibility</span>
+            <span class="c-ago">2h ago</span>
+          </div>
+          <div class="done-line">merged to main · fff77ff<button class="b-ter b-arch">Archive ✓</button></div>
+        </div>
+        <p class="cap"><b>QUESTION · FINISHED</b> — question = humanQuestion as it exists on the wire (free text; Reply… routes through the composer, resolve ✓ clears it — answer-option chips need the options backend first, see notes). Finished = closedReason + Archive, one line.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ S3 · column states ═══ -->
+  <section class="screen">
+    <p class="sc-label"><b>S3</b> · GLOBAL EMPTY STATE · TRAY COLLAPSED</p>
+    <div class="row">
+      <div class="col" style="width:460px">
+        <div class="bar tray">
+          <span class="g">▤</span><span class="t">Tray</span>
+          <span class="scope">ALL TASKS</span><span class="chev">⌄</span>
+        </div>
+        <div class="empty">
+          <span class="ok">✓</span><span class="msg">Nothing waiting on you — anywhere</span>
+          <span class="spin">3 agents working</span>
+        </div>
+        <div class="bar super" style="box-shadow:none">
+          <span class="g">✦</span><span class="t">Super agent</span>
+          <span class="scope">OVERARCHING</span><span class="chev">⌄</span>
+        </div>
+      </div>
+      <div class="col" style="width:460px">
+        <div class="bar tray" style="border-bottom:none">
+          <span class="g">▤</span><span class="t">Tray</span><span class="pill">2</span>
+          <span class="scope">ALL TASKS</span><span class="chev">▸</span>
+        </div>
+        <div class="bar super">
+          <span class="g">✦</span><span class="t">Super agent</span>
+          <span class="scope">OVERARCHING · KNOWS THIS ISSUE</span><span class="chev">⌄</span>
+        </div>
+      </div>
+      <div class="legend" style="max-width:300px">
+        <div class="lg"><span class="k">07</span><span class="v"><b>Empty means empty everywhere</b> — the braille spinner + green mono counter are the only permanent motion in the whole column, and only while agents compute.</span></div>
+        <div class="lg"><span class="k">08</span><span class="v"><b>Collapsed tray keeps the amber count pill</b> — the "needs you" signal never disappears with the section; the pill pops on count increase.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>POD-113 · v3</span>
+    <span>grammar: engraved-column.md §2 + motion.md §2.1</span>
+    <span>colour: issueColors 10-palette, slate fallback, reserved hues</span>
+    <span>artifacts: --artifact shipped (POD-120, merged)</span>
+    <span>future backend noted: question option chips</span>
+  </div>
+</div>
+
+<!-- lightbox -->
+<div class="lb" id="lb">
+  <div class="fr" id="lbfr"></div>
+  <div class="cap" id="lbcap"></div>
+</div>
+
+<!-- fake screenshots -->
+<div hidden>
+  <svg id="sh-login" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg">
+    <rect width="320" height="200" fill="#101018"/>
+    <rect width="320" height="24" fill="#08080c"/><rect y="24" width="320" height="1" fill="#22222c"/>
+    <g fill="#d7d7e0">
+      <rect x="104" y="58" width="14" height="22"/><rect x="122" y="58" width="14" height="22"/>
+      <rect x="140" y="58" width="14" height="22"/><rect x="158" y="58" width="14" height="22"/>
+      <rect x="176" y="58" width="14" height="22"/><rect x="194" y="58" width="14" height="22"/>
+    </g>
+    <rect x="92" y="98" width="136" height="26" rx="4" fill="#1b1b22" stroke="#2e2e38"/>
+    <rect x="92" y="132" width="136" height="22" rx="4" fill="#f59e0b"/>
+    <rect x="128" y="166" width="64" height="6" rx="3" fill="#2c2c38"/>
+  </svg>
+  <svg id="sh-narrow" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg">
+    <rect width="320" height="200" fill="#16161d"/>
+    <rect x="110" y="8" width="100" height="184" rx="9" fill="#0b0b10" stroke="#4a4a58" stroke-width="2"/>
+    <g fill="#e8e8f0">
+      <rect x="126" y="44" width="11" height="19"/><rect x="141" y="44" width="11" height="19"/>
+      <rect x="156" y="44" width="11" height="19"/><rect x="171" y="44" width="11" height="19"/>
+      <rect x="186" y="44" width="11" height="19" fill="#f43f5e"/>
+    </g>
+    <rect x="124" y="84" width="72" height="20" rx="4" fill="#22222c" stroke="#3a3a46"/>
+    <rect x="124" y="112" width="72" height="17" rx="4" fill="#f59e0b"/>
+  </svg>
+  <svg id="sh-diff" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg">
+    <rect width="320" height="200" fill="#101018"/>
+    <rect width="320" height="22" fill="#08080c"/><rect y="22" width="320" height="1" fill="#22222c"/>
+    <rect x="12" y="34" width="88" height="150" rx="4" fill="#14141b" stroke="#22222c"/>
+    <rect x="20" y="44" width="72" height="26" rx="3" fill="#1d1d26"/>
+    <rect x="20" y="76" width="72" height="26" rx="3" fill="#1d1d26"/>
+    <rect x="112" y="34" width="196" height="150" rx="4" fill="#14141b" stroke="#22222c"/>
+    <rect x="122" y="46" width="120" height="8" rx="3" fill="#2c2c38"/>
+    <rect x="122" y="64" width="176" height="52" rx="3" fill="#101018" stroke="#2e2e38"/>
+    <rect x="122" y="128" width="80" height="16" rx="3" fill="#8b5cf6"/>
+  </svg>
+</div>
+
+<script>
+  // hydrate thumbnails from shared svg defs
+  const hydrate = (root) => root.querySelectorAll('.shot').forEach(el=>{
+    if (el.childElementCount) return;
+    const src=document.getElementById('sh-'+el.dataset.shot);
+    if(src) el.innerHTML=src.outerHTML.replace(/ id="[^"]*"/,'');
+  });
+  hydrate(document);
+
+  // lightbox
+  const lb=document.getElementById('lb'),fr=document.getElementById('lbfr'),cap=document.getElementById('lbcap');
+  document.addEventListener('click',e=>{
+    const s=e.target.closest('.shot');
+    if(s){e.stopPropagation();fr.innerHTML=s.innerHTML;cap.textContent=s.dataset.cap||'';lb.classList.add('open');return;}
+    if(e.target===lb)lb.classList.remove('open');
+  });
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')lb.classList.remove('open');});
+
+  // ── arrival choreography demo (house grammar: unfold → rowFlash → flipAgo/tickIn → stillness)
+  const demo=document.getElementById('demo'),traybox=document.getElementById('traybox'),pill=document.getElementById('pill');
+  let inserted=null;
+  demo.addEventListener('click',()=>{
+    if(inserted){inserted.remove();inserted=null;pill.textContent='4';}
+    const wrap=document.createElement('div');
+    wrap.className='ins';
+    wrap.innerHTML=`<div style="padding-bottom:0"><div class="card arrive" style="--issue:#84cc16">
+      <div class="c-top">
+        <span class="c-sq"></span><span class="c-ref">POD-121</span>
+        <span class="c-title">Session hibernate telemetry</span>
+        <span class="c-agent">· <b>◆</b> nyx</span><span class="c-ago">just now</span>
+      </div>
+      <div class="c-head">Hibernate probe ready to merge</div>
+      <div class="c-meta">review · ⎇ pod-121 · 1 ahead · clean</div>
+      <div class="c-act">
+        <button class="b-pri">✓ Merge to main</button>
+        <button class="b-sec">Send back…</button>
+        <span class="b-sess">session →</span>
+      </div>
+    </div></div>`;
+    traybox.prepend(wrap);
+    inserted=wrap;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>wrap.classList.add('open')));
+    pill.textContent='5';
+    pill.classList.remove('pop');void pill.offsetWidth;pill.classList.add('pop');
+  });
+</script>

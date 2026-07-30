@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 
+const featureEnabled = vi.hoisted(() => ({ value: true }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => featureEnabled.value,
+}))
+
 // The store slices the menu reads. Mutated per test before render.
 const state: { repos: unknown[]; machines: unknown[]; sessions: unknown[] } = {
   repos: [],
@@ -48,6 +53,9 @@ const machine = (id: string) => ({
 const session = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
   ({
     agentKind: 'claude-code',
+    // A real session always carries a title (the harness's, until renamed); the
+    // handoff toast names the session it moved, so this can't be left off.
+    title: 'POD-779-A',
     cwd: '/Users/mw/Source/other/podium/.worktrees/issue-779',
     machineId: MAC,
     status: 'live',
@@ -75,12 +83,20 @@ const handoffItem = (): HTMLElement => screen.getByRole('menuitem', { name: /Han
 afterEach(() => {
   cleanup()
   handoffMutate.mockClear()
+  featureEnabled.value = true
   state.repos = []
   state.machines = []
   state.sessions = []
 })
 
 describe('IssueContextMenu handoff (POD-850)', () => {
+  it('hides handoff while the feature is disabled', () => {
+    featureEnabled.value = false
+    state.sessions = [session({ sessionId: 'agent' })]
+    open(makeIssue({ sessions: [{ sessionId: 'agent' } as SessionMeta] }))
+    expect(screen.queryByRole('menuitem', { name: /Handoff/ })).toBeNull()
+  })
+
   it('offers a target and hands off the issue’s agent session on click', () => {
     state.repos = [
       repoWire(MAC, '/Users/mw/Source/other/podium', [

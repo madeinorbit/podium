@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
+  optimisticDraftSortKey,
   optimisticStartingSession,
 } from './optimistic-spawn'
 
@@ -45,6 +46,8 @@ describe('optimisticDraftIssue', () => {
   const base = {
     issueId: 'iss_1',
     repoPath: '/home/u/my-proj',
+    repoId: 'repo-1',
+    sortKey: 'c',
     agentKind: 'claude-code' as const,
     nowIso: '2026-07-07T00:00:00.000Z',
   }
@@ -59,9 +62,26 @@ describe('optimisticDraftIssue', () => {
     expect(i.draft).toBe(true)
     expect(i.worktreePath).toBeNull()
     expect(i.repoPath).toBe('/home/u/my-proj')
+    expect(i.repoId).toBe('repo-1')
+    expect(i.sortKey).toBe('c')
     expect(i.defaultAgent).toBe('claude-code')
     // A draft-agent sidebar row keys on these; it must not read as archived work.
     expect(i.archived).toBe(false)
+  })
+
+  it('mints the optimistic key above the existing project group', () => {
+    const existing = [
+      optimisticDraftIssue({ ...base, issueId: 'iss_a', sortKey: 'i' }),
+      optimisticDraftIssue({ ...base, issueId: 'iss_b', sortKey: 'c' }),
+      optimisticDraftIssue({
+        ...base,
+        issueId: 'iss_other',
+        repoId: 'repo-2',
+        sortKey: '1',
+      }),
+    ]
+    const key = optimisticDraftSortKey(existing, base.repoPath, base.repoId)
+    expect(key < 'c').toBe(true)
   })
 })
 

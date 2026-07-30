@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   abducoAttachArgv,
   abducoCreateArgv,
@@ -12,6 +12,7 @@ import {
   isAbducoAvailable,
   killAbducoSession,
   parseAbducoList,
+  reapAbducoTestSessions,
   scopeReclaimArgvs,
   spawnAbducoAgent,
   systemdScopeArgv,
@@ -192,6 +193,21 @@ describe('alt-screen chrome stripper', () => {
 })
 
 const hasAbduco = isAbducoAvailable()
+
+// POD-107: the in-test killAbducoSession calls sit on the happy path — a failed
+// assertion or timeout leaks the detached master for days. Sweep every label this
+// file can create, for this pid (this run, pass or fail) and for dead pids
+// (crashed prior runs).
+afterAll(() => {
+  if (!hasAbduco) return
+  reapAbducoTestSessions([
+    /^podium-abduco-itest-(\d+)$/,
+    /^podium-abduco-repaint-(\d+)$/,
+    /^podium-abfid-(\d+)-[0-9a-f]+$/,
+    /^podium-scopetest-(\d+)$/,
+    /^podium-reaptest-(\d+)$/,
+  ])
+})
 const FIXTURE = fileURLToPath(new URL('../test/fixtures/echo-title.mjs', import.meta.url))
 const HEX_FIXTURE = fileURLToPath(new URL('../test/fixtures/stdin-hex.mjs', import.meta.url))
 const TUI_FIXTURE = fileURLToPath(new URL('../test/fixtures/fixture-tui.mjs', import.meta.url))
@@ -282,6 +298,34 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     expect(out).toContain('rows=24') // and settled back at the requested geometry
     re.dispose()
     killAbducoSession(label)
+  }, 15000)
+
+  it('teardown sweep kills own-pid and dead-spawner sessions, spares a live foreign spawner', async () => {
+    // POD-107: the sweep decides by the pid embedded in the label — this process's
+    // sessions die (pass or fail), a crashed prior run's die (spawner gone), and a
+    // CONCURRENT run's survive (spawner alive and not us; pid 1 stands in for it).
+    const mine = `podium-reaptest-${process.pid}`
+    const crashed = `podium-reaptest-${2 ** 30}` // beyond pid_max — guaranteed dead
+    const foreign = 'podium-reaptest-1' // pid 1 is alive and never ours
+    const spawn = (label: string) =>
+      spawnAbducoAgent({ label, cmd: nodeBin, args: [FIXTURE], cols: 80, rows: 24 })
+    const sessions = [spawn(mine), spawn(crashed), spawn(foreign)]
+    try {
+      await wait(800)
+      for (const label of [mine, crashed, foreign]) {
+        expect(abducoHasSession(label)).toBe(true)
+      }
+
+      const reaped = reapAbducoTestSessions([/^podium-reaptest-(\d+)$/])
+      await wait(500)
+      expect(reaped.sort()).toEqual([mine, crashed].sort())
+      expect(abducoHasSession(mine)).toBe(false)
+      expect(abducoHasSession(crashed)).toBe(false)
+      expect(abducoHasSession(foreign)).toBe(true)
+    } finally {
+      for (const s of sessions) s.dispose()
+      for (const label of [mine, crashed, foreign]) killAbducoSession(label)
+    }
   }, 15000)
 })
 

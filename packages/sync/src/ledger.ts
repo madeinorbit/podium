@@ -6,6 +6,7 @@ import {
   ChangeBaseline,
   type ChangeLogStore,
   conversationProjection,
+  detectionKey,
   minAvailableSeq,
   pruneChangeLog,
   readChangesSince,
@@ -257,9 +258,8 @@ export class Ledger {
         const json = JSON.stringify(spec.value)
         const changed = prior
           ? prior.op === 'remove' ||
-            (spec.entity === 'conversation'
-              ? conversationProjection(prior.value) !== conversationProjection(spec.value)
-              : prior.json !== json)
+            detectionKey(spec.entity, prior.value, prior.json) !==
+              detectionKey(spec.entity, spec.value, json)
           : this.baseline.upsertChanged(spec.entity, spec.id, spec.value, json)
         if (!changed) continue
         rows.push({

@@ -1,5 +1,6 @@
 import type {
   AgentKind,
+  AgentObservation,
   AgentRuntimeState,
   ConversationSummaryWire,
   HostMetricsWire,
@@ -29,6 +30,8 @@ export interface EventMap {
     sessionId: string
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
+    /** Present only for a v1 accepted causal live transition [spec:SP-cdb2]. */
+    observation?: AgentObservation
   }
   /** A session was created by an operator/programmatic caller (createSession —
    *  the one funnel for fresh spawns; resumes and reattaches do not fire it). */

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-149 · Tab bar scope clarity — options</title>
+<style>
+  :root{
+    --race:#0a0f1c; --panel:#121b30; --chip:#16223c; --engraved:#070b16;
+    --tabstrip:#0c1322; --seam:#243356; --hair:#1e2a4c; --border-strong:#364a78;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --muted:#9a9aa8; --dim:#6c7690; --faint:#525c78; --label:#7a84a0;
+    --yellow:#f5c518; --red:#e5303f; --blue:#2f6bff; --terracotta:#d97757; --slate:#94a3b8;
+    --ctx:#8b5cf6;          /* selected issue: POD-144 violet */
+    --foreign:#ec4899;      /* other issue: POD-131 pink */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--race);color:var(--ink);font:400 13px/1.55 "Geist","Geist Variable",-apple-system,system-ui,sans-serif;padding:40px 24px 80px}
+  .wrap{max-width:920px;margin:0 auto}
+  .eyebrow{font:500 9px "Geist Mono",ui-monospace,monospace;letter-spacing:.14em;color:var(--label);text-transform:uppercase;margin-bottom:8px}
+  h1{font-size:20px;font-weight:600;color:var(--ink-strong);letter-spacing:-.01em}
+  .lede{color:var(--muted);margin:10px 0 0;max-width:64ch}
+  .lede b{color:var(--ink);font-weight:500}
+  section{margin-top:44px}
+  h2{font-size:13px;font-weight:600;color:var(--ink-strong);display:flex;align-items:center;gap:10px}
+  h2 .tag{font:500 8.5px "Geist Mono",monospace;letter-spacing:.1em;color:var(--race);background:var(--yellow);border-radius:4px;padding:2px 6px}
+  h2 .tag.quiet{background:var(--chip);color:var(--muted)}
+  .note{color:var(--muted);font-size:12px;margin:6px 0 14px;max-width:70ch}
+  .note b{color:var(--ink);font-weight:500}
+
+  /* ------- mock chrome ------- */
+  .mock{border:1px solid var(--seam);border-radius:8px;overflow:hidden;background:color-mix(in srgb,var(--ctx) 9%,#0e0e12)}
+  .mock.neutral{background:color-mix(in srgb,var(--slate) 7%,#0e0e12)}
+  .strip{display:flex;align-items:stretch;gap:2px;height:34px;padding:4px 6px 0;
+    background:color-mix(in srgb,var(--ctx) 15%,#101016);
+    border-bottom:1px solid color-mix(in srgb,var(--ctx) 50%,transparent)}
+  .tab{display:flex;align-items:center;gap:7px;padding:0 11px;border-radius:7px 7px 0 0;
+    font-size:10.5px;color:color-mix(in srgb,var(--ctx) 22%,#b9b3cc);white-space:nowrap}
+  .tab .dot{width:7px;height:7px;border-radius:2.5px;background:var(--ctx);opacity:.55;flex:none}
+  .tab.active{background:color-mix(in srgb,var(--ctx) 24%,#0e0e12);
+    border:1px solid color-mix(in srgb,var(--ctx) 50%,transparent);border-bottom:0;
+    box-shadow:inset 0 2px 0 var(--ctx);font-weight:600;color:#f6f3ff}
+  .tab.active .dot{opacity:1}
+  .tab .x{color:#8d84a6;font-weight:400;margin-left:2px}
+  .tab .file{width:11px;height:13px;flex:none;border:1.2px solid currentColor;border-radius:2px;opacity:.7;position:relative}
+  .tab .file::after{content:"";position:absolute;left:2px;top:3px;right:2px;height:1px;background:currentColor;box-shadow:0 3px 0 currentColor}
+  .plus{align-self:center;color:#6c7690;font-size:13px;padding:0 9px}
+  .body{height:56px;display:flex;align-items:center;padding:0 14px;font:400 10.5px/1.7 "Geist Mono",monospace;color:#c9c5d8}
+  .body .tp{color:var(--terracotta)}
+  .caption{font:500 8.5px "Geist Mono",monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:8px 2px 0}
+
+  /* option-specific bits */
+  .tab.foreign-marked{color:#aab3c4}
+  .tab.foreign-marked .owner{font:600 7.5px "Geist Mono",monospace;letter-spacing:.04em;color:var(--foreign);
+    border:1px solid color-mix(in srgb,var(--foreign) 45%,transparent);border-radius:3px;padding:1px 4px;
+    background:color-mix(in srgb,var(--foreign) 12%,#0e0e12)}
+  .tab.foreign-marked .dot{background:var(--foreign)}
+  .strip .divider{width:1px;align-self:stretch;margin:2px 5px 0;background:var(--hair)}
+  .strip .zone-label{align-self:center;font:500 7.5px "Geist Mono",monospace;letter-spacing:.14em;color:var(--faint);padding:0 4px 0 2px}
+  .tab.shared{background:transparent;color:#8b93a2}
+  .tab.shared.open{background:color-mix(in srgb,var(--slate) 14%,#0e0e12);border:1px solid var(--hair);border-bottom:0;box-shadow:inset 0 2px 0 var(--slate);color:#e6e9f0;font-weight:600}
+
+  .procon{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;margin-top:12px;font-size:12px}
+  .procon div{color:var(--muted)}
+  .procon .h{font:500 8.5px "Geist Mono",monospace;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+  .procon .pro .h{color:var(--blue)} .procon .con .h{color:var(--red)}
+  .procon li{margin:3px 0 3px 16px}
+  .verdict{margin-top:12px;font-size:12px;color:var(--ink);border-left:2px solid var(--yellow);padding:2px 0 2px 12px}
+  .verdict.quiet{border-color:var(--seam);color:var(--muted)}
+  code{font:400 11px "Geist Mono",monospace;color:#b9c4de;background:var(--chip);border-radius:3px;padding:1px 5px}
+  .problem-badge{position:absolute;inset:-7px -8px;border:2px solid var(--red);border-radius:10px;pointer-events:none}
+  .rel{position:relative}
+  footer{margin-top:52px;color:var(--faint);font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">POD-149 · Native-pane tab bar</div>
+  <h1>Tab scope clarity — why POD-131's file shows up under POD-144, and four ways out</h1>
+  <p class="lede">The strip <b>looks</b> issue-scoped (it wears the selected issue's tint) but is actually
+    <b>issue tabs ∪ worktree tabs</b>: any file tab whose worktree path matches the issue's checkout is shown,
+    and since most issues share <code>~/podium</code>, files opened under one issue surface under every other.
+    Artifact tabs opened via the artifact list carry an <code>issueId</code> and scope correctly; legacy
+    path-only opens (<code>openFileInWorktree</code>) carry none.</p>
+
+  <!-- ============ CURRENT ============ -->
+  <section>
+    <h2>Today <span class="tag quiet">problem</span></h2>
+    <p class="note">POD-144 is selected (violet). The POD-131 mobile-redesign artifact rides along because it
+      lives in the same checkout — nothing in the strip says it belongs to another issue.</p>
+    <div class="mock">
+      <div class="strip">
+        <div class="tab active"><span class="dot"></span>Trace offer media<span class="x">✕</span></div>
+        <div class="rel"><div class="tab"><span class="file"></span>POD-131-mobile-redesign.html</div><div class="problem-badge"></div></div>
+        <div class="plus">+</div>
+      </div>
+      <div class="body"><span class="tp">⏺</span>&nbsp;Running podium offer --message "POD-131 artifact omission traced…"</div>
+    </div>
+    <div class="caption">Selected issue: POD-144 · foreign tab indistinguishable from an owned one</div>
+  </section>
+
+  <!-- ============ OPTION A ============ -->
+  <section>
+    <h2>Option A — Strict issue scoping <span class="tag">recommended</span></h2>
+    <p class="note">Every file open made while an issue is selected is <b>stamped with that issue's id</b>;
+      the strip shows only tabs owned by the selected issue. Worktree-path matching remains only for the
+      worktree-selected (no-issue) workspace. Re-finding a closed-over file happens through the
+      <b>“+” menu → Recent files</b>, which lists recently opened files across the checkout.</p>
+    <div class="mock">
+      <div class="strip">
+        <div class="tab active"><span class="dot"></span>Trace offer media<span class="x">✕</span></div>
+        <div class="plus">+</div>
+      </div>
+      <div class="body"><span class="tp">⏺</span>&nbsp;Running podium offer --message "POD-131 artifact omission traced…"</div>
+    </div>
+    <div class="caption">POD-131's tab simply isn't here — it lives in POD-131's strip, where it belongs</div>
+    <div class="procon">
+      <div class="pro"><div class="h">For</div><ul>
+        <li>Strip finally means what its tint claims: “this issue's workspace”.</li>
+        <li>Matches the existing per-issue tab-order persistence (<code>issue:&lt;id&gt;</code> keys).</li>
+        <li>Small, mostly data-model change — stamp <code>issueId</code> at open time, tighten one filter.</li>
+      </ul></div>
+      <div class="con"><div class="h">Against</div><ul>
+        <li>Tabs “vanish” on issue switch — needs the Recent-files affordance so nothing feels lost.</li>
+        <li>A genuinely shared reference file must be opened once per issue.</li>
+      </ul></div>
+    </div>
+    <div class="verdict">Cleanest mental model; pair with A′ below if cross-issue visibility is worth keeping.</div>
+  </section>
+
+  <!-- ============ OPTION B ============ -->
+  <section>
+    <h2>Option B — Keep them, mark their provenance <span class="tag quiet">additive</span></h2>
+    <p class="note">Behaviour unchanged; foreign tabs become visually honest. A tab owned by another issue
+      swaps the violet square for its <b>own issue's colour</b> and wears a tiny owner chip. Clicking the chip
+      navigates to that issue (the reveal behaviour artifacts already have).</p>
+    <div class="mock">
+      <div class="strip">
+        <div class="tab active"><span class="dot"></span>Trace offer media<span class="x">✕</span></div>
+        <div class="tab foreign-marked"><span class="dot"></span>POD-131-mobile-redesign.html<span class="owner">POD-131</span></div>
+        <div class="plus">+</div>
+      </div>
+      <div class="body"><span class="tp">⏺</span>&nbsp;Running podium offer --message "POD-131 artifact omission traced…"</div>
+    </div>
+    <div class="caption">Pink dot + POD-131 chip = borrowed from another issue's context</div>
+    <div class="procon">
+      <div class="pro"><div class="h">For</div><ul>
+        <li>Nothing disappears; zero workflow change.</li>
+        <li>Reuses the issue-colour channel the design system already owns.</li>
+      </ul></div>
+      <div class="con"><div class="h">Against</div><ul>
+        <li>The strip still mixes scopes — explained, not solved.</li>
+        <li>Chips cost width in an already tight strip; two colour systems per tab row.</li>
+        <li>Legacy no-<code>issueId</code> tabs still can't be attributed without the Option-A stamping anyway.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION C ============ -->
+  <section>
+    <h2>Option C — Segment the strip: issue zone · shared zone <span class="tag quiet">middle path</span></h2>
+    <p class="note">One strip, two zones. Left of the divider: tabs owned by the selected issue, tinted as today.
+      Right: <b>checkout-shared</b> file tabs, rendered neutral slate with a mono zone label — visibly “of the
+      worktree, not of this issue”.</p>
+    <div class="mock">
+      <div class="strip">
+        <div class="tab active"><span class="dot"></span>Trace offer media<span class="x">✕</span></div>
+        <div class="plus">+</div>
+        <div class="divider"></div>
+        <div class="zone-label">SHARED</div>
+        <div class="tab shared"><span class="file"></span>POD-131-mobile-redesign.html</div>
+      </div>
+      <div class="body"><span class="tp">⏺</span>&nbsp;Running podium offer --message "POD-131 artifact omission traced…"</div>
+    </div>
+    <div class="caption">Issue tabs keep the tint; shared tabs go slate behind a hairline + label</div>
+    <div class="procon">
+      <div class="pro"><div class="h">For</div><ul>
+        <li>Both truths visible at once; the boundary is structural, not decorative.</li>
+        <li>Shared zone is a natural home for legacy no-owner tabs.</li>
+      </ul></div>
+      <div class="con"><div class="h">Against</div><ul>
+        <li>More chrome in 34px; divider + label eat width, awkward when either zone is empty.</li>
+        <li>Drag-reorder across zones needs rules; two visual grammars in one strip.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- ============ OPTION D ============ -->
+  <section>
+    <h2>Option D — Files leave the strip entirely <span class="tag quiet">structural</span></h2>
+    <p class="note">The strip becomes <b>sessions-only</b>; files and artifacts open in the right dock
+      (which already hosts viewers) or a dedicated overlay. Scope confusion is dissolved because file
+      viewing stops competing with agent tabs for the same row. Biggest change, touches split panes,
+      warm-set mounting, and the artifact-reveal flow — a redesign of its own, not a fix.</p>
+    <div class="verdict quiet">Worth keeping in mind for the shell redesign, not as the answer to this bug-sized confusion.</div>
+  </section>
+
+  <!-- ============ RECOMMENDATION ============ -->
+  <section>
+    <h2>Recommendation</h2>
+    <p class="note"><b>A as the fix, B's chip as the escape hatch (A′).</b>
+      Stamp ownership at open time and scope the strip strictly (A). For the one real cross-scope case —
+      an artifact you deliberately want alongside another issue's session — offer “Open here” from the
+      artifact list, which creates a tab owned by the <i>current</i> issue but wearing the origin chip from B.
+      Deliberate borrowing stays possible and visible; accidental leakage ends.</p>
+  </section>
+
+  <footer>POD-149 · mock values from .design/specs/native-pane.md §2.2 · tokens from apps/web/DESIGN.md</footer>
+</div>
+</body>
+</html>

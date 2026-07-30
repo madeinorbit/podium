@@ -29,9 +29,19 @@ case "$1" in
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
     printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$daemon_unit"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
+    if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
+      : > "$PODIUM_STUB_DAEMON_MARKER"
+      "$0" daemon </dev/null >/dev/null 2>&1 &
+    fi
     ;;
   join-config)
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-join-config $*" >> "$PODIUM_STUB_LOG"
+    ;;
+  daemon)
+    if [ -n "${PODIUM_STUB_DAEMON_MARKER:-}" ]; then
+      : > "$PODIUM_STUB_DAEMON_MARKER"
+      while [ -e "$PODIUM_STUB_DAEMON_MARKER" ]; do sleep 1; done
+    fi
     ;;
 esac
 echo podium-stub "$@"
@@ -45,16 +55,110 @@ openssl pkey -in "$WORK/priv.pem" -pubout -outform DER 2>/dev/null | base64 -w0 
 openssl pkeyutl -sign -inkey "$WORK/priv.pem" -rawin \
   -in "$REL/podium-headless-linux-x64.tar.gz" -out "$REL/podium-headless-linux-x64.tar.gz.sig.raw"
 base64 -w0 "$REL/podium-headless-linux-x64.tar.gz.sig.raw" > "$REL/podium-headless-linux-x64.tar.gz.sig"
+# The fixture payload is architecture-neutral; duplicate the signed bytes under
+# the ARM64 release name so platform selection is tested independently of compilation.
+cp "$REL/podium-headless-linux-x64.tar.gz" "$REL/podium-headless-linux-arm64.tar.gz"
+cp "$REL/podium-headless-linux-x64.tar.gz.sig" "$REL/podium-headless-linux-arm64.tar.gz.sig"
 
 # install.sh reads PODIUM_INSTALL_BASE (file:// or http) + PODIUM_INSTALL_PUBKEY (override) for tests.
 export PODIUM_INSTALL_BASE="file://$REL"
 PODIUM_INSTALL_PUBKEY="$(cat "$WORK/pub.b64")"
 export PODIUM_INSTALL_PUBKEY
 
+# Local vendor-installer fixtures: each writes the command install.sh verifies,
+# so --agents is exercised without reaching the network.
+AGENT_REL="$WORK/agents"; mkdir -p "$AGENT_REL"
+cat > "$AGENT_REL/codex.sh" <<'SH'
+#!/bin/sh
+case "${CODEX_NON_INTERACTIVE:-}" in 1) : ;; *) exit 41 ;; esac
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+bin="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"; mkdir -p "$bin"
+printf '#!/bin/sh\necho codex-fixture\n' > "$bin/codex"; chmod +x "$bin/codex"
+SH
+cat > "$AGENT_REL/claude.sh" <<'SH'
+#!/bin/bash
+test "${1:-}" = stable
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+mkdir -p "$HOME/.local/bin"
+printf '#!/bin/sh\necho claude-fixture\n' > "$HOME/.local/bin/claude"; chmod +x "$HOME/.local/bin/claude"
+SH
+cat > "$AGENT_REL/grok.sh" <<'SH'
+#!/bin/bash
+[ -z "${PODIUM_EXPECT_DAEMON_MARKER:-}" ] || [ -e "$PODIUM_EXPECT_DAEMON_MARKER" ] || exit 42
+mkdir -p "${GROK_BIN_DIR:?}"
+printf '#!/bin/sh\necho grok-fixture\n' > "$GROK_BIN_DIR/grok"; chmod +x "$GROK_BIN_DIR/grok"
+SH
+cat > "$AGENT_REL/claude-stage-fails.sh" <<'SH'
+#!/bin/bash
+test "${1:-}" = stable
+exit 91
+SH
+
+# Fixture for Claude's checksum-verified standalone fallback. The binary is a
+# script only because this test asserts installer routing and integrity; the real
+# ARM acceptance below exercises Anthropic's native AArch64 executable.
+CLAUDE_REL="$WORK/claude-releases"
+CLAUDE_VERSION="2.1.999"
+mkdir -p "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64"
+printf '%s\n' "$CLAUDE_VERSION" > "$CLAUDE_REL/latest"
+cat > "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude" <<'SH'
+#!/bin/sh
+echo claude-standalone-fixture
+SH
+chmod +x "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude"
+CLAUDE_SHA="$(sha256sum "$CLAUDE_REL/$CLAUDE_VERSION/linux-x64/claude" | cut -d' ' -f1)"
+printf '{"platforms":{"linux-x64":{"checksum":"%s"}}}\n' "$CLAUDE_SHA" \
+  > "$CLAUDE_REL/$CLAUDE_VERSION/manifest.json"
+
 echo "== plain install =="
 sh "$ROOT/install.sh"
 test -x "$HOME/.local/bin/podium"            || { echo FAIL: no launcher symlink; exit 1; }
 test -f "$HOME/.local/share/podium/VERSION"  || { echo FAIL: bundle not installed; exit 1; }
+
+echo "== install persists ~/.local/bin on PATH for future login shells =="
+# POD-327: the one-liner runs in a single shell, so an in-process `export PATH` is gone by the
+# next SSH login. Probe REAL shells with a scrubbed environment (env -i) so a host that already
+# has podium on PATH cannot mask a regression — assert the resolved path, not just success.
+CLEAN_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+for probe in "sh -l" "bash -l" "bash -i"; do
+  resolved="$(env -i HOME="$HOME" PATH="$CLEAN_PATH" TERM=dumb \
+    $probe -c 'command -v podium' 2>/dev/null || true)"
+  test "$resolved" = "$HOME/.local/bin/podium" \
+    || { echo "FAIL: '$probe' resolved podium to '${resolved:-<nothing>}'"; exit 1; }
+done
+
+echo "== PATH persistence is idempotent and covers the shells we support =="
+PATH_HOME="$WORK/path-home"; mkdir -p "$PATH_HOME/.config/fish"
+# Pre-create the startup files that SHADOW ~/.profile for their shell, plus the rc files, so
+# the assertions do not depend on which shells happen to be installed on the test host.
+for f in .profile .bashrc .bash_profile .zshrc .zprofile; do printf '# pre-existing\n' > "$PATH_HOME/$f"; done
+env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+env HOME="$PATH_HOME" PODIUM_STATE_DIR="$PATH_HOME/.podium" sh "$ROOT/install.sh" >/dev/null
+for f in .profile .bashrc .bash_profile .zshrc .zprofile; do
+  hits="$(grep -cF '>>> podium installer (PATH) >>>' "$PATH_HOME/$f" || true)"
+  test "$hits" = 1 || { echo "FAIL: $f has $hits PATH blocks after two installs (want 1)"; exit 1; }
+  grep -F '# pre-existing' "$PATH_HOME/$f" >/dev/null \
+    || { echo "FAIL: install.sh clobbered existing $f"; exit 1; }
+done
+FISH_CONF="$PATH_HOME/.config/fish/conf.d/podium-path.fish"
+test -f "$FISH_CONF" || { echo "FAIL: no fish PATH snippet"; exit 1; }
+grep -F 'set -gx PATH $HOME/.local/bin $PATH' "$FISH_CONF" >/dev/null \
+  || { echo "FAIL: fish snippet is not fish syntax"; exit 1; }
+if command -v fish >/dev/null 2>&1; then
+  fish --no-execute "$FISH_CONF" || { echo "FAIL: fish rejects the generated snippet"; exit 1; }
+fi
+# Sourcing twice must not stack duplicate PATH entries (the snippet self-guards).
+dupes="$(env -i HOME="$PATH_HOME" PATH="$CLEAN_PATH" sh -c \
+  '. "$HOME/.profile"; . "$HOME/.profile"; echo "$PATH"' | tr ':' '\n' | grep -cx "$PATH_HOME/.local/bin" || true)"
+test "$dupes" = 1 || { echo "FAIL: sourcing twice yielded $dupes copies of ~/.local/bin"; exit 1; }
+
+echo "== PODIUM_NO_MODIFY_PATH leaves startup files untouched =="
+OPTOUT_HOME="$WORK/optout-home"; mkdir -p "$OPTOUT_HOME"
+env HOME="$OPTOUT_HOME" PODIUM_STATE_DIR="$OPTOUT_HOME/.podium" PODIUM_NO_MODIFY_PATH=1 \
+  sh "$ROOT/install.sh" >/dev/null
+if grep -rlF 'podium installer (PATH)' "$OPTOUT_HOME" >/dev/null 2>&1; then
+  echo "FAIL: PODIUM_NO_MODIFY_PATH still edited startup files"; exit 1
+fi
 
 echo "== named install has an independent root and bound command =="
 printf 'keep\n' > "$HOME/.local/share/podium/DEFAULT-SENTINEL"
@@ -74,6 +178,104 @@ echo "== edge install persists update channel =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
 sh "$ROOT/install.sh" --channel edge
 test "$(cat "$PODIUM_STATE_DIR/update-channel" 2>/dev/null || true)" = "edge" || { echo "FAIL: edge install did not persist update channel"; exit 1; }
+
+echo "== arm64 hosts select the arm64 release asset =="
+ARCHBIN="$WORK/archbin"; mkdir -p "$ARCHBIN"
+cat > "$ARCHBIN/uname" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+  -s) echo Linux ;;
+  -m) echo aarch64 ;;
+  *) echo Linux ;;
+esac
+SH
+chmod +x "$ARCHBIN/uname"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
+arm_output="$(env PATH="$ARCHBIN:$PATH" sh "$ROOT/install.sh")"
+printf '%s\n' "$arm_output" | grep -F 'Downloading podium-headless-linux-arm64.tar.gz' >/dev/null \
+  || { echo "FAIL: arm64 host did not select arm64 asset"; exit 1; }
+test -f "$HOME/.local/share/podium/VERSION" || { echo FAIL: arm64-named bundle not installed; exit 1; }
+
+echo "== agent bootstrap is unattended and installs all requested CLIs =="
+rm -f "$HOME/.local/bin/codex" "$HOME/.local/bin/claude" "$HOME/.local/bin/grok"
+PODIUM_CODEX_INSTALL_URL="file://$AGENT_REL/codex.sh" \
+PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude.sh" \
+PODIUM_GROK_INSTALL_URL="file://$AGENT_REL/grok.sh" \
+  sh "$ROOT/install.sh" --agents codex,claude-code,grok
+test -x "$HOME/.local/bin/codex" || { echo FAIL: Codex missing; exit 1; }
+test -x "$HOME/.local/bin/claude" || { echo FAIL: Claude missing; exit 1; }
+test -x "$HOME/.local/bin/grok" || { echo FAIL: Grok missing; exit 1; }
+
+echo "== join starts before slow agent bootstrap can expire its code =="
+ORDER_MARKER="$WORK/join-before-agents"
+rm -f "$ORDER_MARKER" "$HOME/.local/bin/codex" "$HOME/.local/bin/claude" "$HOME/.local/bin/grok"
+PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$ORDER_MARKER" \
+PODIUM_EXPECT_DAEMON_MARKER="$ORDER_MARKER" \
+PODIUM_CODEX_INSTALL_URL="file://$AGENT_REL/codex.sh" \
+PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude.sh" \
+PODIUM_GROK_INSTALL_URL="file://$AGENT_REL/grok.sh" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update --agents codex,claude-code,grok
+test -e "$ORDER_MARKER" || { echo FAIL: join did not start before agents; exit 1; }
+rm -f "$ORDER_MARKER"
+
+echo "== Claude falls back to the checksum-verified official standalone binary =="
+rm -f "$HOME/.local/bin/claude"
+fallback_output="$(PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude-stage-fails.sh" \
+  PODIUM_CLAUDE_RELEASE_BASE_URL="file://$CLAUDE_REL" \
+  sh "$ROOT/install.sh" --agents claude-code 2>&1)"
+printf '%s\n' "$fallback_output" | grep -F 'checksum-verified standalone fallback' >/dev/null \
+  || { echo "FAIL: Claude standalone fallback was not reported"; exit 1; }
+test "$("$HOME/.local/bin/claude" --version)" = "claude-standalone-fixture" \
+  || { echo "FAIL: Claude standalone fallback was not installed"; exit 1; }
+
+echo "== Claude standalone fallback rejects a bad manifest checksum =="
+rm -f "$HOME/.local/bin/claude"
+printf '{"platforms":{"linux-x64":{"checksum":"%064d"}}}\n' 0 \
+  > "$CLAUDE_REL/$CLAUDE_VERSION/manifest.json"
+if PODIUM_CLAUDE_INSTALL_URL="file://$AGENT_REL/claude-stage-fails.sh" \
+  PODIUM_CLAUDE_RELEASE_BASE_URL="file://$CLAUDE_REL" \
+  sh "$ROOT/install.sh" --agents claude-code >/dev/null 2>&1; then
+  echo "FAIL: Claude fallback accepted a bad checksum"
+  exit 1
+fi
+test ! -e "$HOME/.local/bin/claude" || { echo "FAIL: bad-checksum Claude binary installed"; exit 1; }
+
+echo "== join starts the daemon unattended without a usable user systemd =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$PODIUM_STATE_DIR"
+DAEMON_MARKER="$WORK/daemon-running"
+PODIUM_DISABLE_SYSTEMD=1 PODIUM_STUB_DAEMON_MARKER="$DAEMON_MARKER" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
+test -e "$DAEMON_MARKER" || { echo FAIL: no-systemd join did not start daemon; exit 1; }
+rm -f "$DAEMON_MARKER"
+
+echo "== a host with no user bus asks for detached persistence, quietly =="
+# The VPS case: systemd IS installed, but `systemctl --user` has no session bus, so it answers
+# "Failed to connect to bus: No medium found". install.sh must detect that BEFORE asking for
+# systemd persistence, ask for detached instead, and explain it in its own words rather than
+# letting the raw D-Bus error surface mid-install.
+NOBUS="$WORK/nobus"; mkdir -p "$NOBUS"
+cat > "$NOBUS/systemctl" <<'SH'
+#!/bin/sh
+case "${1:-}" in
+  --version) echo "systemd 255 (255.4)"; exit 0 ;;
+esac
+echo "Failed to connect to bus: No medium found" >&2
+exit 1
+SH
+# linger can't be enabled here (and `sudo` must not reach the real host from a test).
+printf '#!/bin/sh\nexit 1\n' > "$NOBUS/loginctl"
+printf '#!/bin/sh\nexit 1\n' > "$NOBUS/sudo"
+chmod +x "$NOBUS/systemctl" "$NOBUS/loginctl" "$NOBUS/sudo"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
+nobus_output="$(env PATH="$NOBUS:$PATH" PODIUM_STUB_LOG="$WORK/stub.log" \
+  sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update 2>&1)"
+grep -F 'stub-setup setup --join TESTTOKEN --persist detached' "$WORK/stub.log" >/dev/null \
+  || { echo "FAIL: no-user-bus host still asked for systemd persistence"; exit 1; }
+if printf '%s\n' "$nobus_output" | grep -F 'No medium found' >/dev/null; then
+  echo "FAIL: installer leaked the raw D-Bus error"; exit 1
+fi
+printf '%s\n' "$nobus_output" | grep -F 'No systemd service' >/dev/null \
+  || { echo "FAIL: installer did not explain why there is no service"; exit 1; }
 
 echo "== authenticated fetch sends GitHub token =="
 AUTHBIN="$WORK/authbin"; mkdir -p "$AUTHBIN"
@@ -143,6 +345,10 @@ grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
 grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
   || { echo "FAIL: fallback unit drifted from renderDaemonUnit (no RestartPreventExitStatus)"; exit 1; }
+# A service context inherits none of the login shell's PATH, so the unit must carry its own
+# (POD-327's second half). Without it, agent CLIs in %h/.local/bin are unreachable from the daemon.
+grep -F 'Environment=PATH=%h/.local/bin:' "$UNIT/podium-daemon.service" >/dev/null \
+  || { echo "FAIL: fallback unit has no Environment=PATH covering %h/.local/bin"; exit 1; }
 
 echo "== --no-auto-update skips the timer =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"

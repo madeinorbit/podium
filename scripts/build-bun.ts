@@ -10,7 +10,16 @@
  */
 import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { PUBLISH_WORKER_ENTRY } from '../apps/server/src/modules/sessions/publish-worker-embed.js'
@@ -204,8 +213,23 @@ function main(): void {
   cpSync(webDist, `${headless}/web`, { recursive: true })
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
-  cpSync(`${out}/${names.compiled}`, `${headless}/${names.cli}`)
-  chmodSync(`${headless}/${names.cli}`, 0o755)
+  const bundledCli = `${headless}/${names.cli}`
+  if (win) {
+    cpSync(`${out}/${names.compiled}`, bundledCli)
+  } else {
+    // A running Linux executable cannot be opened for an in-place copy (ETXTBSY),
+    // but replacing its directory entry is safe: the old process keeps its inode
+    // while new launches see the complete new binary.
+    const stagedCli = `${bundledCli}.new-${process.pid}`
+    try {
+      cpSync(`${out}/${names.compiled}`, stagedCli)
+      chmodSync(stagedCli, 0o755)
+      renameSync(stagedCli, bundledCli)
+    } finally {
+      rmSync(stagedCli, { force: true })
+    }
+  }
+  chmodSync(bundledCli, 0o755)
 
   // License notices ship with every headless bundle (Apache-2.0 NOTICE convention + the
   // generated third-party inventory; regenerate via scripts/generate-third-party-notices.ts).

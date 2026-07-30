@@ -16,7 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { Archive, Columns2, FileText, Pin, Plus, X } from 'lucide-react'
+import { Archive, Columns2, FileText, Lock, Plus, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
@@ -31,9 +31,9 @@ import {
   sessionsForIssueNav,
   sessionsForWorktree,
 } from '@/lib/derive'
-import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -41,6 +41,7 @@ import { PanelDeck } from './PanelDeck'
 import { composeDeck, type DeckTab } from './panel-deck'
 import { useReplicaIssues, useStoreSelector } from './store'
 import type { WorktreeView } from './types'
+import { closeWorkspaceTab } from './workspace-close'
 import { fileTabsForWorkspace } from './workspace-tabs'
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
@@ -55,8 +56,6 @@ const tabName = (t: WTab): string =>
 export function Workspace(): JSX.Element {
   const {
     sessions,
-    pins,
-    setPinned,
     tabOrders,
     setTabOrder,
     selectedWorktree,
@@ -74,8 +73,6 @@ export function Workspace(): JSX.Element {
   } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
-      pins: s.pins,
-      setPinned: s.setPinned,
       tabOrders: s.tabOrders,
       setTabOrder: s.setTabOrder,
       selectedWorktree: s.selectedWorktree,
@@ -94,9 +91,8 @@ export function Workspace(): JSX.Element {
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  // Closing a session tab routes through the active-session guard (#115) so a
-  // working agent prompts for confirmation; file tabs close immediately.
-  const { guardedKill } = useSessionGuard()
+  const tabSplittingEnabled = useFeature('tab-splitting')
+  const visibleSplit = tabSplittingEnabled && split
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to the tab list. Without
   // this, the keep-pane-valid effect sees an unknown paneA and bounces it to tab 0.
@@ -159,16 +155,14 @@ export function Workspace(): JSX.Element {
         : []
   ).filter((s) => !dockShellIds.has(s.sessionId))
   const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
-  const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: worktree?.path })
+  const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: panelTarget?.path })
   const orderKey = issue ? `issue:${issue.id}` : worktree?.path
   const byId = new Map<string, WTab>()
   for (const s of sessionList)
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
   for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
   const baseIds = [
-    ...orderTabs(sessionList, undefined, pins, issue?.coordinatorSessionId).map(
-      (s) => s.sessionId,
-    ),
+    ...orderTabs(sessionList, undefined, issue?.coordinatorSessionId).map((s) => s.sessionId),
     ...fileList.map((f) => f.id),
   ]
   const manual = orderKey ? tabOrders[orderKey] : undefined
@@ -199,7 +193,7 @@ export function Workspace(): JSX.Element {
     sessions.filter((s) => !s.archived && !dockShellIds.has(s.sessionId)).map((s) => s.sessionId),
   )
   const warmUniverse = [...knownSessionIds].sort()
-  const activeIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
+  const activeIds = [paneA, visibleSplit ? paneB : null].filter((x): x is string => x != null)
   const warm = useWarmSet(warmUniverse, activeIds)
 
   // Keep pane A pointed at a valid tab.
@@ -250,6 +244,24 @@ export function Workspace(): JSX.Element {
     // Genuinely gone (or moved out of this worktree) — drop it back to the picker.
     setPane('B', null)
   }, [allTabs, paneB, setPane, sessions])
+
+  // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
+  // webview never sees the keypress), so the shell's "Close Tab" item evals this
+  // hook instead. File tabs close immediately. Session tabs are locked task
+  // members [POD-293], so consume the command without killing the session or
+  // falling through to the shell's window-level close (hide). Returning false
+  // is reserved for no tab / an unmounted Workspace. Re-registered every render
+  // so it always sees the current pane; no deps array on purpose.
+  useEffect(() => {
+    const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
+    g.__PODIUM_CLOSE_TAB__ = () => {
+      const active = paneA ? byId.get(paneA) : undefined
+      return closeWorkspaceTab(active, closeFileTab)
+    }
+    return () => {
+      delete g.__PODIUM_CLOSE_TAB__
+    }
+  })
 
   if (!worktree && !issue) {
     // The selected path is no longer a live worktree, but it may still own
@@ -308,7 +320,6 @@ export function Workspace(): JSX.Element {
                   key={t.id}
                   tab={t}
                   active={t.id === paneA}
-                  pinned={t.kind === 'session' && pins.panels.includes(t.id)}
                   coordinator={
                     t.kind === 'session' &&
                     !!issue &&
@@ -326,20 +337,16 @@ export function Workspace(): JSX.Element {
                     if (t.kind === 'session') void markSessionRead(t.id)
                     setPane('A', t.id)
                   }}
-                  onTogglePin={
-                    t.kind === 'session'
-                      ? () => void setPinned('panel', t.id, !pins.panels.includes(t.id))
-                      : undefined
-                  }
-                  onClose={() =>
-                    t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id)
-                  }
+                  onClose={() => {
+                    if (t.kind === 'file') closeFileTab(t.id)
+                  }}
                 />
               ))}
               {/* Reveal/hide archived member sessions as tabs — only shown when the
                   viewed issue/worktree actually has any. */}
               {archivedMembers.length > 0 && (
                 <button
+                  data-pressable
                   type="button"
                   className="flex flex-none cursor-pointer items-center gap-1 self-center rounded px-2 py-0.5 text-[10.5px] text-text-dim hover:text-(--issue-muted-bright)"
                   aria-pressed={showArchived}
@@ -367,6 +374,7 @@ export function Workspace(): JSX.Element {
             }}
             trigger={
               <button
+                data-pressable
                 type="button"
                 className="flex cursor-pointer items-center self-stretch rounded px-[9px] text-[13px] text-text-dim hover:text-foreground"
                 title="New panel"
@@ -376,15 +384,18 @@ export function Workspace(): JSX.Element {
               </button>
             }
           />
-          <button
-            type="button"
-            className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
-            title="Split"
-            aria-label="Split"
-            onClick={toggleSplit}
-          >
-            <Columns2 size={13} aria-hidden="true" />
-          </button>
+          {tabSplittingEnabled && (
+            <button
+              data-pressable
+              type="button"
+              className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
+              title="Split"
+              aria-label="Split"
+              onClick={toggleSplit}
+            >
+              <Columns2 size={13} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
       {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
@@ -402,9 +413,9 @@ export function Workspace(): JSX.Element {
             knownSessionIds,
             paneA,
             paneB,
-            split,
+            split: visibleSplit,
           })}
-          split={split}
+          split={visibleSplit}
           onCloseFile={closeFileTab}
         />
         {!paneA && (
@@ -412,7 +423,7 @@ export function Workspace(): JSX.Element {
             <Empty />
           </div>
         )}
-        {split && !paneB && (
+        {visibleSplit && !paneB && (
           <div className="flex min-w-0 flex-1 border-l border-border" style={{ order: 1 }}>
             <PanePicker
               tabs={allTabs}
@@ -432,19 +443,15 @@ export function Workspace(): JSX.Element {
 function SortableTab({
   tab,
   active,
-  pinned,
   coordinator = false,
   onSelect,
-  onTogglePin,
   onClose,
 }: {
   tab: WTab
   active: boolean
-  pinned: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
   onSelect: () => void
-  onTogglePin?: () => void
   onClose: () => void
 }): JSX.Element {
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -483,7 +490,7 @@ function SortableTab({
       // the hover-reveal of the pin/close controls. Active tab (spec §2.2): tinted fill,
       // tinted hairline (no bottom edge), the 2px issue-colour inset top line.
       className={cn(
-        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[7px] border border-b-0 border-transparent px-0.5',
+        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[3px] border border-b-0 border-transparent px-0.5',
         isDragging ? 'z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
         active
           ? 'native-tab-active issue-hairline-50 issue-hairline-slate-45 issue-mix-28 issue-mix-slate-22'
@@ -511,6 +518,7 @@ function SortableTab({
         </span>
       ) : (
         <button
+          data-pressable
           type="button"
           className={cn(
             'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2 py-1 text-[10.5px] whitespace-nowrap',
@@ -556,37 +564,37 @@ function SortableTab({
           )}
         </button>
       )}
-      {/* Pin (Q3): kept as a hover-reveal affordance, restyled to a quiet
-          ctx-muted glyph; always visible while pinned. */}
-      {tab.kind === 'session' && onTogglePin && (
+      {tab.kind === 'session' ? (
+        // Workers stay with the task (POD-293): a session tab is a member of the
+        // task, not a disposable view — so no one-click close. A dim lock stands
+        // where the ✕ was; killing an agent lives on the tab's right-click menu.
+        <span
+          className={cn(
+            'h-5 w-5 flex-none items-center justify-center rounded text-(--issue-muted)',
+            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
+          )}
+          title="Workers stay with the task — kill from the right-click menu"
+          aria-hidden="true"
+        >
+          <Lock size={10} />
+        </span>
+      ) : (
         <button
+          data-pressable
           type="button"
           className={cn(
-            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-(--issue-text)',
-            pinned ? 'inline-flex text-(--issue-text)' : 'hidden group-hover:inline-flex',
+            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
+            active ? 'inline-flex' : 'hidden group-hover:inline-flex',
           )}
-          aria-pressed={pinned}
-          title={pinned ? 'Unpin panel' : 'Pin panel'}
-          onClick={onTogglePin}
+          title="Close file"
+          onClick={onClose}
         >
-          <Pin size={11} aria-hidden="true" />
+          <X size={11} aria-hidden="true" />
         </button>
       )}
-      <button
-        type="button"
-        className={cn(
-          'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
-          active ? 'inline-flex' : 'hidden group-hover:inline-flex',
-        )}
-        title={tab.kind === 'session' ? 'Kill session' : 'Close file'}
-        onClick={onClose}
-      >
-        <X size={11} aria-hidden="true" />
-      </button>
       {tab.kind === 'session' && menuAnchor && (
         <SessionContextMenu
           session={tab.session}
-          pinned={pinned}
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
           onRename={() => {

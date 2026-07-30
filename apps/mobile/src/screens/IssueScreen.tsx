@@ -1,16 +1,18 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES } from '@podium/protocol'
+import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
-import { Screen } from '../components/Screen'
+import { Icon } from '../components/Icon'
+import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()
@@ -22,8 +24,8 @@ export function IssueScreen() {
   const issue = client.issueById(issueId)
   const now = Date.now()
   const [stageMenuOpen, setStageMenuOpen] = useState(false)
-  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
 
   const sessions = useMemo(
     () => withoutShells(client.sessions).filter((s) => s.issueId === issueId && !s.archived),
@@ -47,14 +49,14 @@ export function IssueScreen() {
     }
   }
 
+  // The recovery path for a task with nobody on it (POD-346): filed without
+  // "start now", or started once and since finished. Without it the phone can
+  // create work it cannot then get an agent onto.
   const startAgent = async () => {
-    if (starting) return
-    setStarting(true)
     setError(null)
+    setStarting(true)
     try {
       await client.trpc.issues.start.mutate({ id: issue.id })
-      // The spawned session lands in metadata via the live stream; the attached
-      // sessions list below picks it up. Stay here so the user sees it appear.
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -71,8 +73,23 @@ export function IssueScreen() {
     }
   }
 
+  const addAgent = () => {
+    const cwd = issue.worktreePath ?? issue.repoPath
+    router.push(
+      `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(cwd)}`,
+    )
+  }
+
   return (
-    <Screen title={`#${issue.seq} ${issue.title}`} onBack={() => router.back()}>
+    <Screen
+      title={`${issueDisplayRef(issue)} ${issue.title}`}
+      onBack={() => router.back()}
+      right={
+        <HeaderButton label="Add agent" onPress={addAgent}>
+          <Icon as={Plus} size={17} color={color.text} />
+        </HeaderButton>
+      }
+    >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.metaRow}>
           <Pressable
@@ -113,7 +130,21 @@ export function IssueScreen() {
 
         <SectionHeader label={`Sessions (${sessions.length})`} />
         {sessions.length === 0 ? (
-          <Text style={styles.noSessions}>No active sessions on this task.</Text>
+          <>
+            <Text style={styles.noSessions}>No agent is on this task.</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Start an agent on this task"
+              disabled={starting}
+              onPress={() => void startAgent()}
+              style={({ pressed }) => [
+                styles.startBtn,
+                (starting || pressed) && styles.startBtnMuted,
+              ]}
+            >
+              <Text style={styles.startText}>{starting ? 'Starting…' : 'Start an agent'}</Text>
+            </Pressable>
+          </>
         ) : (
           sessions.map((session) => (
             <SessionCard
@@ -123,32 +154,6 @@ export function IssueScreen() {
             />
           ))
         )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start agent on this task"
-          disabled={starting}
-          onPress={() => void startAgent()}
-          style={({ pressed }) => [
-            styles.startBtn,
-            (pressed || starting) && styles.startBtnPressed,
-          ]}
-        >
-          <Text style={styles.startText}>
-            {starting ? 'Starting…' : 'Start agent on this task'}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Start a custom session on this task"
-          onPress={() =>
-            router.push(
-              `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(issue.worktreePath ?? issue.repoPath)}`,
-            )
-          }
-          style={styles.customLink}
-        >
-          <Text style={styles.customLinkText}>Custom session…</Text>
-        </Pressable>
 
         <SectionHeader label={`Comments (${(issue.comments ?? []).length})`} />
         {(issue.comments ?? []).map((comment) => (
@@ -212,36 +217,28 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     paddingHorizontal: space.lg,
   },
+  startBtn: {
+    alignSelf: 'flex-start',
+    marginHorizontal: space.lg,
+    marginTop: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.sm,
+    backgroundColor: color.accent,
+  },
+  startBtnMuted: {
+    opacity: 0.55,
+  },
+  startText: {
+    color: color.accentText,
+    fontSize: font.small,
+    ...sans(700),
+  },
   error: {
     color: color.danger,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
-  },
-  startBtn: {
-    marginHorizontal: space.lg,
-    marginTop: space.lg,
-    backgroundColor: color.accent,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    paddingVertical: space.md,
-  },
-  startBtnPressed: {
-    opacity: 0.85,
-  },
-  startText: {
-    color: color.accentText,
-    fontSize: font.body,
-    fontWeight: '700',
-  },
-  customLink: {
-    alignItems: 'center',
-    paddingVertical: space.sm,
-  },
-  customLinkText: {
-    color: color.accent,
-    fontSize: font.small,
-    fontWeight: '600',
   },
   comment: {
     marginHorizontal: space.lg,
@@ -260,7 +257,7 @@ const styles = StyleSheet.create({
   commentAuthor: {
     color: color.accent,
     fontSize: font.tiny,
-    fontWeight: '700',
+    ...sans(700),
   },
   commentTime: {
     color: color.textFaint,

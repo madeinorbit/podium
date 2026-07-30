@@ -79,6 +79,8 @@ export interface PodiumClientApi {
   issues: {
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
+    /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */
+    setTucked: ApiMutation<WithMutationId<{ id: string; tucked: boolean }>>
   }
   pins: {
     list: ApiQuery<void, PinState>
@@ -110,6 +112,15 @@ export interface PodiumClientApi {
       baseHash?: string
     }>
     list: ApiQuery<{ machineId?: string; root: string; path?: string }, unknown>
+  }
+  /** Git dock panel [POD-114] — raw output of fixed read-only repo ops. */
+  git: {
+    status: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
+    log: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
+    diffFile: ApiQuery<
+      { machineId?: string; root: string; path: string },
+      { ok: boolean; output: string }
+    >
   }
   settings: {
     get: ApiQuery<void, PodiumSettings>

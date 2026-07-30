@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
-import { computePriorities } from '@podium/domain'
+import { basename, join } from 'node:path'
+import { acceptAgentObservation } from '@podium/agent-bridge'
+import { computePriorities, repoNameFromOrigin } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
   type ApprovalWire,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationRunWire,
   type AutomationWire,
   agentSupportsEffort,
@@ -27,6 +28,8 @@ import {
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type RepoProjection,
+  type ObservationInputOrigin,
+  type ObservationProvider,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -48,7 +51,12 @@ import {
 } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { assertModelSelectionValid } from '../../model-validation'
-import type { SessionRow, SessionStore } from '../../store'
+import type {
+  ObservationLeaseRecord,
+  SessionRow,
+  SessionStore,
+  TerminalCandidateFacts,
+} from '../../store'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -67,9 +75,18 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
-import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
+import {
+  transferHandoffPackage,
+  verifiedBundleBases,
+  verifiedCommonBundleBases,
+} from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
-import { createViewKey, type PublicationView, type ViewKey } from './publish-worker-actor'
+import {
+  createViewKey,
+  type PreparedPublication,
+  type PublicationView,
+  type ViewKey,
+} from './publish-worker-actor'
 import {
   PublicationSupersededError,
   PublishWorkerClient,
@@ -86,10 +103,25 @@ import {
 } from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
+
+function observationProviderFor(kind: AgentKind): ObservationProvider | undefined {
+  if (kind === 'claude-code' || kind === 'codex' || kind === 'grok') return kind
+  return undefined
+}
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
 // paste-end marker → the message types in but never submits). See sendText().
 const SUBMIT_CR_DELAY_MS = 90
+// Submit verification [POD-152]: the delayed CR can STILL be swallowed when the
+// renderer is busy processing the paste past the delay — an image path pasted into
+// the composer is converted to an attachment (file read + encode), which reliably
+// outlasts SUBMIT_CR_DELAY_MS. The paste then sits in the composer unsent and
+// nobody notices (an operator body is confirmed on injection, with no echo to
+// await). So after the CR, verify the turn actually started — the user-turn echo
+// in the transcript tail or the agent phase leaving idle — and resend the CR while
+// it hasn't, a bounded number of times. See typeText().
+const SUBMIT_VERIFY_DELAY_MS = 1600
+const SUBMIT_MAX_RETRIES = 2
 // Resume/spawn readiness (sendTextWhenReady): the PTY binds ('live') BEFORE the
 // agent's TUI has finished drawing / loading the resumed conversation. Typing then
 // lands in a half-built UI and the message is dropped (codex especially). Deliver
@@ -151,6 +183,11 @@ export interface SessionProjectionEvent {
   ledgerCursor: number
 }
 
+export interface SessionPublicationMetrics extends PublishWorkerMetrics {
+  shadowComparisons: number
+  shadowMismatches: number
+}
+
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
   sessionIds: string[]
@@ -180,6 +217,8 @@ interface SessionsServiceDeps {
   ledger: SessionLedger
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
+  /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
+  publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -242,6 +281,9 @@ export class SessionsService {
   readonly sessions = new Map<string, Session>()
   readonly clients = new Map<string, ClientConn>()
 
+  /** Durable observer leases, hydrated before session state restoration. */
+  private readonly observationLeases = new Map<string, ObservationLeaseRecord>()
+
   private readonly store: SessionStore
   private readonly now: () => number
   private readonly bus: EventBus
@@ -259,6 +301,9 @@ export class SessionsService {
   }
   private readonly publicationWorker: PublishWorkerClient
 
+  private readonly publicationShadowCompare: boolean
+  private publicationShadowComparisons = 0
+  private publicationShadowMismatches = 0
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
    * by attachClient to replay on connect); it is also debounced to the store so it
@@ -299,7 +344,7 @@ export class SessionsService {
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<
     string,
-    { version: number; preserve: Set<SessionVolatileField> }
+    { version: number; preserve: Set<SessionVolatileField>; issueRelevant: boolean }
   >()
   private readonly capturedSessionStates = new Map<string, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -334,6 +379,7 @@ export class SessionsService {
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
+    this.publicationShadowCompare = deps.publicationShadowCompare ?? false
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -392,8 +438,24 @@ export class SessionsService {
   private conversations(): ConversationsService {
     return this.deps.conversations()
   }
+  /**
+   * Allocate and durably store the observer lease before its control message is
+   * sent. Shells and non-causal adapters intentionally have no lease.
+   */
+  private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
+    const provider = observationProviderFor(session.agentKind)
+    if (!provider) return undefined
+    const lease = this.store.observationCheckpoints.advanceGeneration(
+      session.sessionId,
+      provider,
+      session.resume?.value ?? null,
+    )
+    this.observationLeases.set(session.sessionId, lease)
+    return lease
+  }
 
   dispose(): void {
+    this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
     for (const timer of this.openUrlExpiryTimers.values()) clearTimeout(timer)
     this.openUrlExpiryTimers.clear()
@@ -422,6 +484,7 @@ export class SessionsService {
   private publishSessionProjection(
     changes: MetadataChange[],
     ledgerCursor: number | undefined = changes.at(-1)?.seq,
+    issueRelevant = true,
   ): void {
     const sessionChanges = changes.filter((change) => change.entity === 'session')
     if (sessionChanges.length === 0 || ledgerCursor === undefined) return
@@ -441,21 +504,23 @@ export class SessionsService {
   }
 
   /** Explicit non-row capture seam [spec:SP-c29e]. */
-  private captureSessionSpecs(specs: EntityChangeSpec[]): MetadataChange[] {
+  private captureSessionSpecs(specs: EntityChangeSpec[], issueRelevant = true): MetadataChange[] {
     if (specs.length === 0) return []
     const changes = this.deps.ledger.capture(specs)
-    this.publishSessionProjection(changes)
+    this.publishSessionProjection(changes, undefined, issueRelevant)
     return changes
   }
 
   private markVolatileSessionDirty(
     sessionId: string,
     preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
+    issueRelevant = true,
   ): void {
     const previous = this.pendingVolatileSessions.get(sessionId)
     this.pendingVolatileSessions.set(sessionId, {
       version: ++this.volatileSessionMutationVersion,
       preserve: new Set([...(previous?.preserve ?? []), ...preserve]),
+      issueRelevant: (previous?.issueRelevant ?? false) || issueRelevant,
     })
     this.scheduleVolatileSessionCapture()
   }
@@ -483,6 +548,7 @@ export class SessionsService {
     this.clearVolatileSessionCaptureTimer()
     if (this.pendingVolatileSessions.size === 0) return []
     const pending = [...this.pendingVolatileSessions]
+    const issueRelevant = pending.some(([, state]) => state.issueRelevant)
     const specs: EntityChangeSpec[] = []
     for (const [sessionId] of pending) {
       const session = this.sessions.get(sessionId)
@@ -495,7 +561,7 @@ export class SessionsService {
       })
     }
     try {
-      const changes = this.captureSessionSpecs(specs)
+      const changes = this.captureSessionSpecs(specs, issueRelevant)
       // A volatile A→B→A batch legitimately dedups to no durable patch, but it
       // still invalidates the legacy snapshot pipeline once. Do not fabricate a
       // projection event: patch consumers need only the captured final truth.
@@ -524,11 +590,15 @@ export class SessionsService {
   /** Central volatile Session-view mutation seam. The latest value is captured
    * once per session by the coalesced broadcast flush, keeping interaction paths
    * free of synchronous SQLite writes [spec:SP-c29e]. */
-  private mutateSessionView(sessionId: string, mutate: (session: Session) => void): boolean {
+  private mutateSessionView(
+    sessionId: string,
+    mutate: (session: Session) => void,
+    issueRelevant = true,
+  ): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     mutate(session)
-    this.markVolatileSessionDirty(sessionId)
+    this.markVolatileSessionDirty(sessionId, undefined, issueRelevant)
     return true
   }
 
@@ -734,11 +804,15 @@ export class SessionsService {
       durableLabel: r.durableLabel,
       lastActiveAt: r.lastActiveAt,
       ...(r.workingMsTotal != null ? { workingMsTotal: r.workingMsTotal } : {}),
+      inputCount: r.inputCount ?? 0,
+      outputCount: r.outputCount ?? 0,
+      activityCount: r.activityCount ?? 0,
       lastOutputAt: r.lastOutputAt,
       lastInputAt: r.lastInputAt,
       lastResumedAt: r.lastResumedAt,
       status: reloadStatus,
       exitCode: exitCode ?? undefined,
+      ...(exitCode === -1 && r.spawnFailure ? { spawnFailure: r.spawnFailure } : {}),
       ...(r.name ? { name: r.name } : {}),
       // Survives a restart — otherwise a reboot would forget that the USER named this
       // session and the next agent title would sail straight through (#490).
@@ -782,7 +856,19 @@ export class SessionsService {
     this.sessions.set(session.sessionId, session)
     if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
     if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
-    if (session.sessionId in offers) session.offer = offers[session.sessionId] // [spec:SP-c7f1]
+    // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
+    // offer was posted means the conversation moved past it while we were down —
+    // drop it instead of resurrecting a dead suggestion. (Live continuations are
+    // handled by the working-transition clear; this covers what happened while
+    // the server wasn't watching.)
+    if (session.sessionId in offers) {
+      const offer = offers[session.sessionId]
+      if (offer && session.lastInputAtMs > Date.parse(offer.createdAt)) {
+        this.store.sessions.clearOffer(session.sessionId)
+      } else {
+        session.offer = offer
+      }
+    }
     if (session.sessionId in drafts) {
       this.draftBySession.set(session.sessionId, drafts[session.sessionId] ?? '')
     }
@@ -796,6 +882,11 @@ export class SessionsService {
   }
 
   loadFromStore(): void {
+    this.observationLeases.clear()
+    for (const lease of this.store.observationCheckpoints.loadAll()) {
+      this.observationLeases.set(lease.sessionId, lease)
+    }
+
     // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
     // Resolved through the canonical experiments system [spec:SP-f4b9].
     this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', this.store.settings.getSettings())
@@ -825,6 +916,22 @@ export class SessionsService {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
       this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
+      const checkpoint = this.observationLeases.get(r.id)?.checkpoint
+      if (checkpoint) {
+        session.applyObservationCheckpoint(checkpoint)
+        // Only the current state of a durably accepted LIVE cursor may restore
+        // retry behavior. Bootstrap/replay snapshots can remain visibly errored,
+        // but must never create effects merely because the server restarted.
+        if (
+          checkpoint.lastAcceptedLiveCursor !== null &&
+          JSON.stringify(checkpoint.providerCursor) ===
+            JSON.stringify(checkpoint.lastAcceptedLiveCursor) &&
+          checkpoint.turnState.phase === 'errored' &&
+          checkpoint.turnState.error?.retryable === true
+        ) {
+          this.autoContinue.onSessionRestored(session.sessionId, checkpoint.turnState)
+        }
+      }
       if (r.status !== session.status) this.persist(session)
     }
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
@@ -904,6 +1011,17 @@ export class SessionsService {
     // until the next viewState/attach happened to flip a session.
     this.lastPriority.clear()
     this.pushPriorities()
+    // Archived survivors are never rebound — archive means stopped (POD-108).
+    // Rows archived before archive learned to kill, or archived while this
+    // machine's daemon was away, are still 'live'/'reconnecting' here; parking
+    // them sends the kill now that a daemon can receive it (the daemon reaps the
+    // durable host by label even without a bridge). Must run BEFORE the probe
+    // fan-out below so an archived 'reconnecting' row is parked, not reattached.
+    for (const s of this.sessions.values()) {
+      if (s.machineId === machineId && !s.headless && s.archived) {
+        this.parkArchivedSession(s.sessionId)
+      }
+    }
     // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
     // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
     // archived) is also probed because a row can be wrongly 'exited': its attach
@@ -933,6 +1051,7 @@ export class SessionsService {
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
     for (const s of probes) {
+      const observationLease = this.fenceObservation(s)
       this.toMachine(machineId, {
         type: 'reattach',
         sessionId: s.sessionId,
@@ -940,6 +1059,16 @@ export class SessionsService {
         agentKind: s.agentKind,
         cwd: s.cwd,
         geometry: s.geometry,
+        ...(observationLease
+          ? {
+              observationGeneration: observationLease.observationGeneration,
+              observationBindingVersion: observationLease.bindingVersion,
+              observationProviderSessionId: observationLease.providerSessionId,
+              ...(observationLease.checkpoint
+                ? { observationCheckpoint: observationLease.checkpoint }
+                : {}),
+            }
+          : {}),
         ...(s.resume ? { resume: s.resume } : {}),
         ...(this.rpc.transcriptPathHint(s) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
@@ -1187,12 +1316,20 @@ export class SessionsService {
     sessionId,
     message,
     actions,
+    artifacts,
   }: {
     sessionId: string
     message: string
-    actions: { label: string; prompt: string }[]
+    actions: { label: string; prompt: string; input?: boolean }[]
+    /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
+    artifacts?: string[]
   }): void {
-    const offer = { message, actions, createdAt: new Date().toISOString() }
+    const offer = {
+      message,
+      actions,
+      ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+      createdAt: new Date().toISOString(),
+    }
     const session = this.sessions.get(sessionId)
     if (!session) {
       this.store.sessions.setOffer(sessionId, offer)
@@ -1317,7 +1454,7 @@ export class SessionsService {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
       origin: { kind: 'spawn' },
-      machineId: this.machines.resolveMachine(input.machineId, input.cwd),
+      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind),
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -1423,7 +1560,7 @@ export class SessionsService {
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
-      machineId: this.machines.resolveMachine(input.machineId, input.cwd),
+      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, input.agentKind),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
@@ -1474,9 +1611,11 @@ export class SessionsService {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
+    session.recordInputActivity(this.now())
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
+      inputOrigin: 'auto_continue',
       data: Buffer.from('continue\r').toString('base64'),
     })
     return { ok: true }
@@ -1488,7 +1627,15 @@ export class SessionsService {
    * (FIFO) instead of jumping the queue — otherwise a live-chat send would land
    * before messages the user typed earlier while the agent was parked.
    */
-  sendText({ sessionId, text }: { sessionId: string; text: string }): {
+  sendText({
+    sessionId,
+    text,
+    inputOrigin = 'controller',
+  }: {
+    sessionId: string
+    text: string
+    inputOrigin?: ObservationInputOrigin
+  }): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -1497,9 +1644,9 @@ export class SessionsService {
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
-      return this.queueText({ sessionId, text })
+      return this.queueText({ sessionId, text, inputOrigin })
     }
-    return this.typeText({ sessionId, text })
+    return this.typeText({ sessionId, text, inputOrigin })
   }
 
   /**
@@ -1509,7 +1656,15 @@ export class SessionsService {
    * Callers are already authority-gated (superagent/parent/operator only —
    * the clamp matrix downgrades everyone else before reaching here).
    */
-  interruptText({ sessionId, text }: { sessionId: string; text: string }): {
+  interruptText({
+    sessionId,
+    text,
+    inputOrigin = 'controller',
+  }: {
+    sessionId: string
+    text: string
+    inputOrigin?: ObservationInputOrigin
+  }): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -1523,13 +1678,18 @@ export class SessionsService {
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
+      inputOrigin,
       data: Buffer.from('\x1b').toString('base64'),
     })
+    session.recordInputActivity(this.now())
     // The ESC has cancelled any on-screen menu; type the text after a short beat
     // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
     // (this is the one legitimate write into a menu-waiting session) and jumps
     // the queue — an interrupt is meant to.
-    setTimeout(() => this.typeText({ sessionId, text, afterEsc: true }), SUBMIT_CR_DELAY_MS)
+    setTimeout(
+      () => this.typeText({ sessionId, text, inputOrigin, afterEsc: true }),
+      SUBMIT_CR_DELAY_MS,
+    )
     return { ok: true }
   }
 
@@ -1539,9 +1699,11 @@ export class SessionsService {
   private typeText({
     sessionId,
     text,
+    inputOrigin = 'controller',
     afterEsc,
   }: {
     sessionId: string
+    inputOrigin?: ObservationInputOrigin
     text: string
     /** Set ONLY by interruptText, which just sent an ESC that cancels an
      *  on-screen menu — its follow-up text is the one legitimate write into a
@@ -1578,12 +1740,15 @@ export class SessionsService {
     // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
     // button click sends its prompt through this same path, so it self-clears.
     if (session.offer !== undefined) this.clearOffer(sessionId)
-    const send = (data: string) =>
+    const send = (data: string) => (
+      session.recordInputActivity(this.now()),
       this.toMachine(session.machineId, {
         type: 'input',
         sessionId,
+        inputOrigin,
         data: Buffer.from(data).toString('base64'),
       })
+    )
     // Bracketed paste so the harness takes the message as one input block (newlines
     // in a multi-line message don't submit early), then a submitting CR.
     send(`\x1b[200~${text}\x1b[201~`)
@@ -1594,7 +1759,50 @@ export class SessionsService {
     // A short delay separates the reads so the CR submits; it's imperceptible next to
     // agent latency. Verified against real claude in the e2e harness.
     setTimeout(() => send('\r'), SUBMIT_CR_DELAY_MS)
+    // The delay is a heuristic, not a handshake — verify the submit landed and
+    // retry the CR while it didn't [POD-152]. Baseline the user-turn echo count
+    // now, before the CR can produce one.
+    if (session.agentKind === 'claude-code') {
+      this.scheduleSubmitVerify(sessionId, this.userTurnCount(session), 1)
+    }
     return { ok: true }
+  }
+
+  /** User-role items in the bounded transcript cache — the submit-echo signal.
+   *  (Bounded/resettable, so compare counts captured moments apart, nothing more.) */
+  private userTurnCount(session: Session): number {
+    return session.transcriptItems().filter((it) => it.role === 'user').length
+  }
+
+  /**
+   * Post-submit verification [POD-152]: fires after typeText's CR and resends a
+   * lone CR while there's no evidence the turn started. Evidence = the agent phase
+   * left idle (working/compacting — the stop-hook pipeline reports fast) OR a new
+   * user-role item reached the transcript cache (covers turns so quick the phase
+   * is already back to idle). The retry CR is safe by construction: the pasted
+   * text is still in the composer (that's the failure being fixed) or the
+   * composer is empty, where a CR is a no-op. It explicitly does NOT fire when
+   * the phase is needs_user (a CR would answer the on-screen menu's highlighted
+   * default, #473) or errored (nothing to submit into), or once the session is
+   * no longer running.
+   */
+  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+    const timer = setTimeout(() => {
+      const session = this.sessions.get(sessionId)
+      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
+      const phase = session.agentState?.phase
+      if (phase !== undefined && phase !== 'idle') return
+      if (this.userTurnCount(session) > baselineUserTurns) return
+      this.toMachine(session.machineId, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from('\r').toString('base64'),
+      })
+      if (attempt < SUBMIT_MAX_RETRIES) {
+        this.scheduleSubmitVerify(sessionId, baselineUserTurns, attempt + 1)
+      }
+    }, SUBMIT_VERIFY_DELAY_MS)
+    timer.unref?.()
   }
 
   /**
@@ -1625,12 +1833,15 @@ export class SessionsService {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    const send = (data: string) =>
+    const send = (data: string) => (
+      session.recordInputActivity(this.now()),
       this.toMachine(session.machineId, {
         type: 'input',
         sessionId,
+        inputOrigin: 'human',
         data: Buffer.from(data).toString('base64'),
       })
+    )
     for (const choice of choices) {
       const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
       if (digits.length === 0) continue
@@ -1903,10 +2114,12 @@ export class SessionsService {
   queueText({
     sessionId,
     text,
+    inputOrigin = 'controller',
     mutationId,
   }: {
     sessionId: string
     text: string
+    inputOrigin?: ObservationInputOrigin
     mutationId?: string
   }): { ok: boolean; queued?: boolean; reason?: string } {
     const rejected = this.upstreamRejection(sessionId)
@@ -1924,13 +2137,16 @@ export class SessionsService {
       id: mutationId ?? randomUUID(),
       sessionId,
       text,
+      inputOrigin,
       queuedAt: this.now(),
     })
     if (inserted) {
       session.queuedMessageCount += 1
       // queuedMessageCount is wire-visible meta derived from the queue table —
       // commit the new count so delta clients see the badge [#256].
-      this.persist(session)
+      this.persist(session, () =>
+        this.store.observationCheckpoints.cancelTerminalCandidate(sessionId),
+      )
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
       if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
@@ -1980,7 +2196,7 @@ export class SessionsService {
         return
       }
       this.store.sync.bumpQueuedAttempts(head.id)
-      const sent = this.typeText({ sessionId, text: head.text })
+      const sent = this.typeText({ sessionId, text: head.text, inputOrigin: head.inputOrigin })
       if (!sent.ok) {
         stop() // status raced to parked — rows remain
         return
@@ -2158,7 +2374,45 @@ export class SessionsService {
       session.archived = archived
     })
     // Archiving can leave its draft issue with no living sessions — reap it.
-    if (archived) this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
+    if (archived) {
+      this.issues().onSessionRemovedOrArchived(sessionId)
+      this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
+      this.parkArchivedSession(sessionId)
+    }
+  }
+
+  /**
+   * Archive also stops the process (POD-108). Archive used to be pure metadata,
+   * so every archived-but-live session kept its abduco master + agent resident
+   * forever — dozens of idle agent processes with no way to reap them from the
+   * UI. Same park as stopSession: 'hibernated' when a cold resume is possible
+   * (resume ref kept), else 'exited'. Unlike hibernateSession this does not
+   * refuse a working agent — the archive guard already made the user confirm
+   * archiving a working session, and that confirmed intent is "stop it".
+   * Unarchiving does NOT resurrect; that stays an explicit resume.
+   */
+  private parkArchivedSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    const running =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    if (!running) return
+    if (session.agentKind !== 'shell' && !session.resume) {
+      session.status = 'exited'
+      session.exitCode = session.exitCode ?? 0
+    } else {
+      session.status = 'hibernated'
+    }
+    this.autoContinue.onSessionGone(sessionId)
+    session.stoppedAt = new Date(this.now()).toISOString()
+    session.stopReason = 'parent'
+    // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
+    // resurfacing the session as unread would undo the tidy-up the user just did.
+    this.persist(session)
+    this.killStoppedSession(session)
+    this.broadcastSessions()
   }
 
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
@@ -2322,7 +2576,9 @@ export class SessionsService {
         ? 'forced'
         : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
       session.readAt = null
-      this.persist(session)
+      this.persist(session, () =>
+        this.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
+      )
       this.broadcastSessions()
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
@@ -2475,12 +2731,134 @@ export class SessionsService {
    * when the session can't come back later (no resume ref) — we refuse rather
    * than silently turn "hibernate" into "kill".
    */
-  hibernateSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+  private terminalCandidateFacts(
+    session: Session,
+    lease: ObservationLeaseRecord,
+    checkpoint = lease.checkpoint,
+  ): TerminalCandidateFacts | null {
+    const fence = checkpoint?.terminalFence
+    if (!checkpoint || !fence || fence.closing) return null
+    if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
+    const addressedMessages = this.store.messages
+      .pendingForSessionProof(session.sessionId, new Date(this.now()).toISOString())
+      .map((message) => ({
+        id: message.id,
+        status: message.status,
+        deliveredAt: message.deliveredAt,
+        injectedAt: message.injectedAt ?? null,
+        ackedBy: message.ackedBy,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id))
+    const activeChildren = [...this.sessions.values()]
+      .filter(
+        (child) =>
+          child.spawnedBy === `session:${session.sessionId}` &&
+          (child.status === 'starting' ||
+            child.status === 'live' ||
+            child.status === 'reconnecting'),
+      )
+      .map((child) => ({
+        sessionId: child.sessionId,
+        status: child.status,
+        activityCount: child.activityCount,
+      }))
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    const activeWork = {
+      nativeSubagentCount: checkpoint.turnState.nativeSubagentCount,
+      nativeSubagentIds: (checkpoint.turnState.nativeSubagents ?? [])
+        .map((child) => child.id)
+        .sort(),
+      awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
+      childSessions: activeChildren,
+      queueDrainActive: this.activeDrains.has(session.sessionId),
+      draftPending: session.draftUpdatedAt !== undefined,
+      draftVersion: session.draftUpdatedAt ?? null,
+      offerPending: session.offer !== undefined,
+    }
+    return {
+      schemaVersion: 1,
+      sessionId: session.sessionId,
+      terminalTransitionId: fence.transitionId,
+      terminalTurnEpoch: fence.turnEpoch,
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      bindingVersion: lease.bindingVersion,
+      observerGeneration: lease.observationGeneration,
+      providerCursor: checkpoint.providerCursor ?? fence.providerCursor,
+      lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
+      lastTransitionId: checkpoint.lastTransitionId,
+      lastActiveAt: session.lastActiveAt,
+      lastInputAtMs: session.lastInputAtMs,
+      lastOutputAtMs: session.lastOutputAtMs,
+      lastResumedAtMs: session.lastResumedAtMs,
+      inputCount: session.inputCount,
+      outputCount: session.outputCount,
+      activityCount: session.activityCount,
+      queuedInputCount: session.queuedMessageCount,
+      pendingMessages: addressedMessages,
+      autoContinueActive: this.autoContinue.isActive(session.sessionId),
+      activeWork,
+      resumable: session.resume !== undefined,
+      machineId: session.machineId,
+    }
+  }
+
+  private terminalFactsConsumable(facts: TerminalCandidateFacts): boolean {
+    if (
+      !facts.resumable ||
+      facts.queuedInputCount !== 0 ||
+      facts.pendingMessages.length !== 0 ||
+      facts.autoContinueActive
+    )
+      return false
+    const active = facts.activeWork
+    return (
+      active.nativeSubagentCount === 0 &&
+      !active.awaitingSubagents &&
+      active.childSessions.length === 0 &&
+      !active.queueDrainActive &&
+      !active.draftPending &&
+      !active.offerPending
+    )
+  }
+
+  hasValidTerminalProof(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
+      return false
+    const facts = this.terminalCandidateFacts(session, lease)
+    const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+    return Boolean(
+      facts &&
+        proof?.confirmedAt &&
+        !proof.consumedAt &&
+        JSON.stringify(proof.facts) === JSON.stringify(facts) &&
+        this.terminalFactsConsumable(facts),
+    )
+  }
+
+  terminalProofMissing(sessionId: string): boolean {
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    return (
+      lease?.checkpoint?.terminalFence == null ||
+      this.store.observationCheckpoints.getTerminalCandidate(sessionId) == null
+    )
+  }
+
+  hibernateSession({
+    sessionId,
+    requireTerminalProof = false,
+  }: {
+    sessionId: string
+    requireTerminalProof?: boolean
+  }): { ok: boolean; reason?: string } {
     const rejected = this.upstreamRejection(sessionId)
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'live') return { ok: false, reason: 'not running' }
+    if (session.status !== 'live' && session.status !== 'reconnecting')
+      return { ok: false, reason: 'not running' }
     if (!session.resume) {
       return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
     }
@@ -2492,9 +2870,57 @@ export class SessionsService {
     if (phase === 'working' || phase === 'compacting') {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
+    const lease = requireTerminalProof ? this.store.observationCheckpoints.get(sessionId) : null
+    const facts = lease ? this.terminalCandidateFacts(session, lease) : null
+    if (requireTerminalProof) {
+      if (!facts || !this.terminalFactsConsumable(facts)) {
+        return { ok: false, reason: 'terminal state is not safely reapable' }
+      }
+      const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+      if (
+        !proof?.confirmedAt ||
+        proof.consumedAt ||
+        JSON.stringify(proof.facts) !== JSON.stringify(facts)
+      ) {
+        return { ok: false, reason: 'terminal state has not passed live revalidation' }
+      }
+    }
+    const runningStatus = session.status
     session.status = 'hibernated'
+    const consumedAt = new Date(this.now()).toISOString()
+    try {
+      this.persist(
+        session,
+        facts
+          ? () => {
+              const currentLease = this.store.observationCheckpoints.get(sessionId)
+              const currentFacts = currentLease
+                ? this.terminalCandidateFacts(session, currentLease)
+                : null
+              if (
+                !currentFacts ||
+                JSON.stringify(currentFacts) !== JSON.stringify(facts) ||
+                !this.store.observationCheckpoints.consumeTerminalCandidate(
+                  currentFacts,
+                  consumedAt,
+                )
+              ) {
+                throw new Error('terminal proof changed before hibernation')
+              }
+            }
+          : undefined,
+      )
+    } catch (error) {
+      // `persist` restores its captured durable state on any transaction error;
+      // keep this lifecycle primitive independently correct even when a caller or
+      // test supplies a store without a prior capture.
+      session.status = runningStatus
+      if (error instanceof Error && error.message === 'terminal proof changed before hibernation') {
+        return { ok: false, reason: error.message }
+      }
+      throw error
+    }
     this.autoContinue.onSessionGone(sessionId)
-    this.persist(session)
     this.toMachine(session.machineId, {
       type: 'kill',
       sessionId,
@@ -2552,11 +2978,6 @@ export class SessionsService {
         : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
-    const targetRepo = repos.find(
-      (repo) => repo.machineId === input.machineId && repo.repoId === sourceRepo.repoId,
-    )
-    if (!targetRepo) throw new Error('target machine does not have this repository')
-
     const targetMachine = this.machines
       .listMachines()
       .find((machine) => machine.id === input.machineId)
@@ -2567,32 +2988,54 @@ export class SessionsService {
     if (!harness?.installed || harness.login.state === 'out') {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
-
+    // Announce the move BEFORE the pre-flight (POD-337): everything from here on
+    // can take real time — `ensureTargetRepo` may clone the repo on the target —
+    // and `handoffTarget` is what every client renders the move with (the pane's
+    // handover state, the sidebar row). Set after the synchronous eligibility
+    // checks, so a refused move never flashes an overlay; cleared on every exit
+    // that doesn't reach the target.
     this.mutateSessionView(session.sessionId, (current) => {
       current.handoffTarget = targetMachine.name
     })
     this.broadcastSessions()
-
-    const branch = issue?.branch ?? basename(session.cwd)
-    const candidates = [
-      ...new Set(
-        [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
-          Boolean(ref),
-        ),
-      ),
-    ]
-    const verified = await Promise.all(
-      candidates.map((ref) =>
-        this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
-      ),
-    )
-    const baseShas = verifiedBundleBases(verified)
-    if (baseShas.length === 0) {
+    const clearHandoffOverlay = (): void => {
       this.mutateSessionView(session.sessionId, (current) => {
         current.handoffTarget = undefined
       })
       this.broadcastSessions()
-      throw new Error('target repository has no verified common bundle base')
+    }
+
+    let targetRepo: { path: string }
+    let baseShas: string[]
+    let branch: string
+    try {
+      targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
+      branch = issue?.branch ?? basename(session.cwd)
+      const candidates = [
+        ...new Set(
+          [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
+            Boolean(ref),
+          ),
+        ),
+      ]
+      const sourceVerified = await Promise.all(
+        candidates.map((ref) =>
+          this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+        ),
+      )
+      const sourceBaseShas = verifiedBundleBases(sourceVerified)
+      const targetVerified = await Promise.all(
+        sourceBaseShas.map((ref) =>
+          this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+        ),
+      )
+      baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
+      if (baseShas.length === 0)
+        throw new Error('target repository has no verified common bundle base')
+    } catch (error) {
+      // Nothing has been stopped or moved yet — drop the overlay and report.
+      clearHandoffOverlay()
+      throw error
     }
 
     const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
@@ -2717,6 +3160,89 @@ export class SessionsService {
     }
   }
 
+  /** Clone and register a source repository on a target that does not have it yet. */
+  async prepareSessionTarget(input: {
+    agentKind?: AgentKind
+    cwd: string
+    machineId?: string
+  }): Promise<{ cwd: string; machineId?: string }> {
+    if (!input.machineId) return { cwd: input.cwd }
+    const parsed = AgentKind.safeParse(input.agentKind)
+    const agentKind = parsed.success
+      ? parsed.data
+      : resolveRole(this.store.settings.getSettings(), 'coding').harness
+    // Validate connectivity, harness installation, and login before cloning.
+    this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind)
+    const sourceRepo = this.store.repos
+      .listRepos()
+      .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!sourceRepo || sourceRepo.machineId === input.machineId) {
+      return { cwd: input.cwd, machineId: input.machineId }
+    }
+    const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
+    const suffix = input.cwd.slice(sourceRepo.path.length).replace(/^\/+/, '')
+    return {
+      cwd: suffix ? join(targetRepo.path, suffix) : targetRepo.path,
+      machineId: input.machineId,
+    }
+  }
+
+  /** Clone and register a source repository on a target that does not have it yet. */
+  private async ensureTargetRepo(
+    sourceRepo: {
+      machineId: string
+      path: string
+      originUrl: string | null
+      repoId: string | null
+      prefix: string | null
+    },
+    targetMachineId: string,
+  ): Promise<{
+    machineId: string
+    path: string
+    originUrl: string | null
+    repoId: string | null
+    prefix: string | null
+  }> {
+    const existing = this.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.repoId === sourceRepo.repoId)
+    if (existing) return existing
+    if (!sourceRepo.originUrl || !sourceRepo.repoId) {
+      throw new Error('target machine lacks this repository and the source has no clone URL')
+    }
+    const home = await this.rpc.browseDirs(undefined, {}, targetMachineId)
+    if (!home.listing) {
+      throw new Error(home.error ?? 'target machine did not report its home directory')
+    }
+    const repoName =
+      repoNameFromOrigin(sourceRepo.originUrl)?.replace(/[^a-zA-Z0-9._-]+/gu, '-') || 'repository'
+    const suffix = sourceRepo.repoId.replace(/[^a-zA-Z0-9]+/gu, '').slice(-8) || 'checkout'
+    const targetPath = join(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
+    const cloned = await this.rpc.repoOp(
+      'clone',
+      home.listing.homePath,
+      { originUrl: sourceRepo.originUrl, path: targetPath },
+      targetMachineId,
+    )
+    if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
+    this.store.repos.addRepo(
+      targetPath,
+      targetMachineId,
+      sourceRepo.originUrl,
+      sourceRepo.prefix ?? undefined,
+    )
+    const registered = this.store.repos
+      .listRepos(targetMachineId)
+      .find((repo) => repo.path === targetPath)
+    if (!registered || registered.repoId !== sourceRepo.repoId) {
+      throw new Error('cloned repository identity does not match the handoff source')
+    }
+    this.deps.onWorktreesChanged(targetPath, targetMachineId)
+    return registered
+  }
+
   /**
    * Lazy cross-machine workspace fetch [spec:SP-6d57]: materialize ANOTHER session's
    * current working state (unpushed commits + dirty + untracked files) on the
@@ -2773,12 +3299,18 @@ export class SessionsService {
         ),
       ),
     ]
-    const verified = await Promise.all(
+    const sourceVerified = await Promise.all(
       candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
+      ),
+    )
+    const sourceBaseShas = verifiedBundleBases(sourceVerified)
+    const fetcherVerified = await Promise.all(
+      sourceBaseShas.map((ref) =>
         this.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
       ),
     )
-    const baseShas = verifiedBundleBases(verified)
+    const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)
     if (baseShas.length === 0)
       throw new Error('no verified common bundle base with the source repository')
 
@@ -2850,10 +3382,12 @@ export class SessionsService {
     sessionId,
     text,
     mutationId,
+    inputOrigin = 'controller',
   }: {
     sessionId: string
     text: string
     mutationId?: string
+    inputOrigin?: ObservationInputOrigin
   }): {
     ok: boolean
     reason?: string
@@ -2863,42 +3397,56 @@ export class SessionsService {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status === 'live' && session.queuedMessageCount === 0) {
-      return this.sendText({ sessionId, text })
+      return this.sendText({ sessionId, text, inputOrigin })
     }
     // Everything else — parked (wakes), starting (waits for settle), reconnecting
     // (waits for the daemon), or live-behind-a-queue (FIFO) — goes through the
     // durable queue instead of the old drop-after-25s in-memory timer.
-    return this.queueText({ sessionId, text, mutationId })
+    return this.queueText({ sessionId, text, mutationId, inputOrigin })
   }
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
-  async resurrectSession({
+  resurrectSession({
     sessionId,
   }: {
     sessionId: string
   }): Promise<{ ok: boolean; reason?: string }> {
     const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
+    if (rejected) return Promise.resolve(rejected)
     const session = this.sessions.get(sessionId)
-    if (!session) return { ok: false, reason: 'unknown session' }
+    if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed
     // externally) are the same situation here: no process, but the row and the
     // resume ref are intact — both come back with one spawn.
     if (session.status !== 'hibernated' && session.status !== 'exited') {
-      return { ok: false, reason: 'process still running' }
+      return Promise.resolve({ ok: false, reason: 'process still running' })
     }
     // A shell has no conversation to lose — a fresh spawn in the same cwd IS
     // full recovery, so it never needs a resume ref. Agents do: respawning one
     // without its ref would silently discard the conversation.
     if (session.agentKind !== 'shell' && !session.resume) {
-      return { ok: false, reason: 'no resume ref' }
+      return Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
     // so the agent has a real cwd. Transcript inspection does not need this.
-    const ensured = await this.ensureSessionWorktree(session)
+    // The common hibernate→wake path resolves synchronously, and the spawn
+    // must too: queueText fire-and-forgets this call and its callers rely on
+    // the spawn being on the wire before queueText returns [POD-197].
+    const ensured = this.ensureSessionWorktree(session)
+    if (ensured instanceof Promise) {
+      return ensured.then((e) => this.finishResurrect(session, e))
+    }
+    return Promise.resolve(this.finishResurrect(session, ensured))
+  }
+
+  private finishResurrect(
+    session: Session,
+    ensured: { ok: boolean; reason?: string; cwd?: string },
+  ): { ok: boolean; reason?: string } {
+    const sessionId = session.sessionId
     if (!ensured.ok) return { ok: false, reason: ensured.reason }
     if (ensured.cwd && ensured.cwd !== session.cwd) {
       session.cwd = ensured.cwd
@@ -2917,12 +3465,23 @@ export class SessionsService {
     // lastActiveAt makes it immediately eligible to be parked again.
     session.markResumed()
     this.persist(session)
+    const observationLease = this.fenceObservation(session)
     this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
+          }
+        : {}),
       ...(session.resume ? { resume: session.resume } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -2942,11 +3501,15 @@ export class SessionsService {
    * issue worktree it clears the path of record but keeps the branch; resume
    * recreates via worktreeAddExisting [spec:SP-9904]. When worktreePath is
    * still set we trust it (no probe — keeps unit tests daemon-free and avoids
-   * a 35s rpc timeout on the common hibernate→resurrect path).
+   * a 35s rpc timeout on the common hibernate→resurrect path). Returns a
+   * plain value on every path that needs no daemon work so resurrectSession
+   * can spawn synchronously [POD-197]; only the recreate path is async.
    */
-  private async ensureSessionWorktree(
+  private ensureSessionWorktree(
     session: Session,
-  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+  ):
+    | { ok: boolean; reason?: string; cwd?: string }
+    | Promise<{ ok: boolean; reason?: string; cwd?: string }> {
     const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
     if (!issueId) return { ok: true, cwd: session.cwd }
 
@@ -2968,14 +3531,17 @@ export class SessionsService {
       return { ok: true, cwd: session.cwd }
     }
     // Freed by stop (or cleared out-of-band): recreate from the kept branch.
-    const recreated = await this.issues().ensureWorktree(issueId)
-    if (!recreated.ok || !recreated.worktreePath) {
-      return {
-        ok: false,
-        reason: recreated.output || 'failed to recreate worktree from branch',
-      }
-    }
-    return { ok: true, cwd: recreated.worktreePath }
+    return this.issues()
+      .ensureWorktree(issueId)
+      .then((recreated) => {
+        if (!recreated.ok || !recreated.worktreePath) {
+          return {
+            ok: false,
+            reason: recreated.output || 'failed to recreate worktree from branch',
+          }
+        }
+        return { ok: true, cwd: recreated.worktreePath }
+      })
   }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
@@ -3066,6 +3632,10 @@ export class SessionsService {
    *  can batch many rows in one transaction and one sessions broadcast. */
   private removeSessionRuntime(sessionId: string): void {
     const session = this.sessions.get(sessionId)
+    // The issues service owns the per-session Git attribution ledger. Notify it
+    // while membership/cwd are still resolvable, before this permanent removal.
+    this.issues().onSessionRemovedOrArchived(sessionId)
+
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
       sessionId,
@@ -3134,7 +3704,7 @@ export class SessionsService {
     // is never the hibernate path (hibernateSession only flips status).
     // Capture spawnedBy before the row is gone so the steward can still resolve
     // a session-spawner parent wake (POD-904 / exit-without-report).
-    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy)
+    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
   }
 
   /**
@@ -3143,7 +3713,28 @@ export class SessionsService {
    * Hibernate does not land here. Best-effort log write — a store throw must
    * not undo the exit side-effects already applied.
    */
-  private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
+  private emitSessionExited(
+    sessionId: string,
+    code: number,
+    spawnedBy?: string | null,
+    sourceSession: Session | undefined = this.sessions.get(sessionId),
+  ): void {
+    const session = sourceSession
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    const fence = lease?.checkpoint?.terminalFence
+    const candidate = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+    // A fence suppresses the fixed steward exit fallback only while it still
+    // describes the latest causal input. Historical/mixed-version fences without
+    // their matching durable candidate, or a prompt sent after the fence, must let
+    // the crash surface as a real exit.
+    const terminalFenceReported = Boolean(
+      session &&
+        fence &&
+        !fence.closing &&
+        candidate &&
+        candidate.facts.terminalTransitionId === fence.transitionId &&
+        candidate.facts.inputCount === session.inputCount,
+    )
     this.bus.emit('session.exited', { sessionId, code })
     try {
       this.store.events.appendEvent({
@@ -3152,6 +3743,7 @@ export class SessionsService {
         subject: sessionId,
         payload: {
           code,
+          ...(terminalFenceReported ? { terminalFenceReported: true } : {}),
           ...(spawnedBy ? { spawnedBy } : {}),
         },
       })
@@ -3237,12 +3829,23 @@ export class SessionsService {
     // for a genuinely issueless spawn) — allocate the permanent ref now.
     const additionalWrite = this.prepareSessionRefAllocation(session)
     this.persist(session, additionalWrite)
+    const observationLease = this.fenceObservation(session)
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,
       agentKind: input.agentKind,
       cwd: input.cwd,
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
+          }
+        : {}),
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
@@ -3400,15 +4003,60 @@ export class SessionsService {
     this.schedulePreparedSessionPublications()
   }
 
-  publicationMetrics(): PublishWorkerMetrics {
-    return this.publicationWorker.metrics()
+  publicationMetrics(): SessionPublicationMetrics {
+    return {
+      ...this.publicationWorker.metrics(),
+      shadowComparisons: this.publicationShadowComparisons,
+      shadowMismatches: this.publicationShadowMismatches,
+    }
+  }
+
+  /**
+   * Rollout guard [spec:SP-c29e]: rebuild the publication through the legacy
+   * main-loop semantics and compare it without changing which bytes are sent.
+   */
+  private shadowComparePublication(publication: PreparedPublication, view: PublicationView): void {
+    if (!this.publicationShadowCompare) return
+    this.publicationShadowComparisons += 1
+    const allowed = new Set(view.allowedSessionIds)
+    let legacy: ServerMessage | undefined
+    if (publication.kind === 'snapshot') {
+      legacy = {
+        type: 'sessionsChanged',
+        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
+      }
+    } else {
+      const fromExclusive = publication.sourceRange.fromExclusive
+      const source = fromExclusive === null ? null : this.funnel.changesSince(fromExclusive)
+      if (fromExclusive !== null && source) {
+        legacy = {
+          type: 'metadataDelta',
+          fromExclusive,
+          seq: publication.sourceRange.toInclusive,
+          changes: source.filter(
+            (change) =>
+              change.seq <= publication.sourceRange.toInclusive &&
+              change.entity === 'session' &&
+              allowed.has(change.id),
+          ),
+        }
+      }
+    }
+    if (legacy && JSON.stringify(legacy) === publication.bytes) return
+    this.publicationShadowMismatches += 1
+    console.error('[sessions] publication shadow mismatch', {
+      viewKey: publication.viewKey,
+      kind: publication.kind,
+      generation: publication.generation,
+      ledgerCursor: publication.ledgerCursor,
+    })
   }
 
   detachClient(id: string): void {
     const client = this.clients.get(id)
     if (!client) return
     for (const sessionId of client.attached) {
-      this.mutateSessionView(sessionId, (session) => session.detachClient(id))
+      this.mutateSessionView(sessionId, (session) => session.detachClient(id), false)
     }
     // Transcript subscriptions are independent of PTY attachment — sweep just the ones
     // THIS client made (audit P2-18), not every session on the host (the old full scan
@@ -3566,8 +4214,10 @@ export class SessionsService {
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (current) =>
-          current.attachClient(client, msg.sinceSeq),
+        this.mutateSessionView(
+          msg.sessionId,
+          (current) => current.attachClient(client, msg.sinceSeq),
+          false,
         )
         this.broadcastSessions()
         this.pushPriorities()
@@ -3577,7 +4227,7 @@ export class SessionsService {
       case 'detach': {
         const t0 = performance.now()
         client.attached.delete(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id))
+        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.detach', performance.now() - t0)
@@ -3592,7 +4242,7 @@ export class SessionsService {
         )
         break
       case 'requestControl':
-        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id))
+        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id), false)
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -3728,6 +4378,7 @@ export class SessionsService {
           // — surfaced in meta so a client retires its own sampler/flush.
           s.draftSyncEngine = msg.draftSyncEngine ?? false
           this.persist(s)
+          this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
@@ -3828,9 +4479,267 @@ export class SessionsService {
         this.broadcastSessions()
         break
       }
+      case 'agentObservationRebind': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        const lease =
+          this.observationLeases.get(msg.sessionId) ??
+          this.store.observationCheckpoints.get(msg.sessionId)
+        const expectedProvider = observationProviderFor(session.agentKind)
+        const sessionBindingCompatible =
+          session.resume === undefined ||
+          (session.resume.kind === msg.resumeKind &&
+            (session.resume.value === msg.providerSessionId ||
+              session.resume.value === msg.nextProviderSessionId))
+        if (
+          !lease ||
+          expectedProvider !== msg.provider ||
+          lease.provider !== msg.provider ||
+          !sessionBindingCompatible
+        ) {
+          if (!lease) break
+          this.toMachine(session.machineId, {
+            type: 'agentObservationRebindAck',
+            sessionId: session.sessionId,
+            provider: lease.provider,
+            rebindId: msg.rebindId,
+            priorObserverGeneration: msg.observerGeneration,
+            priorBindingVersion: msg.bindingVersion,
+            nextProviderSessionId: msg.nextProviderSessionId,
+            providerSessionId: lease.providerSessionId,
+            result: 'rejected',
+            rejectionReason: 'provider_binding_mismatch',
+            observerGeneration: lease.observationGeneration,
+            bindingVersion: lease.bindingVersion,
+            checkpoint: lease.checkpoint,
+          })
+          break
+        }
+
+        let outcome: ReturnType<typeof this.store.observationCheckpoints.rebindExact> | undefined
+        try {
+          this.persist(session, () => {
+            outcome = this.store.observationCheckpoints.rebindExact({
+              sessionId: session.sessionId,
+              provider: msg.provider,
+              providerSessionId: msg.providerSessionId,
+              bindingVersion: msg.bindingVersion,
+              observationGeneration: msg.observerGeneration,
+              nextProviderSessionId: msg.nextProviderSessionId,
+            })
+            if (outcome.kind === 'rejected') {
+              throw new Error(`observation rebind rejected for ${session.sessionId}`)
+            }
+            session.resume = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
+            if (outcome.disposition !== 'advanced') return
+            session.conversationPodiumId = msg.providerSessionId
+              ? this.store.conversations.linkConversationSegment({
+                  machineId: session.machineId,
+                  newNativeId: msg.nextProviderSessionId,
+                  priorNativeId: msg.providerSessionId,
+                  providerId: session.agentKind,
+                })
+              : this.store.conversations.ensureConversationIdentity({
+                  machineId: session.machineId,
+                  nativeId: msg.nextProviderSessionId,
+                  providerId: session.agentKind,
+                })
+          })
+        } catch (err) {
+          if (outcome?.kind !== 'rejected') throw err
+        }
+        if (!outcome) throw new Error(`missing observation rebind result for ${session.sessionId}`)
+        if (outcome.kind === 'rejected') {
+          this.toMachine(session.machineId, {
+            type: 'agentObservationRebindAck',
+            sessionId: session.sessionId,
+            provider: outcome.lease.provider,
+            rebindId: msg.rebindId,
+            priorObserverGeneration: msg.observerGeneration,
+            priorBindingVersion: msg.bindingVersion,
+            nextProviderSessionId: msg.nextProviderSessionId,
+            providerSessionId: outcome.lease.providerSessionId,
+            result: 'rejected',
+            rejectionReason: outcome.rejectionReason,
+            observerGeneration: outcome.lease.observationGeneration,
+            bindingVersion: outcome.lease.bindingVersion,
+            checkpoint: outcome.lease.checkpoint,
+          })
+          break
+        }
+        const rebound = outcome.lease
+        this.observationLeases.set(session.sessionId, rebound)
+        this.toMachine(session.machineId, {
+          type: 'agentObservationRebindAck',
+          sessionId: session.sessionId,
+          provider: rebound.provider,
+          rebindId: msg.rebindId,
+          priorObserverGeneration: msg.observerGeneration,
+          priorBindingVersion: msg.bindingVersion,
+          nextProviderSessionId: msg.nextProviderSessionId,
+          providerSessionId: rebound.providerSessionId,
+          result: 'accepted',
+          observerGeneration: rebound.observationGeneration,
+          bindingVersion: rebound.bindingVersion,
+          checkpoint: rebound.checkpoint,
+        })
+        if (outcome.disposition === 'advanced') {
+          this.broadcastSessions()
+        }
+        break
+      }
+      case 'agentObservation': {
+        const observation = msg.observation
+        const session = this.sessions.get(observation.podiumSessionId)
+        if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        // Durable state is authoritative: a foreign daemon or reattach may
+        // have advanced the lease since this process cached it.
+        const lease = this.store.observationCheckpoints.get(observation.podiumSessionId)
+        if (lease) this.observationLeases.set(observation.podiumSessionId, lease)
+        const outcome =
+          observation.podiumSessionId !== session.sessionId || !lease
+            ? ({ kind: 'rejected', rejectionReason: 'legacy_unfenced_observation' } as const)
+            : acceptAgentObservation(
+                lease.checkpoint,
+                {
+                  provider: lease.provider,
+                  providerSessionId: lease.providerSessionId,
+                  bindingVersion: lease.bindingVersion,
+                  observationGeneration: lease.observationGeneration,
+                },
+                observation,
+                new Date(this.now()).toISOString(),
+              )
+
+        if (outcome.kind === 'rejected') {
+          this.toMachine(session.machineId, {
+            type: 'agentObservationAck',
+            sessionId: session.sessionId,
+            observerGeneration: observation.observerGeneration,
+            bindingVersion: observation.bindingVersion,
+            transitionId: observation.transitionId,
+            result: 'rejected',
+            rejectionReason: outcome.rejectionReason,
+            ...(lease?.checkpoint?.providerCursor
+              ? { acceptedCursor: lease.checkpoint.providerCursor }
+              : {}),
+            checkpoint: lease?.checkpoint ?? null,
+          })
+          break
+        }
+
+        const prev = session.agentState
+        session.applyObservationCheckpoint(outcome.checkpoint)
+        const acceptedLive =
+          outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
+        if (acceptedLive) session.recordObservationActivity()
+        const acceptedLease: ObservationLeaseRecord = {
+          ...(lease as ObservationLeaseRecord),
+          providerSessionId: outcome.checkpoint.providerSessionId,
+          checkpoint: outcome.checkpoint,
+          updatedAt: outcome.checkpoint.acceptedAt,
+        }
+        const candidateFacts = this.terminalCandidateFacts(
+          session,
+          acceptedLease,
+          outcome.checkpoint,
+        )
+        this.persist(session, () => {
+          this.store.observationCheckpoints.save(outcome.checkpoint)
+          if (acceptedLive) {
+            if (candidateFacts) {
+              this.store.observationCheckpoints.recordTerminalCandidate(
+                candidateFacts,
+                outcome.checkpoint.acceptedAt,
+              )
+            } else {
+              this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+            }
+          }
+        })
+        this.observationLeases.set(session.sessionId, acceptedLease)
+        const next = session.agentState ?? outcome.checkpoint.turnState
+
+        // The durable commit above is the release point for daemon-side
+        // bootstrap buffering [spec:SP-cdb2].
+        this.toMachine(session.machineId, {
+          type: 'agentObservationAck',
+          sessionId: session.sessionId,
+          observerGeneration: observation.observerGeneration,
+          bindingVersion: observation.bindingVersion,
+          transitionId: observation.transitionId,
+          result: outcome.kind,
+          acceptedCursor: outcome.checkpoint.providerCursor,
+          checkpoint: outcome.checkpoint,
+        })
+
+        this.broadcastToClients({
+          type: 'sessionAgentStateChanged',
+          sessionId: session.sessionId,
+          state: next,
+        })
+
+        // Snapshot and same-phase refresh update display/checkpoint only. Every
+        // effect below is exclusive to one accepted causal live phase edge.
+        if (outcome.kind !== 'live_transition_accepted') break
+        this.autoContinue.onStateChange(session.sessionId, next)
+        this.issues().onSessionActivity(session.sessionId)
+        this.bus.emit('session.stateChanged', {
+          sessionId: session.sessionId,
+          prev,
+          next,
+          observation,
+        })
+        if (
+          session.snoozedUntil !== undefined &&
+          SessionsService.isAttentionPhase(prev) &&
+          !SessionsService.isAttentionPhase(next)
+        ) {
+          this.clearSnooze(session.sessionId)
+        }
+        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
+          this.issues().onSessionAttention(session.sessionId)
+        }
+        break
+      }
+      case 'agentObserverLiveConfirmation': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        const lease = this.store.observationCheckpoints.get(msg.sessionId)
+        const checkpoint = lease?.checkpoint
+        if (
+          !lease ||
+          !checkpoint?.terminalFence ||
+          checkpoint.terminalFence.closing ||
+          msg.provider !== lease.provider ||
+          msg.providerSessionId !== lease.providerSessionId ||
+          msg.bindingVersion !== lease.bindingVersion ||
+          msg.observerGeneration !== lease.observationGeneration ||
+          JSON.stringify(msg.providerCursor) !== JSON.stringify(checkpoint.providerCursor)
+        )
+          break
+        const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+        if (!facts) break
+        this.store.observationCheckpoints.confirmTerminalCandidate(
+          facts,
+          msg.livePollSequence,
+          msg.confirmedAt,
+        )
+        break
+      }
       case 'agentState': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        // Mixed deployment: legacy remains visible until the first v1
+        // checkpoint. It can never downgrade or overwrite causal truth.
+        if (this.observationLeases.get(msg.sessionId)?.checkpoint) {
+          console.warn(`[podium] rejected legacy unfenced observation for ${msg.sessionId}`)
+          break
+        }
         const prev = session.agentState
         session.setAgentState(msg.state)
         const next = session.agentState ?? msg.state
@@ -3849,6 +4758,11 @@ export class SessionsService {
           state: next,
         })
         this.issues().onSessionActivity(msg.sessionId)
+        // Turn end (working → anything else) is the only moment new commits can
+        // appear — refresh the owning issue's git state [POD-98].
+        if (prev?.phase === 'working' && next.phase !== 'working') {
+          this.issues().onSessionTurnEnd(msg.sessionId)
+        }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
         this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next })
@@ -3864,6 +4778,25 @@ export class SessionsService {
         if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(msg.sessionId)
         }
+        // A NEW turn beginning after the offer was made means the conversation
+        // moved past it — its suggested actions no longer apply [spec:SP-c7f1]
+        // — but only when the USER moved it: a turn forced by a stop-hook or a
+        // mail/cron wake must NOT consume a standing offer the human never saw
+        // [POD-118]. So this path (which catches the continuations sendText
+        // never sees: raw PTY keystrokes, whichever client they came from)
+        // additionally requires controller input SINCE the offer; chat sends
+        // and button clicks clear directly in sendText. The event-time guard
+        // keeps a boot replay of the very turn that produced the offer from
+        // consuming it.
+        if (
+          session.offer !== undefined &&
+          prev?.phase !== 'working' &&
+          next.phase === 'working' &&
+          next.since > session.offer.createdAt &&
+          session.lastInputAtMs > Date.parse(session.offer.createdAt)
+        ) {
+          this.clearOffer(msg.sessionId)
+        }
         break
       }
       case 'agentColor': {
@@ -3873,6 +4806,17 @@ export class SessionsService {
         // rebroadcast is fine — no need for a dedicated per-session message.
         // Persist so the wire-visible colour reaches the change log too [#256].
         if (session.setAgentColor(msg.color)) {
+          this.persist(session)
+          this.broadcastSessions()
+        }
+        break
+      }
+      case 'agentModel': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        // Observed model changes rarely (first sighting, `/model` switch), so a
+        // full session rebroadcast is fine, mirroring agentColor above.
+        if (session.setObservedModel(msg.model, msg.effort)) {
           this.persist(session)
           this.broadcastSessions()
         }
@@ -4037,7 +4981,10 @@ export class SessionsService {
       }
       case 'sessionCwd': {
         const session = this.sessions.get(msg.sessionId)
-        if (!session) break
+        // A handoff kills the source and reuses this same session id on the target.
+        // Frames already queued by the old daemon can arrive after that commit; never
+        // let one restamp the target row (or its issue) with the source machine's path.
+        if (!session || session.machineId !== machineId) break
         // The agent moved into a new directory (EnterWorktree / cd). Restamp the
         // session cwd so the sidebar re-groups it under the worktree it's now in,
         // and persist + broadcast so the move survives a reload and reaches every
@@ -4048,6 +4995,15 @@ export class SessionsService {
           this.broadcastSessions()
         }
         if (msg.cwd && session.issueId) this.adoptWorktree(session.issueId, msg)
+        break
+      }
+      case 'sessionGitActivity': {
+        // Daemon-captured commit/touched attribution [POD-98] — feed the issue
+        // service's per-session ledger; it unions per issue at probe time.
+        this.issues().recordSessionGitActivity(msg.sessionId, {
+          ...(msg.commits ? { commits: msg.commits } : {}),
+          ...(msg.touched ? { touched: msg.touched } : {}),
+        })
         break
       }
       case 'transcriptDelta': {
@@ -4123,6 +5079,14 @@ export class SessionsService {
       }
       case 'repoOpResult': {
         this.rpc.onRepoOpResult(msg)
+        break
+      }
+      case 'credentialExportResult': {
+        this.rpc.onCredentialExportResult(msg)
+        break
+      }
+      case 'credentialInstallResult': {
+        this.rpc.onCredentialInstallResult(msg)
         break
       }
       case 'harnessExecResult': {
@@ -4276,14 +5240,14 @@ export class SessionsService {
         return
       }
       this.runningSessionsBroadcastGeneration = generation
-      const sessions = this.listSessions()
-      const tList = performance.now()
-      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-      // Every non-boot mutation was already captured at its owning seam. This hot
-      // path only builds the legacy snapshot; full reconcile is boot/recovery-only.
       const hasMainEncodedReceivers = [...this.clients.values()].some(
         (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
       )
+      // Worker-only connection churn needs no legacy snapshot. Session changes
+      // never request issue projection work on the normalized path (ADR 4 D7).
+      const sessions = hasMainEncodedReceivers ? this.listSessions() : []
+      const tList = performance.now()
+      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
       const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0
       perf.record(
         'phase',
@@ -4493,6 +5457,7 @@ export class SessionsService {
       void this.publicationWorker
         .request({ view: group.view, sinceCursor: group.sinceCursor }, { focused: group.focused })
         .then((publication) => {
+          this.shadowComparePublication(publication, group.view)
           perf.record(
             'phase',
             'sessionsBroadcast.workerBytes',

@@ -1,22 +1,17 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 /**
  * Runtime verification of the hierarchical issue tracker view (#85) against the
- * REAL Live UI on the harness relay: sub-issues are hidden at the top level by
- * default (board and list), the parent grows an Epic badge + n/m progress
- * fraction, a list-row chevron expands the nested children, the Flatten toggle
- * and the Flatten toggle restores the old flat view. (The sidebar Issues tab is
- * gone — the unified sidebar shows only issues that own a worktree, and these
- * fixtures are worktree-less, so there is no sidebar leg anymore.)
+ * REAL Live UI on the harness relay: sub-tasks are hidden at the top level by
+ * default (board and list), the parent grows an Epic badge + n/m progress and a
+ * still live-agent dot, a list-row chevron expands the nested children, and the
+ * Flatten toggle restores the old flat view. The unified sidebar only shows issues
+ * that own a worktree; these fixtures are worktree-less, so there is no sidebar leg.
  *
- * Desktop-only: the "Issues" nav button lives in the <aside> Sidebar, which the
- * mobile layout (MobileApp) does not render.
+ * Desktop-only: the assertions target the desktop board and list layouts.
  */
-test.skip(
-  ({ isMobile }) => isMobile,
-  'desktop test (Issues nav button lives in the <aside> Sidebar)',
-)
+test.skip(({ isMobile }) => isMobile, 'desktop hierarchy board/list test')
 
 /** Open the Live UI app shell pointed at the harness relay with the e2e API. */
 async function openShell(page: Page): Promise<void> {
@@ -27,11 +22,30 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
+const HTTP = RELAY.replace(/^ws/, 'http')
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'get'
+      ? await request.get(`${HTTP}/trpc/${proc}`, {
+          params: input === undefined ? undefined : { input: JSON.stringify(input) },
+        })
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+  if (!response.ok()) throw new Error(`${proc} -> ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
+
 /** Create a worktree-less Backlog issue via the composer and wait for its card. */
 async function createBacklogIssue(page: Page, title: string): Promise<void> {
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  await page.getByRole('button', { name: 'New Task', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByRole('heading', { name: 'New Task' })).toBeVisible({ timeout: 10_000 })
   await dialog.getByLabel('Title').fill(title)
   const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
   await expect(startNow).toBeChecked()
@@ -44,12 +58,16 @@ async function createBacklogIssue(page: Page, title: string): Promise<void> {
 
 test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, sidebar nesting', async ({
   page,
+  request,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
+  await page
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('button', { name: 'Tasks' })
+    .click()
 
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
-  const board = page.getByRole('region', { name: 'Issues' })
+  const board = page.getByRole('region', { name: 'Tasks' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Seed a parent + child: create the parent, then add a sub-issue inline ----
@@ -69,15 +87,52 @@ test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, 
   const issuePage = page.locator('[data-testid="issue-page"]')
   await expect(issuePage).toBeVisible({ timeout: 10_000 })
   const subIssues = issuePage.getByTestId('sub-issues')
-  await subIssues.getByRole('button', { name: /Add sub-issue/ }).click({ timeout: 10_000 })
-  const input = subIssues.getByLabel('Sub-issue title')
+  await subIssues.getByRole('button', { name: /Add sub-task/ }).click({ timeout: 10_000 })
+  const input = subIssues.getByLabel('Sub-task title')
   await input.fill(childTitle)
   await input.press('Enter')
   await expect(
     subIssues.getByRole('button', { name: new RegExp(childTitle) }),
     'the child row appears on the parent page',
   ).toBeVisible({ timeout: 15_000 })
+
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const childMatch = (
+    await Promise.all(
+      repos.map(async (repoPath) => ({
+        repoPath,
+        issues: await rpc<Array<{ id: string; title: string }>>(
+          request,
+          'issues.list',
+          { repoPath },
+          'get',
+        ),
+      })),
+    )
+  )
+    .map(({ repoPath, issues }) => ({
+      repoPath,
+      child: issues.find((issue) => issue.title === childTitle),
+    }))
+    .find(({ child }) => child)
+  if (!childMatch?.child) throw new Error('created child issue was not returned by issues.list')
+  const { repoPath, child } = childMatch
+  const liveSession = await rpc<{ sessionId: string }>(request, 'sessions.create', {
+    agentKind: 'shell',
+    cwd: repoPath,
+    issueId: child.id,
+    title: `E2E hier worker ${stamp}`,
+  })
+
   await page.locator('button[title="Back"]').click({ timeout: 10_000 })
+  await page.reload()
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 60_000,
+  })
+  await page
+    .getByRole('navigation', { name: 'Primary' })
+    .getByRole('button', { name: 'Tasks' })
+    .click()
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Board (default = nested): child hidden, parent shows Epic badge + 0/1 ----
@@ -97,6 +152,15 @@ test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, 
     parentCardBox.getByText('0/1', { exact: true }),
     'the parent card rolls its children up as a 0/1 fraction',
   ).toBeVisible()
+  const liveAgents = parentCardBox.getByTestId('epic-live-agents')
+  await expect(liveAgents, 'the parent card rolls up its live descendant').toContainText('1', {
+    timeout: 15_000,
+  })
+  const liveDot = liveAgents.locator('.bg-live')
+  await expect(liveDot, 'the permanent live indicator is a still dot').not.toHaveClass(
+    /animate-pulse/,
+  )
+  await expect(liveDot).toHaveCSS('animation-name', 'none')
 
   // ---- Flatten toggle: the child surfaces at the top level, then hides again ----
   const flattenBtn = board.getByRole('button', { name: 'Flatten', exact: true })
@@ -153,4 +217,6 @@ test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, 
   const aside = page.locator('aside').first()
   await expect(aside.getByText(parentTitle, { exact: false })).toHaveCount(0)
   await expect(aside.getByText(childTitle, { exact: false })).toHaveCount(0)
+
+  await rpc(request, 'sessions.kill', { sessionId: liveSession.sessionId })
 })

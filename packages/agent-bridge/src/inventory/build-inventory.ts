@@ -38,6 +38,11 @@ async function probeAgent(
   for (const candidate of adapter.inventory.binCandidates(home)) {
     try {
       const version = (await exec([candidate, '--version'], VERSION_TIMEOUT_MS)).trim()
+      const identityProbe = adapter.inventory.identityProbe
+      if (identityProbe) {
+        const identity = await exec([candidate, ...identityProbe.args], VERSION_TIMEOUT_MS)
+        if (!identityProbe.accepts(identity)) continue
+      }
       return {
         kind: adapter.kind,
         installed: true,

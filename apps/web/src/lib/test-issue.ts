@@ -1,4 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/react'
+import type { SessionMeta } from '@podium/protocol'
+
+type TestIssue = IssueViewModel & { sessions?: SessionMeta[] }
 
 /**
  * Build a valid normalized IssueViewModel for unit tests, overriding any fields via `over`.
@@ -6,8 +9,8 @@ import type { IssueViewModel } from '@podium/client-core/react'
  * fully-populated render shape.
  */
 export const makeIssue = (
-  over: Partial<IssueViewModel> = {},
-): IssueViewModel =>
+  over: Partial<IssueViewModel> & { sessions?: SessionMeta[] } = {},
+): TestIssue =>
   ({
     id: 'i',
     repoPath: '/r',
@@ -42,4 +45,4 @@ export const makeIssue = (
     memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...over,
-  }) as IssueViewModel
+  }) as TestIssue

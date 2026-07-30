@@ -10,7 +10,7 @@
  */
 
 import type { IssueProjection } from '@podium/model'
-import type { GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/protocol'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -133,7 +133,7 @@ function makeApi(): any {
       rename: { mutate: vi.fn(async () => ({})) },
       setArchived: { mutate: vi.fn(async () => ({})) },
       setWorkState: { mutate: vi.fn(async () => ({})) },
-      markRead: { mutate: async () => ({}) },
+      markRead: { mutate: vi.fn(async () => ({})) },
       markUnread: { mutate: async () => ({}) },
     },
     issues: {
@@ -1030,6 +1030,80 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     engine.dispose()
   })
 
+  it('openArtifact from the issues view lands on the workspace with the issue selected (#101)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().setPeekIssueId('iss_1')
+    engine.getSnapshot().openArtifact({
+      issueId: 'iss_1',
+      artifactId: 'abc123',
+      path: 'index.html',
+      worktreePath: '/tmp/known-repo/.worktrees/wt1',
+    })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedIssueId).toBe('iss_1')
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
+    // the peek overlay is closed so the opened tab is actually visible
+    expect(st.peekIssueId).toBeNull()
+    // the URL landed on the workspace with the tab as the pane and STAYED there
+    expect(rw.url()).toContain('/workspace')
+    expect(decodeURIComponent(rw.url())).toContain('pane=file:a:iss_1:abc123:index.html')
+    engine.dispose()
+  })
+
+  it('openArtifact without a worktree still lands (issue-owned tab, no worktree bounce)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'doc.md' })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedIssueId).toBe('iss_1')
+    expect(st.paneA).toBe('file:a:iss_1:abc123:doc.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
+  it('openFileInWorktree from a non-workspace view navigates to the workspace (#101)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().openFileInWorktree({
+      root: '/tmp/known-repo/.worktrees/wt1',
+      path: 'notes.md',
+    })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:w:/tmp/known-repo/.worktrees/wt1:notes.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
+  it("openFile from the issues view lands on the workspace, resolving the session's worktree", async () => {
+    const { engine, rw } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
+    await settle()
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    // the containing worktree, not the session's deeper cwd
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.fileTabs[0]?.worktreePath).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:s:s1:notes.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
   it('readFileScoped routes artifact scope to the artifact input; writes are rejected', async () => {
     const api = makeApi()
     const reads: unknown[] = []
@@ -1053,6 +1127,241 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
       engine.getSnapshot().writeFileScoped({ scope, path: 'index.html', content: 'x' }),
     ).rejects.toThrow('artifact snapshots are read-only')
     expect(api.files.write.mutate).not.toHaveBeenCalled()
+    engine.dispose()
+  })
+})
+
+describe('file-tab issue ownership + recent files (POD-149)', () => {
+  it('openFile stamps the tab with the selected issue and records a recent file', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_9')
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.fileTabs[0]?.issueId).toBe('iss_9')
+    // reveal keeps the owning issue selected so the strip lists the tab
+    expect(st.selectedIssueId).toBe('iss_9')
+    expect(st.recentFiles[0]).toMatchObject({
+      path: 'notes.md',
+      worktreePath: '/tmp/known-repo/.worktrees/wt1',
+    })
+    engine.dispose()
+  })
+
+  it("openFile prefers the session's explicit issue over the selection", async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [
+      { ...session('s1', '/tmp/known-repo/.worktrees/wt1'), issueId: 'iss_own' } as SessionMeta,
+    ])
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_other')
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.fileTabs[0]?.issueId).toBe('iss_own')
+    // navigated to the OWNING issue's workspace, not the stale selection
+    expect(st.selectedIssueId).toBe('iss_own')
+    engine.dispose()
+  })
+
+  it('openFileInWorktree stamps an explicit caller issue, else the selection, else nothing', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    const snap = engine.getSnapshot()
+    snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: 'iss_1' })
+    engine.getSnapshot().setSelectedIssueId('iss_2')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
+    engine.getSnapshot().setSelectedIssueId(null)
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    const tabs = engine.getSnapshot().fileTabs
+    expect(tabs.map((t) => t.issueId)).toEqual(['iss_1', 'iss_2', undefined])
+    engine.dispose()
+  })
+
+  it('re-opening an existing tab keeps its original owner and reveals THAT issue', async () => {
+    const { engine } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().setSelectedIssueId('iss_1')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    engine.getSnapshot().setSelectedIssueId('iss_2')
+    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    const st = engine.getSnapshot()
+    expect(st.fileTabs).toHaveLength(1)
+    expect(st.fileTabs[0]?.issueId).toBe('iss_1')
+    expect(st.selectedIssueId).toBe('iss_1')
+    engine.dispose()
+  })
+
+  it('recent files dedupe by path, cap at 30, persist, and openArtifact keeps its ids', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage })
+    first.engine.start()
+    await settle()
+    for (let i = 0; i < 32; i++) {
+      first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
+    }
+    // duplicate open moves to front instead of adding
+    first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
+    first.engine.getSnapshot().openArtifact({
+      issueId: 'iss_1',
+      artifactId: 'abc',
+      path: 'index.html',
+      worktreePath: '/tmp/known-repo',
+    })
+    const recents = first.engine.getSnapshot().recentFiles
+    expect(recents).toHaveLength(30)
+    expect(recents[0]).toMatchObject({
+      path: 'index.html',
+      artifact: { issueId: 'iss_1', artifactId: 'abc' },
+    })
+    expect(recents[1]?.path).toBe('f31.md')
+    first.engine.dispose()
+    // a fresh engine over the same storage rehydrates the list
+    const second = makeEngine({ storage })
+    second.engine.start()
+    await settle()
+    expect(second.engine.getSnapshot().recentFiles).toHaveLength(30)
+    expect(second.engine.getSnapshot().recentFiles[0]?.path).toBe('index.html')
+    second.engine.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POD-272: mark-read-on-view is EAGER for the surface in the foreground. The
+// old trailing debounce left a "new message" chip on the row of the very
+// session/issue whose message was already on screen.
+// ---------------------------------------------------------------------------
+describe('eager mark-read-on-view (POD-272)', () => {
+  const active = (id: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+    ({ ...session(id, '/tmp/known-repo/.worktrees/wt1'), ...over }) as SessionMeta
+
+  it('marks the session in the OPEN PANE read the moment its activity lands', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [active('s1')], [])
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    // A message arrives while s1 IS the visible pane.
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
+      [],
+    )
+    await settle() // ~25ms — an order of magnitude under MARK_READ_ON_VIEW_MS
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
+    expect(engine.getSnapshot().sessions[0]?.unread).toBe(false)
+    engine.dispose()
+  })
+
+  it('does not undo a manual mark-unread of the open session (no fresh activity)', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { readAt: '2026-07-01T00:00:01.000Z' })],
+      [],
+    )
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    // Marking THIS open session unread flips the flag without new activity —
+    // the trigger is activity, so nothing re-reads it.
+    engine.replica.applyChanges('sessions', [active('s1', { readAt: null, unread: true })], [])
+    await settle(60)
+    expect(api.sessions.markRead.mutate).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
+    engine.dispose()
+  })
+
+  it('throttles a burst to one mutation per window, with a trailing pass for the tail', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [active('s1')], [])
+    await settle()
+    engine.getSnapshot().setPane('A', 's1')
+    await settle()
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // leading edge
+    engine.replica.applyChanges(
+      'sessions',
+      [active('s1', { lastActiveAt: '2026-07-01T00:02:00.000Z', unread: true })],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // still inside the window
+    await settle(1400) // …and the tail lands once it closes
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(2)
+    engine.dispose()
+  })
+
+  it('marks the FOREGROUND ISSUE read when activity lands on it', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const issue = {
+      id: 'iss_1',
+      unread: false,
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    } as unknown as IssueWire
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+    engine.getSnapshot().setOpenIssueId('iss_1')
+    engine.getSnapshot().setView('issues')
+    await settle()
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue],
+      [],
+    )
+    await settle()
+    expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
+    expect((engine.getSnapshot().issues[0] as { unread?: boolean })?.unread).toBe(false)
+    engine.dispose()
+  })
+
+  it('leaves an issue nobody is looking at alone', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const issue = {
+      id: 'iss_1',
+      unread: false,
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    } as unknown as IssueWire
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue],
+      [],
+    )
+    await settle(60)
+    expect(api.issues.markRead.mutate).not.toHaveBeenCalled()
+    expect((engine.getSnapshot().issues[0] as { unread?: boolean })?.unread).toBe(true)
     engine.dispose()
   })
 })

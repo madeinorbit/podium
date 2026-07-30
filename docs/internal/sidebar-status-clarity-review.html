@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sidebar status clarity review</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f1f4fb;
+      --muted: #8c94a5;
+      --faint: #626b7c;
+      --line: #273249;
+      --panel: #111a2b;
+      --panel-2: #151f33;
+      --navy: #0a1220;
+      --blue: #4e83ff;
+      --blue-soft: #82aaff;
+      --amber: #f5b941;
+      --green: #65c18c;
+      --clay: #d97757;
+      --purple: #a98cff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% -10%, rgba(78, 131, 255, .12), transparent 31rem),
+        #080e19;
+      color: var(--ink);
+      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 52px 0 80px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 820px; margin-bottom: 12px; font-size: clamp(34px, 5vw, 58px); line-height: 1.02; letter-spacing: -.04em; }
+    h2 { margin-bottom: 18px; font-size: 25px; letter-spacing: -.02em; }
+    h3 { margin-bottom: 7px; font-size: 15px; }
+    .lede { max-width: 760px; color: #b9c1d0; font-size: 18px; }
+    .eyebrow { margin-bottom: 12px; color: var(--blue-soft); font-size: 12px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 18px;
+      margin: 30px 0 44px;
+      padding: 22px;
+      border: 1px solid #34405a;
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(78, 131, 255, .11), rgba(17, 26, 43, .82));
+    }
+
+    .verdict-mark {
+      display: grid;
+      width: 54px;
+      height: 54px;
+      place-items: center;
+      border-radius: 14px;
+      background: var(--blue);
+      color: white;
+      font-size: 25px;
+      font-weight: 800;
+    }
+
+    .verdict strong { display: block; margin-bottom: 5px; font-size: 19px; }
+    .verdict p { margin: 0; color: #b8c1d2; }
+
+    section { margin-top: 48px; }
+    .section-intro { max-width: 780px; color: #aab3c4; }
+
+    .sidebar-frame {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #263147;
+      border-radius: 14px;
+      background: #0d1625;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .28);
+    }
+
+    .sidebar-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) auto;
+      column-gap: 14px;
+      min-height: 92px;
+      align-items: center;
+      padding: 16px 22px;
+    }
+
+    .sidebar-row + .sidebar-row { border-top: 1px solid rgba(39, 50, 73, .48); }
+    .id-tile {
+      display: grid;
+      width: 52px;
+      height: 52px;
+      place-content: center;
+      border: 2px solid #7b8292;
+      border-radius: 13px;
+      background: #202331;
+      color: #dfe3ec;
+      font: 700 12px/1.15 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-align: center;
+    }
+
+    .copy { min-width: 0; }
+    .title-line { display: flex; min-width: 0; align-items: center; gap: 9px; }
+    .title { overflow: hidden; color: #dfe4ed; font-size: 20px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .subline { display: flex; min-width: 0; align-items: center; gap: 10px; margin-top: 3px; color: #747b8b; font-size: 16px; }
+    .subline .state { margin-right: auto; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; }
+    .dot.blue { background: var(--blue); }
+    .dot.gray { background: #7c8494; }
+    .dot.clean { background: var(--blue); }
+    .dot.dirty { border: 1px solid var(--amber); background: linear-gradient(90deg, var(--amber) 50%, transparent 50%); }
+    .git { display: inline-flex; align-items: center; gap: 8px; color: #739dff; font-weight: 700; }
+    .git .unpushed { color: var(--amber); }
+    .timer { display: inline-flex; align-items: center; gap: 7px; color: #6e99ef; font-weight: 650; }
+    .timer.done { color: #737b8c; }
+    .spinner { color: #6e99ef; font-size: 18px; letter-spacing: -3px; }
+
+    .fleet { position: relative; align-self: start; margin-top: 2px; }
+    .agent-tile {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border: 1px solid #344361;
+      border-radius: 9px;
+      background: #101b2d;
+      color: var(--clay);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .fleet .dot { position: absolute; right: -4px; bottom: -4px; width: 10px; height: 10px; box-shadow: 0 0 0 2px #0d1625; }
+    .unread { margin-left: auto; }
+
+    .pin {
+      display: grid;
+      position: absolute;
+      z-index: 2;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 1px solid #5b6b88;
+      border-radius: 50%;
+      background: #17243a;
+      color: #f4f7ff;
+      font: 800 11px/1 ui-monospace, monospace;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
+    }
+
+    .p1 { left: 8px; top: 4px; }
+    .p2 { right: 67px; top: 9px; }
+    .p3 { right: 3px; top: 4px; }
+    .p4 { right: 0; top: 39px; }
+    .p5 { left: 88px; bottom: 4px; }
+    .p6 { right: 135px; bottom: 4px; }
+    .p7 { right: 94px; bottom: 4px; }
+    .p8 { right: 14px; bottom: 4px; }
+    .p9 { right: 125px; bottom: 4px; }
+    .p10 { right: 92px; bottom: 4px; }
+    .p11 { right: 47px; bottom: 4px; }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .legend-card, .finding, .rule {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+
+    .legend-card { display: grid; grid-template-columns: 32px 1fr; gap: 12px; padding: 15px; }
+    .legend-no { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: #21345a; color: #dbe7ff; font: 800 12px/1 ui-monospace, monospace; }
+    .legend-card p, .finding p, .rule p { margin: 0; color: #98a3b7; font-size: 13.5px; }
+    .legend-card code { color: #c5d6ff; }
+
+    .findings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .finding { padding: 19px; }
+    .finding .metric { display: block; margin-bottom: 11px; color: var(--blue-soft); font: 700 12px/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .finding.bad .metric { color: #ffcc66; }
+
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .compare-panel { min-width: 0; }
+    .compare-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; color: #a9b3c6; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .compare-label span { color: #68738a; font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+    .proposed .sidebar-row { grid-template-columns: 54px minmax(0, 1fr) auto; min-height: 88px; }
+    .proposed .title { font-size: 18px; }
+    .proposed .subline { gap: 8px; font-size: 14px; }
+    .proposed .sidebar-row.done-read { opacity: .68; }
+    .status-lockup { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; }
+    .status-lockup.working { color: var(--blue-soft); }
+    .status-lockup.done { color: #a8b0bf; }
+    .status-lockup .check { color: var(--green); }
+    .duration { color: #7f899b; }
+    .exception {
+      margin-left: auto;
+      border: 1px solid rgba(245, 185, 65, .36);
+      border-radius: 5px;
+      padding: 1px 6px;
+      color: #d9ac4f;
+      font: 600 10px/1.5 ui-monospace, monospace;
+    }
+
+    .new-result { border-radius: 5px; background: rgba(78, 131, 255, .14); padding: 2px 6px; color: #91b2ff; font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+    .proposed .agent-tile { width: 30px; height: 30px; border-color: #2c3952; opacity: .88; }
+    .proposed .fleet { align-self: center; margin: 0; }
+
+    .rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .rule { padding: 17px; }
+    .rule b { display: block; margin-bottom: 6px; }
+
+    .recommendation {
+      margin-top: 22px;
+      padding: 20px 22px;
+      border-left: 3px solid var(--blue);
+      border-radius: 3px 12px 12px 3px;
+      background: #101a2b;
+      color: #bac4d7;
+    }
+
+    .recommendation strong { color: white; }
+    footer { margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--line); color: #697489; font-size: 12px; }
+
+    @media (max-width: 820px) {
+      main { width: min(100% - 24px, 680px); padding-top: 30px; }
+      .legend, .findings, .comparison, .rules { grid-template-columns: 1fr; }
+      .sidebar-row { grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: 10px; padding: 14px 12px; }
+      .id-tile { width: 42px; height: 46px; font-size: 10px; }
+      .title { font-size: 15px; }
+      .subline { font-size: 13px; }
+      .verdict { grid-template-columns: 1fr; }
+      .pin { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">POD-227 · UX review</div>
+    <h1>The sidebar has good data, but too many competing status signals.</h1>
+    <p class="lede">The two rows are technically accurate. They are not yet instantly readable. “Done” and “working” should be the first distinction the eye sees; today the user has to interpret several tiny, position-dependent marks first.</p>
+
+    <div class="verdict">
+      <div class="verdict-mark">B−</div>
+      <div>
+        <strong>Useful for an expert, not best in class yet.</strong>
+        <p>There is a thoughtful model underneath, especially the human-attention precedence and live timer. The presentation over-exposes that model: lifecycle, unread state, agent presence, git state, push state, and time all compete inside one 92px row.</p>
+      </div>
+    </div>
+
+    <section>
+      <h2>What every visible mark means</h2>
+      <p class="section-intro">This is a faithful reconstruction of the supplied screenshot. The numbered callouts map to the implementation, including the subtle difference between the standalone blue dot and the blue dot attached to the Codex tile.</p>
+
+      <div class="sidebar-frame current" aria-label="Annotated reconstruction of current sidebar rows">
+        <div class="sidebar-row">
+          <span class="pin p1">1</span>
+          <span class="pin p2">2</span>
+          <span class="pin p3">3</span>
+          <span class="pin p4">4</span>
+          <span class="pin p5">5</span>
+          <span class="pin p6">6</span>
+          <span class="pin p7">7</span>
+          <span class="pin p8">8</span>
+          <div class="id-tile"><span>POD</span><span>212</span></div>
+          <div class="copy">
+            <div class="title-line">
+              <span class="title">Super agent bar polish</span>
+              <span class="dot blue unread" aria-label="Unread update"></span>
+            </div>
+            <div class="subline">
+              <span class="state">done</span>
+              <span class="git mono"><span class="dot clean"></span><span>↑1</span></span>
+              <span class="timer done mono"><span>∑</span><span>56:55</span></span>
+            </div>
+          </div>
+          <div class="fleet">
+            <span class="agent-tile">AI</span>
+            <span class="dot gray"></span>
+          </div>
+        </div>
+
+        <div class="sidebar-row">
+          <span class="pin p9">9</span>
+          <span class="pin p10">10</span>
+          <span class="pin p11">11</span>
+          <div class="id-tile"><span>POD</span><span>203</span></div>
+          <div class="copy">
+            <div class="title-line"><span class="title">Attention lifecycle consistency</span></div>
+            <div class="subline">
+              <span class="state">working</span>
+              <span class="git mono"><span class="dot dirty"></span><span class="unpushed">⇡</span></span>
+              <span class="timer mono"><span class="spinner">⠋</span><span>51:05</span></span>
+            </div>
+          </div>
+          <div class="fleet">
+            <span class="agent-tile">AI</span>
+            <span class="dot blue"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <article class="legend-card"><span class="legend-no">1</span><div><h3>Issue identity tile</h3><p><code>POD 212</code> is the human-referenceable issue ID. Its solid border means live/recent work; queued/idle uses a dashed, dimmer treatment. A click also opens issue color selection.</p></div></article>
+        <article class="legend-card"><span class="legend-no">2</span><div><h3>Unread update</h3><p>The standalone blue dot says the row has changed since you last opened it. It is hidden while the row is selected.</p></div></article>
+        <article class="legend-card"><span class="legend-no">3</span><div><h3>Agent presence</h3><p>The orange Codex/OpenAI tile says one Codex agent belongs to the issue. With more agents, up to two tiles stack, then a <code>+N</code> overflow appears.</p></div></article>
+        <article class="legend-card"><span class="legend-no">4</span><div><h3>Aggregate agent-state dot</h3><p>The tiny corner dot belongs to the agent tile: blue is working, yellow is waiting on the human, gray is everything else—including done and queued. It is not the unread dot.</p></div></article>
+        <article class="legend-card"><span class="legend-no">5</span><div><h3>Issue lifecycle summary</h3><p><code>done</code> / <code>working</code> summarizes all sessions. Waiting on the human takes precedence over working; all sessions must be finished before it reads done.</p></div></article>
+        <article class="legend-card"><span class="legend-no">6</span><div><h3>Git-state dot</h3><p>A solid blue dot means committed/clean; half amber means dirty; a dashed gray ring means no commits or no changes. This is unrelated to both other blue dots.</p></div></article>
+        <article class="legend-card"><span class="legend-no">7</span><div><h3>Branch ahead</h3><p><code>↑1</code> means the private issue branch is one commit ahead of its parent branch.</p></div></article>
+        <article class="legend-card"><span class="legend-no">8</span><div><h3>Total compute</h3><p><code>∑ 56:55</code> is the cumulative agent working time after completion. The sigma means “sum,” not a warning or process state.</p></div></article>
+        <article class="legend-card"><span class="legend-no">9</span><div><h3>Dirty worktree</h3><p>The half-filled amber dot on the working row indicates uncommitted changes attributed to that issue/worktree.</p></div></article>
+        <article class="legend-card"><span class="legend-no">10</span><div><h3>Not pushed</h3><p>The amber <code>⇡</code> means some commits are not on the upstream remote yet.</p></div></article>
+        <article class="legend-card"><span class="legend-no">11</span><div><h3>Live work timer</h3><p>The animated braille glyph is the “working now” signal; <code>51:05</code> counts active compute time from the earliest working agent, including its accumulated base.</p></div></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Why “done” versus “working” is not clear enough</h2>
+      <div class="findings">
+        <article class="finding bad"><span class="metric">3 blue dots</span><h3>Color has no stable meaning</h3><p>Blue means unread, actively working, or clean git. The user must first locate the dot, then remember the local grammar. Color should accelerate recognition, not require positional decoding.</p></article>
+        <article class="finding bad"><span class="metric">4 status channels</span><h3>The same state is repeated</h3><p>“Working” appears as text, a fleet corner dot, an animated braille glyph, and a counting timer. “Done” appears as text, a gray fleet dot, stillness, and sigma time. The repetition adds noise without adding certainty.</p></article>
+        <article class="finding bad"><span class="metric">Wrong first glance</span><h3>The finished row can look more active</h3><p>The done row has two bright blue dots and an upward arrow. The working row has one tiny blue corner dot. In peripheral vision, the completed row can therefore attract more attention than live work.</p></article>
+      </div>
+      <div class="recommendation"><strong>Answer to the screenshot question:</strong> no—the difference is decipherable, but not pleasantly or immediately clear. The words do the real work; the surrounding marks partly contradict their hierarchy.</div>
+    </section>
+
+    <section>
+      <h2>A simpler row grammar</h2>
+      <p class="section-intro">Keep the valuable information, but give each line one job: identity on line one; lifecycle and time on line two. Show source-control metadata only when it changes the user’s next action.</p>
+
+      <div class="comparison">
+        <div class="compare-panel">
+          <div class="compare-label">Current <span>decode six marks</span></div>
+          <div class="sidebar-frame">
+            <div class="sidebar-row">
+              <div class="id-tile"><span>POD</span><span>212</span></div>
+              <div class="copy">
+                <div class="title-line"><span class="title">Super agent bar polish</span><span class="dot blue unread"></span></div>
+                <div class="subline"><span class="state">done</span><span class="git mono"><span class="dot clean"></span><span>↑1</span></span><span class="timer done mono">∑ 56:55</span></div>
+              </div>
+              <div class="fleet"><span class="agent-tile">AI</span><span class="dot gray"></span></div>
+            </div>
+            <div class="sidebar-row">
+              <div class="id-tile"><span>POD</span><span>203</span></div>
+              <div class="copy"><div class="title-line"><span class="title">Attention lifecycle consistency</span></div><div class="subline"><span class="state">working</span><span class="git mono"><span class="dot dirty"></span><span class="unpushed">⇡</span></span><span class="timer mono"><span class="spinner">⠋</span>51:05</span></div></div>
+              <div class="fleet"><span class="agent-tile">AI</span><span class="dot blue"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="compare-panel">
+          <div class="compare-label">Proposed <span>read one status lockup</span></div>
+          <div class="sidebar-frame proposed">
+            <div class="sidebar-row">
+              <div class="id-tile"><span>POD</span><span>212</span></div>
+              <div class="copy">
+                <div class="title-line"><span class="title">Super agent bar polish</span><span class="new-result">New result</span></div>
+                <div class="subline"><span class="status-lockup done"><span class="check">✓</span> Done</span><span class="duration mono">56m total</span><span class="exception">1 commit ahead</span></div>
+              </div>
+              <div class="fleet"><span class="agent-tile">AI</span></div>
+            </div>
+            <div class="sidebar-row">
+              <div class="id-tile"><span>POD</span><span>203</span></div>
+              <div class="copy">
+                <div class="title-line"><span class="title">Attention lifecycle consistency</span></div>
+                <div class="subline"><span class="status-lockup working"><span class="spinner">⠋</span> Working</span><span class="duration mono">51m</span><span class="exception">Unpushed</span></div>
+              </div>
+              <div class="fleet"><span class="agent-tile">AI</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rules" style="margin-top: 18px">
+        <article class="rule"><b>One lifecycle signal</b><p>Put icon, word, color, and time into one left-aligned lockup. Remove the fleet corner dot; it duplicates the same aggregate state.</p></article>
+        <article class="rule"><b>Identity stays identity</b><p>Keep the Codex tile to answer “who is on it?”—without making the tile also carry lifecycle. Only stack/count it when multiple agents exist.</p></article>
+        <article class="rule"><b>Exceptions, not telemetry</b><p>Hide the clean git dot and sigma. Surface plain-language git metadata only when dirty, unpushed, ahead, conflicted, or ready to merge.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <h2>Recommended priority</h2>
+      <div class="rules">
+        <article class="rule"><b>1 · Remove the fleet corner dot</b><p>Lowest-risk, highest-noise reduction. The row already has a canonical aggregate status and the live spinner.</p></article>
+        <article class="rule"><b>2 · Stop showing clean as a blue dot</b><p>Silence is a better representation of “nothing to act on.” Preserve details in the Git panel and hover title.</p></article>
+        <article class="rule"><b>3 · Replace symbols with short copy</b><p><code>∑ 56:55</code> → <code>56m total</code>; <code>⇡</code> → <code>Unpushed</code>. Tiny symbols can remain in expert tooltips, not as the only explanation.</p></article>
+      </div>
+      <div class="recommendation"><strong>North-star rule:</strong> a user glancing for half a second should see exactly one of three things first—<span style="color: var(--amber)">Needs you</span>, <span style="color: var(--blue-soft)">Working</span>, or <span style="color: #a8b0bf">Done</span>. Agent identity, unread state, git, and time should never outrank that answer.</div>
+    </section>
+
+    <footer>Prepared from the supplied sidebar screenshot and the current Podium sidebar, motion, fleet-summary, and git-stamp implementations · 23 July 2026</footer>
+  </main>
+</body>
+</html>

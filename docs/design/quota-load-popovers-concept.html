@@ -1,0 +1,263 @@
+<title>Quota &amp; Load Popovers — Concept</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --yellow:#f5c518; --navy:#0a0f1c; --panel:#121b30; --chip:#16223c;
+    --engraved:#070b16; --bar:#050912; --red:#e5303f; --blue:#2f6bff;
+    --ink-strong:#f3f3f8; --ink:#d7d7e0; --ink-muted:#9a9aa8; --ink-dim:#6c7690;
+    --ink-faint:#525c78; --label:#7a84a0; --seam:#243356; --hair:#1e2a4c;
+    --border-strong:#364a78;
+    --sans:"Geist","Geist Variable",-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:"Geist Mono","Geist Mono Variable",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{background:var(--navy)}
+  body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--navy);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:48px 28px 96px}
+  h1{font-size:22px;font-weight:600;color:var(--ink-strong);margin:0 0 6px;letter-spacing:-0.01em;text-wrap:balance}
+  .sub{font-size:13px;color:var(--ink-muted);max-width:64ch;margin:0 0 8px}
+  .meta{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-faint)}
+  h2{font-size:14px;font-weight:600;color:var(--ink-strong);margin:56px 0 4px}
+  h2 .tier{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--label);text-transform:uppercase;margin-right:10px;font-weight:500}
+  .why{font-size:12.5px;color:var(--ink-muted);max-width:70ch;margin:0 0 18px}
+  .why strong{color:var(--ink);font-weight:500}
+  .stage{background:var(--engraved);border:1px solid var(--hair);border-radius:10px;padding:34px 30px;box-shadow:inset 0 3px 6px -3px rgb(0 0 0 / .85);overflow-x:auto}
+  .stage.row{display:flex;gap:40px;flex-wrap:wrap;align-items:flex-start}
+  .note{font-size:11px;color:var(--ink-dim);max-width:66ch;margin:12px 2px 0}
+  .note b{color:var(--ink-muted);font-weight:500}
+
+  /* ---------- top bar mock ---------- */
+  .topbar{display:flex;align-items:center;gap:14px;height:44px;background:var(--bar);border:1px solid var(--hair);border-radius:8px;padding:0 14px;user-select:none}
+  .logo{width:15px;height:15px;border-radius:4px;background:var(--yellow);flex:none}
+  .tb-spacer{flex:1}
+  .chipbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border-radius:6px;font-size:10.5px;color:var(--ink-muted);cursor:default}
+  .chipbtn.hovered{background:var(--chip);color:var(--ink)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--blue);flex:none}
+  .meter{width:34px;height:3.5px;border-radius:2px;background:#1a2440;overflow:hidden;flex:none}
+  .meter>i{display:block;height:100%}
+  .f-blue{background:var(--blue)} .f-yellow{background:var(--yellow)} .f-red{background:var(--red)}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- popover shell ---------- */
+  .pop{background:var(--chip);border:1px solid var(--border-strong);border-radius:8px;
+    box-shadow:0 14px 34px rgb(0 0 0 / .65), 0 2px 8px rgb(0 0 0 / .5);width:296px;flex:none}
+  .pop.wide{width:336px}
+  .pop-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:9px 12px 7px}
+  .pop-title{font-size:11.5px;font-weight:600;color:var(--ink-strong)}
+  .pop-kv{font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-dim);text-transform:uppercase;white-space:nowrap}
+  .verdict{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap}
+  .verdict i{width:6px;height:6px;border-radius:50%;flex:none}
+  .v-ok{color:var(--blue)} .v-ok i{background:var(--blue)}
+  .v-warn{color:var(--yellow)} .v-warn i{background:var(--yellow)}
+  .pop-ft{border-top:1px solid var(--hair);padding:6px 12px;font-family:var(--mono);font-size:8.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-faint);display:flex;justify-content:space-between;gap:8px}
+  .kbd{color:var(--ink-dim)}
+
+  /* account block inside popovers */
+  .acct{padding:7px 12px 9px;border-top:1px solid var(--hair)}
+  .acct-hd{display:flex;align-items:baseline;gap:6px;margin-bottom:6px;min-width:0}
+  .acct-agent{font-size:11px;font-weight:600;color:var(--ink)}
+  .acct-plan{font-family:var(--mono);font-size:8.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--label);background:var(--panel);border:1px solid var(--hair);border-radius:3px;padding:1px 4px}
+  .acct-sub{margin-left:auto;font-size:10px;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .win{display:grid;grid-template-columns:34px 1fr 76px;align-items:center;column-gap:8px;padding:2.5px 0}
+  .win-label{font-family:var(--mono);font-size:9px;letter-spacing:0.06em;color:var(--ink-dim);text-transform:uppercase;text-align:left}
+  .win-bar{position:relative;height:4px;border-radius:2px;background:#101a30;overflow:visible}
+  .win-fill{position:absolute;inset:0 auto 0 0;border-radius:2px}
+  .tick{position:absolute;top:-2.5px;bottom:-2.5px;width:1px;background:rgb(243 243 248 / .45)}
+  .win-num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink);text-align:right;white-space:nowrap}
+  .win-num small{font-size:9px;color:var(--ink-faint)}
+  .win.dead .win-label,.win.dead .win-num{color:var(--ink-faint)}
+
+  /* pace line under a window group (click tier) */
+  .pace{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:10px;color:var(--ink-dim)}
+  .pace-chip{font-family:var(--mono);font-size:8.5px;letter-spacing:0.08em;text-transform:uppercase;border-radius:3px;padding:1px 5px;font-weight:500;white-space:nowrap;flex:none}
+  .pace-ok{color:var(--blue);background:rgb(47 107 255 / .12)}
+  .pace-hot{color:var(--yellow);background:rgb(245 197 24 / .12)}
+
+  /* memory segmented bar */
+  .seg{display:flex;height:5px;border-radius:2.5px;overflow:hidden;background:#101a30}
+  .seg>i{display:block;height:100%}
+  .s-agents{background:var(--yellow)} .s-proj{background:var(--blue)} .s-other{background:var(--border-strong)}
+  .legend{display:flex;gap:12px;margin-top:6px;font-size:9.5px;color:var(--ink-dim)}
+  .legend i{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .rows{margin-top:8px;display:flex;flex-direction:column;gap:3px}
+  .prow{display:flex;align-items:baseline;gap:8px;font-size:10.5px}
+  .prow .n{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow .d{color:var(--ink-faint);font-size:9.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow .v{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:10px;color:var(--ink-muted);white-space:nowrap}
+  .sect{font-family:var(--mono);font-size:8.5px;letter-spacing:0.12em;text-transform:uppercase;color:var(--label);margin:10px 0 4px}
+  .hib{margin-top:10px;padding-top:9px;border-top:1px solid var(--hair);font-size:10.5px;color:var(--ink-dim)}
+  .hib a{color:var(--yellow);text-decoration:none;border-bottom:1px solid rgb(245 197 24 / .35)}
+
+  .callout{display:flex;flex-direction:column;gap:8px;min-width:200px;max-width:250px}
+  .callout p{margin:0;font-size:11px;color:var(--ink-muted)}
+  .callout p b{color:var(--ink);font-weight:500}
+  .callout .k{font-family:var(--mono);font-size:8.5px;letter-spacing:0.12em;text-transform:uppercase;color:var(--label)}
+
+  table.spec{border-collapse:collapse;font-size:11.5px;margin-top:10px;width:100%}
+  table.spec th{font-family:var(--mono);font-size:8.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--label);text-align:left;font-weight:500;padding:6px 14px 6px 0;border-bottom:1px solid var(--seam)}
+  table.spec td{padding:7px 14px 7px 0;border-bottom:1px solid var(--hair);color:var(--ink-muted);vertical-align:top}
+  table.spec td:first-child{color:var(--ink);white-space:nowrap}
+  .swatch{display:inline-block;width:8px;height:8px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+  @media (max-width:720px){.stage{padding:20px 16px}.stage.row{gap:24px}}
+</style>
+
+<div class="wrap">
+  <p class="meta">POD-173 · Concept · Superade theme</p>
+  <h1>Quota &amp; load popovers, redesigned</h1>
+  <p class="sub">The topbar's two health chips — machine load and agent quota — currently answer hover with a prose tooltip and click with a generic centered modal. This concept replaces both with one shared instrument anatomy at three zoom levels: chip → hover panel → pinned breakdown.</p>
+
+  <h2><span class="tier">Tier 0</span>The chips (unchanged footprint, corrected tone ramp)</h2>
+  <p class="why">The 44px header keeps its 34×3.5px meters. One fix: the ok state currently renders <strong>green</strong> (<code>bg-success</code>) — Superade has no green. The ramp becomes <b style="color:var(--blue)">blue</b> (ok) → <b style="color:var(--yellow)">yellow</b> (≥75%) → <b style="color:var(--red)">red</b> (&gt;90%), matching the theme's "blue is the calm all-good."</p>
+  <div class="stage">
+    <div class="topbar" style="max-width:640px">
+      <span class="logo"></span>
+      <span style="font-size:11px;color:var(--ink-dim)">Board&ensp;·&ensp;Sessions&ensp;·&ensp;Usage</span>
+      <span class="tb-spacer"></span>
+      <span class="chipbtn"><span class="dot"></span>podium<span class="meter"><i class="f-blue" style="width:38%"></i></span></span>
+      <span class="chipbtn"><span class="dot" style="background:var(--yellow)"></span>macbook<span class="meter"><i class="f-yellow" style="width:81%"></i></span></span>
+      <span class="chipbtn hovered">quota<span class="meter"><i class="f-blue" style="width:68%"></i></span></span>
+    </div>
+    <p class="note"><b>Hover behavior:</b> the chip gains the standard chip-navy wash (shown on “quota”), and the panel below opens after 250&nbsp;ms — it replaces the text tooltip entirely. Click pins the same panel expanded; <span class="mono" style="font-size:10px">Esc</span> or outside-click dismisses.</p>
+  </div>
+
+  <h2><span class="tier">Tier 1</span>Hover — quota</h2>
+  <p class="why">Today hover produces a sentence: <i>“Claude Code (till@…) — 5h 68% · wk 41%”.</i> The redesign keeps every number but gives it the same grid the breakdown uses: mono window label, bar with an <strong>elapsed-time tick</strong>, tabular percent + reset. The tick against the fill <strong>is</strong> the pace signal — fill past the tick means burning hot, no extra words needed at this tier.</p>
+  <div class="stage row">
+    <div class="pop">
+      <div class="pop-hd"><span class="pop-title">Agent quota</span><span class="verdict v-ok"><i></i>lasts until reset</span></div>
+      <div class="acct">
+        <div class="acct-hd"><span class="acct-agent">Claude Code</span><span class="acct-plan">Max 20×</span><span class="acct-sub">tillmann.felippi@…</span></div>
+        <div class="win">
+          <span class="win-label">5h</span>
+          <span class="win-bar"><span class="win-fill f-blue" style="width:68%"></span><span class="tick" style="left:44%"></span></span>
+          <span class="win-num">68% <small>· 2h 14m</small></span>
+        </div>
+        <div class="win">
+          <span class="win-label">wk</span>
+          <span class="win-bar"><span class="win-fill f-blue" style="width:41%"></span><span class="tick" style="left:57%"></span></span>
+          <span class="win-num">41% <small>· 3d 6h</small></span>
+        </div>
+      </div>
+      <div class="acct">
+        <div class="acct-hd"><span class="acct-agent">Codex</span><span class="acct-plan">Plus</span><span class="acct-sub">tillmann.felippi@…</span></div>
+        <div class="win">
+          <span class="win-label">5h</span>
+          <span class="win-bar"><span class="win-fill f-blue" style="width:12%"></span><span class="tick" style="left:44%"></span></span>
+          <span class="win-num">12% <small>· 4h 02m</small></span>
+        </div>
+      </div>
+      <div class="pop-ft"><span>click to pin breakdown</span><span class="kbd">esc closes</span></div>
+    </div>
+    <div class="callout">
+      <span class="k">Anatomy</span>
+      <p><b>Header verdict</b> answers the only question that matters at a glance: will quota get you to the reset? Derived from the worst window’s pace — <i style="color:var(--blue)">lasts until reset</i>, or <i style="color:var(--yellow)">5h window won’t last</i> when any window burns hot.</p>
+      <p><b>The white tick</b> is the pace reference: it marks how much of the rolling window has already <b>elapsed</b>. Fill short of the tick = usage slower than time (safe); fill past it = burning faster than time.</p>
+      <p><b>Account groups</b> separated by hairlines — agent name in sans (human voice), plan as an engraved mono tag, email truncated right.</p>
+      <p><b>Window rows</b> on a fixed 3-column grid so bars and numbers align across accounts.</p>
+      <p><b>Footer</b> in micro mono label — replaces the “Click for the breakdown” body-text line.</p>
+    </div>
+  </div>
+
+  <h2><span class="tier">Tier 1</span>Hover — load</h2>
+  <p class="why">The memory tooltip currently says “12.3/32 GB (38%)” in prose and hides the composition. Hover now previews the same segmented bar the breakdown uses — agents / project processes / other — so you see <strong>what</strong> is eating the machine before deciding to click. Hibernation status compresses to one status line.</p>
+  <div class="stage row">
+    <div class="pop">
+      <div class="pop-hd"><span class="pop-title">podium</span><span class="pop-kv mono">12.3 / 32 GB · 38%</span></div>
+      <div class="acct">
+        <div class="seg"><i class="s-agents" style="width:22%"></i><i class="s-proj" style="width:9%"></i><i class="s-other" style="width:7%"></i></div>
+        <div class="legend">
+          <span><i class="s-agents"></i>Agents 7.1 GB</span>
+          <span><i class="s-proj"></i>Projects 2.8 GB</span>
+          <span><i class="s-other"></i>Other 2.4 GB</span>
+        </div>
+      </div>
+      <div class="acct" style="padding-top:8px">
+        <div class="prow"><span class="n" style="color:var(--ink-dim)">Auto-hibernation standing by — parks idle agents past 85%</span></div>
+      </div>
+      <div class="pop-ft"><span>click to pin breakdown</span><span class="kbd">esc closes</span></div>
+    </div>
+    <div class="callout">
+      <span class="k">Choices</span>
+      <p><b>Hostname is the title</b>, numbers move to the mono slot — machine voice on the right, human voice on the left, consistently with the quota panel.</p>
+      <p><b>Segment hues:</b> agents take yellow (the thing Podium runs — your attention’s subject), projects blue, other a neutral border tone. Same mapping in the pinned tier and the modal today.</p>
+      <p><b>Warning states</b> recolor only the chip meter and the % readout; the segments keep their identity hues so composition stays readable under pressure.</p>
+    </div>
+  </div>
+
+  <h2><span class="tier">Tier 2</span>Click — pinned breakdown, not a modal</h2>
+  <p class="why">Click currently teleports to a centered dialog, severing the spatial link to the chip and dimming the whole board. The redesign <strong>pins the hover panel in place and extends it</strong> — same anchor, same width family, now interactive (scrollable, links, live-updating). No backdrop: the board stays visible, which is the point of a health surface. The quota tier adds the pace verdict and machines; the load tier adds per-process rows and the hibernation controls. Depth of the transition: ~180&nbsp;ms height ease-out, reduced-motion → instant.</p>
+  <div class="stage row">
+    <div class="pop wide">
+      <div class="pop-hd"><span class="pop-title">Agent quota</span><span class="verdict v-warn"><i></i>5h window won’t last</span></div>
+      <div class="acct">
+        <div class="acct-hd"><span class="acct-agent">Claude Code</span><span class="acct-plan">Max 20×</span><span class="acct-sub">tillmann.felippi@gmail.com</span></div>
+        <div class="win">
+          <span class="win-label">5h</span>
+          <span class="win-bar"><span class="win-fill f-yellow" style="width:82%"></span><span class="tick" style="left:44%"></span></span>
+          <span class="win-num">82% <small>· 2h 14m</small></span>
+        </div>
+        <div class="pace"><span class="pace-chip pace-hot">won’t last</span><span>82% used, 44% elapsed — may hit the limit before reset</span></div>
+        <div class="win" style="margin-top:6px">
+          <span class="win-label">wk</span>
+          <span class="win-bar"><span class="win-fill f-blue" style="width:41%"></span><span class="tick" style="left:57%"></span></span>
+          <span class="win-num">41% <small>· 3d 6h</small></span>
+        </div>
+        <div class="pace"><span class="pace-chip pace-ok">headroom</span><span>41% used, 57% elapsed — should last</span></div>
+      </div>
+      <div class="acct">
+        <div class="acct-hd"><span class="acct-agent">Codex</span><span class="acct-plan">Plus</span><span class="acct-sub">tillmann.felippi@gmail.com</span></div>
+        <div class="win">
+          <span class="win-label">5h</span>
+          <span class="win-bar"><span class="win-fill f-blue" style="width:12%"></span><span class="tick" style="left:44%"></span></span>
+          <span class="win-num">12% <small>· 4h 02m</small></span>
+        </div>
+      </div>
+      <div class="acct">
+        <div class="acct-hd"><span class="acct-agent">Cursor</span><span class="acct-sub" style="margin-left:6px">token expired</span></div>
+      </div>
+    </div>
+
+    <div class="pop wide">
+      <div class="pop-hd"><span class="pop-title">podium</span><span class="pop-kv mono">12.3 / 32 GB · 38%</span></div>
+      <div class="acct">
+        <div class="seg"><i class="s-agents" style="width:22%"></i><i class="s-proj" style="width:9%"></i><i class="s-other" style="width:7%"></i></div>
+        <div class="legend">
+          <span><i class="s-agents"></i>Agents</span>
+          <span><i class="s-proj"></i>Projects</span>
+          <span><i class="s-other"></i>Other</span>
+        </div>
+        <div class="sect">Agents &amp; shells</div>
+        <div class="rows">
+          <div class="prow"><span class="n">Claude — Quota popover redesign</span><span class="d">3 processes</span><span class="v">2.9 GB</span></div>
+          <div class="prow"><span class="n">Claude — Session header variants</span><span class="d">2 processes</span><span class="v">2.2 GB</span></div>
+          <div class="prow"><span class="n">Codex — Mobile board audit</span><span class="d">1 process</span><span class="v">1.4 GB</span></div>
+          <div class="prow"><span class="n">Shell — dev server</span><span class="d">1 process</span><span class="v">0.6 GB</span></div>
+        </div>
+        <div class="sect">Project processes</div>
+        <div class="rows">
+          <div class="prow"><span class="n">podium</span><span class="d">bun, vite, node</span><span class="v">2.8 GB</span></div>
+        </div>
+        <div class="rows" style="margin-top:8px">
+          <div class="prow"><span class="n" style="color:var(--ink-dim)">Everything else on this machine</span><span class="v">2.4 GB</span></div>
+        </div>
+        <div class="hib">Auto-hibernation on: past 85% memory, agents idle 20&nbsp;min park themselves. <a href="#">Hibernation settings</a></div>
+      </div>
+      <div class="pop-ft"><span>sampled every 5s</span><span class="kbd">connection ▸</span></div>
+    </div>
+  </div>
+  <p class="note"><b>Pace chips</b> appear only at this tier and only where they change a decision — “won’t last” in yellow (attention being asked → the Signal Rule permits it), “headroom” in calm blue, “on pace” omitted entirely: silence is the default state. <b>Degraded accounts</b> (expired, error) collapse to a single dim line instead of an empty card. <b>Connection</b> stops being a co-equal tab; it’s a footer jump, since it has its own indicator when unhealthy.</p>
+
+  <h2>Spec summary</h2>
+  <div class="stage" style="padding:10px 24px 18px">
+    <table class="spec">
+      <tr><th>Element</th><th>Treatment</th><th>Replaces</th></tr>
+      <tr><td>Tone ramp</td><td><span class="swatch" style="background:var(--blue)"></span>ok ≤74% · <span class="swatch" style="background:var(--yellow)"></span>warn 75–90% · <span class="swatch" style="background:var(--red)"></span>crit &gt;90%</td><td>green <code>bg-success</code> ok state</td></tr>
+      <tr><td>Hover surface</td><td>Chip-navy panel, border-strong, popover shadow, 296px, anchored below chip</td><td>Generic light tooltip with prose lines</td></tr>
+      <tr><td>Click surface</td><td>Same panel pinned + extended (336px, scrollable, live)</td><td>Centered modal dialog with backdrop</td></tr>
+      <tr><td>Window row</td><td>Grid 34px / 1fr / 76px — mono label, bar + elapsed tick, tabular % + reset</td><td>Label left, “68% · resets in 2h” right, bar below</td></tr>
+      <tr><td>Pace</td><td>Tick-vs-fill (all tiers) + chip verdict on click tier; “on pace” silent</td><td>Colored text label on every row, hint in <code>title=</code></td></tr>
+      <tr><td>Numbers</td><td>Geist Mono, <code>tabular-nums</code>, right-aligned</td><td>Sans, inline, shifting width</td></tr>
+      <tr><td>Hint copy</td><td>Micro mono footer: “click to pin breakdown”</td><td>Body-text “Click for the breakdown” line</td></tr>
+    </table>
+  </div>
+</div>

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
+  branchRollup,
+  deepAttentionSource,
   groupUnifiedWorkRows,
   isIssueSnoozed,
   isRowUnread,
@@ -13,10 +15,13 @@ import {
   partitionUnifiedWork,
   type RepoNavView,
   repoUsageAt,
+  rowStatusLine,
   rowUnreadEmphasized,
+  rowWaitingCount,
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
+  splitPinnedWork,
   type UnifiedWorkRow,
   unifiedWorkList,
   type WorktreeNavView,
@@ -91,7 +96,6 @@ function issue(over: Partial<IssueNavigationModel> = {}): IssueNavigationModel {
 }
 
 const emptySections = (worktrees: WorktreeNavView[]): SidebarSections => ({
-  pinnedPanels: [],
   pinnedWorktrees: [],
   pinnedRepos: [],
   repos: worktrees.length > 0 ? [{ path: '/r/a', name: 'a', worktrees }] : [],
@@ -188,30 +192,30 @@ describe('sessionUrgencyRank / mostUrgentSession', () => {
 })
 
 describe('unifiedWorkList (content filter + status ordering)', () => {
-  it('hides every issue with no live session — worktree/stage alone is not enough', () => {
+  it('keeps started human work visible without a live session, but not backlog or plain done', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'b1', stage: 'backlog' }),
         issue({ id: 'd1', stage: 'done' }),
-        issue({ id: 'p1', stage: 'planning' }), // non-backlog stage, but no session → hidden now
+        issue({ id: 'p1', stage: 'planning' }), // started lifecycle survives session retirement
         issue({ id: 'wt1', stage: 'backlog', worktreePath: '/r/a/.worktrees/wt1' }), // worktree, no session → hidden
       ],
       [],
       ['/r/a/.worktrees/wt1'],
       NOW,
     )
-    expect(rows).toEqual([])
+    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : ''))).toEqual(['p1'])
   })
 
-  it('includes an issue only when it has ≥1 non-archived live session', () => {
+  it('keeps an active issue when its only session is archived', () => {
     const wt = '/r/a/.worktrees/i1'
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'w1', stage: 'backlog', worktreePath: wt }), // worktree, no session → hidden
         issue({ id: 's1', stage: 'backlog' }), // has a session → shown
-        issue({ id: 'a1', stage: 'in_progress' }), // only an ARCHIVED session → hidden
+        issue({ id: 'a1', stage: 'in_progress' }), // issue lifecycle outlives retired session
       ],
       [
         sess('x', '/elsewhere', { issueId: 's1' }),
@@ -220,7 +224,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       [wt],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['s1'])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['a1', 's1'])
   })
 
   it('includes drafts only when they have sessions; internal (audience:agent) issues stay out even with a session (#198)', () => {
@@ -243,15 +247,14 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['dr2'])
   })
 
-  it('only lists worktrees that have at least one session', () => {
+  it('never promotes session-bearing worktrees into pseudo-issue rows', () => {
     const withSess = navWt('/r/a/.worktrees/x', {
       isMain: false,
       sessions: [idle('s', '/r/a/.worktrees/x')],
     })
     const bare = navWt('/r/a')
     const rows = unifiedWorkList(emptySections([withSess, bare]), [], [], [], NOW)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.kind).toBe('worktree')
+    expect(rows).toEqual([])
   })
 
   it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
@@ -264,7 +267,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('a worktree row keeps only sessions NOT owned by a live issue (archived issues do not own)', () => {
+  it('keeps unattached and orphaned sessions out of the issue-only work list', () => {
     const wtPath = '/r/a/.worktrees/x'
     const owned = idle('s1', wtPath, { issueId: 'i1' })
     const free = idle('s2', wtPath)
@@ -277,11 +280,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       [],
       NOW,
     )
-    const wtRow = rows.find((r) => r.kind === 'worktree')
-    expect(wtRow?.kind).toBe('worktree')
-    expect(
-      wtRow?.kind === 'worktree' ? wtRow.worktree.sessions.map((s) => s.sessionId) : [],
-    ).toEqual(['s2', 's3'])
+    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.kind))).toEqual(['i1'])
   })
 
   it('orders newest-created first — immutable creation order, not urgency (#64)', () => {
@@ -323,7 +322,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(after.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['b', 'a'])
   })
 
-  it('worktree rows sink below issue rows and order deterministically by path', () => {
+  it('ignores worktree rows while preserving issue order', () => {
     const i = issue({ id: 'i', createdAt: '2026-06-01T00:00:00.000Z' })
     const wtB = navWt('/r/a/b', { isMain: false, sessions: [idle('w1', '/r/a/b')] })
     const wtA = navWt('/r/a/a', { isMain: false, sessions: [idle('w2', '/r/a/a')] })
@@ -334,11 +333,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       ['/r/a/b', '/r/a/a'],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))).toEqual([
-      'i',
-      '/r/a/a',
-      '/r/a/b',
-    ])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))).toEqual(['i'])
   })
 
   it('floats pinned & returned-from-defer to the top band, sinks snoozed to the bottom', () => {
@@ -357,6 +352,38 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(ids.slice(0, 2).sort()).toEqual(['pin', 'ret']) // top band
     expect(ids[2]).toBe('norm') // middle band
     expect(ids[3]).toBe('snz') // bottom band
+  })
+})
+
+describe('splitPinnedWork (PINNED section, POD-166)', () => {
+  it('moves pinned issue rows out into the pinned list, preserving order', () => {
+    const pinA = issue({ id: 'pinA', pinned: true })
+    const pinB = issue({ id: 'pinB', pinned: true, createdAt: new Date(NOW - HOUR).toISOString() })
+    const norm = issue({ id: 'norm' })
+    const sessions = [
+      idle('a', '/x', { issueId: 'pinA' }),
+      idle('b', '/x', { issueId: 'pinB' }),
+      idle('c', '/x', { issueId: 'norm' }),
+    ]
+    const rows = unifiedWorkList(emptySections([]), [norm, pinA, pinB], sessions, [], NOW)
+    const { pinned, rest } = splitPinnedWork(rows)
+    // Banded creation order carries over: pinB is newer-created, so it leads.
+    expect(pinned.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['pinB', 'pinA'])
+    // Move, not copy: the pinned rows are gone from the rest of the list.
+    expect(rest.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['norm'])
+  })
+
+  it('leaves worktree rows and unpinned issues untouched', () => {
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [idle('a', '/x', { issueId: 'i' })],
+      [],
+      NOW,
+    )
+    const { pinned, rest } = splitPinnedWork(rows)
+    expect(pinned).toEqual([])
+    expect(rest).toEqual(rows)
   })
 })
 
@@ -506,6 +533,32 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(w[0]?.kind === 'session' ? w[0].session.sessionId : '').toBe('w')
   })
 
+  it('keeps lifted standalone sessions deterministic when activity timestamps tie', () => {
+    const sameTime = new Date(NOW - HOUR).toISOString()
+    const idleMember = owned('idle', idle, 'i')
+    const second = {
+      ...owned('second', working, 'i'),
+      createdAt: sameTime,
+      lastActiveAt: sameTime,
+    } as SessionMeta
+    const first = {
+      ...owned('first', working, 'i'),
+      createdAt: sameTime,
+      lastActiveAt: sameTime,
+    } as SessionMeta
+
+    const { working: w } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [idleMember, second, first],
+      [],
+      NOW,
+    )
+    expect(
+      w.map((entry) => (entry.kind === 'session' ? entry.session.sessionId : entry.kind)),
+    ).toEqual(['first', 'second'])
+  })
+
   it('keeps a fully non-working issue entirely in WORK', () => {
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
@@ -557,14 +610,32 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('moves a fully-working unowned worktree to WORKING', () => {
+  it('keeps a hibernated session with a preserved working phase out of WORKING (#161)', () => {
+    // The server intentionally keeps agentState.phase='working' across a
+    // hibernate; the parked status is ground truth and overrides it.
+    const parked = {
+      ...owned('h', working, 'i'),
+      status: 'hibernated',
+    } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [parked],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
+  })
+
+  it('keeps a fully-working unowned worktree out of both sidebar partitions', () => {
     const wt = navWt('/r/a/.worktrees/x', {
       isMain: false,
       sessions: [working('s', '/r/a/.worktrees/x')],
     })
     const { working: w, work } = partitionUnifiedWork(emptySections([wt]), [], [], [], NOW)
     expect(work).toEqual([])
-    expect(w.map((e) => e.kind)).toEqual(['worktree'])
+    expect(w).toEqual([])
   })
 })
 
@@ -617,7 +688,7 @@ describe('groupUnifiedWorkRows', () => {
     expect(groups[0]?.rows).toHaveLength(2)
   })
 
-  it('falls back to repoPath when repoId is missing; labels from repoName / path tail', () => {
+  it('falls back to repoPath when repoId is missing and ignores worktree-only groups', () => {
     const wt = navWt('/r/b/.worktrees/x', {
       isMain: false,
       repoPath: '/r/b',
@@ -630,9 +701,8 @@ describe('groupUnifiedWorkRows', () => {
       [wt],
     )
     const groups = groupUnifiedWorkRows(rows)
-    expect(groups.map((g) => g.key).sort()).toEqual(['/r/a', '/r/b'])
+    expect(groups.map((g) => g.key).sort()).toEqual(['/r/a'])
     expect(groups.find((g) => g.key === '/r/a')?.label).toBe('a')
-    expect(groups.find((g) => g.key === '/r/b')?.label).toBe('b')
   })
 
   it('preserves incoming creation order within groups and orders groups by first row (#64)', () => {
@@ -663,7 +733,7 @@ describe('groupUnifiedWorkRows', () => {
     ])
   })
 
-  it('groups worktree rows by worktree.repoId when present', () => {
+  it('does not create groups for worktrees even when they share a repoId', () => {
     const wt1 = navWt('/m1/a/.worktrees/x', {
       isMain: false,
       repoPath: '/m1/a',
@@ -679,9 +749,103 @@ describe('groupUnifiedWorkRows', () => {
       sessions: [idle('s2', '/m2/a/.worktrees/y')],
     })
     const groups = groupUnifiedWorkRows(rowsFor([], [], [wt1, wt2]))
-    expect(groups).toHaveLength(1)
-    expect(groups[0]?.key).toBe('repo-a')
-    expect(groups[0]?.label).toBe('a')
+    expect(groups).toEqual([])
+  })
+
+  it('folds only settled top-level closures while open selection stays visible', () => {
+    const closedRow = (
+      id: string,
+      over: Partial<IssueNavigationModel> = {},
+      sessions: SessionMeta[] = [],
+    ): UnifiedWorkRow => ({
+      kind: 'issue',
+      issue: issue({
+        id,
+        stage: 'done',
+        closedReason: 'done',
+        // Fresh finish: still inside the grace window so only an explicit tuck
+        // places a row in Closed (POD-293).
+        closedAt: new Date(NOW - HOUR).toISOString(),
+        unread: false,
+        readAt: new Date(NOW - HOUR).toISOString(),
+        ...over,
+      }),
+      sessions,
+      activityAt: NOW,
+      rank: 4,
+    })
+    // A tuck is now a stamp on the ISSUE (POD-333) — server truth every client
+    // reads — rather than an id in a per-browser set handed to the grouper.
+    const TUCKED = new Date(NOW - HOUR / 2).toISOString()
+    const rows: UnifiedWorkRow[] = [
+      closedRow('settled', { tuckedAt: TUCKED }),
+      // Unread no longer blocks tuck/fold eligibility; without tuck it stays open
+      // inside the grace window like any other finished row.
+      closedRow('unread', { unread: true, readAt: undefined }),
+      closedRow('selected'),
+      closedRow('child', { parentId: 'parent' }),
+      closedRow('awaiting', {
+        branch: 'issue/awaiting',
+        gitState: { shared: false, merged: false, ahead: 1 } as IssueNavigationModel['gitState'],
+      }),
+      closedRow('needs-human', { needsHuman: true }),
+      closedRow('working', {}, [working('worker', '/r/a')]),
+      closedRow('done-only', { closedReason: undefined }),
+    ]
+
+    // A settled closure folds once the operator tucks it (POD-293); the rest
+    // stay in the live list (not tucked, selected, awaiting, needs-human…).
+    // Working sessions no longer block tuck/fold eligibility. Untucked selection
+    // stays open (lane stickiness); tucked selection folds.
+    const [group] = groupUnifiedWorkRows(rows, 'selected', false, NOW)
+    expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
+    expect(
+      group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
+    ).toEqual(['unread', 'selected', 'child', 'awaiting', 'needs-human', 'working', 'done-only'])
+
+    const alsoTucked: UnifiedWorkRow[] = rows.map((row) =>
+      row.kind === 'issue' && (row.issue.id === 'selected' || row.issue.id === 'working')
+        ? { ...row, issue: { ...row.issue, tuckedAt: TUCKED } }
+        : row,
+    )
+    const [groupTuckedSelected] = groupUnifiedWorkRows(alsoTucked, 'selected', false, NOW)
+    expect(groupTuckedSelected?.closedRows.map((row) => row.issue.id)).toEqual([
+      'settled',
+      'selected',
+      'working',
+    ])
+    expect(
+      groupTuckedSelected?.rows.map((row) =>
+        row.kind === 'issue' ? row.issue.id : row.worktree.path,
+      ),
+    ).toEqual(['unread', 'child', 'awaiting', 'needs-human', 'done-only'])
+  })
+
+  it('keeps a selected closure in its closed-time order', () => {
+    const closedRow = (id: string, daysAgo: number): UnifiedWorkRow => ({
+      kind: 'issue',
+      issue: issue({
+        id,
+        stage: 'done',
+        closedReason: 'done',
+        unread: false,
+        readAt: new Date(NOW - HOUR).toISOString(),
+        closedAt: new Date(NOW - daysAgo * 24 * HOUR).toISOString(),
+        tuckedAt: new Date(NOW - HOUR).toISOString(),
+      }),
+      sessions: [],
+      activityAt: NOW,
+      rank: 4,
+    })
+
+    const [group] = groupUnifiedWorkRows(
+      [closedRow('oldest', 3), closedRow('selected', 2), closedRow('newest', 1)],
+      'selected',
+      true,
+      NOW,
+    )
+
+    expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['newest', 'selected', 'oldest'])
   })
 })
 
@@ -777,6 +941,37 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).not.toContain('p')
   })
 
+  it('POD-183: closed top-level human issues persist for folding without changing done decay', () => {
+    const old = new Date(NOW - 30 * DAY).toISOString()
+    expect(
+      issueVisibleInSidebar(
+        issue({
+          stage: 'done',
+          closedReason: 'done',
+          audience: 'human',
+          unread: true,
+          readAt: undefined,
+          closedAt: old,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      issueVisibleInSidebar(
+        issue({
+          stage: 'done',
+          closedReason: 'done',
+          audience: 'human',
+          unread: false,
+          readAt: old,
+          closedAt: old,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(issueVisibleInSidebar(issue({ stage: 'done', closedAt: old }), NOW)).toBe(false)
+  })
+
   it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
     const base = { stage: 'done' as IssueNavigationModel['stage'], unread: true, readAt: undefined }
     expect(
@@ -862,5 +1057,121 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     // Own working session lifts individually; the row (with its child) stays.
     expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
     expect(w.map((e) => (e.kind === 'session' ? e.session.sessionId : e.kind))).toEqual(['own'])
+  })
+})
+
+describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
+  const DAY = 24 * HOUR
+  // A three-deep formal tree: root > mid > leaf, with the needs-you at the leaf.
+  const tree = () => {
+    const root = issue({ id: 'root', seq: 1, title: 'Epic', audience: 'human' })
+    const mid = issue({ id: 'mid', seq: 2, title: 'Mid', audience: 'human', parentId: 'root' })
+    const leaf = issue({
+      id: 'leaf',
+      seq: 3,
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'mid',
+    })
+    return { root, mid, leaf }
+  }
+  const rowsFor = (issues: IssueNavigationModel[], sessions: SessionMeta[]) =>
+    unifiedWorkList(emptySections([]), issues, sessions, [], NOW)
+
+  it('L3: the parent pill counts needs-you across the whole branch, rolled-up depth included', () => {
+    const { root, mid, leaf } = tree()
+    const rows = rowsFor(
+      [root, mid, leaf],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rootRow.issue.id).toBe('root')
+    expect(rowWaitingCount(rootRow)).toBe(1)
+    // The depth-1 child aggregates its own hidden branch too.
+    const midRow = (rootRow.startedByChildren ?? [])[0]
+    expect(midRow?.issue.id).toBe('mid')
+    expect(rowWaitingCount(midRow as UnifiedWorkRow)).toBe(1)
+  })
+
+  it('L3: the sub-line whispers the deepest source when the yellow is beyond visible depth', () => {
+    const { root, mid, leaf } = tree()
+    const rows = rowsFor(
+      [root, mid, leaf],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(deepAttentionSource(rootRow)).toMatchObject({ depth: 2 })
+    expect(rowStatusLine(rootRow, NOW)).toBe('2 agents · working · deep: #3 needs you')
+    // A depth-capped child (visibleDepth 0) whispers even for a direct child source.
+    const midRow = (rootRow.startedByChildren ?? [])[0] as Extract<
+      UnifiedWorkRow,
+      { kind: 'issue' }
+    >
+    expect(rowStatusLine(midRow, NOW, 0)).toBe('deep: #3 needs you')
+  })
+
+  it('L3: a VISIBLE waiting child explains itself — no whisper at default depth', () => {
+    const { root, mid } = tree()
+    const rows = rowsFor(
+      [root, mid],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('mw', '/y'), issueId: 'mid' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rowWaitingCount(rootRow)).toBe(1)
+    expect(rowStatusLine(rootRow, NOW)).not.toContain('deep:')
+  })
+
+  it('L4: branchRollup counts ALL descendants via parentId — decayed done children included', () => {
+    const { root, mid, leaf } = tree()
+    // Done grandchild long past its decay window: gone from rows, kept in k/m.
+    const settled = issue({
+      id: 'settled',
+      seq: 4,
+      parentId: 'mid',
+      stage: 'done',
+      readAt: new Date(NOW - 30 * DAY).toISOString(),
+      closedAt: new Date(NOW - 30 * DAY).toISOString(),
+    })
+    const ghost = issue({ id: 'ghost', seq: 5, parentId: 'mid', archived: true })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'mid')).toEqual({ total: 2, done: 1 })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'root')).toEqual({ total: 3, done: 1 })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'leaf')).toEqual({ total: 0, done: 0 })
+  })
+
+  it('L5: the shipped done-decay applies to nested children — no fold, just the clock', () => {
+    const { root } = tree()
+    const doneChild = (over: Partial<IssueNavigationModel>) =>
+      issue({
+        id: 'dc',
+        seq: 9,
+        audience: 'human',
+        parentId: 'root',
+        stage: 'done' as IssueNavigationModel['stage'],
+        unread: true,
+        ...over,
+      })
+    const own = { ...working('rw', '/x'), issueId: 'root' } as SessionMeta
+    // Inside the 7-day unread window: the sessionless done child keeps its nested row.
+    const fresh = rowsFor(
+      [root, doneChild({ closedAt: new Date(NOW - 2 * DAY).toISOString() })],
+      [own],
+    )
+    const rootRow = fresh[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['dc'])
+    // Past the window: the row decays away — history lives in k/m and the peek.
+    const stale = rowsFor(
+      [root, doneChild({ closedAt: new Date(NOW - 10 * DAY).toISOString() })],
+      [own],
+    )
+    const staleRoot = stale[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(staleRoot.startedByChildren ?? []).toEqual([])
   })
 })

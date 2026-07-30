@@ -104,32 +104,574 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 4px;
   overflow: hidden;
 }
+/* POD-318 — the seam that ends the chrome-action run (usage, settings) and
+   starts the health readouts. Grouping by hairline is how every other section
+   of the shell divides; a wider gap alone read as one undifferentiated run. */
+.header-strip-seam {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin-right: 3px;
+  background: var(--border);
+}
+/* POD-318 — both health chips are real chrome cells: a 26px target in the 44px
+   bar carrying the accent wash every other chrome cell uses. Previously they
+   were zero-padding transparent buttons whose only hover feedback was the
+   global [data-pressable] brightness filter — invisible on a transparent
+   element, and an ~11px-tall hit area at the far edge of the window. */
 .header-machine-chip,
 .header-quota-chip {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
   font-size: 10.5px;
   white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
 }
-.header-quota-chip {
+.header-machine-chip:hover,
+.header-quota-chip:hover,
+.header-machine-chip[data-popup-open],
+.header-quota-chip[data-popup-open] {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--text-strong);
+}
+/* Pinned is its own rung, not a repeat of hover: a chip whose panel is held
+   open by a click stays anchored once the pointer leaves it. */
+.header-machine-chip[data-pinned],
+.header-quota-chip[data-pinned] {
+  border-color: var(--border-strong);
+  background: var(--secondary);
+}
+/* The strip clips its overflow, which would eat the global outline-offset ring,
+   so the keyboard ring lives inside the chip's own border box. */
+.header-machine-chip:focus-visible,
+.header-quota-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--ring) 65%, transparent);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 40%, transparent);
+  outline: none;
+  color: var(--text-strong);
+}
+/* A hostname is an ID — machine voice, so Geist Mono (DESIGN.md §3). */
+.header-machine-name {
+  max-width: 12ch;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  transition: color 150ms ease;
+}
+.header-machine-chip:hover .header-machine-name,
+.header-machine-chip[data-popup-open] .header-machine-name {
+  color: var(--text-strong);
+}
+/* Every meter in the strip reads the same grammar: mark · meter · number, so a
+   memory bar and a quota bar can no longer be mistaken for each other. */
+.header-readout,
+.header-quota-pools,
+.header-quota-pool {
+  display: inline-flex;
+  align-items: center;
+}
+.header-readout,
+.header-quota-pool {
+  gap: 4px;
+}
+.header-quota-pools {
+  gap: 13px;
+}
+/* The series mark (MEM, CC, CX, GR) names the meter that follows it. */
+.header-mark {
   color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  transition: color 150ms ease;
 }
+/* The group label names the three pool marks to its right, so it sits a tier
+   above them — the same mono micro-label the shell uses for WORK / TRAY. */
+.header-quota-label {
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 150ms ease;
+}
+/* The number the bar can't give you: 25px of meter is ~4% per pixel, and 75%
+   (warn) from 60% is the whole decision. Dim at rest so the bars still lead;
+   it takes signal colour only once a window crosses a threshold. */
+.header-value {
+  min-width: 3.6ch;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transition: color 150ms ease;
+}
+.header-value[data-tone="warn"] {
+  color: var(--warning);
+}
+.header-value[data-tone="crit"] {
+  color: var(--destructive);
+}
+.header-machine-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
+.header-quota-chip:hover :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]),
+.header-machine-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]),
+.header-quota-chip[data-popup-open]
+  :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]) {
+  color: var(--muted-foreground);
+}
+/* Carved, not raised: the track was --secondary, a navy light enough that an
+   empty meter still read as a filled blue bar. It is a groove now, so the fill
+   is the only thing with light in it. */
 .header-meter {
   display: inline-block;
-  width: 34px;
+  width: 36px;
   height: 3.5px;
+  flex: none;
   overflow: hidden;
   border-radius: 2px;
+  background: var(--engraved);
+  transition: background-color 150ms ease;
+}
+.header-quota-meter {
+  width: 30px;
+}
+.header-machine-chip:hover .header-meter,
+.header-quota-chip:hover .header-meter,
+.header-machine-chip[data-popup-open] .header-meter,
+.header-quota-chip[data-popup-open] .header-meter {
+  background: color-mix(in srgb, var(--engraved) 50%, var(--border) 50%);
+}
+.header-meter > span {
+  transition: filter 150ms ease;
+}
+.header-machine-chip:hover .header-meter > span,
+.header-quota-chip:hover .header-meter > span,
+.header-machine-chip[data-popup-open] .header-meter > span,
+.header-quota-chip[data-popup-open] .header-meter > span {
+  filter: brightness(1.14);
+}
+/* POD-271 — the fallback rail. A pool's meter answers "can I work"; a limit
+   scoped to one model can't change that answer, so it gets its own tier under
+   the meter instead of recolouring it. One segment per model bucket, sharing
+   the meter's width so the header never grows; absent entirely for a harness
+   that reports no scoped limits. */
+.header-quota-stack {
+  position: relative;
+  display: inline-flex;
+  height: 3.5px;
+  align-items: flex-start;
+}
+/* The rail hangs BELOW the meter rather than sharing a column with it, so every
+   pool's meter stays on one continuous line across the chip whether or not it
+   has model buckets. */
+.header-quota-rail {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  display: inline-flex;
+  width: 30px;
+  gap: 2px;
+}
+.header-quota-rail-seg {
+  display: block;
+  flex: 1;
+  height: 1.75px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--engraved) 55%, var(--border) 45%);
+}
+/* POD-318 — a spent model bucket used to render as full-strength red under the
+   meter, so the subordinate tier shouted louder than the gating one. Held under
+   the meter's weight instead, and brought up only while the chip is hovered. */
+.header-quota-rail-seg > span {
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+.header-quota-chip:hover .header-quota-rail-seg > span,
+.header-quota-chip[data-popup-open] .header-quota-rail-seg > span {
+  opacity: 0.85;
+}
+/* A narrow window drops the numbers a quiet pool doesn't need — but never the
+   one that crossed a threshold, which is the whole reason to look. */
+@media (max-width: 1200px) {
+  .header-value[data-tone="ok"] {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header-machine-chip,
+  .header-quota-chip,
+  .header-machine-name,
+  .header-mark,
+  .header-quota-label,
+  .header-value,
+  .header-meter,
+  .header-meter > span,
+  .header-quota-rail-seg > span {
+    transition: none;
+  }
+}
+
+/* Health popovers (POD-173): the quota / machine-load chips' anchored panel.
+   Hover shows the preview; click pins + widens it into the full breakdown.
+   The only lifted surface tier — popover shadow per the carved-elevation rule. */
+.health-popover {
+  width: 296px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 14px 34px rgb(0 0 0 / 0.65),
+    0 2px 8px rgb(0 0 0 / 0.5);
+  font-size: 11px;
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.health-popover-pinned {
+  width: 336px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .health-popover {
+    transition: none;
+  }
+}
+.hp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px 7px;
+}
+.hp-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.hp-figures {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hp-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hp-verdict-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.hp-verdict-dots i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.hp-verdict-mixed {
+  color: var(--muted-foreground);
+}
+.hp-verdict-dot-ok {
+  color: var(--success);
+}
+.hp-verdict-dot-warn {
+  color: var(--warning);
+}
+.hp-verdict-dot-crit {
+  color: var(--destructive);
+}
+.hp-verdict-ok {
+  color: var(--success);
+}
+.hp-verdict-warn {
+  color: var(--warning);
+}
+.hp-verdict-crit {
+  color: var(--destructive);
+}
+.hp-section {
+  padding: 7px 12px 9px;
+  border-top: 1px solid var(--border);
+}
+.hp-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.hp-acct {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.hp-section.hp-acct {
+  margin-bottom: 0;
+}
+.hp-acct-agent {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.hp-acct-plan {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
   background: var(--secondary);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.hp-acct-sub {
+  margin-left: auto;
+  overflow: hidden;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-winrow {
+  display: grid;
+  grid-template-columns: 30px 1fr 82px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 2.5px 0;
+}
+.hp-winlabel {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.hp-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--secondary);
+}
+.hp-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+}
+.hp-fill-ok {
+  background: var(--success);
+}
+.hp-fill-warn {
+  background: var(--warning);
+}
+.hp-fill-crit {
+  background: var(--destructive);
+}
+.hp-tick {
+  position: absolute;
+  top: -2.5px;
+  bottom: -2.5px;
+  width: 1px;
+  background: color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+.hp-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--foreground);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hp-num small {
+  font-size: 9px;
+  color: var(--text-dim);
+}
+.hp-pace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 5px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.hp-pace-chip {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hp-pace-ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.hp-pace-hot {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+.hp-dim-line {
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.hp-seg {
+  display: flex;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 2.5px;
+  background: var(--secondary);
+}
+.hp-seg i {
+  display: block;
+  height: 100%;
+}
+.hp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 4px;
+  font-size: 9.5px;
+  color: var(--muted-foreground);
+}
+.hp-legend i {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.hp-seg-agents {
+  background: var(--primary);
+}
+.hp-seg-projects {
+  background: var(--success);
+}
+.hp-seg-other {
+  background: var(--input);
+}
+.hp-sect-label {
+  margin: 10px 0 4px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+/* The model-limit tier inside a quota account section (POD-271). */
+.hp-model-label {
+  margin: 8px 0 2px;
+  color: var(--text-faint);
+}
+.hp-model-note {
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.hp-prow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1.5px 0;
+  font-size: 10.5px;
+  color: var(--foreground);
+}
+.hp-prow-muted {
+  margin-top: 6px;
+  color: var(--muted-foreground);
+}
+.hp-prow-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-prow-detail {
+  flex: 1;
+  overflow: hidden;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-prow-bytes {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hp-hibernation {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--muted-foreground);
+}
+.hp-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.hp-link:hover {
+  text-decoration: none;
+}
+.hp-link-mono {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-decoration: none;
+  color: var(--text-dim);
+}
+.hp-link-mono:hover {
+  color: var(--text-strong);
 }
 
 /* The column row: sidebar | engraved | native | dock | rail. */
@@ -198,6 +740,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   min-height: 0;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  /* Flat theme surface — the column carries no issue tint (the glow was removed). */
+  background: var(--engraved);
   box-shadow: var(--shadow-engraved);
 }
 .folded-superagent {
@@ -209,6 +753,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   gap: 12px;
   padding: 10px 0;
   border-right: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
+  /* Flat theme surface — the bar carries no issue tint (the fade was removed). */
+  background: var(--engraved);
   box-shadow: var(--shadow-engraved-bar);
 }
 .folded-superagent-cell {
@@ -248,7 +794,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   /* Same hairline language as the rail (#65): 35% issue tint, 30% slate —
      the quiet override lives with the rail's in index.css. */
   border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
-  background: var(--card);
+  /* No background here: the aside wears issue-base-card issue-fade (same tint
+     language as the rail) — an unlayered rule would override that utility. */
 }
 .right-rail {
   display: flex;
@@ -284,17 +831,18 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
    vertical tree-guide line (the line itself is the .tree-guide span in the
    wrapper — excluded here, or this rule's position:relative would override
    its Tailwind `absolute` and give it a stub of its own). */
-.tree-children > :not(.tree-guide) {
+.tree-children > :not(.tree-guide):not([data-tree-band]) {
   position: relative;
 }
-.tree-children > :not(.tree-guide)::before {
+.tree-children > :not(.tree-guide):not([data-tree-band])::before {
   content: "";
   position: absolute;
-  left: 16px;
+  left: -4px;
   top: 50%;
-  width: 9px;
+  width: 6px;
   height: 1px;
-  background: var(--border);
+  /* Inherits a coloured issue's tint when the wrapper sets --tree-guide. */
+  background: var(--tree-guide, var(--border));
   pointer-events: none;
 }
 /* Composer caret block (CLI-style prompt decoration). */
@@ -308,197 +856,48 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
     opacity: 0;
   }
 }
-.mobile-shell {
-  display: flex;
-  flex-direction: column;
-  height: var(--viewport-h, 100dvh);
-  /* No double-tap zoom anywhere in the mobile UI; children that scroll
-     (terminal, pickers, key bar) still pan normally. */
-  touch-action: manipulation;
-}
-/* The mobile shell is an app surface, not a page: the document itself must
-   never scroll or rubber-band (e.g. dragging the key bar up over the soft
-   keyboard used to reveal blank page below the shell). All scrolling happens
-   inside the shell's own scrollable regions. */
-body:has(.mobile-shell) {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
-@keyframes term-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* Cold-start splash (AppShell LoadingScreen): full-viewport centered spinner. */
+/* Cold-start splash (AppShell LoadingScreen): the wordmark as ASCII art
+   (AsciiLoader) over the themed background. */
 .app-loading {
   height: var(--viewport-h, 100dvh);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  color: var(--muted-foreground);
-  font-size: 13px;
+  gap: 28px;
+  overflow: hidden;
   background: var(--background);
 }
-.app-loading-spinner {
-  width: 26px;
-  height: 26px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: term-spin 0.8s linear infinite;
+.app-loading-ascii {
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: min(1.15vw, 12px);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: pre;
+  user-select: none;
+  /* Reserve the grid's box before the first frame lands so the label
+     doesn't jump: 120 columns × 28 rows of 1ch/1em cells. */
+  min-width: 120ch;
+  min-height: 28em;
 }
-/* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
-   Hidden on desktop (the hardware keyboard has these) — only shown inside the
-   mobile shell, where it rides directly above the soft keyboard. */
+.app-loading-label {
+  color: var(--foreground);
+  opacity: 0.55;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+}
+/* Key accessory bars (terminal keys / submit row): these belonged to the
+   retired responsive mobile shell [POD-102]. AgentPanel still renders the DOM;
+   these base rules keep it hidden until that markup is stripped too. */
 .toolbar {
   display: none;
 }
-.mobile-shell .toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 5px;
-  /* Reserve the home-indicator safe area ONLY while the keyboard is closed. With
-     the keyboard open the bar rides just above it and the safe area is hidden
-     behind the keyboard, so adding it there is the dead gap under the keys that
-     read as "whitespace at the bottom". --kb-open (0/1) is set from visualViewport
-     in MobileApp; default 0 (keyboard closed) keeps the safe area on desktop/SSR. */
-  padding: 4px 8px calc(8px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
-  /* Key-bar strip (mobile.md §2.3): the --bar surface with bordered card keys. */
-  background: var(--bar);
-  border-top: 1px solid var(--hairline-soft);
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  /* Horizontal pan only: vertical drags on the bar must not move the page,
-     and double-taps must not zoom. */
-  touch-action: pan-x;
-  scrollbar-width: none;
-}
-.mobile-shell .toolbar::-webkit-scrollbar {
-  display: none;
-}
-.toolbar .key {
-  flex: 0 0 auto;
-  min-width: 32px;
-  height: 30px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  font: 11px / 1 var(--font-mono, ui-monospace, monospace);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  transition: background 0.06s ease;
-}
-.toolbar .key:active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-/* Sticky modifier (Ctrl): lit while armed for the next keystroke. */
-.toolbar .key.mod.armed {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-.toolbar .key-sep {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 1px;
-  height: 18px;
-  margin: 0 2px;
-  background: var(--hairline-bar);
-}
-
-/* ---- second key row (above the key bar): submit / newline / paste / voice /
-   arrow D-pad. Mobile + native only, like the key bar. ---- */
 .key-actions {
   display: none;
-}
-.mobile-shell .key-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 8px 2px;
-  background: var(--bar);
-  border-top: 1px solid var(--hairline-bar);
-}
-/* No mic on the right — pad the bar as if the 36px mic slot were still there. */
-.mobile-shell .key-actions:not(:has(.key-mic)) {
-  padding-right: calc(8px + 36px + 4px);
-}
-/* Hidden until the panel has output (kb-hidden — no key bar over "Starting…"), or in
-   chat mode (.hidden, applied by AgentPanel): the terminal key rows belong to the
-   NATIVE view, not chat. Named explicitly because the base `.mobile-shell
-   .key-actions{display:flex}` (specificity 0,2,0) outweighs Tailwind's `.hidden`. */
-.mobile-shell .key-actions.kb-hidden,
-.mobile-shell .key-actions.hidden,
-.mobile-shell .toolbar.kb-hidden,
-.mobile-shell .toolbar.hidden {
-  display: none;
-}
-.key-actions .key-act {
-  flex: 1 1 0;
-  min-width: 0;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-/* The submit key is the design's tinted ⏎ (2b): the one key that acts. */
-.key-actions .key-act.key-submit {
-  color: #e8c477;
-}
-.key-actions .key-act:active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-.key-actions .key-mic {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.key-actions .key-mic.active {
-  color: var(--destructive);
-  border-color: var(--destructive);
-  animation: conn-pulse 1.2s ease-in-out infinite;
 }
 
 /* ---- worker label ---- */
@@ -523,30 +922,107 @@ body:has(.mobile-shell) {
 .transcript-row {
   display: flex;
   flex-direction: row;
-  gap: 12px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  gap: 0;
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 
-/* The narrow coloured strip on the left edge */
+/* Flat Field (POD-159): the rails are gone — agent output lies flat on the
+   chassis and only user-facing surfaces get elevation. The rail element stays
+   in the DOM (several row renderers emit it as an alignment spacer) but is
+   collapsed to zero width so every voice shares the same left edge. */
 .transcript-rail {
-  flex: 0 0 3px;
-  align-self: stretch;
-  border-radius: 2px;
-  min-height: 1.2em;
+  flex: 0 0 0px;
+  width: 0;
+  overflow: hidden;
 }
-.transcript-rail--user {
-  background-color: var(--info); /* matches the minimap's user tick (bg-info) */
-}
-.transcript-rail--answer {
-  /* The per-theme live hue, matching the minimap's final-answer tick (bg-live).
-     The activity tokens keep dot-appropriate hues in every preset, unlike
-     var(--primary), which is near-black in the light theme. */
-  background-color: var(--live);
-}
-/* No rail — transparent spacer so body column stays aligned */
+.transcript-rail--user,
+.transcript-rail--answer,
 .transcript-rail--none {
   background-color: transparent;
+}
+
+/* The operator's turn — the ONLY elevated surface class in the field. Embossed
+   per the Carved Rule: depth goes inward, so the panel is engraved into the
+   chassis rather than floated above it. */
+.transcript-you {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--background) 82%, black);
+  padding: 10px 15px;
+  box-shadow:
+    inset 0 3px 7px -2px rgb(0 0 0 / 0.55),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+}
+.transcript-you .chat-md {
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 13.5px;
+}
+.transcript-you-label {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--info);
+  margin-bottom: 3px;
+}
+
+/* The final answer — flat like all agent prose, marked by the page's only
+   signal-color keyline instead of a box (The Signal Rule: yellow marks what
+   is for you). */
+.transcript-answer {
+  border-top: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
+  padding-top: 10px;
+}
+.transcript-answer-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 5px;
+}
+
+/* Muted one-line tool rows: mono machine voice, verdict glyph, right-aligned
+   magnitude. Boxless — activity recedes, verdicts remain legible. */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.tool-glyph {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: 10px;
+  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+.tool-glyph--ok {
+  color: var(--info);
+}
+.tool-glyph--err {
+  color: var(--destructive);
+}
+.tool-fail-line {
+  margin: 1px 0 2px 21px;
+  padding: 2px 9px;
+  border-left: 2px solid var(--border);
+  color: color-mix(in oklab, var(--destructive) 75%, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The main content column */
@@ -585,10 +1061,71 @@ body:has(.mobile-shell) {
   letter-spacing: 0;
 }
 
+/* Native-pane offer dock (POD-178): the offer sits BELOW the terminal on its
+   own surface — never painted on the PTY background — and animates in by
+   reclaiming height from the terminal (grid-rows) with a slight rise. The
+   reverse plays when the offer is consumed. */
+.offer-dock {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.offer-dock--open {
+  grid-template-rows: 1fr;
+}
+.offer-dock-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+.offer-dock-inner {
+  padding: 8px 13px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  transform: translateY(12px);
+  opacity: 0;
+  transition:
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease-out;
+}
+.offer-dock--open .offer-dock-inner {
+  transform: none;
+  opacity: 1;
+}
+
+@keyframes offer-feedback-reveal {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    max-height: 160px;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The input action grows the offer smoothly instead of snapping the chat
+   composer or native dock to its taller layout. */
+.offer-feedback {
+  max-height: 160px;
+  overflow: hidden;
+  animation: offer-feedback-reveal 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .offer-dock,
+  .offer-dock-inner {
+    transition: none;
+  }
+  .offer-feedback {
+    animation: none;
+  }
+}
+
 /* ── Chat markdown body ──────────────────────────────────────────────────── */
 
 .chat-md {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--foreground);
   overflow-wrap: anywhere;
@@ -741,18 +1278,48 @@ body:has(.mobile-shell) {
   text-decoration: underline;
   cursor: pointer;
 }
-/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown/terminal.
-   A subtle accent-tinted underline, distinct from external links but clearly live. */
-.ref-link {
+/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown.
+   An accent-tinted inline chip with a small kind icon — deliberately NOT a
+   text-decoration style: dotted underlines render very differently across
+   Chromium and WebKit (the Tauri shell), a chip renders identically in both.
+   `a.ref-link` outranks `.chat-md a`, which would otherwise force its solid
+   underline back on. */
+a.ref-link {
   color: var(--primary);
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-decoration: none;
   cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
   font-weight: 500;
+  white-space: nowrap;
+  padding: 0px 4px 1px 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
 }
-.ref-link:hover {
-  text-decoration-style: solid;
+a.ref-link:hover {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  text-decoration: none;
+}
+/* Kind icon: currentColor through an SVG mask (same technique as .code-copy),
+   so it follows the accent in both themes. Default (and issues): circle-dot. */
+a.ref-link::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 3px;
+  vertical-align: -1.5px;
+  background-color: currentColor;
+  -webkit-mask: var(--ref-icon-mask) center / contain no-repeat;
+  mask: var(--ref-icon-mask) center / contain no-repeat;
+  /* lucide circle-dot */
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'/%3E%3Ccircle%20cx='12'%20cy='12'%20r='2'%20fill='black'/%3E%3C/svg%3E");
+}
+/* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
+a.ref-link--session::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");
 }
 .chat-md blockquote {
   border-left: 2px solid var(--border);
@@ -786,79 +1353,308 @@ body:has(.mobile-shell) {
   font-style: italic;
 }
 
-/* Rendered markdown preview (.md panels). Scoped so it never touches chat/markdown
-   surfaces. Uses theme tokens from the shadcn/Tailwind v4 setup. */
+/* Rendered markdown preview (.md panels) — a READING surface, not chrome, and the
+   one place in the app that deliberately steps off the 12px instrument scale. Set
+   the way iA Writer sets a document: a measured column of ~88 characters, generous
+   leading, a full blank line between paragraphs, and rules instead of boxes. Scoped
+   so it never touches chat/markdown surfaces. Theme tokens throughout; no signal
+   hues (The Signal Rule) — a document is never asking anything of the operator. */
 .markdown-preview {
-  line-height: 1.6;
+  /* The single knob: how wide the text column may run — ~88 characters of Geist
+     at the size below. Expressed in em so it tracks font-size (`ch` measures the
+     "0" glyph, which is far wider than the average letter in a proportional face
+     and lands the column near 110 characters). */
+  --md-measure: 44.2em;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--foreground);
+  /* Percentage side padding collapses gracefully in split mode without a
+     container query — it resolves against the pane, not the viewport. */
+  padding: 2.25rem clamp(1rem, 5%, 2rem) 4rem;
+}
+/* The measure lives on the per-block wrapper, not the scroller, so the column
+   centres while the scrollbar stays pinned to the panel edge. `.md-block` has no
+   padding or border, so child margins still collapse through it — the vertical
+   rhythm below is written assuming that. */
+.markdown-preview > .md-block {
+  max-width: var(--md-measure);
+  margin-inline: auto;
+  scroll-margin-top: 0;
+}
+.markdown-preview > .md-block:first-child > :first-child {
+  margin-top: 0;
+}
+.markdown-preview > .md-block:last-child > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview p {
+  margin: 0 0 1.05em;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+}
+/* Headings tighten their own leading and take their air from ABOVE — the gap
+   before a section is what makes a long document scannable. */
+.markdown-preview :is(h1, h2, h3, h4, h5, h6) {
+  line-height: 1.3;
+  text-wrap: balance;
 }
 .markdown-preview h1 {
   font-size: 1.6em;
   font-weight: 650;
-  margin: 0.6em 0 0.4em;
+  letter-spacing: -0.012em;
+  margin: 1.8em 0 0.55em;
 }
 .markdown-preview h2 {
-  font-size: 1.35em;
+  font-size: 1.25em;
   font-weight: 650;
-  margin: 0.6em 0 0.4em;
+  letter-spacing: -0.008em;
+  margin: 2em 0 0.5em;
 }
 .markdown-preview h3 {
-  font-size: 1.15em;
+  font-size: 1.06em;
+  font-weight: 650;
+  margin: 1.7em 0 0.45em;
+}
+.markdown-preview h4 {
+  font-size: 1em;
+  font-weight: 650;
+  margin: 1.5em 0 0.4em;
+}
+.markdown-preview :is(h5, h6) {
+  font-size: 0.95em;
   font-weight: 600;
-  margin: 0.6em 0 0.3em;
+  color: var(--muted-foreground);
+  margin: 1.4em 0 0.35em;
 }
-.markdown-preview p {
-  margin: 0.5em 0;
+.markdown-preview strong {
+  font-weight: 640;
 }
+
+/* Lists stay internally tight and take paragraph-sized air as a whole, so a list
+   reads as one unit rather than a stack of stranded lines. */
 .markdown-preview ul,
 .markdown-preview ol {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
+  margin: 0 0 1.05em;
+  padding-left: 1.4em;
+}
+/* Tailwind's preflight strips list markers globally; a document needs them back. */
+.markdown-preview ul {
+  list-style: disc outside;
+}
+.markdown-preview ol {
+  list-style: decimal outside;
+}
+.markdown-preview ul ul {
+  list-style-type: circle;
+}
+.markdown-preview ul ul ul {
+  list-style-type: square;
 }
 .markdown-preview li {
-  margin: 0.15em 0;
+  margin: 0.35em 0;
+  overflow-wrap: break-word;
 }
-.markdown-preview a {
+.markdown-preview li::marker {
+  color: var(--muted-foreground);
+}
+/* A task item's checkbox IS its marker — hang it in the marker slot so checked
+   and bulleted items share one text edge. */
+.markdown-preview li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.markdown-preview li > :is(ul, ol) {
+  margin: 0.35em 0 0.15em;
+}
+.markdown-preview li > p {
+  margin: 0 0 0.5em;
+}
+.markdown-preview li > p:last-child {
+  margin-bottom: 0;
+}
+
+/* :not(.ref-link) so ref chips keep their own chip treatment — a bare
+   `.markdown-preview a` ties on specificity and would force an underline back on. */
+.markdown-preview a:not(.ref-link) {
   color: var(--primary);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: color-mix(in srgb, var(--primary) 45%, transparent);
 }
+.markdown-preview a:not(.ref-link):hover {
+  text-decoration-color: currentColor;
+}
+
 .markdown-preview code {
   font-family: var(--font-mono, monospace);
-  font-size: 0.92em;
+  font-size: 0.86em;
 }
 .markdown-preview :not(pre) > code {
-  background: var(--muted);
-  padding: 0.1em 0.3em;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  padding: 0.12em 0.36em;
   border-radius: 4px;
+  overflow-wrap: break-word;
 }
 .markdown-preview pre {
   position: relative;
   background: var(--muted);
-  padding: 0.75em 1em;
+  padding: 0.9em 1.05em;
   border-radius: 6px;
   overflow: auto;
+  margin: 1.5em 0;
+  line-height: 1.6;
 }
 .markdown-preview blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 1em;
+  border-left: 2px solid var(--border);
+  padding-left: 1.1em;
   color: var(--muted-foreground);
-  margin: 0.5em 0;
+  margin: 1.5em 0;
 }
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+.markdown-preview hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2.6em 0;
+}
+
+/* Horizontal rules only, flush left — a grid of boxes reads as a spreadsheet;
+   ruled rows read as part of the document. */
 .markdown-preview table {
+  width: 100%;
   border-collapse: collapse;
-  margin: 0.5em 0;
+  margin: 1.5em 0;
+  font-size: 0.95em;
+  line-height: 1.55;
 }
-.markdown-preview th,
-.markdown-preview td {
-  border: 1px solid var(--border);
-  padding: 0.3em 0.6em;
+.markdown-preview :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
 }
+.markdown-preview :is(th, td):first-child {
+  padding-left: 0;
+}
+.markdown-preview th {
+  font-weight: 600;
+  color: var(--muted-foreground);
+  border-bottom-color: var(--border);
+}
+.markdown-preview tr:last-child td {
+  border-bottom: 0;
+}
+
 .markdown-preview img {
   max-width: 100%;
   height: auto;
-}
-.markdown-preview .md-block {
-  scroll-margin-top: 0;
+  border-radius: 5px;
+  margin: 0.4em 0;
 }
 .markdown-preview input[type="checkbox"] {
-  margin-right: 0.4em;
+  margin-right: 0.45em;
+  vertical-align: -0.08em;
+  accent-color: var(--muted-foreground);
+}
+
+/* Settings rows (POD-127): hairline seam between adjacent rows only — never
+   above the first or below the last, and prose/notes between rows break the
+   run naturally. */
+.settings-row + .settings-row {
+  border-top: 1px solid color-mix(in oklab, var(--hairline-soft) 60%, transparent);
+}
+
+/* Settings takeover (POD-127): one-shot entrance morphs per the agent-state
+   motion grammar — a single ease-out settle, then stillness. */
+.settings-overlay {
+  animation: settings-overlay-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes settings-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.settings-section-enter {
+  animation: settings-section-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes settings-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-section-enter {
+    animation: none;
+  }
+}
+
+/* ── Superagent chat ───────────────────────────────────────────────────────
+   The narrow column keeps the shared Flat Field language: an engraved user
+   turn, flat agent prose, and the answer keyline. Only the dimensions and
+   super-agent metadata are column-specific. */
+
+.chat-compact .transcript-row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.chat-compact .chat-md {
+  font-size: 13px;
+  line-height: 1.62;
+}
+.chat-compact .transcript-you {
+  padding: 10px 13px;
+}
+.chat-compact .transcript-you .chat-md {
+  font-size: 13px;
+  line-height: 1.58;
+  font-weight: 500;
+}
+.chat-compact .transcript-answer {
+  padding-top: 9px;
+}
+.chat-compact .transcript-you-label,
+.chat-compact .transcript-answer-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.chat-compact .transcript-you-label {
+  color: var(--info);
+}
+.chat-compact .transcript-answer-label {
+  color: var(--primary);
+}
+.chat-compact .chat-ctx {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim, #6c6c78);
+}
+.chat-compact .chat-clk {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--text-dim, #6c6c78);
+}
+.chat-compact .chat-next {
+  margin-top: 5px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--attention);
 }

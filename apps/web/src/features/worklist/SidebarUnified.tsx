@@ -5,21 +5,28 @@ import { type AgentKind, issueDisplayRef, type SessionMeta } from '@podium/proto
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
-  BarChart3,
+  Archive,
+  ArrowDownToLine,
   ChevronDown,
   ChevronRight,
   Circle,
   FolderPlus,
-  GitBranch,
   Pin,
   Plus,
   Search,
-  Settings as SettingsIcon,
 } from 'lucide-react'
-import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { LayoutGroup, MotionConfig, motion, useReducedMotion } from 'motion/react'
+import type {
+  CSSProperties,
+  JSX,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import {
   DropdownMenu,
@@ -32,14 +39,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
-import { isEpic } from '@/features/issues/issue-hierarchy'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
+  branchRollup,
   draftIssueLabel,
   groupUnifiedWorkRows,
   type IssueNavigationModel,
   isCoordinatorSession,
+  isDraftAgentVessel,
   isIssueSnoozed,
   issueReturnedFromDefer,
   lastUsedMaps,
@@ -47,36 +55,161 @@ import {
   machinesWithRepo,
   panelLabel,
   partitionStaleSessions,
+  pendingDecisionLabel,
+  pendingDecisionTitle,
   pickPaneSession,
   type RepoNavView,
-  type SidebarSections,
   resolveDefaultAgent,
   resolveTargetMachine,
+  rowAwaitsTuck,
   rowMotionPhase,
   rowMotionTiming,
+  rowPendingDecision,
   rowStatusLine,
   rowUnreadEmphasized,
   rowWaitingCount,
+  type SidebarSections,
   sessionsForIssueNav,
   sessionsForWorktree,
   sessionsNeedChildRows,
   sidebarSections,
   spawnTargetForRepo,
-  type UnifiedIssueRow,
+  splitPinnedWork,
+  type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
   unifiedWorkList,
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
-import { PhaseTimer, usePhaseMorph } from '@/lib/motion'
+import {
+  PhaseTimer,
+  type RowTransitionItem,
+  type RowTransitionTarget,
+  useArrivals,
+  usePhaseMorph,
+  useRowTransitions,
+} from '@/lib/motion'
+import { relativeTime } from '@/lib/home'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import { GroupedSessionRows, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import { planReorderKeys } from './reorder'
+import {
+  AgentRosterBand,
+  GroupedSessionRows,
+  PanelRow,
+  StaleSection,
+  useCollapsed,
+} from './sidebar-common'
+import { useRowDrag } from './useRowDrag'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
 function agentIconFor(kind: AgentKind) {
   return NEW_AGENTS.find((a) => a.kind === kind)?.Icon
+}
+
+/** Compact execution presence that survives a collapsed issue row. The full
+ * roster remains below the row; this summary answers "who is here?" without
+ * making the operator keep every fleet expanded. */
+function IssueFleetSummary({
+  sessions,
+  unread = false,
+}: {
+  sessions: SessionMeta[]
+  /** An unopened update since last read (POD-293): a single info dot on the
+   *  agent identity, not a shouted banner. Bound to the fleet glyph so it reads
+   *  as "this agent has something new", never a free-floating third dot. */
+  unread?: boolean
+}): JSX.Element | null {
+  if (sessions.length === 0) return null
+  const shown = sessions.slice(0, 2)
+  const overflow = Math.max(0, sessions.length - shown.length)
+  const nativeCount = sessions.reduce(
+    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
+    0,
+  )
+  const label = [
+    `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
+    nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
+    unread ? 'new update' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <span
+      className="ml-0.5 flex flex-none items-center"
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="issue-fleet-summary"
+    >
+      {shown.map((session, index) => {
+        const AgentIcon = agentIconFor(session.agentKind)
+        // Per-kind tint (POD-293): Claude wears its clay, other harnesses a quiet
+        // navy — solid fills so stacked tiles don't ghost through each other.
+        const claude = session.agentKind === 'claude-code'
+        // The row's unopened-update dot rides the corner of the LAST tile (the
+        // concept's `.av .unreaddot`): tight to the glyph at -3px, ringed in the
+        // row background — reads as "this fleet has something new", not a third
+        // free-floating mark.
+        const showDot = unread && index === shown.length - 1
+        return (
+          <span
+            key={session.sessionId}
+            data-agent-kind={session.agentKind}
+            className={cn(
+              'relative flex size-[19px] items-center justify-center rounded-[6px] border',
+              claude
+                ? 'border-[#d97757]/50 bg-[#2a1a14] text-claude'
+                : 'border-[#33456e] bg-[#182338] text-[#c3cbe0]',
+              index > 0 && '-ml-1',
+            )}
+            style={{ zIndex: index + 1 }}
+          >
+            {AgentIcon ? <AgentIcon size={12} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+            {showDot && (
+              <span
+                className="absolute -top-[3px] -right-[3px] z-[1] size-[7px] rounded-full border-[1.5px] border-[var(--row-bg,#16161c)] bg-info"
+                data-testid="row-unread-dot"
+                aria-hidden="true"
+              />
+            )}
+          </span>
+        )
+      })}
+      {overflow > 0 && (
+        <span
+          className="-ml-1 flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] border border-[#33456e] bg-[#182338] px-0.5 font-mono text-[8px] text-[#9aa4c0]"
+          style={{ zIndex: shown.length + 1 }}
+        >
+          +{overflow}
+        </span>
+      )}
+      {nativeCount > 0 && (
+        <span
+          className="-mt-2 -ml-1 rounded-[4px] border border-[#50392f] bg-[#241915] px-[2px] font-mono text-[7px] leading-[11px] text-[#d97757]"
+          style={{ zIndex: shown.length + 2 }}
+          data-testid="issue-fleet-subagent-count"
+        >
+          ×{nativeCount}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Lineage flash (POD-85): briefly outline another issue's row — provenance as
+ *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
+ *  purpose: the origin row is a sibling React branch, and a one-shot class
+ *  beats threading transient state through the whole list. */
+function flashLineage(issueId: string): void {
+  const el = document.querySelector(`[data-issue-row="${CSS.escape(issueId)}"]`)
+  if (!(el instanceof HTMLElement)) return
+  el.classList.remove('morph-lineage')
+  void el.offsetWidth
+  el.classList.add('morph-lineage')
+  window.setTimeout(() => el.classList.remove('morph-lineage'), 1700)
 }
 
 /**
@@ -132,8 +265,9 @@ export function SidebarUnified(): JSX.Element {
           edge (negative margin + matching padding) so the selected row's bridge
           notch can paint OVER the aside border into the engraved column —
           overflow clips at the padding box, so the notch survives (#41). Rows
-          sit at the column's 8px side inset (13 − 5); the column's 3px rhythm
-          continues between project groups via the flex gap. */}
+          sit at the column's 8px side inset (13 − 5). Within a project group
+          the 3px row gap holds; between groups the project-group mb-2.5
+          clusters repo + snoozed/done as one unit. */}
       <div
         data-testid="work-scroll"
         className="scroll-none flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-2.5 pl-2"
@@ -286,7 +420,9 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   const newAgentAnchorRef = useRef<HTMLDivElement | null>(null)
 
   return (
-    <div className="mx-2 mt-2.5 flex items-center gap-2">
+    // mr-4 clears the absolutely-positioned collapse control on the sidebar's
+    // right edge (translateX(50%) into the content column).
+    <div className="ml-2 mr-4 mt-2.5 flex items-center gap-2">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
@@ -295,6 +431,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
         {/* One bordered rounded-lg surface with a leading Claude-clay agent icon;
             the chevron is a borderless hitbox floating inside the same outline. */}
         <button
+          data-pressable
           type="button"
           className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#3a3a46] bg-[#25252f] px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-[#eaeaf0] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
           disabled={!defaultRepo}
@@ -323,6 +460,7 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
           <DropdownMenuTrigger
             render={
               <button
+                data-pressable
                 type="button"
                 className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-[#7a7a86] hover:text-foreground"
                 aria-label="Choose agent and repo"
@@ -416,14 +554,12 @@ export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): J
   )
 }
 
-/** App-level tools: add repo, analytics, settings, search (the cmd-k palette) —
- *  four 28px icon buttons spread across the footer (handoff §2.1). */
+/** Work-local tools: repository discovery and command search. Global utilities
+ *  live in the top bar so they remain reachable outside the Work shell. */
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
-  const { view, setView, setPaletteOpen } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView, setPaletteOpen: s.setPaletteOpen }),
-    shallowEqual,
-  )
+  const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const [repoScanOpen, setRepoScanOpen] = useState(false)
+  const commandPaletteEnabled = useFeature('command-palette')
   const btn = (active = false) =>
     cn(
       'flex size-7 items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]',
@@ -432,6 +568,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
   return (
     <div className={cn('flex items-center justify-around', className)}>
       <button
+        data-pressable
         type="button"
         className={btn()}
         title="Add repo"
@@ -440,35 +577,19 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       >
         <FolderPlus size={15} aria-hidden="true" />
       </button>
-      <button
-        type="button"
-        className={btn(view === 'usage')}
-        aria-pressed={view === 'usage'}
-        title="Usage & analytics"
-        aria-label="Usage & analytics"
-        onClick={() => setView('usage')}
-      >
-        <BarChart3 size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={btn(view === 'settings')}
-        aria-pressed={view === 'settings'}
-        title="Settings"
-        aria-label="Settings"
-        onClick={() => setView('settings')}
-      >
-        <SettingsIcon size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={btn()}
-        title="Search (⌘K)"
-        aria-label="Search"
-        onClick={() => setPaletteOpen(true)}
-      >
-        <Search size={15} aria-hidden="true" />
-      </button>
+
+      {commandPaletteEnabled && (
+        <button
+          data-pressable
+          type="button"
+          className={btn()}
+          title="Search (⌘K)"
+          aria-label="Search"
+          onClick={() => setPaletteOpen(true)}
+        >
+          <Search size={15} aria-hidden="true" />
+        </button>
+      )}
       {repoScanOpen && (
         <RepoScanFlow
           onClose={() => setRepoScanOpen(false)}
@@ -496,6 +617,269 @@ function ProjectGroupLabel({ label, first }: { label: string; first: boolean }):
   )
 }
 
+/** PINNED section label (POD-166, R3): the one section above all project
+ *  groups — same mono hairline voice, led by an attention-toned pin. */
+function PinnedSectionLabel(): JSX.Element {
+  return (
+    <div
+      data-testid="pinned-section-label"
+      className="flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-[#7a7a86]"
+    >
+      <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
+      <span>Pinned</span>
+      <span className="h-px min-w-4 flex-1 bg-[#25252f]" aria-hidden="true" />
+    </div>
+  )
+}
+
+type WorkPlacement =
+  | {
+      lane: 'pinned' | 'open'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedWorkRow
+    }
+  | {
+      lane: 'closed'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedIssueRowView
+    }
+  | {
+      lane: 'snoozed'
+      groupKey: string
+      groupLabel: string
+      row: UnifiedIssueRowView
+    }
+
+const ROW_LAYOUT_TRANSITION = {
+  type: 'spring' as const,
+  stiffness: 105,
+  damping: 20,
+  mass: 0.95,
+}
+type TransitionWorkRow = RowTransitionItem<WorkPlacement>
+
+/** How a folded row ended, in one dim mono word (POD-293). Merged is the common
+ *  closed outcome; snooze shows the time left. Nothing here is an ask, so none
+ *  of it is amber. */
+function foldedMarker(issue: IssueNavigationModel, lane: 'closed' | 'snoozed', now: number): string {
+  if (lane === 'snoozed') {
+    const until = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
+    if (!Number.isFinite(until)) return 'snoozed'
+    const mins = Math.max(0, Math.round((until - now) / 60000))
+    if (mins < 60) return 'snoozed <1h'
+    const hours = Math.round(mins / 60)
+    if (hours < 24) return `snoozed ${hours}h`
+    return `snoozed ${Math.round(hours / 24)}d`
+  }
+  if (issue.gitState?.merged) return 'merged'
+  switch (issue.closedReason) {
+    case 'superseded':
+      return 'superseded'
+    case 'duplicate':
+      return 'duplicate'
+    case 'wontfix':
+      return "won't fix"
+    default:
+      return 'closed'
+  }
+}
+
+/** A folded (closed / suspended) issue on ONE dim line (POD-293): ref · title ·
+ *  how it ended. Out of triage means no avatars, timers, pills, git or unread —
+ *  the whole vocabulary of an open row drops away. Roughly half a live row's
+ *  height, so a long archive scans in a glance. Clicking reopens the issue;
+ *  the fold's own archive overlay still rides on top for closed rows. */
+function FoldedWorkRow({
+  issue,
+  lane,
+  now,
+  active,
+  onSelect,
+  onContextMenu,
+}: {
+  issue: IssueNavigationModel
+  lane: 'closed' | 'snoozed'
+  now: number
+  active: boolean
+  onSelect: () => void
+  onContextMenu?: (e: ReactMouseEvent) => void
+}): JSX.Element {
+  const marker = foldedMarker(issue, lane, now)
+  // How long ago the work was last touched — closed rows date from the close,
+  // suspended rows from their last activity (POD-293). One dim stamp so a fold
+  // still answers "when", without pulling any live-row chrome back in.
+  const stampIso = lane === 'closed' ? (issue.closedAt ?? issue.updatedAt) : issue.updatedAt
+  const ago = stampIso ? relativeTime(stampIso, now) : null
+  return (
+    <button
+      data-pressable
+      type="button"
+      data-testid="folded-work-row"
+      data-lane={lane}
+      data-selected={active ? 'true' : 'false'}
+      onClick={onSelect}
+      onContextMenu={onContextMenu}
+      title={`${issueDisplayRef(issue)} · ${issue.title}`}
+      className={cn(
+        'group/crow flex w-full min-w-0 items-center gap-2.5 rounded-[6px] px-2 py-[3px] pr-8 text-left transition-colors',
+        active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+      )}
+    >
+      <span className="flex-none font-mono text-[9px] font-semibold tracking-[.02em] tabular-nums text-[#525c78]">
+        {issueDisplayRef(issue)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-[#828ba6]">{issue.title}</span>
+      <span className="flex flex-none items-center gap-1.5 font-mono text-[8.5px]">
+        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-[#525c78]')}>{marker}</span>
+        {ago && <span className="tabular-nums text-[#6c7690]">{ago}</span>}
+      </span>
+    </button>
+  )
+}
+
+/** Project-local disclosure for actively deferred work. Disclosure changes
+ * reuse the row-arrival one-shot: collapsing prunes the visible keys, so each
+ * later expansion gets one fresh arrival without inventing another motion. */
+function SnoozedIssueFold({
+  groupKey,
+  rows,
+  renderRow,
+  settleTransition,
+}: {
+  groupKey: string
+  rows: TransitionWorkRow[]
+  renderRow: (row: TransitionWorkRow, animate: boolean) => JSX.Element
+  settleTransition: (key: string, placement: string) => void
+}): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:snoozed-fold:${groupKey}`, true)
+  const contentId = useId()
+  const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
+  const { arrivals, settle } = useArrivals(visibleKeys)
+  return (
+    <div className="min-w-0" data-testid="snoozed-issue-fold">
+      <button
+        data-pressable
+        type="button"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        onClick={toggle}
+        data-testid="snoozed-fold-toggle"
+      >
+        <ChevronRight
+          size={11}
+          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+          aria-hidden="true"
+        />
+        <span>Snoozed · {rows.length}</span>
+        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+      </button>
+      {!collapsed && (
+        <div id={contentId} className="min-w-0" data-testid="snoozed-fold-rows">
+          {rows.map((row) => {
+            const arriving = arrivals.has(row.key) || row.phase === 'entering'
+            return (
+              <div
+                key={row.key}
+                className={cn('min-w-0', arriving && 'row-arrive')}
+                data-testid="snoozed-fold-row"
+                onAnimationEnd={
+                  arriving
+                    ? (event) => {
+                        if (event.animationName !== 'podium-arrive-wash') return
+                        settle(row.key)
+                        settleTransition(row.key, row.placement)
+                      }
+                    : undefined
+                }
+              >
+                {renderRow(row, false)}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Project-local disclosure for settled top-level closures (POD-183). Rows are
+ * derived newest-closed-first; Archive is the explicit removal gesture. */
+function ClosedIssueFold<T>({
+  groupKey,
+  rows,
+  renderRow,
+  issueForRow,
+  onArchive,
+}: {
+  groupKey: string
+  rows: T[]
+  renderRow: (row: T) => JSX.Element
+  issueForRow: (row: T) => UnifiedIssueRowView
+  onArchive: (id: string) => void
+}): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:closed-fold:${groupKey}`, true)
+  const contentId = useId()
+  return (
+    <div className="min-w-0" data-testid="closed-issue-fold">
+      <button
+        data-pressable
+        type="button"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        onClick={toggle}
+        data-testid="closed-fold-toggle"
+      >
+        <ChevronRight
+          size={11}
+          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+          aria-hidden="true"
+        />
+        <span>Closed · {rows.length}</span>
+        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+      </button>
+      {!collapsed && (
+        <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
+          {rows.map((row) => {
+            const issueRow = issueForRow(row)
+            return (
+              <div
+                key={issueRow.issue.id}
+                className="group/closed relative min-w-0"
+                data-testid="closed-fold-row"
+              >
+                {renderRow(row)}
+                <button
+                  data-pressable
+                  type="button"
+                  data-hover-reveal
+                  // Sized and centred to the one-line folded row (POD-293): a
+                  // 20px control vertically centred at the right inset, not the
+                  // old tall-row top offset that hung off a 26px line.
+                  className="absolute top-1/2 right-1.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
+                  aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
+                  title="Archive — remove from sidebar"
+                  data-testid="closed-issue-archive"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onArchive(issueRow.issue.id)
+                  }}
+                >
+                  <Archive size={11} aria-hidden="true" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * The work list: ONE list of issue/worktree rows, always grouped by project
  * (repo), banded urgency order inside each group. The old WORKING / PINNED
@@ -513,7 +897,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     repos,
     sessions,
     pins,
-    setPinned,
     trpc,
     selectedWorktree,
     setSelectedWorktree,
@@ -526,12 +909,12 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setView,
     markIssueRead,
     markSessionRead,
+    setIssueTucked,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
       sessions: s.sessions,
       pins: s.pins,
-      setPinned: s.setPinned,
       trpc: s.trpc,
       selectedWorktree: s.selectedWorktree,
       setSelectedWorktree: s.setSelectedWorktree,
@@ -544,6 +927,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       setView: s.setView,
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
+      setIssueTucked: s.setIssueTucked,
     }),
     shallowEqual,
   )
@@ -639,6 +1023,22 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
     trpc.issues.update.mutate({ id, patch: { color } })
+  const archiveIssue = (id: string): void => {
+    void trpc.issues.archive.mutate({ id }).catch(() => {})
+  }
+  // Manual-sort persistence (POD-168): one patch per row whose key changes
+  // (fast path = exactly the dragged row; legacy backfill = the whole scope).
+  const applySortPatches = (
+    patches: Array<{ id: string; sortKey: string; pinned?: boolean }>,
+  ): Promise<unknown> =>
+    Promise.all(
+      patches.map(({ id, sortKey, pinned }) =>
+        trpc.issues.update.mutate({
+          id,
+          patch: { sortKey, ...(pinned === undefined ? {} : { pinned }) },
+        }),
+      ),
+    )
 
   return {
     work,
@@ -649,7 +1049,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     paneA,
     selectedIssueId,
     selectedWorktree,
-    setPinned,
     selectIssue,
     selectPanelForIssue,
     selectWorktree,
@@ -657,6 +1056,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     openIssuePage,
     renameIssue,
     setIssueColor,
+    archiveIssue,
+    applySortPatches,
+    setIssueTucked,
   }
 }
 
@@ -670,7 +1072,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     paneA,
     selectedIssueId,
     selectedWorktree,
-    setPinned,
     selectIssue,
     selectPanelForIssue,
     selectWorktree,
@@ -678,59 +1079,346 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     openIssuePage,
     renameIssue,
     setIssueColor,
+    archiveIssue,
+    applySortPatches,
+    setIssueTucked,
   } = useUnifiedWork(derivation)
-
-  const renderWorkRow = (row: UnifiedWorkRow) =>
-    row.kind === 'issue' ? (
-      <UnifiedIssueRow
-        key={`issue:${row.issue.id}`}
-        row={row}
-        allWorktreePaths={allWorktreePaths}
-        sessions={sessions}
-        issues={issues}
-        selectedIssueId={selectedIssueId}
-        paneA={paneA}
-        now={now}
-        onSelectIssue={selectIssue}
-        onSelectPanelForIssue={selectPanelForIssue}
-        onPinned={(sid, p) => void setPinned('panel', sid, p)}
-        onOpenIssue={openIssuePage}
-        onRenameIssue={renameIssue}
-        onColorChangeIssue={setIssueColor}
-      />
-    ) : (
-      <UnifiedWorktreeRow
-        key={`wt:${row.worktree.path}`}
-        row={row}
-        active={selectedIssueId === null && selectedWorktree === row.worktree.path}
-        paneA={paneA}
-        now={now}
-        onSelect={() => selectWorktree(row.worktree.path)}
-        onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
-        onPinned={(sid, p) => void setPinned('panel', sid, p)}
-      />
+  const shouldReduceMotion = useReducedMotion()
+  const layoutGroupId = useId()
+  const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
+    issueId: string
+    folded: boolean
+  } | null>(null)
+  useEffect(() => {
+    setSelectedClosedPlacement((placement) =>
+      placement && placement.issueId !== selectedIssueId ? null : placement,
     )
+  }, [selectedIssueId])
 
-  if (work.length === 0) {
+  // Tuck-away (POD-293): a finished row folds into Closed only when the operator
+  // dismisses it (or after the finished-grace backstop) — not the instant it
+  // finishes — so completed work stops vanishing out from under them. Read and
+  // idle sessions are not required for the control.
+  //
+  // The dismissal is SERVER state (POD-333): `issue.tuckedAt`, read by the
+  // derivation straight off the row. It used to be a `podium:sidebar:tucked:<id>`
+  // key in this browser's local ui-state, which meant the fold reset on a new
+  // browser or machine and two open clients disagreed about what was tucked.
+  // The server also owns the clear-on-reopen rule now, so a reopened issue
+  // cannot inherit a tuck from a prior close. `setIssueTucked` is optimistic
+  // (outbox overlay) — the row folds on the press, before the round-trip.
+  const tuck = (id: string) => {
+    void setIssueTucked(id, true)
+  }
+  const selectedWasFolded =
+    selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
+
+  const { pinned, rest } = useMemo(() => splitPinnedWork(work), [work])
+  const targetGroups = useMemo(
+    () => groupUnifiedWorkRows(rest, selectedIssueId, selectedWasFolded, now),
+    [now, rest, selectedIssueId, selectedWasFolded],
+  )
+  const transitionTargets = useMemo<RowTransitionTarget<WorkPlacement>[]>(
+    () => [
+      ...pinned.map((row) => ({
+        key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+        placement: 'active',
+        value: {
+          lane: 'pinned' as const,
+          groupKey: 'pinned',
+          groupLabel: 'Pinned',
+          row,
+        },
+      })),
+      ...targetGroups.flatMap((group) => [
+        ...group.rows.map((row) => ({
+          key: row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+          placement: 'active',
+          value: {
+            lane: 'open' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+        ...group.snoozedRows.map((row) => ({
+          key: `issue:${row.issue.id}`,
+          placement: `snoozed:${group.key}`,
+          value: {
+            lane: 'snoozed' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+        ...group.closedRows.map((row) => ({
+          key: `issue:${row.issue.id}`,
+          placement: `closed:${group.key}`,
+          value: {
+            lane: 'closed' as const,
+            groupKey: group.key,
+            groupLabel: group.label,
+            row,
+          },
+        })),
+      ]),
+    ],
+    [pinned, targetGroups],
+  )
+  const { items: transitionRows, settle } = useRowTransitions(transitionTargets)
+
+  // Grip-drag manual sort (POD-168): drops persist fractional sortKeys through
+  // issues.update; crossing the PINNED boundary toggles `pinned`. The preview
+  // holds until the store echoes the new order (settleDrag in the effect below),
+  // and reordering never touches row KEYS — so useArrivals stays silent (no
+  // arrival one-shot on a drag, only on genuinely new rows).
+  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  const { startDrag, settleDrag } = useRowDrag({
+    allowedTargets: (sourceScope, movedId) => {
+      if (sourceScope === 'pinned') {
+        const moved = issueById.get(movedId)
+        return moved ? [`group:${moved.repoId ?? moved.repoPath}`] : []
+      }
+      if (sourceScope.startsWith('group:')) return ['pinned']
+      return [] // children scopes: strictly within the parent
+    },
+    onDrop: ({ sourceScope, targetScope, movedId, order }) => {
+      const patches = planReorderKeys(order, movedId, (id) => issueById.get(id)?.sortKey)
+      const crossedPinned = sourceScope !== targetScope
+      void applySortPatches(
+        patches.map((p) => ({
+          ...p,
+          ...(crossedPinned && p.id === movedId ? { pinned: targetScope === 'pinned' } : {}),
+        })),
+      ).catch(() => settleDrag())
+    },
+  })
+  const onGripDown = (e: ReactPointerEvent, issueId: string) => startDrag(e, issueId)
+  // The mutation round-trips over the ws; when the derived order lands, drop
+  // the held drag preview (transforms) in the same commit.
+  useEffect(() => {
+    // `work` is the trigger: a fresh derived order means the reorder landed.
+    void work
+    settleDrag()
+  }, [work, settleDrag])
+
+  const renderWorkRow = (item: TransitionWorkRow, animate = true) => {
+    const { row, lane } = item.value
+    const folded = lane === 'closed' || lane === 'snoozed'
+    const arriving = animate && item.phase === 'entering'
+    const exiting = item.phase === 'exiting'
+    const draggable = row.kind === 'issue' && !isIssueSnoozed(row.issue, now)
+    const inner =
+      folded && row.kind === 'issue' ? (
+        // Closed / suspended issues drop to one dim line (POD-293) — no chrome,
+        // no unread, just how the work ended and a click back into it.
+        <FoldedWorkRow
+          issue={row.issue}
+          lane={lane as 'closed' | 'snoozed'}
+          now={now}
+          active={selectedIssueId === row.issue.id}
+          onSelect={() => {
+            setSelectedClosedPlacement({ issueId: row.issue.id, folded })
+            selectIssue(row.issue)
+          }}
+        />
+      ) : row.kind === 'issue' ? (
+        <UnifiedIssueRow
+          row={row}
+          allWorktreePaths={allWorktreePaths}
+          sessions={sessions}
+          issues={issues}
+          selectedIssueId={selectedIssueId}
+          paneA={paneA}
+          now={now}
+          onSelectIssue={(issue) => {
+            setSelectedClosedPlacement({ issueId: issue.id, folded })
+            selectIssue(issue)
+          }}
+          onSelectPanelForIssue={(issue, sessionId) => {
+            setSelectedClosedPlacement({ issueId: issue.id, folded })
+            selectPanelForIssue(issue, sessionId)
+          }}
+          onOpenIssue={openIssuePage}
+          onRenameIssue={renameIssue}
+          onColorChangeIssue={setIssueColor}
+          onGripDown={draggable ? onGripDown : undefined}
+          onTuck={
+            rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, now)
+              ? () => tuck(row.issue.id)
+              : undefined
+          }
+        />
+      ) : (
+        <UnifiedWorktreeRow
+          row={row}
+          issues={issues}
+          active={selectedIssueId === null && selectedWorktree === row.worktree.path}
+          paneA={paneA}
+          now={now}
+          onSelect={() => selectWorktree(row.worktree.path)}
+          onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
+        />
+      )
+    return (
+      <motion.div
+        key={`${item.key}:${item.placement}`}
+        layout="position"
+        transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+        {...(row.kind === 'issue' && draggable ? { 'data-drag-key': row.issue.id } : {})}
+        className={cn(
+          'min-w-0',
+          arriving && 'row-arrive',
+          exiting && 'pointer-events-none',
+          folded &&
+            'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
+        )}
+        style={
+          arriving && row.kind === 'issue'
+            ? ({
+                '--arrive-tint': issueColorHex(row.issue.color),
+              } as CSSProperties)
+            : undefined
+        }
+        onAnimationEnd={
+          arriving
+            ? (e) => {
+                // The wash is the longest of the three one-shots — its end (which
+                // bubbles up from the row) means the arrival is fully over.
+                if (e.animationName === 'podium-arrive-wash') settle(item.key, item.placement)
+              }
+            : undefined
+        }
+        data-transition-phase={item.phase}
+      >
+        <motion.div
+          initial={arriving && !shouldReduceMotion ? { opacity: 0, y: -8 } : false}
+          animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+          transition={
+            shouldReduceMotion
+              ? { duration: 0 }
+              : exiting
+                ? {
+                    opacity: { duration: 0.64, ease: 'easeInOut' },
+                    y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
+                  }
+                : {
+                    opacity: {
+                      duration: 0.72,
+                      delay: arriving ? 0.22 : 0,
+                      ease: 'easeInOut',
+                    },
+                    y: {
+                      duration: 0.78,
+                      delay: arriving ? 0.14 : 0,
+                      ease: [0.22, 1, 0.36, 1],
+                    },
+                  }
+          }
+        >
+          {inner}
+        </motion.div>
+      </motion.div>
+    )
+  }
+
+  const renderedPinned = transitionRows.filter((item) => item.value.lane === 'pinned')
+  const renderedGroupKeys = targetGroups.map((group) => group.key)
+  for (const item of transitionRows) {
+    if (item.value.lane !== 'pinned' && !renderedGroupKeys.includes(item.value.groupKey))
+      renderedGroupKeys.push(item.value.groupKey)
+  }
+  const renderedGroups = renderedGroupKeys.map((groupKey) => {
+    const target = targetGroups.find((group) => group.key === groupKey)
+    const fallback = transitionRows.find((item) => item.value.groupKey === groupKey)
+    return {
+      key: groupKey,
+      label: target?.label ?? fallback?.value.groupLabel ?? groupKey,
+      rows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'open',
+      ),
+      snoozedRows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'snoozed',
+      ),
+      closedRows: transitionRows.filter(
+        (item) => item.value.groupKey === groupKey && item.value.lane === 'closed',
+      ),
+    }
+  })
+
+  if (transitionRows.length === 0) {
     return (
       <div className="p-3 text-xs text-muted-foreground/70">
         Nothing yet — start an agent or create an issue above.
       </div>
     )
   }
+  // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
+  // their group entirely; unpinning returns them to its banded order.
   return (
-    <>
-      {groupUnifiedWorkRows(work).map((group, index) => (
-        <div
-          key={group.key}
-          className="flex min-w-0 flex-col gap-[3px]"
-          data-testid="project-group"
-        >
-          <ProjectGroupLabel label={group.label} first={index === 0} />
-          {group.rows.map(renderWorkRow)}
-        </div>
-      ))}
-    </>
+    <MotionConfig reducedMotion="user">
+      <LayoutGroup id={layoutGroupId}>
+        {renderedPinned.length > 0 && (
+          <motion.div
+            layout="position"
+            transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+            className="mb-2.5 flex min-w-0 flex-col gap-[3px]"
+            data-testid="pinned-section"
+            data-drag-scope="pinned"
+          >
+            <PinnedSectionLabel />
+            {renderedPinned.map((item) => renderWorkRow(item))}
+          </motion.div>
+        )}
+        {renderedGroups.map((group, index) => (
+          <motion.div
+            layout="position"
+            transition={shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+            key={group.key}
+            className="mb-2.5 flex min-w-0 flex-col gap-[3px] last:mb-0"
+            data-testid="project-group"
+            data-drag-scope={`group:${group.key}`}
+          >
+            <ProjectGroupLabel
+              label={group.label}
+              first={index === 0 && renderedPinned.length === 0}
+            />
+            {group.rows.map((item) => renderWorkRow(item))}
+            {group.snoozedRows.length > 0 && (
+              <motion.div
+                layout="position"
+                transition={
+                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                }
+              >
+                <SnoozedIssueFold
+                  groupKey={group.key}
+                  rows={group.snoozedRows}
+                  renderRow={renderWorkRow}
+                  settleTransition={settle}
+                />
+              </motion.div>
+            )}
+            {group.closedRows.length > 0 && (
+              <motion.div
+                layout="position"
+                transition={
+                  shouldReduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
+                }
+              >
+                <ClosedIssueFold
+                  groupKey={group.key}
+                  rows={group.closedRows}
+                  renderRow={renderWorkRow}
+                  issueForRow={(item) => item.value.row as UnifiedIssueRowView}
+                  onArchive={archiveIssue}
+                />
+              </motion.div>
+            )}
+          </motion.div>
+        ))}
+      </LayoutGroup>
+    </MotionConfig>
   )
 }
 
@@ -767,6 +1455,7 @@ function WorkRowShell({
   hex,
   phase,
   waitingCount,
+  showWaitingPill = true,
   timeMeta,
   active,
   unread = false,
@@ -782,18 +1471,30 @@ function WorkRowShell({
   children,
   testId,
   deemphasized = false,
+  domMark,
+  statusExtra,
+  gitStamp,
+  onGripDown,
+  onTuck,
+  band,
+  hasTreeChildren,
+  childDragScope,
+  childrenTestId,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
   label: string
-  /** Line 2's status phrase (`rowStatusLine`). */
-  statusLine: string
+  /** Line 2's status phrase (`rowStatusLine`), grouped with phase icon + timer. */
+  statusLine: ReactNode
   /** The issue colour hex, undefined for the neutral/slate flow. */
   hex: string | undefined
   phase: MotionPhase
   /** Amber line-1 pill count (0 = no pill). */
   waitingCount: number
-  /** Line 2's right meta (the PhaseTimer). */
+  /** Render the amber count pill (POD-293). False on rows that already carry an
+   *  amber decision word, so "needs you" isn't said twice in the same region. */
+  showWaitingPill?: boolean
+  /** Line 2's lifecycle meta (the PhaseTimer). */
   timeMeta?: ReactNode
   active: boolean
   /** Email-style unread emphasis (#126): the label reads bold until opened. */
@@ -816,42 +1517,110 @@ function WorkRowShell({
   testId: string
   /** Internal decomposition stays visible but subordinate to tracked work. */
   deemphasized?: boolean
+  /** Issue id stamped as data-issue-row so lineage flashes can find the row. */
+  domMark?: string
+  /** Line 2's trailing slot after the timer (the spin-off ⤷ tick, POD-85). */
+  statusExtra?: ReactNode
+  /** Line 2's git stamp [POD-98]: dot + commit counters after the status phrase. */
+  gitStamp?: ReactNode
+  /** Manual-sort grip (POD-168): when set, a ⠿ handle fades in on the row's
+   *  left edge on hover and pointerdown starts a drag. */
+  onGripDown?: (e: ReactPointerEvent) => void
+  /** Dismiss a finished row into the Closed fold (POD-293): when set, a quiet
+   *  "tuck away" control rides the row's right edge. Absent on live rows. */
+  onTuck?: () => void
+  /** Agent roster band (POD-170, L2): rendered adjacent to the row, outside
+   * the subtask tree, and folded with the row's other secondary detail. */
+  band?: ReactNode
+  /** True when the detail block contains issue-tree/roll-up content. */
+  hasTreeChildren: boolean
+  /** Drag scope and test marker belong on the actual tree container so each
+   * child can be a direct descendant and receive a correctly aligned stub. */
+  childDragScope?: string
+  childrenTestId?: string
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
   const morph = usePhaseMorph(phase)
+  const reduceMotion = useReducedMotion()
   const accent = hex ?? FLOW_SLATE
   const tints = rowTints(hex, phase, active)
   const rowStyle: CSSProperties = active
     ? {
         background: `color-mix(in srgb, ${accent} ${hex ? 28 : 20}%, #16161c)`,
-        borderColor: `color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
+        // Inset ring, not a border: selection must not change the row's height
+        // (POD-81) — the box stays identical to a plain row's.
+        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
       }
     : hex
-      ? { background: `color-mix(in srgb, ${hex} 12%, #16161c)` }
+      ? // Var-driven so the hover class can override it — an inline `background`
+        // would always beat `hover:` (POD-166: tint-aware hover, +5% mix).
+        ({
+          '--row-bg': `color-mix(in srgb, ${hex} 12%, #16161c)`,
+          '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, #16161c)`,
+        } as CSSProperties)
       : {}
+  // A coloured issue's expanded block reads as ONE carved card (POD-293): the row
+  // and its agent/subtask detail share a continuous tint inside a single
+  // issue-toned hairline (The Tint, Never Fill Rule), instead of the tint
+  // stopping at the row edge and the agents sitting bare on the chassis.
+  const hasDetail = hasTreeChildren || (!collapsed && Boolean(band))
+  const carded = Boolean(hex) && hasDetail
   return (
-    <div className="min-w-0" data-testid={testId}>
+    <div
+      className={cn('min-w-0', carded && 'rounded-[8px] border')}
+      style={
+        carded
+          ? {
+              // Subtle by design (POD-293): the issue-toned hairline is what
+              // unifies the card; the fill is only a whisper so the row stays the
+              // one strongly-coloured surface and the detail reads recessed.
+              borderColor: `color-mix(in srgb, ${hex} 34%, transparent)`,
+              background: `color-mix(in srgb, ${hex} 5%, #14141a)`,
+            }
+          : undefined
+      }
+      data-testid={testId}
+    >
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2',
-          // Handoff §2.4/§2.5: plain rows are borderless at 5px 8px; ONLY the
-          // selected row grows its border and 6px vertical padding.
-          active ? 'border py-[6px]' : 'py-[5px]',
+          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[6.5px] pr-2 pl-3.5',
+          carded && 'rounded-b-none',
           !active && !hex && 'hover:bg-[#20202a]',
+          !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
+          // A finished row that still carries the tuck-away control stays at full
+          // strength (POD-293) so the control reads crisp — the grey "done" status
+          // already says it's finished; the dim only returns once it can't be
+          // dismissed here (e.g. an unread completion).
+          phase === 'done' && !active && !unread && !onTuck && 'opacity-70',
           morph === 'waiting' && 'morph-row-flash',
           deemphasized && !active && 'scale-[0.98] opacity-70',
         )}
         style={rowStyle}
         data-phase={phase}
         data-selected={active ? 'true' : 'false'}
+        {...(domMark ? { 'data-issue-row': domMark } : {})}
       >
+        {onGripDown && (
+          // Manual-sort grip (POD-168, §4): 10px zone on the row's left edge,
+          // visible only on hover — order is the user's, nothing else moves it.
+          <span
+            className="absolute inset-y-0 left-0.5 z-[1] flex w-2.5 cursor-grab select-none items-center justify-center text-[9px] leading-none text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
+            style={{ touchAction: 'none' }}
+            data-testid="row-grip"
+            aria-hidden="true"
+            onPointerDown={onGripDown}
+          >
+            ⠿
+          </span>
+        )}
         <span className={cn('flex flex-none', morph === 'working' && 'morph-ignite')}>
           {square}
         </span>
         {expandable && (
           <button
+            data-pressable
             type="button"
             className="-ml-1.5 flex w-3.5 flex-none cursor-pointer items-center justify-center self-stretch text-muted-foreground/60 hover:text-foreground"
             onClick={onToggle}
@@ -870,6 +1639,7 @@ function WorkRowShell({
           <div className="flex min-w-0 flex-1 items-center">{editor}</div>
         ) : (
           <button
+            data-pressable
             type="button"
             // leading-[normal]: the handoff rows run the font's natural line
             // height — the preflight 1.5 would grow the two-line block past
@@ -883,7 +1653,7 @@ function WorkRowShell({
             <span className="flex min-w-0 items-center gap-1.5">
               <span
                 className={cn(
-                  'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px]',
+                  'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]',
                   // Selection lifts to semibold per the handoff; UNREAD keeps its
                   // email-style medium independent of selection (#126).
                   active ? 'font-semibold' : unread && 'font-medium',
@@ -892,8 +1662,20 @@ function WorkRowShell({
               >
                 {label}
               </span>
+              {/* Unread no longer shouts a banner (POD-293): the bold title
+                  above and the info dot on the fleet glyph (in `extras`) carry
+                  it, so the row keeps one attention voice. Prior art on why a
+                  free-floating blue dot was rejected: POD-236 — this dot is
+                  bound to the agent identity, not a third positional meaning. */}
               {extras}
-              {waitingCount > 0 && (
+              {/* The amber count earns its pill only on a row that ISN'T already
+                  saying "needs you" in words (POD-293): a review / merge decision
+                  carries the amber voice itself and the fleet tiles already show
+                  how many agents are here, so a second amber number beside them
+                  was the same signal three times. On a wordless waiting row (an
+                  agent's question) the pill stays — there it IS the needs-you
+                  signal, and its count survives the row being collapsed. */}
+              {showWaitingPill && waitingCount > 0 && (
                 <span
                   key={`pill:${waitingCount}`}
                   className={cn(
@@ -907,16 +1689,87 @@ function WorkRowShell({
                 </span>
               )}
             </span>
+            {/* Line 2 is set in mono (POD-293): the machine voice tabulates the
+                status word, timer and git counters onto one even baseline —
+                baseline-aligned so the right-side facts ("22 uncommitted", the
+                spin-off tick) sit level with the status word, not lifted toward
+                the agent tiles on the line above. */}
             <span
-              className="flex min-w-0 items-center gap-1.5 text-[10px]"
+              className="flex min-w-0 items-baseline gap-1.5 font-mono text-[9.5px]"
               style={{ color: tints.status }}
             >
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                {statusLine}
+              {/* One lifecycle lockup is the row's first-glance answer. Agent
+                  tiles remain identity-only; git renders only exceptions. */}
+              <span
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+                data-testid="row-lifecycle-status"
+                data-phase={phase}
+                style={
+                  // Yellow is the one signal (POD-293): a waiting row is NOT
+                  // tinted amber wholesale — the ask (decision word / count pill /
+                  // square dot) carries it, and the status/time read dim. Only
+                  // working (blue) and done (grey) tint their lockup.
+                  phase === 'working'
+                    ? { color: 'var(--motion-working)' }
+                    : phase === 'done'
+                      ? { color: 'var(--motion-total)' }
+                      : undefined
+                }
+              >
+                {/* The working spinner rides the ID square's corner badge now
+                    (POD-293), and a done row needs no ✓ beside its "done · Ns" —
+                    so line 2 stays a clean one-voice status phrase. */}
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium">
+                  {statusLine}
+                </span>
+                {timeMeta}
               </span>
-              {timeMeta}
+              {gitStamp}
+              {statusExtra}
             </span>
           </button>
+        )}
+        {/* Tuck-away (POD-293): a finished task no longer vanishes into Closed on
+            its own the moment it's read — it holds its place with this explicit
+            control, styled in the sidebar's own raised-chip vocabulary (chip
+            navy over a seam hairline, machine voice). No amber: nothing is being
+            asked here. On hover it firms and the glyph nudges DOWN — a small,
+            honest cue that pressing it folds the row down into Closed, where it
+            stays reachable (click to reopen, or start an agent to pick it up).
+            It kills nothing and closes nothing — the task is already finished.
+            Arrival is a one-shot fade-slide from the right (same ease as row
+            arrivals) so the control reads as a new right-edge action, not a
+            hard pop. */}
+        {onTuck && (
+          <motion.button
+            data-pressable
+            type="button"
+            data-testid="tuck-away"
+            initial={reduceMotion ? false : { opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
+            }
+            // Full content-height (POD-293): the control stretches to align with
+            // the top of the square and the bottom of the status line, reading as
+            // one clean right-edge action rather than a small floating chip.
+            className="group/tuck flex flex-none items-center gap-1.5 self-stretch rounded-md border border-[#243356] bg-[#16223c] px-2 font-mono text-[9px] tracking-[0.02em] text-[#7a84a0] transition-colors hover:border-[#364a78] hover:bg-[#1b2b49] hover:text-[#e6e9f2]"
+            title="Tuck this finished task down into Closed — it stays reachable there (click to reopen, or start an agent to pick it back up). Nothing is killed or closed."
+            aria-label={`Tuck ${label} into Closed`}
+            onClick={(event) => {
+              event.stopPropagation()
+              onTuck()
+            }}
+          >
+            <ArrowDownToLine
+              size={11}
+              aria-hidden="true"
+              className="text-[#525c78] transition-[transform,color] duration-150 group-hover/tuck:translate-y-px group-hover/tuck:text-[#9aa4c0]"
+            />
+            <span>Tuck away</span>
+          </motion.button>
         )}
         {/* Bridge notch (§2.5): grows from the selected row's right edge over the
             aside border toward the engraved column, tinted by the issue colour. */}
@@ -937,14 +1790,49 @@ function WorkRowShell({
           />
         )}
       </div>
-      {/* Child agent rows: a tree guide (vertical line + per-row stubs, via
-          .tree-children CSS) ties the group to its parent. */}
-      {!collapsed && children && (
-        <div className="tree-children relative pt-0.5 pb-1">
-          <span
-            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border"
-            aria-hidden="true"
-          />
+      {/* Agent roster band (L2): adjacent to the row, one tone tier below the
+          panel, NEVER inside the subtask tree or behind the chevron. */}
+      {/* Subtask rows (L1 — the chevron's one promise): a tree guide (vertical
+          line + per-row stubs, via .tree-children CSS) ties the child ISSUES to
+          their parent; sessions render in the band above. A coloured issue
+          flows its tint into the unfolded block: a quiet wash behind the
+          children, a tinted guide, and colour-mixed active/hover on the child
+          rows — all via vars with neutral fallbacks so uncoloured rows (and
+          every other PanelRow context) are untouched. */}
+      {/* Subtasks are rows, agents are a count (POD-293): the child ISSUE tree
+          stays visible — it's real tracked work you can select — while only the
+          agent ROSTER band folds behind the chevron. So `collapsed` gates the
+          band alone; `hasTreeChildren` renders regardless. */}
+      {hasDetail && (
+        <div
+          className={cn(
+            'tree-children relative pt-0.5 pb-1',
+            carded ? 'rounded-b-[8px]' : 'rounded-b-[7px]',
+          )}
+          data-drag-scope={hasTreeChildren ? childDragScope : undefined}
+          data-testid={hasTreeChildren ? childrenTestId : undefined}
+          style={
+            hex
+              ? ({
+                  '--tree-guide': `color-mix(in srgb, ${hex} 55%, var(--border))`,
+                  '--child-active-bg': `color-mix(in srgb, ${hex} 26%, #16161c)`,
+                  '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, #16161c)`,
+                  // Recessed and subtle (POD-293): the detail sits on a darker
+                  // navy than the row with only a whisper of the issue hue, so the
+                  // card reads carved-in — the coloured row above, a quiet well
+                  // below — rather than one uniform slab of tint.
+                  background: `color-mix(in srgb, ${hex} 6%, #0e1422)`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          {hasTreeChildren && (
+            <span
+              className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
+              aria-hidden="true"
+            />
+          )}
+          {!collapsed && band && <div data-tree-band>{band}</div>}
           {children}
         </div>
       )}
@@ -968,14 +1856,15 @@ function UnifiedIssueRow({
   now,
   onSelectIssue,
   onSelectPanelForIssue,
-  onPinned,
   onOpenIssue,
   onRenameIssue,
   onColorChangeIssue,
+  onGripDown,
+  onTuck,
   /** Visual nesting depth for started-by children (0 = top-level). */
   startedByDepth = 0,
 }: {
-  row: UnifiedIssueRow
+  row: UnifiedIssueRowView
   sessions: SessionMeta[]
   /** Whole issue list — the context menu's label pool / duplicate targets. */
   issues: IssueNavigationModel[]
@@ -985,17 +1874,28 @@ function UnifiedIssueRow({
   now: number
   onSelectIssue: (issue: IssueNavigationModel) => void
   onSelectPanelForIssue: (issue: IssueNavigationModel, sessionId: string) => void
-  onPinned: (sessionId: string, pinned: boolean) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
   onRenameIssue: (id: string, title: string) => void
   onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
+  /** Manual-sort drag start (POD-168); absent = row not draggable. */
+  onGripDown?: (e: ReactPointerEvent, issueId: string) => void
+  /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
+   *  tuckable done row, so the control is hidden. */
+  onTuck?: () => void
   startedByDepth?: number
 }): JSX.Element {
   const { issue, sessions: mine, startedByChildren = [] } = row
   const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
+  // Agents are a count, not always-on rows (POD-293): a non-pinned issue folds
+  // its roster/subtask detail by default, so the list reads as one calm line per
+  // task with the fleet glyph carrying "N agents". Pinned issues — the ones you
+  // chose to watch — stay expanded. Per-issue toggles still persist and win.
+  const [collapsed, toggle] = useCollapsed(
+    `podium:sidebar:unified-issue:${issue.id}`,
+    !issue.pinned,
+  )
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   // Commit a rename: trim, and no-op on empty/whitespace or an unchanged title so
@@ -1012,14 +1912,25 @@ function UnifiedIssueRow({
       onCancel={() => setEditing(false)}
     />
   ) : undefined
-  // Expand when multi-agent / remote spawn children need nesting, when a
-  // lone parent has live native subagents, or when started-by children nest
-  // under this issue (M6 provenance tree).
+  // Sessions earning visibility (multi-agent / remote spawn / native subagents)
+  // render in the ADJACENT roster band (L2), never inside the issue tree. The
+  // issue disclosure folds all detail while the compact fleet summary remains.
+  // A LONE driver never earns a band (POD-267) — it fuses into the row as the
+  // fleet-summary glyph, nested subtasks or not; boxing one agent alongside plan
+  // structure spent a whole tone tier on a single icon.
   const showSessions = sessionsNeedChildRows(mine)
   const hasStartedBy = startedByChildren.length > 0
-  const showChildren = showSessions || hasStartedBy
+  // Depth cap (L4): the sidebar renders parent + children, then numbers. A
+  // depth-1 row never recurses — its whole subtree compresses into the quiet
+  // roll-up line, counted over ALL descendants (parentId edges) so done
+  // children that already decayed out of rows still show up in the k/m (L5).
+  const capped = startedByDepth >= 1
+  const rollup = capped ? branchRollup(issues, issue.id) : null
+  const showRollup = rollup !== null && rollup.total > 0
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
+  // What this row is asking of the human, if anything (POD-279).
+  const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
   const timing = rowMotionTiming(row)
   const hex = issueColorHex(issue.color)
@@ -1028,12 +1939,27 @@ function UnifiedIssueRow({
       issue={issue}
       state={phase}
       selected={active}
-      badge={waitingCount > 0 ? { kind: 'dot' } : null}
+      size={30}
+      // The ask wins the corner (amber dot); otherwise a working row shows the
+      // blue spinner badge on the square itself (POD-293), not beside line 2.
+      badge={
+        waitingCount > 0
+          ? { kind: 'dot' }
+          : phase === 'working'
+            ? { kind: 'spinner' }
+            : null
+      }
       onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
   )
+  // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
+  // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
+  // the row flashes the origin.
+  const originDep = issue.deps.find((d) => d.type === 'discovered-from')
+  const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
   // Draft vessel whose only content is agents → clicking opens the session.
-  const draftAgentOnly = issue.draft && mine.length > 0 && !issue.worktreePath
+  // Shared with the nesting rule so structure and rendering agree (POD-282).
+  const draftAgentOnly = isDraftAgentVessel(issue, mine)
   const first = mine[0]
   const label = issue.draft ? draftIssueLabel(issue, _all, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {
@@ -1046,6 +1972,7 @@ function UnifiedIssueRow({
     <IssueContextMenu
       issues={[issue]}
       allIssues={issues}
+      surface="sidebar"
       anchor={menuAnchor}
       onClose={() => setMenuAnchor(null)}
       onOpen={(id) => {
@@ -1062,14 +1989,28 @@ function UnifiedIssueRow({
     <PanelRow
       key={session.sessionId}
       session={session}
-      pinned={false}
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
-      onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight
+      roster
+      stub
       coordinator={isCoordinatorSession(issue, session.sessionId)}
+      issueDisplayRef={issue.displayRef}
     />
   )
+  // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
+  const band =
+    !draftAgentOnly && showSessions ? (
+      <AgentRosterBand
+        label="Agents"
+        count={mine.length}
+        variant="rail"
+        className="mt-0.5 mb-[3px] ml-8"
+      >
+        <GroupedSessionRows sessions={visible} render={renderRow} dense />
+        <StaleSection sessions={stale} render={renderRow} dense />
+      </AgentRosterBand>
+    ) : undefined
   return (
     <>
       <WorkRowShell
@@ -1077,10 +2018,33 @@ function UnifiedIssueRow({
         deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
-        statusLine={rowStatusLine(row, now)}
+        onTuck={onTuck}
+        statusLine={
+          decision !== null ? (
+            // The one word that answers "what is being asked of me here" — a
+            // merge states its commit count so the row is a fact, not a mood
+            // (POD-279). It is the row's single amber voice (POD-293): plain
+            // weighted text, no box, no icon — the boxed chip made every review
+            // row shout. The git stamp's own "N commits ahead" is suppressed
+            // below: one voice per region (DESIGN.md, The Signal Rule).
+            <span
+              data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
+              data-decision={decision}
+              title={pendingDecisionTitle(issue, decision)}
+              className="flex-none font-semibold text-attention"
+            >
+              {pendingDecisionLabel(issue, decision)}
+            </span>
+          ) : (
+            rowStatusLine(row, now, capped ? 0 : 1)
+          )
+        }
         hex={hex}
         phase={phase}
         waitingCount={waitingCount}
+        // Suppress the amber pill when the row already states its ask in words
+        // (needs review / ready to merge) — one amber voice per region (POD-293).
+        showWaitingPill={decision === null}
         timeMeta={
           <PhaseTimer
             phase={timing.phase}
@@ -1088,19 +2052,58 @@ function UnifiedIssueRow({
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
             size={9}
+            showSpinner={false}
+            plainLanguage
+            leadingSeparator
+            mutedWaiting
             className="flex-none"
           />
         }
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
+        // The chevron folds the agent ROSTER only (POD-293) — subtasks are
+        // always-visible rows, so a subtask-only issue needs no toggle.
+        gitStamp={
+          issue.gitState && (
+            <GitStamp
+              issueBranch={issue.branch}
+              git={issue.gitState}
+              density="stamp"
+              suppressAhead={decision === 'merge'}
+              className="flex-none"
+            />
+          )
+        }
         unread={unread}
-        expandable={!draftAgentOnly && showChildren}
-        collapsed={draftAgentOnly || !showChildren ? true : collapsed}
+        expandable={!draftAgentOnly && showSessions}
+        collapsed={draftAgentOnly ? true : collapsed}
         onToggle={toggle}
+        band={band}
+        hasTreeChildren={showRollup || (!capped && hasStartedBy)}
         // A draft is just its agent — clicking the row opens the session itself.
         onSelect={
           draftAgentOnly && first
             ? () => onSelectPanelForIssue(issue, first.sessionId)
-            : () => onSelectIssue(issue)
+            : () => {
+                if (origin) flashLineage(origin.id)
+                onSelectIssue(issue)
+              }
+        }
+        domMark={issue.id}
+        onGripDown={
+          onGripDown && !isIssueSnoozed(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
+        }
+        childDragScope={!capped && hasStartedBy ? `children:${issue.id}` : undefined}
+        childrenTestId={!capped && hasStartedBy ? 'started-by-children' : undefined}
+        statusExtra={
+          origin && (
+            <span
+              className="flex-none font-mono text-[9px] leading-[13px] tabular-nums"
+              data-testid="spinoff-origin-tick"
+              title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
+            >
+              ⤷ {origin.seq}
+            </span>
+          )
         }
         onContextMenu={onContextMenu}
         onDoubleClick={() => setEditing(true)}
@@ -1108,11 +2111,9 @@ function UnifiedIssueRow({
         titleHint={issueIdTitle(issue)}
         extras={
           <>
-            {/* The seq agents cite ("#15") — small and muted, purely for
-                orientation when matching chat/CLI references to rows (#21). */}
-            <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
-              {issueDisplayRef(issue)}
-            </span>
+            {/* The row's ref lives in the identity square alone (POD-85) — the
+                muted repeat here doubled every row's ID for no added signal.
+                Hover still surfaces the full ref via titleHint. */}
             {issue.audience === 'agent' && (
               <span
                 className="flex-none rounded border border-slate-500/40 px-1 text-[8.5px] uppercase tracking-wide text-slate-500"
@@ -1121,15 +2122,9 @@ function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {startedByDepth > 0 && (
-              <span
-                className="flex-none rounded border border-teal-500/45 bg-teal-500/10 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400"
-                data-testid="started-by-badge"
-                title="Started by an agent on the parent issue (provenance nest, not a formal sub-issue)"
-              >
-                started-by
-              </span>
-            )}
+            {!draftAgentOnly && <IssueFleetSummary sessions={mine} unread={unread} />}
+            {/* No started-by/epic jargon chips (POD-85): the dashed provenance
+                nest and the expand chevron already say it visually. */}
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}
@@ -1148,155 +2143,148 @@ function UnifiedIssueRow({
                 Unsnoozed
               </span>
             )}
-            {isEpic(issue) && (
-              <span className="flex-none rounded border border-violet-500/50 px-1 text-[8.5px] leading-4 text-violet-600 dark:text-violet-400">
-                epic
-              </span>
-            )}
           </>
         }
       >
-        {!draftAgentOnly && showChildren && (
-          <>
-            {/* Show member sessions when multi-agent/spawn nesting needs them,
-                or when the row expands for started-by children (so the driver
-                stays visible next to nested provenance issues). */}
-            {(showSessions || (hasStartedBy && mine.length > 0)) && (
-              <>
-                <GroupedSessionRows sessions={visible} render={renderRow} />
-                <StaleSection sessions={stale} render={renderRow} />
-              </>
-            )}
-            {hasStartedBy && (
-              <div
-                className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
-                data-testid="started-by-children"
-              >
-                {startedByChildren.map((child) => (
-                  <UnifiedIssueRow
-                    key={`issue:${child.issue.id}`}
-                    row={child}
-                    allWorktreePaths={allWorktreePaths}
-                    sessions={_all}
-                    issues={issues}
-                    selectedIssueId={selectedIssueId}
-                    paneA={paneA}
-                    now={now}
-                    onSelectIssue={onSelectIssue}
-                    onSelectPanelForIssue={onSelectPanelForIssue}
-                    onPinned={onPinned}
-                    onOpenIssue={onOpenIssue}
-                    onRenameIssue={onRenameIssue}
-                    onColorChangeIssue={onColorChangeIssue}
-                    startedByDepth={startedByDepth + 1}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+        {showRollup && rollup && (
+          // Roll-up line (L4): depth beyond two levels becomes numbers. Mono,
+          // faint, still; hover surfaces the affordance; click deep-links to
+          // the issue page's subtask tree — no third indent, no camera modes.
+          <button
+            data-pressable
+            type="button"
+            data-testid="subtree-rollup"
+            className="group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-[9.5px] leading-[normal] text-muted-foreground/50 hover:bg-white/[.04] hover:text-muted-foreground"
+            title={`Open ${issueIdTitle(issue)} subtask tree`}
+            onClick={() => onOpenIssue(issue.id)}
+          >
+            └ {rollup.total} deeper · {rollup.done}/{rollup.total} done
+            <span
+              data-hover-reveal
+              className="ml-auto flex-none text-[8.5px] opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
+              aria-hidden="true"
+            >
+              open tree ↗
+            </span>
+          </button>
         )}
+        {!draftAgentOnly &&
+          !capped &&
+          hasStartedBy &&
+          startedByChildren.map((child) => (
+            <div
+              key={`issue:${child.issue.id}`}
+              className="ml-5 min-w-0"
+              {...(!isIssueSnoozed(child.issue, now) ? { 'data-drag-key': child.issue.id } : {})}
+            >
+              <UnifiedIssueRow
+                row={child}
+                allWorktreePaths={allWorktreePaths}
+                sessions={_all}
+                issues={issues}
+                selectedIssueId={selectedIssueId}
+                paneA={paneA}
+                now={now}
+                onSelectIssue={onSelectIssue}
+                onSelectPanelForIssue={onSelectPanelForIssue}
+                onOpenIssue={onOpenIssue}
+                onRenameIssue={onRenameIssue}
+                onColorChangeIssue={onColorChangeIssue}
+                onGripDown={onGripDown}
+                startedByDepth={startedByDepth + 1}
+              />
+            </div>
+          ))}
       </WorkRowShell>
       {menu}
     </>
   )
 }
 
-/** The worktree pseudo-square: a with-session worktree owned by no issue has
- *  no identity square, so it wears the branch glyph in the same 26px frame —
- *  square language (solid/dashed border) intact, no colour, no picker. */
-function BranchSquare({ phase }: { phase: MotionPhase }): JSX.Element {
-  const resting = phase === 'queued'
-  return (
-    <span
-      data-testid="worktree-branch-square"
-      className="phase-surface flex size-[26px] flex-none items-center justify-center rounded-[7px] bg-[#25252f]"
-      style={{
-        border: resting ? '1px dashed #6c6c78' : '1px solid #8d8d9a',
-        color: resting ? '#8d8d9a' : '#c5c5d0',
-        opacity: resting ? 0.65 : 1,
-      }}
-    >
-      <GitBranch size={12} aria-hidden="true" />
-    </span>
-  )
+/** Provenance whisper for an orphaned session (L6): a session whose issue was
+ *  deleted or archived names its origin — `from POD-32 · deleted` — instead of
+ *  silently pooling into an anonymous branch row. Presentation only; the
+ *  data-layer orphan fix is POD-135. */
+function orphanProvenance(
+  session: SessionMeta,
+  issues: IssueNavigationModel[],
+): { text: string; hint: string } | null {
+  if (!session.issueId) return null
+  const issue = issues.find((i) => i.id === session.issueId)
+  if (issue && !issue.archived && !issue.deletedAt) return null
+  // Birth displayRef (POD-13-A) carries the issue ref even when the issue row
+  // is gone from the wire entirely.
+  const ref = issue ? issueDisplayRef(issue) : (session.displayRef?.replace(/-[A-Z]+$/, '') ?? null)
+  const cause = issue ? (issue.deletedAt ? 'deleted' : 'archived') : 'deleted'
+  return {
+    text: ref ? `from ${ref} · ${cause}` : `issue ${cause}`,
+    hint: `This session's issue was ${cause}; it decays on its own session clock.`,
+  }
 }
 
-/** A with-session worktree owned by no issue — same row skeleton, branch square. */
+/** Sessions no live issue owns (L6): guests, not issues. The whole worktree
+ *  entry renders in the roster grammar — a rail-navy band at its project
+ *  group's tail labeled `repo · branch` in machine voice — never as a
+ *  pseudo-issue row named "main". */
 function UnifiedWorktreeRow({
   row,
+  issues,
   active,
   paneA,
   now,
   onSelect,
   onSelectPanel,
-  onPinned,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
+  issues: IssueNavigationModel[]
   active: boolean
   paneA: string | null
   now: number
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
-  onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
-  const unread = rowUnreadEmphasized(row)
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
-  // Same expand rule as issue rows: multi-agent / remote spawn / native count.
-  const showChildren = sessionsNeedChildRows(worktree.sessions)
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
-  const phase = rowMotionPhase(row)
-  const timing = rowMotionTiming(row)
-  const renderRow = (session: SessionMeta) => (
-    <PanelRow
-      key={session.sessionId}
-      session={session}
-      pinned={false}
-      active={active && paneA === session.sessionId}
-      onSelect={() => onSelectPanel(session.sessionId)}
-      onPinned={(p) => onPinned(session.sessionId, p)}
-      dotRight
-    />
-  )
+  const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
+  const renderRow = (session: SessionMeta) => {
+    const orphan = orphanProvenance(session, issues)
+    const attachedIssueDisplayRef = session.issueId
+      ? issues.find((issue) => issue.id === session.issueId)?.displayRef
+      : undefined
+    return (
+      <PanelRow
+        key={session.sessionId}
+        session={session}
+        active={active && paneA === session.sessionId}
+        onSelect={() => onSelectPanel(session.sessionId)}
+        dotRight
+        roster
+        issueDisplayRef={attachedIssueDisplayRef}
+        trailingMeta={
+          orphan ? (
+            <span
+              className="flex-none font-mono text-[8.5px] text-[#525c78]"
+              data-testid="orphan-provenance"
+              title={orphan.hint}
+            >
+              {orphan.text}
+            </span>
+          ) : undefined
+        }
+      />
+    )
+  }
   return (
-    <WorkRowShell
+    <AgentRosterBand
       testId="unified-worktree-row"
-      square={<BranchSquare phase={phase} />}
-      label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
-      statusLine={rowStatusLine(row, now)}
-      hex={undefined}
-      phase={phase}
-      waitingCount={rowWaitingCount(row)}
-      timeMeta={
-        <PhaseTimer
-          phase={timing.phase}
-          sinceMs={timing.sinceMs}
-          baseMs={timing.baseMs ?? 0}
-          totalMs={timing.totalMs}
-          size={9}
-          className="flex-none"
-        />
-      }
+      label={`${worktree.repoName} · ${branch}`}
+      count={worktree.sessions.length}
       active={active}
-      unread={unread}
-      expandable={showChildren}
-      collapsed={showChildren ? collapsed : true}
-      onToggle={toggle}
-      onSelect={onSelect}
-      extras={
-        worktree.isMain ? (
-          <span className="flex-none rounded border border-border px-[5px] py-px text-[8.5px] uppercase tracking-[0.03em] text-[#8a8a97]">
-            main
-          </span>
-        ) : undefined
-      }
+      onLabelClick={onSelect}
+      labelHint={worktree.path}
     >
-      {showChildren && (
-        <>
-          <GroupedSessionRows sessions={visible} render={renderRow} />
-          <StaleSection sessions={stale} render={renderRow} />
-        </>
-      )}
-    </WorkRowShell>
+      <GroupedSessionRows sessions={visible} render={renderRow} dense />
+      <StaleSection sessions={stale} render={renderRow} dense />
+    </AgentRosterBand>
   )
 }

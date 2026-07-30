@@ -104,4 +104,23 @@ describe('SessionStore queued_messages', () => {
     expect(store.sync.listQueuedMessages('s-a')).toEqual([])
     expect(store.sync.listQueuedMessages('s-b').map((m) => m.id)).toEqual(['b1'])
   })
+  it('persists explicit causal input origins with queued prompts', () => {
+    const store = new SessionStore(':memory:')
+    store.sync.enqueueMessage({
+      id: 'steward-1',
+      sessionId: 'parent',
+      text: 'child done',
+      queuedAt: 1000,
+      inputOrigin: 'steward',
+    })
+    store.sync.enqueueMessage({
+      id: 'mail-1',
+      sessionId: 'worker',
+      text: 'new mail',
+      queuedAt: 1000,
+      inputOrigin: 'mail',
+    })
+    expect(store.sync.listQueuedMessages('parent')[0]?.inputOrigin).toBe('steward')
+    expect(store.sync.listQueuedMessages('worker')[0]?.inputOrigin).toBe('mail')
+  })
 })

@@ -49,6 +49,7 @@ export function SendUserFileBlock({
             // as the fallback when an image fails to load (moved/deleted/denied).
             const chip = (
               <button
+                data-pressable
                 key={p}
                 type="button"
                 onClick={() => openFile(sessionId, abs)}
@@ -80,9 +81,10 @@ export function SendUserFileBlock({
   )
 }
 
-/** One SendUserFile image thumbnail. Falls back to the file chip if the image
- *  fails to load (file moved/deleted, or read denied) — no broken-image glyph. */
-function SentImageThumb({
+/** One inline image thumbnail (SendUserFile shares it with user-upload tags in
+ *  ChatBlockView). Falls back to the file chip if the image fails to load
+ *  (file moved/deleted, or read denied) — no broken-image glyph. */
+export function SentImageThumb({
   url,
   name,
   onOpen,
@@ -97,6 +99,7 @@ function SentImageThumb({
   if (failed) return fallback
   return (
     <button
+      data-pressable
       type="button"
       onClick={onOpen}
       className="overflow-hidden rounded-md border border-border hover:border-primary"

@@ -1,7 +1,9 @@
+import { CUE_SOUNDS, play, SOUNDS_ENABLED_KEY } from '@podium/client-core/sound'
 import type { PodiumSettings } from '@podium/runtime'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -60,6 +62,7 @@ export function NotificationsSection({
         />
         <NotificationPermissionButton />
       </Row>
+      <SoundsRow />
       <Row label="ntfy.sh topic">
         <Input
           type="text"
@@ -201,6 +204,30 @@ function TelegramSetupStatus({
       </a>
       {setup.error && <p className="text-destructive">{setup.error}</p>}
     </div>
+  )
+}
+
+/** Sound cues on agent-state transitions [POD-78]. Device-local (UiState, not
+ *  the server settings blob): it's about THIS machine's speakers. Flipping it
+ *  on plays the "done" cue — a preview that doubles as the user gesture
+ *  WKWebView needs to unlock audio. */
+function SoundsRow(): JSX.Element {
+  const uiState = useStoreSelector((s) => s.uiState)
+  const [enabled, setEnabled] = useState(() => uiState.get(SOUNDS_ENABLED_KEY) !== 'false')
+  return (
+    <Row label="Notification sounds">
+      <Switch
+        checked={enabled}
+        onCheckedChange={(checked) => {
+          uiState.set(SOUNDS_ENABLED_KEY, String(checked))
+          setEnabled(checked)
+          if (checked) play(CUE_SOUNDS.done)
+        }}
+      />
+      <span className="text-muted-foreground text-xs">
+        agent done, questions, approvals, errors — this device only
+      </span>
+    </Row>
   )
 }
 

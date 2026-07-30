@@ -161,8 +161,14 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
         )}
         {done && <p className="text-[12px] text-muted-foreground">{done}</p>}
         <div className="flex items-center gap-2">
-          <Button type="button" disabled={busy || !next} onClick={() => void save()}>
-            {busy ? 'Saving…' : enabled ? 'Change password' : 'Set password'}
+          <Button
+            type="button"
+            disabled={!next}
+            pending={busy}
+            pendingLabel="Saving password…"
+            onClick={() => void save()}
+          >
+            {enabled ? 'Change password' : 'Set password'}
           </Button>
           {enabled && (
             <Button

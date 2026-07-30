@@ -1,18 +1,154 @@
-import { formatChurn, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
+import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo } from 'react'
+import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import { renderMarkdown } from '@/lib/markdown'
+import { isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipalLabel, parseMessageEnvelope } from './message-envelope'
-import { SendUserFileBlock } from './SendUserFileBlock'
+import { envelopePrincipal, parseEnvelopeBatch, type ParsedEnvelope } from './message-envelope'
+import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
+
+/** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
+ *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
+ *  view), and file links. Used by the ordinary turn body AND the envelope
+ *  block, so refs behave identically everywhere. */
+function handleChatMdClick(
+  e: ReactMouseEvent,
+  sessionId: string,
+  cwd: string,
+  openFile: (sessionId: string, path: string) => void,
+): void {
+  if (handleCodeCopyClick(e)) return
+  const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
+  if (refA) {
+    const ref = refA.getAttribute('data-ref')
+    if (ref) {
+      e.preventDefault()
+      activateRef(ref, e)
+    }
+    return
+  }
+  const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
+  if (!a) return
+  e.preventDefault()
+  const p = a.getAttribute('data-path')
+  if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+}
+
+/** An envelope-header principal: the nice-id issue ref renders as the same
+ *  clickable ref-link chip the markdown pass emits, so the sender/recipient
+ *  are as navigable as refs in the body. Legacy `#seq` labels and sessions
+ *  stay plain text. */
+function PrincipalLabel({ label }: { label: string }): JSX.Element {
+  const p = envelopePrincipal(label)
+  const chip = p.ref !== null && isKnownRefPrefix(p.ref.split('-')[0] ?? '')
+  return (
+    <>
+      {p.pre}
+      {p.ref !== null &&
+        (chip ? (
+          // biome-ignore lint/a11y/useValidAnchor: in-window chip like the markdown-emitted ref links — navigation is store-driven, there is no URL to href
+          <a className="ref-link ref-link--issue" data-ref={p.ref}>
+            {p.ref}
+          </a>
+        ) : (
+          p.ref
+        ))}
+      {p.post}
+    </>
+  )
+}
+
+function MessageEnvelopeRow({
+  envelope,
+  className,
+  blockIndex,
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  envelope: ParsedEnvelope
+  className: string
+  blockIndex?: number
+  sessionId: string
+  cwd: string
+  openFile: (sessionId: string, path: string) => void
+}): JSX.Element {
+  const html = useMemo(() => renderMarkdown(envelope.body), [envelope.body])
+  return (
+    <div
+      className={className}
+      data-block={blockIndex}
+      data-internal-message="true"
+      data-testid="message-envelope"
+    >
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body">
+        <div
+          className="relative overflow-hidden rounded-r-lg border border-border/70 border-l-0 bg-muted/20 px-3.5 py-2.5 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-info/70"
+          onClick={(e) => {
+            handleChatMdClick(e, sessionId, cwd, openFile)
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] tracking-[0.11em] text-muted-foreground/70 uppercase">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-info">
+              <MailIcon size={11} aria-hidden="true" />
+              Internal
+            </span>
+            <span aria-hidden="true" className="h-3 w-px bg-border" />
+            <span className="tracking-normal text-muted-foreground normal-case">
+              <PrincipalLabel label={envelope.from} />
+              <span className="px-1.5 text-muted-foreground/40">→</span>
+              <PrincipalLabel label={envelope.to} />
+            </span>
+            {envelope.question && (
+              <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-amber-600 dark:text-amber-400">
+                question
+              </span>
+            )}
+            {envelope.expectsReply && (
+              <span className="rounded-sm bg-info/10 px-1.5 py-0.5 font-semibold text-[8px] tracking-wide text-info">
+                reply requested
+              </span>
+            )}
+            <span className="ml-auto tracking-normal text-muted-foreground/45 normal-case">
+              {envelope.id}
+            </span>
+          </div>
+          <div
+            className="chat-md mt-2 border-border/50 border-t pt-2 text-[13px] text-foreground/85"
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify in renderMarkdown
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {envelope.machineNote && (
+            <div className="mt-2 border-border/50 border-t pt-1.5 font-mono text-[9px] text-muted-foreground/55">
+              {envelope.machineNote}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Right-aligned mono clock on compact role labels (mock S1). Absent ts → no row. */
+function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
+  if (!ts) return null
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return null
+  return (
+    <span className="chat-clk">
+      {String(d.getHours()).padStart(2, '0')}:{String(d.getMinutes()).padStart(2, '0')}
+    </span>
+  )
+}
 
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
@@ -31,6 +167,9 @@ export const ChatBlockView = memo(function ChatBlockView({
   askLivePending,
   onAnswerAsk,
   collapseContext = false,
+  compact = false,
+  ctxSeq = null,
+  stickyOperator = false,
 }: {
   block: ChatBlock
   index: number
@@ -48,6 +187,15 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
    *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
   collapseContext?: boolean
+  /** Superagent-column treatment: shared Flat Field messages at narrow-column
+   * dimensions, with mono clocks, context labels, and an amber `→ next:` row. */
+  compact?: boolean
+  /** Issue seq the LATEST turn was answered with (compact only) — renders the
+   *  `· POD-x context` suffix on that answer's SUPER AGENT label. */
+  ctxSeq?: number | null
+  /** True for an operator-authored row while the device-local sticky-prompt
+   * preference is enabled. The row itself sticks; no duplicate header. */
+  stickyOperator?: boolean
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -55,15 +203,30 @@ export const ChatBlockView = memo(function ChatBlockView({
   // in a "user" turn — render it as a distinct framed block, never a "You"
   // bubble. Operator messages arrive unwrapped and fall through to the
   // ordinary user rendering (unwrapped = the human).
-  const envelope = useMemo(
-    () => (item.role === 'user' ? parseMessageEnvelope(item.text) : null),
+  const envelopeBatch = useMemo(
+    () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
     [item.role, item.text],
   )
-  const html = useMemo(
-    () => renderMarkdown(envelope ? envelope.body : item.text),
-    [envelope, item.text],
-  )
+  // Compact answers ending in a "→ next: …" line render it as a mono amber row
+  // of its own (mock S1), not markdown prose.
+  const nextSplit = useMemo(() => {
+    if (!compact || item.role !== 'assistant' || !item.answer) return null
+    const lines = item.text.trimEnd().split('\n')
+    const last = lines[lines.length - 1]?.trim() ?? ''
+    return /^(→|->)\s*next:/i.test(last)
+      ? { body: lines.slice(0, -1).join('\n'), next: last.replace(/^->\s*/, '→ ') }
+      : null
+  }, [compact, item.role, item.answer, item.text])
+  const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
+  const html = useMemo(() => renderMarkdown(displayText), [displayText])
   const rowClass = cn(
+    'group transcript-row isolate mx-auto w-full max-w-[960px]',
+    stickyOperator &&
+      'sticky -top-6 z-[3] transition-[box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    dimmed && 'opacity-35',
+  )
+  const nonStickyRowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
@@ -131,7 +294,10 @@ export const ChatBlockView = memo(function ChatBlockView({
         )}
       >
         <span className="h-px flex-1 bg-border/60" />
-        <Clock size={11} aria-hidden="true" /> Churned for {formatChurn(item.durationMs ?? 0)}
+        <span className="inline-flex items-center gap-1.5 px-0.5">
+          <Clock size={11} aria-hidden="true" />
+          <span>Churned for {formatChurn(item.durationMs ?? 0)}</span>
+        </span>
         <span className="h-px flex-1 bg-border/60" />
       </div>
     )
@@ -166,141 +332,140 @@ export const ChatBlockView = memo(function ChatBlockView({
     )
   }
 
-  // A delivered message from another principal — a distinct framed block, not
-  // a "You" bubble (#237) [spec:SP-34d7 web]. Sender, message id, question
-  // marker; the body is the sanitized text the agent actually received.
-  if (envelope)
-    return (
-      <div className={rowClass} data-block={index} data-testid="message-envelope">
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-        <div className="transcript-body">
-          <div className="rounded-md border border-info/40 bg-info/5 px-3 py-2">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
-              <MailIcon size={12} className="self-center text-info" aria-hidden="true" />
-              <span className="font-medium text-info">{envelopePrincipalLabel(envelope.from)}</span>
-              <span className="text-muted-foreground/70">
-                → {envelopePrincipalLabel(envelope.to)}
-              </span>
-              {envelope.question && (
-                <span className="rounded border border-amber-500/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                  question
-                </span>
-              )}
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
-                {envelope.id}
-              </span>
-            </div>
-            <div
-              className="chat-md mt-1"
-              onClick={(e) => {
-                handleCodeCopyClick(e)
-              }}
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          </div>
-        </div>
-      </div>
-    )
+  const envelopeRows = envelopeBatch?.envelopes.map((envelope, envelopeIndex) => (
+    <MessageEnvelopeRow
+      key={envelope.id}
+      envelope={envelope}
+      className={nonStickyRowClass}
+      blockIndex={envelopeBatch.operatorText === '' && envelopeIndex === 0 ? index : undefined}
+      sessionId={sessionId}
+      cwd={cwd}
+      openFile={openFile}
+    />
+  ))
 
-  // Rail: user → blue accent, final answer → primary/amber, everything else → none
-  const hasUserRail = item.role === 'user'
-  const hasAnswerRail = item.role === 'assistant' && !!item.answer
-  const hasRail = hasUserRail || hasAnswerRail
+  // A delivered message from another principal is internal traffic, never a
+  // "You" bubble and never sticky. Multiple leading frames may share one
+  // provider turn; any human follow-up continues below as its own prompt row.
+  if (envelopeBatch && envelopeBatch.operatorText === '') return <>{envelopeRows}</>
+
+  // Flat Field (POD-159): agent prose lies flat on the chassis; the operator's
+  // turn is the only elevated (embossed) surface; the final answer is marked by
+  // the field's single yellow keyline rather than a box.
+  const isUser = item.role === 'user'
+  const isAnswer = item.role === 'assistant' && !!item.answer
 
   return (
-    <div className={rowClass} data-block={index}>
-      {hasRail ? (
+    <>
+      {envelopeRows}
+      <div
+        className={rowClass}
+        data-block={index}
+        data-operator-prompt={isUser ? 'true' : undefined}
+      >
+        {stickyOperator && (
+          <div
+            className="pointer-events-none absolute inset-y-0 left-1/2 -z-10 w-screen -translate-x-1/2 bg-background/90 opacity-0 backdrop-blur-sm transition-opacity duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-data-[stuck=true]:opacity-100 motion-reduce:transition-none"
+            data-sticky-prompt-backdrop
+            aria-hidden="true"
+          />
+        )}
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div
           className={cn(
-            'transcript-rail',
-            hasUserRail && 'transcript-rail--user',
-            hasAnswerRail && 'transcript-rail--answer',
+            'transcript-body',
+            isUser && 'transcript-you',
+            isAnswer && 'transcript-answer',
           )}
-          aria-hidden="true"
-        />
-      ) : (
-        // No rail: spacer so body lines up with railed rows
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      )}
-      <div className="transcript-body">
-        {item.role === 'user' && (
-          <div className="transcript-header">
-            <span className="transcript-role">You</span>
-          </div>
-        )}
-        {item.role === 'system' && (
-          <div className="transcript-header">
-            <span className="transcript-role transcript-role--system">System</span>
-          </div>
-        )}
-        {item.role === 'assistant' && item.answer && (
-          <div className="transcript-header">
-            <span className="transcript-role transcript-role--answer">Answer</span>
-          </div>
-        )}
-        <div
-          className="chat-md"
-          onClick={(e) => {
-            if (handleCodeCopyClick(e)) return
-            // Human-facing ref links (#474): plain click opens the floating
-            // miniview, Cmd/Ctrl-click jumps to the full issue/session view.
-            const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
-            if (refA) {
-              const ref = refA.getAttribute('data-ref')
-              if (ref) {
-                e.preventDefault()
-                activateRef(ref, e)
-              }
-              return
-            }
-            const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
-            if (!a) return
-            e.preventDefault()
-            const p = a.getAttribute('data-path')
-            if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
-          }}
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-        {item.tags && item.tags.length > 0 && (
-          <div className="mt-1.5 flex gap-1.5">
-            {item.tags.map((tag, i) => {
-              const filePath =
-                tag.kind === 'file' && item.toolPaths?.[0]
-                  ? resolveAgainstCwd(cwd, item.toolPaths[0])
-                  : null
-              return filePath ? (
-                <button
-                  key={`${tag.kind}-${i}`}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openFile(sessionId, filePath)
-                  }}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title={`Open ${filePath}`}
-                >
-                  <FileText size={12} aria-hidden="true" />
-                  {tag.label ?? tag.kind}
-                </button>
-              ) : (
-                <span
-                  key={`${tag.kind}-${i}`}
-                  className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                >
-                  {tag.kind === 'image' ? (
-                    <ImageIcon size={12} aria-hidden="true" />
-                  ) : (
+        >
+          {isUser && (
+            <div className="transcript-you-label">
+              You
+              {compact && <BlockClock ts={item.ts} />}
+            </div>
+          )}
+          {item.role === 'system' && (
+            <div className="transcript-header">
+              <span className="transcript-role transcript-role--system">System</span>
+            </div>
+          )}
+          {isAnswer && (
+            <div className="transcript-answer-label">
+              {compact ? 'Super agent' : 'Answer'}
+              {compact && ctxSeq !== null && (
+                <span className="chat-ctx">· POD-{ctxSeq} context</span>
+              )}
+              {compact && <BlockClock ts={item.ts} />}
+            </div>
+          )}
+          <div
+            className="chat-md"
+            onClick={(e) => {
+              handleChatMdClick(e, sessionId, cwd, openFile)
+            }}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+          {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
+          {/* Attached media (POD-178): a turn's referenced files render as real
+            inline previews — images as clickable thumbnails (→ lightbox), other
+            files (artifacts, docs) as openable chips — instead of anonymous
+            "image"/"file" tag chips. Tags without a resolvable path (older
+            transcripts) keep the labelled chip. */}
+          {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-start gap-2">
+              {(item.toolPaths ?? []).map((p) => {
+                const abs = resolveAgainstCwd(cwd, p)
+                const name = p.split('/').pop() ?? p
+                const chip = (
+                  <button
+                    data-pressable
+                    key={p}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openFile(sessionId, abs)
+                    }}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title={`Open ${p}`}
+                  >
                     <FileText size={12} aria-hidden="true" />
-                  )}
-                  {tag.label ?? tag.kind}
-                </span>
-              )
-            })}
-          </div>
-        )}
+                    {name}
+                  </button>
+                )
+                if (isImagePath(p)) {
+                  const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+                  if (url)
+                    return (
+                      <SentImageThumb
+                        key={p}
+                        url={url}
+                        name={name}
+                        onOpen={() => onOpenImage(url)}
+                        fallback={chip}
+                      />
+                    )
+                }
+                return chip
+              })}
+              {(item.toolPaths?.length ?? 0) === 0 &&
+                item.tags?.map((tag, i) => (
+                  <span
+                    key={`${tag.kind}-${i}`}
+                    className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {tag.kind === 'image' ? (
+                      <ImageIcon size={12} aria-hidden="true" />
+                    ) : (
+                      <FileText size={12} aria-hidden="true" />
+                    )}
+                    {tag.label ?? tag.kind}
+                  </span>
+                ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   )
 })

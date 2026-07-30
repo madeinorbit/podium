@@ -13,6 +13,7 @@ let codexHome: string
 let accounts: AccountsRepository
 const prevCodexHome = process.env.CODEX_HOME
 const prevGrokHome = process.env.GROK_HOME
+const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
@@ -26,6 +27,7 @@ beforeEach(() => {
   codexHome = mkdtempSync(join(tmpdir(), 'acct-codex-'))
   process.env.CODEX_HOME = codexHome
   delete process.env.GROK_HOME
+  delete process.env.CLAUDE_CONFIG_DIR
   accounts = emptyAccounts()
 })
 afterEach(() => {
@@ -35,6 +37,8 @@ afterEach(() => {
   else process.env.CODEX_HOME = prevCodexHome
   if (prevGrokHome === undefined) delete process.env.GROK_HOME
   else process.env.GROK_HOME = prevGrokHome
+  if (prevClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+  else process.env.CLAUDE_CONFIG_DIR = prevClaudeConfigDir
 })
 
 const settings = (keys: Partial<PodiumSettings['apiKeys']> = {}): PodiumSettings =>
@@ -54,6 +58,8 @@ describe('accountViews', () => {
   })
 
   it('detects a Claude login and surfaces the email as identity', () => {
+    mkdirSync(join(home, '.claude'))
+    writeFileSync(join(home, '.claude', '.credentials.json'), JSON.stringify({ oauth: 'token' }))
     writeFileSync(
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'mike@example.com' } }),

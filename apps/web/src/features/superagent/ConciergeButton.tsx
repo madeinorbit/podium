@@ -40,6 +40,7 @@ export function ConciergeButton(): JSX.Element {
 
   const button = (
     <button
+      data-pressable
       type="button"
       className="flex size-8 flex-none items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-default disabled:opacity-40"
       title="Concierge — tell it what you want"

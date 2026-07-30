@@ -168,18 +168,51 @@ describe('shouldPinOnReset', () => {
 
 describe('reconcilePending', () => {
   it('drops a pending entry once a matching new user text appears', () => {
-    const out = reconcilePending([pend('run the tests')], ['run the tests'])
+    const out = reconcilePending(
+      [pend('run the tests')],
+      [item({ role: 'user', text: 'run the tests' })],
+    )
     expect(out).toEqual([])
   })
   it('keeps pending entries with no matching new user text', () => {
-    const out = reconcilePending([pend('hello')], ['something else'])
+    const out = reconcilePending([pend('hello')], [item({ role: 'user', text: 'something else' })])
     expect(out).toEqual([pend('hello')])
   })
   it('consumes one real occurrence per pending (FIFO) for duplicate texts', () => {
-    const out = reconcilePending([pend('ok', 'a'), pend('ok', 'b')], ['ok'])
+    const out = reconcilePending(
+      [pend('ok', 'a'), pend('ok', 'b')],
+      [item({ role: 'user', text: 'ok' })],
+    )
     expect(out).toEqual([pend('ok', 'b')])
   })
   it('matches on trimmed text', () => {
-    expect(reconcilePending([pend('hi')], ['  hi  '])).toEqual([])
+    expect(reconcilePending([pend('hi')], [item({ role: 'user', text: '  hi  ' })])).toEqual([])
+  })
+  it('matches attachment turns by canonical path after transcript text normalization', () => {
+    const path = '/home/u/.podium/uploads/s1/shot.png'
+    const pending: PendingItem = {
+      ...pend(`${path}\nmerge it`),
+      tags: [{ kind: 'image', label: 'shot.png' }],
+      toolPaths: [path],
+    }
+    const echoed = item({
+      role: 'user',
+      text: '[Image #1]merge it',
+      tags: [{ kind: 'image', label: 'shot.png' }],
+      toolPaths: [path],
+    })
+    expect(reconcilePending([pending], [echoed])).toEqual([])
+  })
+  it('does not reconcile attachment turns with different upload paths', () => {
+    const pending: PendingItem = {
+      ...pend('/uploads/a.png\nreview this'),
+      toolPaths: ['/uploads/a.png'],
+    }
+    const echoed = item({
+      role: 'user',
+      text: '[Image #1]review this',
+      toolPaths: ['/uploads/b.png'],
+    })
+    expect(reconcilePending([pending], [echoed])).toEqual([pending])
   })
 })

@@ -182,7 +182,22 @@ export type BrowseDirsResultMessage = z.infer<typeof BrowseDirsResultMessage>
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
 export const RepoOp = z.enum([
+  'clone',
   'status',
+  // git-state probes [POD-98] — read-only, safe to run in the background against
+  // a checkout agents are actively using. statusProbe differs from 'status' in
+  // ONE flag: --no-optional-locks, so a probe can never contend for index.lock
+  // with a concurrent `git commit` in the same checkout.
+  'statusProbe',
+  'revListCount',
+  'logHead',
+  // Re-derive a task's commits from history by message marker ([POD-98] subject
+  // tag or Podium-Issue trailer) — the restart-proof half of attribution.
+  'logIssueCommits',
+  // Git dock panel [POD-114] — read-only, --no-optional-locks like the probes.
+  // logPanel: parseable recent-commit list; diffFile: one file's diff vs HEAD.
+  'logPanel',
+  'diffFile',
   'log',
   'branches',
   'revParseVerify',
@@ -200,6 +215,10 @@ export const RepoOp = z.enum([
   'worktreeRemove',
   'branchDelete',
   'isMergedInto',
+  // branchReflog: full reflog shas of a branch, oldest last — its creation
+  // point. Lets the git-state probe tell "merged" (branch moved, then landed)
+  // apart from "fresh branch still at its start point" [POD-156].
+  'branchReflog',
   // integrate (issue #70) — rebuild an epic's integration branch from its closed
   // children. worktreeAddReset/checkoutReset use -B (reset-to-startPoint is the
   // POINT: every run rebuilds); rebaseAbort cleanly unwinds a conflicted rebase;

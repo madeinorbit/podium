@@ -34,27 +34,33 @@ export interface OfferClient {
 
 export class OfferCliError extends Error {}
 
-/** One action button parsed from a `--action "Label::Prompt"` token. */
+/** One action button parsed from a `--action`/`--action-input` token. */
 export interface ParsedAction {
   label: string
   prompt: string
+  /** True for `--action-input`: the UI collects freeform user feedback before
+   *  sending, appended to the prompt. */
+  input?: boolean
 }
 
 const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help'])
 
 /**
- * Parse `podium offer` argv. Unlike the mail parser, `--action` REPEATS — each
- * occurrence appends a button — so it is collected into an array while every
- * other flag keeps last-wins semantics.
+ * Parse `podium offer` argv. Unlike the mail parser, `--action` (and its
+ * feedback-collecting twin `--action-input`) and `--artifact` REPEAT — each
+ * occurrence appends, in argv order — while every other flag keeps last-wins
+ * semantics.
  */
 export function parseOfferArgs(argv: string[]): {
   command?: string
   args: Record<string, string | boolean>
-  actions: string[]
+  actions: { token: string; input: boolean }[]
+  artifacts: string[]
   positionals: string[]
 } {
   const args: Record<string, string | boolean> = {}
-  const actions: string[] = []
+  const actions: { token: string; input: boolean }[] = []
+  const artifacts: string[] = []
   const positionals: string[] = []
   // A bare first token that isn't a flag is the sub-command (e.g. `clear`).
   let command: string | undefined
@@ -79,18 +85,22 @@ export function parseOfferArgs(argv: string[]): {
         i++
       }
     }
-    if (key === 'action') {
-      if (typeof value === 'string') actions.push(value)
+    if (key === 'action' || key === 'action-input') {
+      if (typeof value === 'string') actions.push({ token: value, input: key === 'action-input' })
+      continue
+    }
+    if (key === 'artifact') {
+      if (typeof value === 'string') artifacts.push(value)
       continue
     }
     args[key] = value
   }
-  return { ...(command ? { command } : {}), args, actions, positionals }
+  return { ...(command ? { command } : {}), args, actions, artifacts, positionals }
 }
 
 /** Split a `Label::Prompt` token. The FIRST `::` separates them, so a prompt may
  *  itself contain `::`. Both halves must be non-empty. */
-export function parseAction(token: string): ParsedAction {
+export function parseAction(token: string, input = false): ParsedAction {
   const sep = token.indexOf('::')
   if (sep < 0) {
     throw new OfferCliError(
@@ -101,7 +111,7 @@ export function parseAction(token: string): ParsedAction {
   const prompt = token.slice(sep + 2).trim()
   if (!label) throw new OfferCliError(`--action "${token}" has an empty label`)
   if (!prompt) throw new OfferCliError(`--action "${token}" has an empty prompt`)
-  return { label, prompt }
+  return input ? { label, prompt, input: true } : { label, prompt }
 }
 
 function helpText(): string {
@@ -117,19 +127,43 @@ function helpText(): string {
     '  --message "…"            The freeform message shown above the buttons (required to set).',
     '  --action "Label::Prompt" A button: its label, then ::, then the prompt sent on click.',
     '                           Repeat --action for more buttons (up to 6).',
+    '  --action-input "Label::Prompt"',
+    '                           Like --action, but clicking first asks the user for freeform',
+    '                           feedback, appended to the prompt. Use it for actions that only',
+    '                           make sense with an explanation (e.g. "Send back").',
+    '  --artifact <path>        Reference an issue artifact (as published via `podium issue',
+    '                           artifact --add`) as evidence — it shows as a thumbnail on the',
+    '                           offer. Repeat in review priority order (up to 6); put the best',
+    '                           target first, including interactive HTML when appropriate.',
+    '                           Cards render the first 3 items and summarize any remainder.',
     '  clear                    Remove the current offer.',
+    '',
+    'Writing rules — the card is judged in five seconds, cold:',
+    '  - First line of --message = the card headline. State the outcome as done',
+    '    ("Login screen ready to merge"), never the activity. Max ~3 lines total.',
+    '  - One decision per offer; prefer 2-3 actions (6 allowed when it truly branches).',
+    '    Labels imperative, <=3 words; recommended action FIRST (renders primary).',
+    '  - Attach the evidence (--artifact) so the user can judge without opening',
+    '    the session. Failures too: cause -> fix -> decision, matter-of-fact.',
     '',
     'Examples:',
     '  podium offer --message "Tests are red on main" \\',
     '    --action "Fix them::Please fix the failing tests" \\',
     '    --action "Show failures::Show me the failing test output"',
+    '  podium offer --message "POD-12 is ready for review" \\',
+    '    --action "Merge it::Merge POD-12 to main" \\',
+    '    --action-input "Send back::Revise POD-12 per this feedback:"',
+    '  podium offer --message "New header layout is ready" \\',
+    '    --artifact .design/header-concept.html \\',
+    '    --artifact e2e/header-after.png \\',
+    '    --action "Ship it::Merge the header change"',
     '  podium offer clear',
   ].join('\n')
 }
 
 export async function runOfferCli(argv: string[], client: OfferClient): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
-  const { command, args, actions } = parseOfferArgs(argv)
+  const { command, args, actions, artifacts } = parseOfferArgs(argv)
   const known = new Set(['message', 'json', 'outside-scope'])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
@@ -161,15 +195,28 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
     throw new OfferCliError('offer needs --message "…" (or use `podium offer clear`)')
   }
   if (actions.length > 6) throw new OfferCliError('at most 6 --action buttons are allowed')
-  const parsed = actions.map(parseAction)
-  const r = (await client.offer.set.mutate({ message: message.trim(), actions: parsed })) as {
+  if (artifacts.length > 6) throw new OfferCliError('at most 6 --artifact references are allowed')
+  const artifactPaths = artifacts.map((p, i) => {
+    const path = p.trim()
+    if (!path) throw new OfferCliError(`--artifact ${i + 1} has an empty path`)
+    return path
+  })
+  const parsed = actions.map((a) => parseAction(a.token, a.input))
+  const r = (await client.offer.set.mutate({
+    message: message.trim(),
+    actions: parsed,
+    ...(artifactPaths.length > 0 ? { artifacts: artifactPaths } : {}),
+  })) as {
     ok: boolean
     reason?: string
   }
   if (!r.ok) throw new OfferCliError(r.reason ?? 'offer was not accepted')
-  const note = parsed.length
-    ? `${parsed.length} action${parsed.length > 1 ? 's' : ''}`
-    : 'no actions'
+  const note = [
+    parsed.length ? `${parsed.length} action${parsed.length > 1 ? 's' : ''}` : 'no actions',
+    ...(artifactPaths.length > 0
+      ? [`${artifactPaths.length} artifact${artifactPaths.length > 1 ? 's' : ''}`]
+      : []),
+  ].join(', ')
   return done(`offer set (${note})`, r)
 }
 

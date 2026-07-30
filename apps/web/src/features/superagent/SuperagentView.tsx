@@ -1,3 +1,4 @@
+import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
@@ -21,8 +22,7 @@ import {
   TRAY_OPEN_KEY,
 } from './column-state'
 import type { TrayItem } from './derive-tray'
-import { trayCount } from './derive-tray'
-import { EventFeed } from './EventFeed'
+import { offerKey, trayCount } from './derive-tray'
 import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
@@ -38,6 +38,9 @@ interface SuperThread {
   podiumSessionId?: string
   /** The harness's own session id — present once the thread has a real session. */
   harnessSessionId?: string
+  /** Query-backed running state for reloads/late joiners. Live events keep the
+   * embedded chat current after mount. */
+  turnRunning?: boolean
 }
 
 interface AtOption {
@@ -52,6 +55,18 @@ interface AtOption {
  *  binds the global thread; per-turn issue context rides the focus payload.
  *  Per-repo concierge / btw thread history access is #55. */
 const THREAD_ID = 'global'
+
+const clock = (ts: string): string => {
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime())
+    ? ''
+    : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** §2.2 super agent bar icon actions: 20×20, `#6c6c78` at rest,
+ *  hover `#f3f3f8` on `#1b1b22`, 5px radius. */
+const BAR_ACTION_CLS =
+  'size-5 flex-none rounded-[5px] text-[#6c6c78] hover:bg-[#1b1b22] hover:text-[#f3f3f8]'
 
 /**
  * The engraved column's CONTENT (issue #42): the Tray — ONLY items needing a
@@ -79,7 +94,6 @@ export function SuperagentView({
     setView,
     uiState,
     setSessionDraft,
-    getUserFocus,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -93,7 +107,6 @@ export function SuperagentView({
       setView: s.setView,
       uiState: s.uiState,
       setSessionDraft: s.setSessionDraft,
-      getUserFocus: s.getUserFocus,
     }),
     shallowEqual,
   )
@@ -101,6 +114,7 @@ export function SuperagentView({
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
+  const [pendingFirstTurn, setPendingFirstTurn] = useState<string | null>(null)
   const thread = threads.find((t) => t.id === THREAD_ID)
   const podiumSessionId = thread?.podiumSessionId
 
@@ -211,10 +225,18 @@ export function SuperagentView({
     void refreshThreads()
   }
 
-  const selectedIssue = selectedIssueId
-    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
-    : undefined
-  const itemCount = trayCount(issues, selectedIssueId ?? null)
+  // Agent action offers [spec:SP-c7f1]: a clicked offer hides optimistically
+  // until the server clears it off the session meta (mirrors ChatView's
+  // dismissedOfferAt). Keyed by offerKey so a NEW offer re-shows.
+  const [dismissedOffers, setDismissedOffers] = useState<ReadonlySet<string>>(new Set())
+  const itemCount = trayCount(issues, sessions, dismissedOffers)
+  // The amber count pill pops exactly when the count INCREASES (motion.md
+  // §2.2) — decreases and steady renders stay still.
+  const prevCountRef = useRef(itemCount)
+  const pillPop = itemCount > prevCountRef.current
+  useEffect(() => {
+    prevCountRef.current = itemCount
+  })
 
   // ---- tray actions (v1 wiring — real backend verbs are #53/#54) ----
   const focusComposer = (): void => {
@@ -230,23 +252,7 @@ export function SuperagentView({
     else setPendingDraft(text)
     focusComposer()
   }
-  const sendSuperTurn = async (text: string): Promise<void> => {
-    setError(null)
-    try {
-      await trpc.superagent.sendTurn.mutate({ threadId: THREAD_ID, text, focus: getUserFocus() })
-      setChatOpen(true)
-      void refreshThreads()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
   const trayActions: TrayActions = {
-    onMerge: (item: TrayItem) =>
-      void sendSuperTurn(
-        `Issue #${item.issue.seq} ("${item.issue.title}") is approved — merge it via the merge workflow and close the issue.`,
-      ),
-    onSendBack: (item: TrayItem) =>
-      prefillComposer(`Send #${item.issue.seq} ("${item.issue.title}") back to its agent: `),
     onDiscuss: (item: TrayItem) =>
       prefillComposer(
         item.kind === 'question'
@@ -254,14 +260,19 @@ export function SuperagentView({
           : `Re #${item.issue.seq} ("${item.issue.title}"): `,
       ),
     onOpenSession: (item: TrayItem) => {
+      // An offer card names its exact session; question cards fall back to the
+      // issue's first live agent session.
       const memberIds = new Set(item.issue.memberSessionIds ?? [])
-      const agentSession = sessions.find(
-        (s) =>
-          memberIds.has(s.sessionId) &&
-          !s.archived &&
-          s.agentKind !== 'shell' &&
-          s.headless !== true,
-      )
+      const agentSession =
+        item.kind === 'offer'
+          ? item.session
+          : sessions.find(
+              (s) =>
+                memberIds.has(s.sessionId) &&
+                !s.archived &&
+                s.agentKind !== 'shell' &&
+                s.headless !== true,
+            )
       setSelectedIssueId(item.issue.id)
       if (agentSession) setPane('A', agentSession.sessionId)
       setView('workspace')
@@ -271,6 +282,25 @@ export function SuperagentView({
       trpc.issues.clearNeedsHuman
         .mutate({ id: item.issue.id })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+    },
+    // Offer button [spec:SP-c7f1]: send the agent-authored prompt to the
+    // offer's OWN session as a normal user turn — the same sendText path the
+    // chat/native offer bars use, so the server auto-clears the offer. Hide
+    // the card optimistically; un-hide on failure so it can be retried.
+    onOfferAction: (item, prompt) => {
+      const key = offerKey(item.session.sessionId, item.offer.createdAt)
+      setError(null)
+      setDismissedOffers((d) => new Set(d).add(key))
+      trpc.sessions.sendText
+        .mutate({ sessionId: item.session.sessionId, text: prompt, mutationId: randomUUID() })
+        .catch((e: unknown) => {
+          setDismissedOffers((d) => {
+            const next = new Set(d)
+            next.delete(key)
+            return next
+          })
+          setError(e instanceof Error ? e.message : String(e))
+        })
     },
   }
 
@@ -282,10 +312,18 @@ export function SuperagentView({
             testId="tray-bar"
             glyph="▤"
             title="Tray"
-            scope={selectedIssue ? 'TASK SCOPE' : 'ALL TASKS'}
+            scope="ALL TASKS · NEWEST FIRST"
             open={trayOpen}
             onToggle={() => setTrayOpen(!trayOpen)}
-            badge={!trayOpen ? <CountPill count={itemCount} /> : undefined}
+            badge={
+              // The pill rides the bar open OR collapsed (mock v3) — the
+              // "needs you" count never disappears with the section.
+              itemCount > 0 ? (
+                <span key={itemCount} className={cn('flex', pillPop && 'morph-pop')}>
+                  <CountPill count={itemCount} />
+                </span>
+              ) : undefined
+            }
             className="border-b"
             actions={
               onClose ? (
@@ -310,10 +348,11 @@ export function SuperagentView({
           {trayOpen && (
             <div
               ref={trayBodyRef}
-              className={cn(
-                'min-h-0',
-                chatOpen ? 'flex-none' : 'flex flex-1 flex-col overflow-y-auto',
-              )}
+              // Chat folded: the tray owns the rest of the column and is the
+              // only scroller in it. This wrapper must NOT scroll too — a
+              // second scroll container here swallowed the wheel and left the
+              // card stack capped at its split height (POD-288).
+              className={cn('min-h-0', chatOpen ? 'flex-none' : 'flex flex-1 flex-col')}
             >
               <Tray
                 issues={issues}
@@ -321,6 +360,8 @@ export function SuperagentView({
                 selectedIssueId={selectedIssueId ?? null}
                 actions={trayActions}
                 maxHeight={chatOpen ? trayHeight : null}
+                fill={!chatOpen}
+                dismissedOffers={dismissedOffers}
               />
             </div>
           )}
@@ -369,7 +410,7 @@ export function SuperagentView({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-5 flex-none text-muted-foreground"
+                className={BAR_ACTION_CLS}
                 title="Open this conversation in a terminal session"
                 onClick={() => void openInTerminal()}
               >
@@ -379,8 +420,8 @@ export function SuperagentView({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="size-5 flex-none text-muted-foreground"
-              title="Clear the conversation"
+              className={BAR_ACTION_CLS}
+              title="Clear context — start the global chat fresh"
               onClick={() => void clear()}
             >
               <Eraser size={12} aria-hidden="true" />
@@ -391,18 +432,26 @@ export function SuperagentView({
       {(mobile || chatOpen) && (
         <>
           {error && (
-            <div className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] text-destructive">
+            <div
+              role="alert"
+              className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] leading-5 text-destructive"
+            >
               {error}
             </div>
           )}
-          <EventFeed
-            events={feed.events}
-            issues={issues}
-            selectedIssueId={selectedIssueId ?? null}
-            dividerId={feed.dividerId}
-            dividerTs={feed.dividerTs}
-            onSelectIssue={(issueId) => setSelectedIssueId(issueId)}
-          />
+          {/* POD-113: the standing event feed is gone — the chat owns the space
+              and "what happened" is a super-agent question. Only the frozen
+              YOU-WERE-HERE return marker survives, pinned atop the chat. */}
+          {feed.dividerId > 0 && feed.events.some((e) => e.id > feed.dividerId) && (
+            <div
+              data-testid="you-were-here"
+              className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
+            >
+              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+              YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}
+              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+            </div>
+          )}
           {podiumSessionId ? (
             <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
               <ChatView
@@ -410,6 +459,8 @@ export function SuperagentView({
                 active
                 superThread={{ threadId: THREAD_ID, kind: 'global' }}
                 compact
+                initialTurnRunning={thread?.turnRunning === true}
+                initialPendingText={pendingFirstTurn ?? undefined}
               />
             </div>
           ) : (
@@ -419,7 +470,10 @@ export function SuperagentView({
                 threadId={THREAD_ID}
                 initialDraft={pendingDraft}
                 onError={setError}
-                onSent={() => void refreshThreads()}
+                onSent={(text) => {
+                  setPendingFirstTurn(text)
+                  void refreshThreads()
+                }}
               />
             </div>
           )}
@@ -445,7 +499,7 @@ function FreshThreadComposer({
   threadId: string
   initialDraft?: string
   onError: (message: string | null) => void
-  onSent: () => void
+  onSent: (text: string) => void
 }): JSX.Element {
   const { trpc, repos, getUserFocus } = useStoreSelector(
     (s) => ({ trpc: s.trpc, repos: s.repos, getUserFocus: s.getUserFocus }),
@@ -458,6 +512,30 @@ function FreshThreadComposer({
   const [atIndex, setAtIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
+
+  // Auto-grow the composer with its content like the native-agent one, capped
+  // at ~6 lines after which it scrolls. Measured at height:auto, then set as an
+  // explicit px height so the CSS height transition animates grow/shrink (the
+  // momentary auto never paints).
+  useEffect(() => {
+    const ta = inputRef.current
+    if (!ta) return
+    // Measure at auto, restore the previous height, reflow, then set the
+    // target — otherwise the transition starts from 'auto' (uninterpolable)
+    // and snaps instead of animating. When empty, scrollHeight includes the
+    // (possibly wrapped) placeholder — size to one line instead.
+    const prev = ta.style.height
+    ta.style.height = 'auto'
+    const cs = getComputedStyle(ta)
+    const oneLine =
+      Number.parseFloat(cs.lineHeight) +
+      Number.parseFloat(cs.paddingTop) +
+      Number.parseFloat(cs.paddingBottom)
+    const target = ta.value ? Math.min(ta.scrollHeight, 114) : oneLine
+    ta.style.height = prev || `${target}px`
+    void ta.offsetHeight
+    ta.style.height = `${target}px`
+  }, [draft])
 
   // ---- @ context menu (repos, worktrees, conversations) ----
   const localAtOptions = useMemo<AtOption[]>(() => {
@@ -528,11 +606,15 @@ function FreshThreadComposer({
     setSentText(text)
     onError(null)
     try {
-      await trpc.superagent.sendTurn.mutate({ threadId, text, focus: getUserFocus() })
+      await trpc.superagent.sendTurn.mutate({
+        threadId,
+        text,
+        focus: getUserFocus(),
+      })
       // The ack minted the headless session — refresh the thread list so the
       // parent swaps to the embedded ChatView (the bubble carries over there
       // via the transcript itself).
-      onSent()
+      onSent(text)
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e))
       setSentText(null)
@@ -560,7 +642,11 @@ function FreshThreadComposer({
               </div>
               <div className="chat-md whitespace-pre-wrap">{sentText}</div>
             </div>
-            <div className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70">
+            <div
+              role="status"
+              aria-live="polite"
+              className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70"
+            >
               Starting the conversation…
             </div>
           </>
@@ -575,6 +661,7 @@ function FreshThreadComposer({
             >
               {atHits.map((option, i) => (
                 <button
+                  data-pressable
                   key={`${option.kind}-${option.ref}`}
                   type="button"
                   role="option"
@@ -611,9 +698,9 @@ function FreshThreadComposer({
           <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
-            rows={Math.min(6, Math.max(1, draft.split('\n').length))}
-            placeholder="Ask about anything — @ to pull other tasks into context"
+            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            rows={1}
+            placeholder="Ask anything — @ to add context"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)
@@ -650,6 +737,7 @@ function FreshThreadComposer({
           />
           {voice.supported && (
             <button
+              data-pressable
               type="button"
               className={cn(
                 'flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground',
@@ -662,6 +750,7 @@ function FreshThreadComposer({
             </button>
           )}
           <button
+            data-pressable
             type="button"
             className="flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
             disabled={busy || !draft.trim()}

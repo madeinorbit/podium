@@ -2,7 +2,7 @@ import { isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodel
 import type { TranscriptItem } from '@podium/protocol'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, monoLabel, radius, sans, space } from '../theme/theme'
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -144,16 +144,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badge: {
+    ...monoLabel(9),
     color: color.needsYou,
-    fontSize: font.tiny,
-    fontWeight: '800',
-    letterSpacing: 1.4,
   },
   meta: {
+    ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
   },
   metaError: {
+    ...sans(400),
     color: color.danger,
     fontSize: font.tiny,
   },
@@ -161,11 +161,11 @@ const styles = StyleSheet.create({
     gap: space.sm + 2,
   },
   question: {
+    ...sans(600),
     color: color.text,
     fontSize: font.body,
-    fontWeight: '700',
-    lineHeight: 21,
-    letterSpacing: -0.2,
+    lineHeight: 18,
+    letterSpacing: -0.1,
   },
   options: {
     gap: space.sm,
@@ -187,30 +187,31 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   optionLabel: {
+    ...sans(600),
     color: color.text,
-    fontSize: font.body,
-    fontWeight: '600',
+    fontSize: font.small,
   },
   optionLabelPicked: {
     color: color.accent,
   },
   optionDesc: {
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.small,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 15,
   },
   confirm: {
     backgroundColor: color.accent,
     borderRadius: radius.md,
     alignItems: 'center',
-    paddingVertical: space.md + 1,
+    paddingVertical: space.md,
   },
   confirmDisabled: {
     opacity: 0.4,
   },
   confirmText: {
+    ...sans(700),
     color: color.onAccent,
-    fontSize: font.body,
-    fontWeight: '800',
+    fontSize: font.small,
   },
 })

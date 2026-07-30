@@ -110,7 +110,7 @@ function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerC
  * long-lived process. First turn mints the session id via `sessionId` (must be
  * a UUID) so the thread ↔ transcript binding is deterministic.
  */
-function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
+export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
   const mode: PermissionMode =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? (spec.permissionMode as PermissionMode)
@@ -154,7 +154,11 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
   }
   const mcpServers = sdkMcpServers(spec.mcpConfig)
   if (mcpServers) options.mcpServers = mcpServers
+  return options
+}
 
+function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
+  const options = buildClaudeSdkOptions(spec)
   const q = query({ prompt: spec.prompt, options })
   let interrupted = false
   const timer = setTimeout(() => {
@@ -242,7 +246,7 @@ export function buildHeadlessExec(
   agent: Exclude<HarnessAgent, 'claude-code'>,
   opts: HeadlessExecOptions,
   bins: HarnessBins,
-): { cmd: string; args: string[] } {
+): { cmd: string; args: string[]; env?: Record<string, string> } {
   const buildExec = harnessAdapterFor(agent)?.headless.buildExec
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
   return buildExec(opts, bins)
@@ -311,7 +315,11 @@ function collectStderr(child: ChildProcess): () => string {
  * swapping in an app-server client later changes nothing upstream.
  */
 function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
-  const { cmd, args } = buildHeadlessExec(
+  const {
+    cmd,
+    args,
+    env: execEnv,
+  } = buildHeadlessExec(
     'codex',
     {
       prompt: spec.prompt,
@@ -331,7 +339,9 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
     args,
     spec.cwd,
     spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
-    spec.env,
+    // codex's MCP bearer token rides an env var (POD-1021), merged over the
+    // turn's base env.
+    { ...spec.env, ...execEnv },
     async (child) => {
       const stderrTail = collectStderr(child)
       let threadId = spec.resumeValue ?? ''

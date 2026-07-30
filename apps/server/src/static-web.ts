@@ -1,13 +1,20 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
+import { desktopShellLocation, mobileEntryRedirect } from '@podium/domain'
 import type { Context, Hono } from 'hono'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
- * Intentionally a SUPERSET of apps/web/vite.config.ts navigateFallbackDenylist:
+ * A superset of the backend prefixes in apps/web NAVIGATION_FALLBACK_DENYLIST:
  * it also covers /version, /mcp, and /hooks (which the vite dev proxy doesn't list).
- * Do NOT trim it down to match vite — that would let the SPA shell shadow a backend
- * route. When adding a backend route, add its prefix here.
+ * Do NOT trim it down to match that list — that would let the SPA shell shadow a
+ * backend route. When adding a backend route, add its prefix here.
+ *
+ * The reverse is NOT true: that denylist also carries `/` and `/desktop`, the
+ * entry redirects registered by registerMobileRouting. Those must reach the
+ * server rather than a service worker's precache, but they are not backend
+ * routes — `/` is served from here once the redirect declines. Adding either
+ * one below would 404 the web root.
  */
 const BACKEND_PREFIXES = [
   '/trpc',
@@ -39,6 +46,11 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export interface StaticWebOptions {
   basePath?: string
+  /** Register routes even when the build is currently absent; each request
+   *  re-checks. Lets a dist built after boot start serving without a restart
+   *  (routes registered earlier, e.g. registerMobileRouting's fallback, own
+   *  the absent case). */
+  lazy?: boolean
 }
 
 function contentType(p: string): string {
@@ -68,19 +80,53 @@ function isBackendRoute(pathname: string): boolean {
 }
 
 /**
- * Mobile entry routing [spec:SP-902c]: phone browsers get the responsive web shell at /
- * (no user-agent redirect); the Expo build is opt-in at /mobile. When the Expo build is
- * absent, /mobile redirects to / instead of falling through to the main SPA under a wrong
- * base path. /desktop stays as the Expo app's link back to the web shell. Every redirect
- * preserves the query string (?server, ?e2e).
+ * Mobile entry routing [POD-102, reverses SP-902c]: the Expo app at /mobile is
+ * the ONLY mobile UX — phone browsers hitting exactly `/` are redirected there.
+ * The responsive web shell is gone; /desktop remains as the Expo app's escape
+ * hatch to the desktop web shell (`/?desktop=1` suppresses the phone redirect
+ * for that navigation). Deep links (e.g. /session/xyz) are never redirected.
+ * When the Expo build is absent, /mobile falls back to the desktop shell instead
+ * of loading the main SPA under a wrong base path. Every redirect preserves the
+ * query string (?server, ?e2e). The decision itself lives in @podium/domain, so
+ * this door and the two in apps/web cannot drift apart (POD-359).
+ *
+ * Presence is a live probe, not a boot-time flag: the mobile dist is gitignored
+ * and built separately from the web dist, so a deploy can restart the server
+ * before (or without) exporting it. With a boot-time flag that ordering silently
+ * disabled the phone redirect until the next restart.
+ *
+ * `redirectPhoneRoot: false` withholds only the `/` redirect while /mobile keeps
+ * serving Expo — the browser harness drives both shells from one server and would
+ * otherwise never reach the web shell from a phone-sized Pixel profile.
  */
-export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boolean }): void {
-  const toRoot = (c: Context) => c.redirect('/' + new URL(c.req.url).search)
-  app.get('/desktop', toRoot)
-  if (!opts.expoMobileServed) {
-    app.get('/mobile', toRoot)
-    app.get('/mobile/*', toRoot)
+export function registerMobileRouting(
+  app: Hono,
+  opts: { expoMobilePresent: () => boolean; redirectPhoneRoot?: boolean },
+): void {
+  const present = opts.expoMobilePresent
+  // Carries the ?desktop marker, which tells apps/web's browser-side redirect
+  // that the Expo build is genuinely absent rather than bouncing back to it.
+  const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
+  app.get('/', async (c, next) => {
+    const url = new URL(c.req.url)
+    if (opts.redirectPhoneRoot !== false) {
+      const target = mobileEntryRedirect({
+        pathname: url.pathname,
+        search: url.search,
+        userAgent: c.req.header('user-agent'),
+        mobilePresent: present(),
+      })
+      if (target) return c.redirect(target)
+    }
+    await next()
+  })
+  app.get('/desktop', toDesktopShell)
+  const mobileFallback = async (c: Context, next: () => Promise<void>) => {
+    if (!present()) return toDesktopShell(c)
+    await next()
   }
+  app.get('/mobile', mobileFallback)
+  app.get('/mobile/*', mobileFallback)
 }
 
 /**
@@ -89,15 +135,13 @@ export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boole
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
-export function registerWebStatic(
-  app: Hono,
-  webDir: string,
-  opts: StaticWebOptions = {},
-): boolean {
-  if (!existsSync(join(webDir, 'index.html'))) return false
+export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOptions = {}): boolean {
+  const indexPath = join(webDir, 'index.html')
+  if (!opts.lazy && !existsSync(indexPath)) return false
 
   const basePath = normalizedBasePath(opts.basePath)
   const handler = (c: Context) => {
+    if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
     const inside = pathInsideBase(pathname, basePath)
     if (inside === null) return c.notFound()

@@ -65,9 +65,15 @@ export function BlockCaret({
       mirror.appendChild(marker)
       const lineH = Number.parseFloat(cs.lineHeight) || 18
       const height = Math.min(16, lineH)
+      // Clamp inside the textarea's box: when the last line is exactly full the
+      // mirror's marker wraps to a phantom line the box doesn't include, and
+      // while the height is mid-animation the content can outrun the box —
+      // either way the caret must not escape the composer.
+      const left = ta.offsetLeft + marker.offsetLeft - ta.scrollLeft
+      const top = ta.offsetTop + marker.offsetTop - ta.scrollTop + (lineH - height) / 2
       setPos({
-        left: ta.offsetLeft + marker.offsetLeft - ta.scrollLeft,
-        top: ta.offsetTop + marker.offsetTop - ta.scrollTop + (lineH - height) / 2,
+        left: Math.max(ta.offsetLeft, Math.min(left, ta.offsetLeft + ta.clientWidth - 8)),
+        top: Math.max(ta.offsetTop, Math.min(top, ta.offsetTop + ta.clientHeight - height)),
         height,
       })
       // Restart the blink phase on every caret move so the block reads solid

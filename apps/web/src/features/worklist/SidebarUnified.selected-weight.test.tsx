@@ -78,7 +78,13 @@ vi.mock('@/app/store', () => {
     setPinned: vi.fn(),
     issues: [
       issue('a', 'Read selected issue'),
-      issue('b', 'Unread issue', { readAt: null, unread: true }),
+      issue('b', 'Unread issue', {
+        readAt: null,
+        unread: true,
+        // Spin-off provenance (POD-85): b came out of a.
+        deps: [{ id: 'a', type: 'discovered-from' }],
+        displayRef: 'POD-2',
+      }),
     ],
     trpc: {
       settings: {
@@ -153,5 +159,47 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     render(<SidebarUnified />)
     const unreadLabel = screen.getByText('Unread issue')
     expect(unreadLabel.className).toContain('font-medium')
+  })
+
+  it('selection never changes row geometry: same padding, no border class (POD-81)', () => {
+    render(<SidebarUnified />)
+    const active = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
+    const plain = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    // The selection ring is an inset box-shadow (inline style), never a border
+    // or padding change — a click must not shift the list by a pixel.
+    expect(active.className).toContain('py-[6.5px]')
+    expect(plain.className).toContain('py-[6.5px]')
+    expect(active.className.split(/\s+/)).not.toContain('border')
+    expect(active.style.boxShadow).toContain('inset')
+  })
+
+  it('a spin-off row carries the quiet ⤷ origin tick; a plain row does not (POD-85)', () => {
+    render(<SidebarUnified />)
+    const spin = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    const tick = spin.querySelector('[data-testid="spinoff-origin-tick"]')
+    expect(tick).toBeTruthy()
+    expect(tick?.textContent).toContain('⤷ 1')
+    expect(tick?.getAttribute('title')).toContain('Spun off from')
+    expect(tick?.getAttribute('title')).toContain('Read selected issue')
+    const plain = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
+    expect(plain.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
+    // The origin row is findable for the lineage flash.
+    expect(plain.getAttribute('data-issue-row')).toBe('a')
+  })
+
+  it('marks unread with a quiet info dot on the agent glyph, never a banner (POD-293)', () => {
+    render(<SidebarUnified />)
+    const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    // The shouted "new message" banner is gone — unread is a single info dot
+    // bound to the fleet glyph (plus the bold title tested above).
+    expect(unreadRow.querySelector('[data-testid="row-unread-chip"]')).toBeNull()
+    const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]') as HTMLElement
+    expect(dot).toBeTruthy()
+    // The dot lives inside the fleet summary, not free-floating (POD-236).
+    expect(dot.closest('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    const activeRow = rowButton('Read selected issue').closest(
+      '[class*="group/row"]',
+    ) as HTMLElement
+    expect(activeRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
   })
 })

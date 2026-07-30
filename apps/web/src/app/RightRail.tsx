@@ -1,8 +1,8 @@
 import type { IssueColorSlot } from '@podium/domain'
-import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
 import type { RightPanelTab } from './shell-state'
@@ -20,26 +20,32 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
 }
 
 /**
- * The 44px right rail (handoff §2.5): expand chevron, then the selected
- * issue's ID square — the designed bordered/filled square language, carrying
- * the waiting/working corner badge — toggling the Issue dock panel, then the
- * Git/Files/Shell panel cells. The Superagent column is NOT reachable from
- * here (#65): it folds in place and never fully closes.
+ * The 44px right rail (handoff §2.5): the selected issue's ID square — the
+ * designed bordered/filled square language, carrying the waiting/working
+ * corner badge — toggling the Issue dock panel, then the Git/Files/Shell
+ * panel cells. The Superagent column is NOT reachable from here (#65): it
+ * folds in place and never fully closes.
  */
 export function RightRail({
   issue,
   rightPanel,
-  lastPanel,
   onPanelChange,
   onColorChange,
 }: {
   issue?: IssueViewModel
   rightPanel: RightPanelTab | null
-  lastPanel: RightPanelTab
   onPanelChange: (panel: RightPanelTab | null) => void
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const sessions = useStoreSelector((store) => store.sessions)
+  const gitPanelEnabled = useFeature('git-panel')
+  const messagesPanelEnabled = useFeature('messages-panel')
+  const panelAllowed = (panel: RightPanelTab): boolean =>
+    panel !== 'git' && panel !== 'mail'
+      ? true
+      : panel === 'git'
+        ? gitPanelEnabled
+        : messagesPanelEnabled
   const memberIds = new Set(issue?.memberSessionIds ?? [])
   const memberSessions = sessions.filter((session) => memberIds.has(session.sessionId))
   const phase = issue ? aggregateMotionPhase(memberSessions) : 'queued'
@@ -52,15 +58,6 @@ export function RightRail({
       className="right-rail issue-base-card issue-fade"
       data-testid="right-rail"
     >
-      <button
-        type="button"
-        aria-label="Open last panel"
-        title={`Open ${lastPanel} panel`}
-        onClick={() => onPanelChange(lastPanel)}
-        className="right-rail-cell h-4 text-[var(--text-dim)]"
-      >
-        <ChevronLeft size={12} aria-hidden="true" />
-      </button>
       {issue && onColorChange ? (
         <IdSquare
           issue={issue}
@@ -75,6 +72,7 @@ export function RightRail({
         />
       ) : (
         <button
+          data-pressable
           type="button"
           aria-label="Task"
           aria-pressed={rightPanel === 'issue'}
@@ -91,19 +89,25 @@ export function RightRail({
           #—
         </button>
       )}
-      {RIGHT_PANELS.filter((panel) => panel.id !== 'issue').map((panel) => (
-        <button
-          key={panel.id}
-          type="button"
-          aria-label={panel.label}
-          aria-pressed={rightPanel === panel.id}
-          title={panel.label}
-          onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
-          className={cn('right-rail-cell', rightPanel === panel.id && 'bg-secondary text-primary')}
-        >
-          <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      ))}
+      {RIGHT_PANELS.filter((panel) => panel.id !== 'issue' && panelAllowed(panel.id)).map(
+        (panel) => (
+          <button
+            data-pressable
+            key={panel.id}
+            type="button"
+            aria-label={panel.label}
+            aria-pressed={rightPanel === panel.id}
+            title={panel.label}
+            onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
+            className={cn(
+              'right-rail-cell',
+              rightPanel === panel.id && 'bg-secondary text-primary',
+            )}
+          >
+            <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ),
+      )}
     </nav>
   )
 }

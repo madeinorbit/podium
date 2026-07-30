@@ -1,9 +1,10 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
-import { newSession, openApp } from './_harness'
+import { harnessEnv } from '../harness-env'
+import { gotoWorkspace, newSession, openApp } from './_harness'
 
 /**
  * Runtime proof of the transcript-loading re-architecture (Task G1).
@@ -42,6 +43,40 @@ const claudeSlug = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 // it never collides with the developer's real Claude project data. Always removed
 // in afterEach so the test leaves no trace under the real ~/.claude.
 const BUCKET = join(homedir(), '.claude', 'projects', claudeSlug(REPO_ROOT))
+const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+
+/** Bind a keyecho Claude pane to a fixture through the daemon's real hook ingest.
+ * Fresh keyecho sessions have no native resume id, so current transcript routing
+ * correctly refuses to guess a cwd-only file until a hook supplies its path. */
+async function bindTranscript(sessionId: string, transcriptPath: string): Promise<void> {
+  let baseUrl: string | undefined
+  await expect
+    .poll(async () => {
+      const files = await readdir(HOOKS_DIR).catch(() => [])
+      for (const file of files) {
+        // The hooks root may also contain per-session directories; only the
+        // JSON settings files carry a callable hook URL.
+        const settings = await readFile(join(HOOKS_DIR, file), 'utf8').catch(() => null)
+        if (!settings) continue
+        baseUrl = settings.match(/"url":\s*"([^"]+\/hooks\/[^"]+)"/)?.[1]
+        if (baseUrl) break
+      }
+      return baseUrl
+    })
+    .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\//)
+  const hookUrl = baseUrl?.replace(/\/hooks\/[^/]+$/, `/hooks/${sessionId}`)
+  if (!hookUrl) throw new Error('hook endpoint unavailable')
+  const res = await fetch(hookUrl, {
+    method: 'POST',
+    body: JSON.stringify({
+      hook_event_name: 'SessionStart',
+      session_id: '44444444-4444-4444-8444-444444444444',
+      transcript_path: transcriptPath,
+      cwd: REPO_ROOT,
+    }),
+  })
+  expect(res.ok).toBe(true)
+}
 
 // ---- Fixture transcript builders (real Claude Code JSONL record shapes) ----
 
@@ -61,6 +96,37 @@ function answerRec(uuid: string, text: string, ts: string): string {
     uuid,
     timestamp: ts,
     message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] },
+  })
+}
+/** Two adjacent tool calls + their paired results. They collapse into one chat
+ * row, which is important for exercising block-index → row-index mapping. */
+function toolUseRec(uuid: string, ts: string): string {
+  return JSON.stringify({
+    type: 'assistant',
+    uuid,
+    timestamp: ts,
+    message: {
+      role: 'assistant',
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'sticky-tool-1', name: 'Read', input: { file_path: '/a.ts' } },
+        { type: 'tool_use', id: 'sticky-tool-2', name: 'Grep', input: { pattern: 'needle' } },
+      ],
+    },
+  })
+}
+function toolResultRec(uuid: string, ts: string): string {
+  return JSON.stringify({
+    type: 'user',
+    uuid,
+    timestamp: ts,
+    message: {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'sticky-tool-1', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'sticky-tool-2', content: 'ok' },
+      ],
+    },
   })
 }
 
@@ -130,6 +196,294 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
   await expect(
     page.getByText('No transcript yet.', { exact: false }).locator('visible=true'),
   ).toHaveCount(0)
+})
+
+test('an uploaded image turn reconciles its optimistic bubble with the normalized transcript echo', async ({
+  page,
+}) => {
+  const transcriptId = '22222222-2222-4222-8222-222222222222'
+  const transcriptPath = join(BUCKET, `${transcriptId}.jsonl`)
+  const marker = 'ATTACHMENT_RECONCILE_ECHO merge these artifacts'
+  await seedTranscript(transcriptId, [
+    answerRec('attachment-ready', 'Ready for the attachment.', '2026-07-23T08:00:00.000Z'),
+  ])
+
+  await openApp(page)
+  await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(activeId as string, transcriptPath)
+  await page.locator('[data-testid="mode-chat"]:visible').click()
+
+  await page
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles({
+      name: 'duplicate-proof.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    })
+  await page.locator('textarea:visible').last().fill(marker)
+  const send = page.getByTitle('Send (Enter)').locator('visible=true')
+  await expect(send).toBeEnabled()
+  await send.click()
+
+  const matchingRows = page.locator('.transcript-row:visible').filter({ hasText: marker })
+  await expect(matchingRows).toHaveCount(1)
+  const uploadRoot = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'uploads')
+  let uploadRelative: string | undefined
+  await expect
+    .poll(async () => {
+      uploadRelative = (await readdir(uploadRoot, { recursive: true }).catch(() => [])).find(
+        (name) => name.endsWith('.png'),
+      )
+      return uploadRelative
+    })
+    .toBeTruthy()
+  const uploadPath = join(uploadRoot, uploadRelative as string)
+
+  await appendFile(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'user',
+      uuid: 'attachment-echo',
+      timestamp: '2026-07-23T08:00:01.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: `[Image #1]${marker}\n[Image: source: ${uploadPath}]`,
+          },
+        ],
+      },
+    })}\n`,
+  )
+
+  await expect(matchingRows.getByTitle(/^Open .*\.png$/)).toBeVisible({ timeout: 15_000 })
+  await expect(matchingRows).toHaveCount(1)
+})
+
+test('operator prompts stick in place, push one another, and respect the appearance setting', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 700 })
+
+  const t = '2026-06-20T11:00:00.000Z'
+  const firstAnswer = Array.from(
+    { length: 22 },
+    (_, i) => `FIRST_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
+  ).join('\n\n')
+  const secondAnswer = Array.from(
+    { length: 22 },
+    (_, i) => `SECOND_ANSWER_LINE_${String(i).padStart(2, '0')} explanatory response text.`,
+  ).join('\n\n')
+  await seedTranscript('44444444-4444-4444-8444-444444444444', [
+    toolUseRec('tool-call-record', t),
+    toolResultRec('tool-result-record', t),
+    userRec('sticky-user', 'STICKY_FIRST_PROMPT keep this visible', t),
+    answerRec('sticky-answer', firstAnswer, t),
+    userRec(
+      'delivered-mail',
+      `[podium message msg_sticky_e2e · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky_e2e]
+DELIVERED_AGENT_MAIL must not replace the operator prompt
+[end podium message msg_sticky_e2e]STICKY_SECOND_PROMPT push the first away`,
+      t,
+    ),
+    answerRec('sticky-answer-2', secondAnswer, t),
+  ])
+
+  await openApp(page)
+  await newSession(page, 'Claude')
+  const activeId = await page
+    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .first()
+    .getAttribute('data-session')
+  expect(activeId).not.toBeNull()
+  await bindTranscript(
+    activeId as string,
+    join(BUCKET, '44444444-4444-4444-8444-444444444444.jsonl'),
+  )
+  const chatMode = page.locator('[data-testid="mode-chat"]:visible')
+  await expect(chatMode).toBeVisible({ timeout: 15_000 })
+  await chatMode.click()
+
+  const scroller = page
+    .locator('div.overflow-y-auto')
+    .filter({ has: page.locator('.transcript-row') })
+    .locator('visible=true')
+    .first()
+  const firstPrompt = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'STICKY_FIRST_PROMPT keep this visible' })
+  const secondPrompt = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'STICKY_SECOND_PROMPT push the first away' })
+  const deliveredMail = scroller
+    .locator('.transcript-row')
+    .filter({ hasText: 'DELIVERED_AGENT_MAIL must not replace the operator prompt' })
+  await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
+  await expect(secondPrompt).toBeAttached()
+  await expect(firstPrompt).toHaveAttribute('data-operator-prompt', 'true')
+  await expect(secondPrompt).toHaveAttribute('data-operator-prompt', 'true')
+  await expect(firstPrompt.locator('[data-sticky-prompt-backdrop]')).toHaveCount(1)
+  await expect(deliveredMail).not.toHaveAttribute('data-operator-prompt', 'true')
+  await expect(deliveredMail).toHaveAttribute('data-internal-message', 'true')
+  await expect(deliveredMail).toContainText('Internal')
+  await expect(page.locator('[data-testid="sticky-user-message"]')).toHaveCount(0)
+
+  // Start above the first prompt, then scroll its real row into the sticky
+  // boundary. There is no duplicate overlay: the same DOM row stops at the top.
+  await scroller.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  const geometry = await scroller.evaluate((el) => {
+    const prompts = Array.from(el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'))
+    const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
+    const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+    if (!first || !second) throw new Error('operator prompt rows not found')
+    return {
+      firstTop: first.offsetTop,
+      firstHeight: first.offsetHeight,
+      secondTop: second.offsetTop,
+    }
+  })
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top
+  }, geometry.firstTop + 24)
+  await expect
+    .poll(async () => {
+      return scroller.evaluate((el) => {
+        const prompt = el.querySelector<HTMLElement>('[data-operator-prompt="true"]')
+        if (!prompt) return false
+        const promptTop = prompt.getBoundingClientRect().top
+        const bodyTop =
+          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
+            .top ?? Number.POSITIVE_INFINITY
+        const viewportTop = el.getBoundingClientRect().top
+        const stickyTop =
+          viewportTop +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
+        const visibleInset = bodyTop - viewportTop
+        return Math.abs(promptTop - stickyTop) <= 2 && visibleInset >= 6 && visibleInset <= 10
+      })
+    })
+    .toBe(true)
+
+  // The stuck surface bleeds to both transcript edges while its content stays
+  // on the shared 960px reading measure.
+  expect(
+    await scroller.evaluate((el) => {
+      const prompt = el.querySelector<HTMLElement>(
+        '[data-operator-prompt="true"][data-stuck="true"]',
+      )
+      const backdrop = prompt?.querySelector<HTMLElement>('[data-sticky-prompt-backdrop]')
+      if (!prompt || !backdrop) return false
+      const scrollerRect = el.getBoundingClientRect()
+      const promptRect = prompt.getBoundingClientRect()
+      const backdropRect = backdrop.getBoundingClientRect()
+      return (
+        backdropRect.left <= scrollerRect.left &&
+        backdropRect.right >= scrollerRect.right &&
+        backdropRect.width > promptRect.width
+      )
+    }),
+  ).toBe(true)
+
+  // As the next operator turn arrives, it physically pushes the first row out;
+  // their edges meet during the handoff instead of the cards overlapping.
+  await scroller.evaluate((el, { secondTop, firstHeight }) => {
+    el.scrollTop = secondTop - firstHeight / 2
+  }, geometry)
+  await expect
+    .poll(async () => {
+      return scroller.evaluate((el) => {
+        const prompts = Array.from(
+          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+        )
+        const first = prompts.find((row) => row.textContent?.includes('STICKY_FIRST_PROMPT'))
+        const second = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+        if (!first || !second) return false
+        const firstBody = first.querySelector<HTMLElement>(':scope > .transcript-body')
+        const secondBody = second.querySelector<HTMLElement>(':scope > .transcript-body')
+        if (!firstBody || !secondBody) return false
+        const firstRect = firstBody.getBoundingClientRect()
+        const secondRect = secondBody.getBoundingClientRect()
+        const stickyTop =
+          el.getBoundingClientRect().top +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(first).top) || 0)
+        return (
+          firstRect.top < stickyTop &&
+          secondRect.top > stickyTop &&
+          Math.abs(firstRect.bottom - secondRect.top) <= 2
+        )
+      })
+    })
+    .toBe(true)
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top + 12
+  }, geometry.secondTop)
+  await expect
+    .poll(async () => {
+      return scroller.evaluate((el) => {
+        const prompts = Array.from(
+          el.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]'),
+        )
+        const prompt = prompts.find((row) => row.textContent?.includes('STICKY_SECOND_PROMPT'))
+        if (!prompt) return false
+        const promptTop = prompt.getBoundingClientRect().top
+        const bodyTop =
+          prompt.querySelector<HTMLElement>(':scope > .transcript-body')?.getBoundingClientRect()
+            .top ?? Number.POSITIVE_INFINITY
+        const viewportTop = el.getBoundingClientRect().top
+        const stickyTop =
+          viewportTop +
+          (Number.parseFloat(getComputedStyle(el).paddingTop) || 0) +
+          (Number.parseFloat(getComputedStyle(prompt).top) || 0)
+        return Math.abs(promptTop - stickyTop) <= 2 && bodyTop - viewportTop <= 10
+      })
+    })
+    .toBe(true)
+
+  // The calm state transition is removed under reduced-motion; the scroll
+  // tracking itself remains direct and unanimated in every mode.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(secondPrompt).toHaveCSS('transition-property', 'none')
+
+  // The default-on behavior can be disabled immediately in Appearance. Return
+  // to the same chat and prove the real prompt now scrolls away normally.
+  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Appearance', exact: true }).click()
+  const stickySwitch = settings.getByRole('switch', { name: 'Sticky prompts' })
+  await expect(stickySwitch).toBeChecked()
+  await stickySwitch.click()
+  await expect(stickySwitch).not.toBeChecked()
+  await settings.getByRole('button', { name: 'Back', exact: true }).click()
+  await gotoWorkspace(page)
+  await expect(firstPrompt).toBeAttached({ timeout: 15_000 })
+  await expect(firstPrompt).not.toHaveClass(/\bsticky\b/)
+  await scroller.evaluate((el, top) => {
+    el.scrollTop = top + 24
+  }, geometry.firstTop)
+  await expect
+    .poll(async () => {
+      const [prompt, viewport] = await Promise.all([
+        firstPrompt.boundingBox(),
+        scroller.boundingBox(),
+      ])
+      return !!prompt && !!viewport && prompt.y < viewport.y - 2
+    })
+    .toBe(true)
 })
 
 test('(c) scroll-to-top pages older history off disk with no gaps or duplicates', async ({

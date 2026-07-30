@@ -46,6 +46,7 @@ export const sessions = sqliteTable(
     resumeValue: text('resume_value'),
     status: text().notNull(),
     exitCode: integer('exit_code'),
+    spawnFailure: text('spawn_failure'),
     durableLabel: text('durable_label').notNull(),
     createdAt: text('created_at').notNull(),
     lastActiveAt: text('last_active_at').notNull(),
@@ -75,6 +76,9 @@ export const sessions = sqliteTable(
     terminalCols: integer('terminal_cols').notNull().default(80),
     terminalRows: integer('terminal_rows').notNull().default(24),
     workingMsTotal: integer('working_ms_total'),
+    inputCount: integer('input_count').notNull().default(0),
+    outputCount: integer('output_count').notNull().default(0),
+    activityCount: integer('activity_count').notNull().default(0),
   },
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
@@ -85,6 +89,37 @@ export const sessions = sqliteTable(
     ),
   ],
 )
+
+export const sessionObservationCheckpoints = sqliteTable("session_observation_checkpoints", {
+  sessionId: text("session_id").primaryKey(),
+  schemaVersion: integer("schema_version").default(1).notNull(),
+  provider: text().notNull(),
+  providerSessionId: text("provider_session_id"),
+  bindingVersion: integer("binding_version").default(0).notNull(),
+  observationGeneration: integer("observation_generation").default(0).notNull(),
+  checkpointJson: text("checkpoint_json", {"mode":"json"}),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const sessionObservationRebinds = sqliteTable("session_observation_rebinds", {
+  sessionId: text("session_id").primaryKey().references(() => sessionObservationCheckpoints.sessionId, { onDelete: "cascade" }),
+  provider: text().notNull(),
+  fromProviderSessionId: text("from_provider_session_id"),
+  fromBindingVersion: integer("from_binding_version").notNull(),
+  fromObservationGeneration: integer("from_observation_generation").notNull(),
+  toProviderSessionId: text("to_provider_session_id").notNull(),
+  resultingBindingVersion: integer("resulting_binding_version").notNull(),
+  resultingObservationGeneration: integer("resulting_observation_generation").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const sessionTerminalCandidates = sqliteTable("session_terminal_candidates", {
+  sessionId: text("session_id").primaryKey().references(() => sessionObservationCheckpoints.sessionId, { onDelete: "cascade" }),
+  proofJson: text("proof_json", { mode: "json" }).notNull(),
+  confirmedAt: text("confirmed_at"),
+  consumedAt: text("consumed_at"),
+  updatedAt: text("updated_at").notNull(),
+});
 
 export const meta = sqliteTable('meta', {
   key: text().primaryKey(),
@@ -224,6 +259,7 @@ export const offers = sqliteTable('offers', {
   sessionId: text('session_id').primaryKey(),
   message: text().notNull(),
   actions: text().notNull(), // JSON array of { label, prompt }
+  artifacts: text(), // JSON array of issue-artifact paths [POD-120]
   createdAt: text('created_at').notNull(),
 })
 
@@ -279,6 +315,7 @@ export const queuedMessages = sqliteTable(
     sessionId: text('session_id').notNull(),
     text: text().notNull(),
     queuedAt: integer('queued_at').notNull(),
+    inputOrigin: text('input_origin').default('unknown').notNull(),
     attempts: integer().default(0).notNull(),
   },
   (table) => [index('queued_messages_session').on(table.sessionId, table.queuedAt)],
@@ -498,6 +535,8 @@ export const issues = sqliteTable(
     // When the closed-predicate last flipped true; null while open. The stable
     // completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
     closedAt: text('closed_at'),
+    // Global tuck-away dismissal into the Closed fold (POD-333).
+    tuckedAt: text('tucked_at'),
     supersededBy: text('superseded_by').references((): AnySQLiteColumn => issues.id, {
       onDelete: 'set null',
     }),
@@ -505,6 +544,8 @@ export const issues = sqliteTable(
       onDelete: 'set null',
     }),
     pinned: integer().default(0).notNull(),
+    // Fractional manual ordering key (POD-168).
+    sortKey: text('sort_key'),
     color: text(),
     estimateMin: integer('estimate_min'),
     needsHuman: integer('needs_human').default(0).notNull(),

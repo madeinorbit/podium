@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { normalizeClosedPatch } from '@podium/domain'
+import { isSortKey, normalizeClosedPatch, sortKeyBetween } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -7,6 +7,19 @@ import type { IssueRow } from '../../../store'
 import { IssueServiceReads } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
+
+/**
+ * Board-organization fields only — pin / drag-reorder. These must not bump
+ * `updatedAt` (and therefore must not re-flip derived `unread` via
+ * `computeUnread`: lastActivity > readAt). Whitelist: any new IssuePatch field
+ * defaults to content/activity behavior so accidental omission stays safe.
+ */
+const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['pinned', 'sortKey'])
+
+function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
+  const keys = Object.keys(patch) as (keyof IssuePatch)[]
+  return keys.length > 0 && keys.every((k) => ORGANIZATIONAL_PATCH_KEYS.has(k))
+}
 
 /** Prepared half of the atomic issue/session lifecycle transaction. */
 export interface IssueLifecyclePlan {
@@ -40,6 +53,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   /** Cascade an archive onto member sessions — implemented by the attention
    *  layer (issue #133); update() detects the archive flip and calls it. */
   protected abstract cascadeArchiveSessions(row: IssueRow): void
+  /** Retire pending session offers when the issue closes — implemented by the
+   *  attention layer (POD-290); update() detects the closed-predicate flip and
+   *  calls it so finished work cannot keep demanding a decision. */
+  protected abstract retireIssueOffers(row: IssueRow): void
 
   /** Agent-posted "where things stand" — writes activityNotes directly (the same
    *  field the assistant digest maintains; an explicit agent post is fresher truth
@@ -235,6 +252,26 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     }
   }
 
+  /** Mint a manual-order key ABOVE the sibling scope's current top (POD-168):
+   *  "new appears at top" (R2) is the sort's natural behavior, no special case.
+   *  Scope = a parent's children when parentId is set, else the repo's
+   *  top-level non-pinned rows. Corrupt/legacy keys are ignored for the min. */
+  private mintSortKey(repoId: string, repoPath: string, parentId: string | null): string {
+    let min: string | null = null
+    for (const r of this.rows.values()) {
+      if (r.deletedAt) continue
+      const sameScope = parentId
+        ? r.parentId === parentId
+        : r.parentId == null &&
+          !r.pinned &&
+          (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
+      if (!sameScope) continue
+      const k = r.sortKey
+      if (isSortKey(k) && (min === null || k < min)) min = k
+    }
+    return sortKeyBetween(null, min)
+  }
+
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
@@ -284,9 +321,18 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       deferUntil: null,
       closedReason: null,
       closedAt: null,
+      tuckedAt: null,
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
+      // Keyed into the scope it will LAND in: the parent's children when this
+      // is a subtask create (parentId is applied after persist via reparent,
+      // so the scope is resolved from the input here).
+      sortKey: this.mintSortKey(
+        repoId,
+        input.repoPath,
+        input.parentId ? this.resolveRef(input.parentId, input.repoPath) : null,
+      ),
       color: input.color ?? null,
       estimateMin: null,
       needsHuman: false,
@@ -366,8 +412,21 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // flips, so post-close touches (notes, deps, steward writes) never restart
     // the sidebar's completion-decay window the way updatedAt would.
     if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
-    else if (wasClosed && !this.isClosed(row)) row.closedAt = null
-    const wire = this.persist(row)
+    else if (wasClosed && !this.isClosed(row)) {
+      row.closedAt = null
+      // Reopening retires the dismissal (POD-333): reopened work must not inherit
+      // a tuck from a PRIOR close, or the next time it finishes it would fold
+      // itself away without the operator ever seeing it. A later close offers
+      // Tuck away again. Cleared here — on the closed-predicate flip itself — so
+      // every client converges on it through the same broadcast.
+      row.tuckedAt = null
+    }
+    // Organizational-only patches (pin / sortKey reorder) are not activity: do
+    // not advance updatedAt past readAt or computeUnread re-marks the issue
+    // unread after a purely human board edit (POD-325).
+    const wire = this.persist(row, {
+      touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
+    })
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
     // changes both parents' childCount. Those rows' wires must reach clients too.
@@ -406,6 +465,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         ...(row.parentId ? { parentId: row.parentId } : {}),
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
+      // Closing completes the work: retire standing agent offers so a
+      // delegate's "Merge / Send back" cannot demand a decision forever after
+      // the coordinator finished through another session (POD-290).
+      this.retireIssueOffers(row)
       this.emitReadyAfterClose(row, opts?.actorSessionId)
       this.archiveClosedSubtree(row.id)
     }
@@ -451,6 +514,26 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
+  }
+
+  /** Tuck a finished issue away into the sidebar's Closed fold, or bring it back
+   *  (POD-333). Persist + broadcast, so every connected client folds the row at
+   *  the same moment and a fresh client hydrates the fold from server truth —
+   *  this used to be a per-browser ui-state key, invisible to the server.
+   *
+   *  Curation, NOT activity: `touch: false`, exactly like markIssueRead — the
+   *  dismissal must not advance updatedAt (which would restart the sidebar's
+   *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
+   *  rejected rather than stored: the fold is for finished work, and a stamp
+   *  parked on an open row would fire the moment it later closed. */
+  setIssueTucked(id: string, tucked: boolean): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    if (tucked && !this.isClosed(row)) throw new Error(`issue ${id} is not finished`)
+    // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
+    // client pressing the same control) must not move the dismissal moment.
+    row.tuckedAt = tucked ? (row.tuckedAt ?? this.now()) : null
+    return this.persist(row, { touch: false })
   }
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating

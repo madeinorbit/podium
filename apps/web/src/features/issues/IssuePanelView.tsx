@@ -1,6 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { type IssueComment, type IssueStage, issueDisplayRef } from '@podium/protocol'
-import { CircleAlert, CircleCheck, FileText, Play, User } from 'lucide-react'
+import {
+  type IssueComment,
+  type IssueStage,
+  type IssueWire,
+  issueDisplayRef,
+} from '@podium/protocol'
+import { CircleAlert, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -13,7 +18,10 @@ import { artifactKind, artifactUrl, basename, issueForPanel, panelNonEmpty } fro
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
+import { IssueCompactControls } from './IssueCompactControls'
 import { issueIdTitle, STAGE_LABELS } from './issue-card'
+import { StageGlyph } from './issue-glyphs'
+import { groupRelations } from './issue-relations'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
@@ -91,6 +99,7 @@ function CommentsBlock({ issue }: { issue: IssueViewModel }): JSX.Element | null
       </div>
       {comments.length > 1 && (
         <button
+          data-pressable
           type="button"
           onClick={() => setShowAll((v) => !v)}
           className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
@@ -115,6 +124,7 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
         <div className="min-w-0">
           <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
             <button
+              data-pressable
               type="button"
               className="cursor-pointer hover:text-foreground"
               title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
@@ -123,14 +133,6 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
               }
             >
               {issueDisplayRef(issue)}
-            </button>
-            <button
-              type="button"
-              className="min-w-0 max-w-36 cursor-pointer truncate hover:text-foreground"
-              title={`${issue.id} — click to copy`}
-              onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
-            >
-              {issue.id}
             </button>
           </div>
           <h2 className="text-[14px] leading-snug font-semibold text-foreground">{issue.title}</h2>
@@ -147,10 +149,6 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
         {issue.blocked ? (
           <span className="inline-flex items-center gap-1 text-red-400">
             <CircleAlert size={11} aria-hidden="true" /> blocked
-          </span>
-        ) : issue.ready ? (
-          <span className="inline-flex items-center gap-1 text-success">
-            <CircleCheck size={11} aria-hidden="true" /> ready
           </span>
         ) : null}
         {issue.childCount > 0 && (
@@ -177,6 +175,7 @@ function SummaryHeader({ issue }: { issue: IssueViewModel }): JSX.Element {
           </div>
         )}
       </div>
+      <IssueCompactControls issue={issue} />
       <CommentsBlock issue={issue} />
     </header>
   )
@@ -189,6 +188,7 @@ function SubissueRow({ sub, onOpen }: { sub: IssueViewModel; onOpen: () => void 
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
     <button
+      data-pressable
       type="button"
       onClick={onOpen}
       title={`Open ${issueDisplayRef(sub)} ${sub.title}`}
@@ -281,7 +281,7 @@ function PanelSections({
             </div>
             <div className="flex flex-col gap-0.5">
               {todos.map((t, i) => (
-                <label
+                <div
                   // biome-ignore lint/suspicious/noArrayIndexKey: todos are positional (1-based index API)
                   key={i}
                   className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/50"
@@ -290,6 +290,7 @@ function PanelSections({
                     checked={t.done}
                     onCheckedChange={(checked) => toggleTodo(i + 1, checked === true)}
                     className="mt-0.5"
+                    aria-label={`${t.done ? 'Reopen' : 'Complete'} ${t.text}`}
                   />
                   <span
                     className={cn(
@@ -301,7 +302,7 @@ function PanelSections({
                   >
                     {t.text}
                   </span>
-                </label>
+                </div>
               ))}
             </div>
           </>
@@ -329,6 +330,7 @@ function PanelSections({
                 return (
                   <figure key={a.path}>
                     <button
+                      data-pressable
                       type="button"
                       className="block w-full cursor-zoom-in"
                       title={`View ${label} full size`}
@@ -352,6 +354,7 @@ function PanelSections({
                     {/* Inline preview only (first frame + play glyph); clicking
                         opens the lightbox, where the video plays with controls. */}
                     <button
+                      data-pressable
                       type="button"
                       className="group relative block w-full cursor-zoom-in"
                       title={`Play ${label}`}
@@ -397,10 +400,12 @@ function PanelSections({
                       })
                     } else if (root) {
                       // Artifact paths may be worktree-relative; file tabs need absolute.
+                      // Owned by this issue (POD-149) so the tab stays in its strip.
                       openFileInWorktree({
                         machineId,
                         root,
                         path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        issueId: issue.id,
                       })
                     }
                   }}
@@ -488,6 +493,10 @@ export function IssuePanelView({
     () => children.filter((c) => !c.archived).filter(panelNonEmpty),
     [children],
   )
+  // Typed relations (POD-85): the compact disclosure surface — the sidebar
+  // whispers (⤷ tick), this panel names every edge.
+  const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
+  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
 
   if (!issue) {
     return (
@@ -518,6 +527,46 @@ export function IssuePanelView({
                 </div>
               </details>
             )}
+          </div>
+        </DockSection>
+      )}
+      {relations.length > 0 && (
+        <DockSection
+          storageKey="relations"
+          title="Relations"
+          count={relations.reduce((n, g) => n + g.entries.length, 0)}
+        >
+          <div className="flex flex-col gap-1.5" data-testid="dock-relations">
+            {relations.map((group) => (
+              <div key={group.section} className="flex items-baseline gap-2">
+                <span className="w-[84px] flex-none text-[9.5px] text-muted-foreground uppercase tracking-wide">
+                  {group.section}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {group.entries.map((entry) => {
+                    const target = issueById.get(entry.id)
+                    return (
+                      <button
+                        data-pressable
+                        key={`${group.section}-${entry.direction}-${entry.id}`}
+                        type="button"
+                        className="flex min-w-0 items-center gap-1.5 truncate text-left text-[11.5px] hover:text-primary hover:underline"
+                        onClick={() => target && openIssuePage(target.id)}
+                        title={target ? `${issueDisplayRef(target)} ${target.title}` : entry.id}
+                      >
+                        {target && <StageGlyph stage={target.stage} size={12} />}
+                        <span className="min-w-0 truncate">
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {target ? issueDisplayRef(target) : '?'}
+                          </span>{' '}
+                          {target?.title ?? entry.id}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </DockSection>
       )}

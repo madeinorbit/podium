@@ -47,6 +47,7 @@ export const populatedIssue: Issue = {
   type: 'task',
   priority: 2,
   pinned: true,
+  sortKey: "c",
   color: 'violet',
   estimateMin: 240,
   // workspace
@@ -96,6 +97,8 @@ export const populatedIssue: Issue = {
   assignee: 'claude',
   parentId: asIssueId('iss_790root'),
   closedReason: 'landed',
+  closedAt: '2026-07-17T10:44:00.000Z',
+  tuckedAt: '2026-07-17T10:46:00.000Z',
   supersededBy: asIssueId('iss_796cut'),
   duplicateOf: asIssueId('iss_365land'),
   prUrl: 'https://github.com/podium/podium/pull/791',
@@ -132,6 +135,7 @@ export const minimalIssue: Issue = {
   type: 'task',
   priority: 0,
   pinned: false,
+  sortKey: null,
   color: null,
   estimateMin: null,
   // workspace
@@ -165,6 +169,8 @@ export const minimalIssue: Issue = {
   assignee: null,
   parentId: null,
   closedReason: null,
+  closedAt: null,
+  tuckedAt: null,
   supersededBy: null,
   duplicateOf: null,
   prUrl: null,

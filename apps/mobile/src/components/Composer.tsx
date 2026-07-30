@@ -1,12 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
-import { Platform, StyleSheet, TextInput, View } from 'react-native'
-import { color, font, radius, space } from '../theme/theme'
+import type { NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native'
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { color, font, mono, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
-/** Chat composer: pill input on a glass bar, gradient send orb. */
+/** Chat composer — the super-agent field (Flat Field, POD-159): mono, a '>'
+ *  prompt glyph, yellow border on focus; gradient send orb kept for touch. */
 export function Composer({
   placeholder,
   onSend,
@@ -17,7 +19,9 @@ export function Composer({
   disabled?: boolean
 }) {
   const [text, setText] = useState('')
+  const [focused, setFocused] = useState(false)
   const canSend = !disabled && text.trim().length > 0
+  const armed = focused || canSend
 
   const send = () => {
     const trimmed = text.trim()
@@ -26,18 +30,37 @@ export function Composer({
     setText('')
   }
 
+  // A physical keyboard (the phone web app on a desktop browser, or a paired
+  // Bluetooth keyboard) must submit on Enter — the multiline field otherwise
+  // only ever inserts a newline and the composer reads as "it doesn't send".
+  // Shift+Enter keeps the newline, matching the desktop composer.
+  const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const native = e.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean }
+    if (native.key !== 'Enter' || native.shiftKey) return
+    e.preventDefault?.()
+    send()
+  }
+
   return (
     <View style={styles.row}>
-      <TextInput
-        accessibilityLabel={placeholder}
-        style={styles.input}
-        value={text}
-        onChangeText={setText}
-        placeholder={placeholder}
-        placeholderTextColor={color.textFaint}
-        multiline
-        editable={!disabled}
-      />
+      <View style={[styles.field, armed && styles.fieldArmed]}>
+        <Text style={styles.gt}>{'>'}</Text>
+        <TextInput
+          accessibilityLabel={placeholder}
+          style={styles.input}
+          value={text}
+          onChangeText={setText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          placeholderTextColor={color.textFaint}
+          multiline
+          editable={!disabled}
+          onKeyPress={onKeyPress}
+          submitBehavior="submit"
+          onSubmitEditing={send}
+        />
+      </View>
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel="Send"
@@ -69,18 +92,41 @@ const styles = StyleSheet.create({
     backgroundColor: color.glass,
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(14px)' } as object) : null),
   },
+  field: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm + 1,
+    backgroundColor: 'rgba(8, 8, 12, 0.7)',
+    borderColor: color.borderStrong,
+    borderWidth: 1.5,
+    borderRadius: 9,
+    paddingHorizontal: space.md + 1,
+    paddingVertical: space.sm + 2,
+  },
+  // Focused/armed composer lights Superade Yellow — the composer grammar.
+  fieldArmed: {
+    borderColor: color.accent,
+  },
+  gt: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: font.body,
+    lineHeight: 19,
+    paddingTop: 1,
+  },
   input: {
+    ...mono(400),
+    // The armed yellow border IS the focus signal (The Signal Rule); the
+    // browser's own focus ring would draw a second, competing one.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
     flex: 1,
     color: color.text,
     fontSize: font.body,
-    lineHeight: 20,
+    lineHeight: 19,
     maxHeight: 120,
-    backgroundColor: color.bgSunken,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm + 3,
+    padding: 0,
+    paddingTop: 1,
   },
   sendWrap: {
     borderRadius: radius.full,

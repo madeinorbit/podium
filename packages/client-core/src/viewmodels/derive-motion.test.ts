@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionMeta } from '@podium/protocol'
+import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { formatClock, motionPhase, motionTiming } from './derive'
 
@@ -44,6 +44,35 @@ describe('motionPhase — the four phases of the motion grammar', () => {
         'waiting',
       )
     }
+  })
+
+  it('a pending offer overrides the completed turn verdict', () => {
+    expect(
+      motionPhase(
+        sess({
+          offer: {
+            message: 'Ready for your decision',
+            actions: [{ label: 'Merge', prompt: 'Merge it' }],
+            createdAt: new Date(NOW - 30_000).toISOString(),
+          },
+          agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
+        }),
+      ),
+    ).toBe('waiting')
+  })
+
+  it('a pending offer on a finished issue is not waiting (POD-290)', () => {
+    const offered = sess({
+      offer: {
+        message: 'Ready for your decision',
+        actions: [{ label: 'Merge', prompt: 'Merge it' }],
+        createdAt: new Date(NOW - 30_000).toISOString(),
+      },
+      agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
+    })
+    expect(
+      motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire),
+    ).toBe('done')
   })
 
   it('a finished run (idle done / ended) is done', () => {

@@ -61,12 +61,15 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
         message: `Installed + started the ${what} as a systemd service — survives reboot.`,
       }
     const { serverUp } = await startDetachedStack(mode, port)
-    return {
-      effectivePersistence: 'detached',
-      message: `systemd unavailable (${res.reason}); started the ${what} detached — runs until reboot.${
-        serverUp ? '' : ' (did not come up — check ~/.podium/logs/)'
-      }`,
-    }
+    // Not an error the operator has to act on: the ${what} IS running. Say what we could not do,
+    // what we did instead, and the one consequence that matters (it won't come back on reboot).
+    const lines = [
+      `Could not install a systemd service — ${res.reason}.`,
+      `Started the ${what} detached instead: working now, but it will not come back after a reboot.`,
+    ]
+    if (!serverUp) lines.push('It did not come up, though — check ~/.podium/logs/.')
+    if (res.remedy) lines.push(res.remedy)
+    return { effectivePersistence: 'detached', message: lines.join('\n') }
   }
   const { serverUp } = await startDetachedStack(mode, port)
   return {

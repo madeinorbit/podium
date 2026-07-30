@@ -21,6 +21,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#374151',
   },
-  title: { color: '#f9fafb', fontSize: 18, fontWeight: '700', marginBottom: 8 },
+  title: { color: '#f9fafb', fontSize: 18, marginBottom: 8 },
   text: { color: '#cbd5e1', fontSize: 14, lineHeight: 20 },
 })

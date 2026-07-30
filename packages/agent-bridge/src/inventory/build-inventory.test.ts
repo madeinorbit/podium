@@ -69,6 +69,32 @@ describe('buildInventory', () => {
     expect(claude.path).toBe(join(home, '.local', 'bin', 'claude')) // first candidate wins
   })
 
+  it("does not mistake Grok's generic agent alias for Cursor", async () => {
+    const exec: ProbeExec = async (argv) => {
+      const bin = (argv[0] as string).split('/').pop()
+      if (bin !== 'agent') throw new Error(`ENOENT: ${argv[0]}`)
+      return argv[1] === '--help' ? 'Grok CLI help' : 'grok 0.2.111'
+    }
+    const inv = await buildInventory({ homeDir: home, exec })
+    expect(inv.agents.find((agent) => agent.kind === 'cursor')).toMatchObject({
+      installed: false,
+    })
+  })
+
+  it('accepts the generic agent executable when Cursor identifies itself', async () => {
+    const exec: ProbeExec = async (argv) => {
+      const bin = (argv[0] as string).split('/').pop()
+      if (bin !== 'agent') throw new Error(`ENOENT: ${argv[0]}`)
+      return argv[1] === '--help' ? 'Cursor Agent command line' : '2026.07.22'
+    }
+    const inv = await buildInventory({ homeDir: home, exec })
+    expect(inv.agents.find((agent) => agent.kind === 'cursor')).toMatchObject({
+      installed: true,
+      version: '2026.07.22',
+      path: join(home, '.local', 'bin', 'agent'),
+    })
+  })
+
   it('treats a rejecting exec (timeout) as absent, never throwing', async () => {
     const timeoutExec: ProbeExec = async () => {
       throw new Error('spawn ETIMEDOUT')
@@ -78,6 +104,8 @@ describe('buildInventory', () => {
   })
 
   it('computes login regardless of installed state', async () => {
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude', '.credentials.json'), JSON.stringify({ oauth: 'secret' }))
     writeFileSync(
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'mike@example.com' } }),
@@ -130,6 +158,19 @@ describe('buildInventory', () => {
     expect(byKind['claude-code']!.login).toEqual({ state: 'out' })
     expect(byKind['codex']!.login).toEqual({ state: 'out' })
     expect(byKind['grok']!.login).toEqual({ state: 'out' })
+  })
+
+  it('does not mistake metadata-only directories for native logins', async () => {
+    mkdirSync(join(home, '.grok'), { recursive: true })
+    writeFileSync(join(home, '.grok', 'config.toml'), '[cli]\n')
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'stale@example.com' } }),
+    )
+    const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
+    const byKind = Object.fromEntries(inv.agents.map((agent) => [agent.kind, agent]))
+    expect(byKind['claude-code']!.login.state).toBe('out')
+    expect(byKind.grok!.login.state).toBe('out')
   })
 
   it('probes gh into tools[] — absent when not installed (#214)', async () => {

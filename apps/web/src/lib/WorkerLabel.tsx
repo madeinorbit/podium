@@ -103,9 +103,16 @@ export function KindIcon({
       ? 'text-claude'
       : 'text-foreground'
   if (chip) {
+    // Per-kind tinted tile (POD-293): Claude wears its clay, other harnesses a
+    // quiet navy — solid fills so the chip never ghosts through a neighbour.
+    const chipTint = dimmed
+      ? 'border-[#2a3550] bg-[#141d30]'
+      : kind === 'claude-code'
+        ? 'border-[#d97757]/50 bg-[#2a1a14]'
+        : 'border-[#33456e] bg-[#182338]'
     return (
       <span
-        className={`flex size-5 flex-none items-center justify-center rounded-[5px] bg-[#22222c] transition-colors group-hover:bg-[#2c2c38] ${tone}`}
+        className={`flex size-5 flex-none items-center justify-center rounded-[6px] border ${chipTint} ${tone}`}
         title={panelLabel(kind)}
       >
         <Icon size={12} aria-label={panelLabel(kind)} />
@@ -134,8 +141,10 @@ export function WorkerLabel({
   /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
   chip?: boolean
 }): JSX.Element {
+  // Mid-move the row says where the session is going — same words as the pane's
+  // handover state (POD-337), so the sidebar and the panel read as one event.
   const name = session.handoffTarget
-    ? 'Handing off → ' + session.handoffTarget
+    ? 'Handing over → ' + session.handoffTarget
     : sessionDisplayName(session)
   return (
     <span className="worker-label inline-flex min-w-0 items-center gap-2">

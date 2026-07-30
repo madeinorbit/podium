@@ -213,6 +213,20 @@ export const InputMessage = z.object({
   type: z.literal('input'),
   sessionId: z.string(),
   data: z.string(),
+  /** Intended causal source of a provider-confirmed prompt. Optional for mixed
+   * deployments; the daemon never treats intent alone as a turn edge. */
+  inputOrigin: z
+    .enum([
+      'human',
+      'controller',
+      'steward',
+      'mail',
+      'auto_continue',
+      'system',
+      'provider',
+      'unknown',
+    ])
+    .optional(),
 })
 // Client's requested terminal grid; controller-authoritative. Geometry shape + sessionId.
 export const ResizeMessage = z.object({
@@ -373,6 +387,16 @@ export const SpawnMessage = z.object({
   // daemon runs its composer scrape/inject engine (and disables codex kitty
   // keyboard enhancement) only when true. Additive; older servers omit it (off).
   draftSync: z.boolean().optional(),
+  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  observationGeneration: z.number().int().positive().optional(),
+  /** Version of the exact provider binding carried by this lease. */
+  observationBindingVersion: z.number().int().positive().optional(),
+  /** Exact provider identity owned by the observation lease. Explicit null is
+   * a fresh unbound lease; omission is reserved for older servers. */
+  observationProviderSessionId: z.string().min(1).nullable().optional(),
+  /** Last durably accepted causal checkpoint. Optional for mixed-version
+   * control messages; the daemon validates it with the canonical v1 schema. */
+  observationCheckpoint: z.unknown().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -396,6 +420,16 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
+  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  observationGeneration: z.number().int().positive().optional(),
+  /** Version of the exact provider binding carried by this lease. */
+  observationBindingVersion: z.number().int().positive().optional(),
+  /** Exact provider identity owned by the observation lease. Explicit null is
+   * a fresh unbound lease; omission is reserved for older servers. */
+  observationProviderSessionId: z.string().min(1).nullable().optional(),
+  /** Last durably accepted causal checkpoint. Optional for mixed-version
+   * control messages; the daemon validates it with the canonical v1 schema. */
+  observationCheckpoint: z.unknown().optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
@@ -458,4 +492,15 @@ export const AgentColorMessage = z.object({
   type: z.literal('agentColor'),
   sessionId: z.string(),
   color: z.string(),
+})
+// Daemon → server: the model observed producing assistant turns (`message.model`
+// in the transcript). Resolves a spawn-time `auto` to the concrete id and tracks
+// mid-session `/model` switches; rides the same transcript tail as agentColor.
+export const AgentModelMessage = z.object({
+  type: z.literal('agentModel'),
+  sessionId: z.string(),
+  model: z.string(),
+  /** The observed reasoning-effort tier (assistant records' top-level `effort`),
+   *  when the transcript reports one. Optional for wire-compat with older daemons. */
+  effort: z.string().optional(),
 })

@@ -13,6 +13,7 @@ export interface FileDocument {
   editable: boolean
   dirty: boolean
   saving: boolean
+  saveFeedback: { kind: 'success' | 'error'; message: string } | null
   baseHash: string | undefined
   reloadNonce: number
   setContent: (next: string) => void
@@ -39,6 +40,11 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   const [baseHash, setBaseHash] = useState<string | undefined>(undefined)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const [saveFeedback, setSaveFeedback] = useState<{
+    kind: 'success' | 'error'
+    message: string
+  } | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
   // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — no save path.
   const editable = scope.kind !== 'artifact'
@@ -52,40 +58,69 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
 
   const save = useCallback(async () => {
-    if (!canSave({ editable, dirty, saving })) return
+    if (savingRef.current || !canSave({ editable, dirty, saving })) return
+    savingRef.current = true
     setSaving(true)
+    setSaveFeedback(null)
     const body = contentRef.current
-    const r = await writeFileScoped({ scope: scopeRef.current, path, content: body, baseHash })
+    let r: Awaited<ReturnType<typeof writeFileScoped>>
+    try {
+      r = await writeFileScoped({ scope: scopeRef.current, path, content: body, baseHash })
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Save failed'
+      setSaveFeedback({ kind: 'error', message })
+      toast.error(message)
+      savingRef.current = false
+      setSaving(false)
+      return
+    }
+    savingRef.current = false
     setSaving(false)
     if (r.ok) {
       setBaseHash(r.baseHash)
       setDirty(false)
+      setSaveFeedback({ kind: 'success', message: 'Saved' })
       toast.success('Saved')
     } else if (r.conflict) {
       toast.error('File changed on disk — reload or overwrite', {
         action: {
           label: 'Overwrite',
           onClick: async () => {
+            if (savingRef.current) return
+            savingRef.current = true
             setSaving(true)
-            const r2 = await writeFileScoped({
-              scope: scopeRef.current,
-              path,
-              content: contentRef.current,
-            })
-            setSaving(false)
-            if (r2.ok) {
-              setBaseHash(r2.baseHash)
-              setDirty(false)
-              toast.success('Saved (overwritten)')
-            } else {
-              toast.error(r2.error ?? 'Save failed')
+            try {
+              const r2 = await writeFileScoped({
+                scope: scopeRef.current,
+                path,
+                content: contentRef.current,
+              })
+              if (r2.ok) {
+                setBaseHash(r2.baseHash)
+                setDirty(false)
+                setSaveFeedback({ kind: 'success', message: 'Saved' })
+                toast.success('Saved (overwritten)')
+              } else {
+                const message = r2.error ?? 'Save failed'
+                setSaveFeedback({ kind: 'error', message })
+                toast.error(message)
+              }
+            } catch (cause) {
+              const message = cause instanceof Error ? cause.message : 'Save failed'
+              setSaveFeedback({ kind: 'error', message })
+              toast.error(message)
+            } finally {
+              savingRef.current = false
+              setSaving(false)
             }
           },
         },
         cancel: { label: 'Reload', onClick: reload },
       })
     } else {
-      toast.error(r.error ?? 'Save failed')
+      const message = r.error ?? 'Save failed'
+      setSaveFeedback({ kind: 'error', message })
+      toast.error(message)
     }
   }, [key, path, writeFileScoped, baseHash, dirty, saving, editable, reload])
 
@@ -93,6 +128,7 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
     let cancelled = false
     setStatus('loading')
     setDirty(false)
+    setSaveFeedback(null)
     setBaseHash(undefined)
     void (async () => {
       const r = await readFileScoped(scopeRef.current, path)
@@ -122,6 +158,7 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
     editable,
     dirty,
     saving,
+    saveFeedback,
     baseHash,
     reloadNonce,
     setContent,

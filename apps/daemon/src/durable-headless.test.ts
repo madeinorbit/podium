@@ -37,6 +37,27 @@ describe('durable headless invocation', () => {
       'orchestrator\n\nmachine context',
     )
   })
+
+  it('reapplies the current system prompt when resuming a Claude CLI thread', () => {
+    const exec = buildClaudeDurableExec(
+      {
+        agent: 'claude-code',
+        cwd: '/repo',
+        prompt: 'Why?',
+        systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
+        resumeValue: 'claude-thread-1',
+      },
+      { mcp: '/tmp/mcp.json' },
+    )
+
+    expect(exec.stdin).toBe('Why?')
+    expect(
+      exec.args.slice(exec.args.indexOf('--resume'), exec.args.indexOf('--resume') + 2),
+    ).toEqual(['--resume', 'claude-thread-1'])
+    expect(exec.args[exec.args.indexOf('--append-system-prompt') + 1]).toBe(
+      'NORMAL: HARD LIMIT 80 words total',
+    )
+  })
 })
 
 describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () => {

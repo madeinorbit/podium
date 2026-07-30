@@ -111,9 +111,11 @@ describe('draftIssueLabel', () => {
     expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('My run')
   })
 
-  it('falls back to the normalized live title', () => {
+  it('never borrows the live OSC title — waits for a real name', () => {
+    // Claude Code seeds its terminal title from its GLOBAL history, so an
+    // un-summarized session can advertise an unrelated older conversation.
     const sessions = [sess('a', WT, { issueId: 'i1', title: '✻ Fixing the bug' })]
-    expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('Fixing the bug')
+    expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('New Claude session')
   })
 
   it("falls back to 'New agent' when there is no session at all", () => {

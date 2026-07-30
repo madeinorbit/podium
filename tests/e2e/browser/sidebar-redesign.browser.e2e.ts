@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { expect, type Page, test } from '@playwright/test'
+import { basename, join } from 'node:path'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
 import { RELAY } from './_harness'
 
@@ -14,7 +14,26 @@ import { RELAY } from './_harness'
  */
 test.skip(({ isMobile }) => isMobile, 'desktop verification: the sidebar/rail are desktop-only')
 
-const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+const PORT = Number(process.env.PORT ?? 8799)
+const HTTP = RELAY.replace(/^ws/, 'http')
+const HOOKS_DIR = join(harnessEnv(PORT).stateDir, 'hooks')
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'get'
+      ? await request.get(
+          `${HTTP}/trpc/${proc}${input ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''}`,
+        )
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+  if (!response.ok()) throw new Error(`${proc} -> ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
 
 async function hookSettingsFiles(): Promise<Set<string>> {
   return new Set(await readdir(HOOKS_DIR).catch(() => []))
@@ -22,10 +41,14 @@ async function hookSettingsFiles(): Promise<Set<string>> {
 
 async function newHookUrl(existing: Set<string>): Promise<string | undefined> {
   const files = await hookSettingsFiles()
-  const settingsFile = [...files].find((file) => !existing.has(file))
-  if (!settingsFile) return undefined
-  const settings = await readFile(join(HOOKS_DIR, settingsFile), 'utf8')
-  return settings.match(/"url":\s*"([^"]+\/hooks\/[^"]+)"/)?.[1]
+  for (const file of files) {
+    if (existing.has(file)) continue
+    const settings = await readFile(join(HOOKS_DIR, file), 'utf8').catch(() => undefined)
+    if (!settings) continue
+    const url = settings.match(/"url":\s*"([^"]+\/hooks\/[^"]+)"/)?.[1]
+    if (url) return url
+  }
+  return undefined
 }
 
 async function openShell(page: Page): Promise<void> {
@@ -50,23 +73,19 @@ async function resolveColor(page: Page, expression: string): Promise<string> {
 
 test('rows carry the motion grammar, the selected row grows the bridge notch, colour flows', async ({
   page,
+  request,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   const aside = page.locator('aside').first()
 
-  // ---- Seed one issue with real work (deterministic keyecho agent). ----
-  await page.getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  // ---- Seed one issue with real work through the stable server boundary. ----
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos.find((repo) => basename(repo) === `zz-podium-e2e-repo-${PORT}`) ?? repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
   const title = `E2E sidebar redesign ${Date.now()}`
-  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
-  const composer = page.getByRole('dialog')
-  await composer.getByLabel('Title').fill(title)
   const preexistingHooks = await hookSettingsFiles()
-  await expect(composer.getByRole('checkbox', { name: 'Start work now' })).toBeChecked()
-  const create = composer.getByRole('button', { name: /^Create$/ })
-  await expect(create).toBeEnabled({ timeout: 15_000 })
-  await create.click()
-  await expect(composer).toBeHidden({ timeout: 30_000 })
+  await rpc(request, 'issues.create', { repoPath, title, startNow: true })
 
   let hookUrl: string | undefined
   await expect
@@ -80,20 +99,23 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   const rowSurface = row.locator('[data-phase]').first()
   await expect(rowSurface).toBeVisible({ timeout: 30_000 })
 
-  // ---- WORKING: braille spinner + green counting m:ss timer in line 2. ----
+  // ---- WORKING: one lifecycle lockup owns spinner + word + counting timer. ----
   const working = await fetch(hookUrl as string, {
     method: 'POST',
     body: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'e2e working' }),
   })
   expect(working.ok).toBe(true)
   await expect(rowSurface).toHaveAttribute('data-phase', 'working', { timeout: 15_000 })
-  await expect(row.locator('.spb')).toBeVisible()
-  await expect(
-    row
-      .locator('span')
-      .filter({ hasText: /^\d+:\d\d$/ })
-      .first(),
-  ).toBeVisible()
+  const lifecycle = row.getByTestId('row-lifecycle-status')
+  await expect(lifecycle).toHaveAttribute('data-phase', 'working')
+  await expect(lifecycle.locator('.spb')).toBeVisible()
+  await expect(lifecycle).toContainText(/working.*·\s*\d+:\d\d/i)
+  const fleet = row.getByTestId('issue-fleet-summary')
+  await expect(fleet).toBeVisible()
+  await expect(fleet.locator('.rounded-full')).toHaveCount(0)
+  if (process.env.SIDEBAR_WORKING_SHOT) {
+    await row.screenshot({ path: process.env.SIDEBAR_WORKING_SHOT })
+  }
 
   // ---- WAITING: a question freezes the row into amber stillness + pill. ----
   const asking = await fetch(hookUrl as string, {
@@ -109,7 +131,7 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   await expect(row.getByRole('img', { name: '1 waiting on you' })).toBeVisible()
   await expect(row.locator('.spb')).toHaveCount(0)
   // The square carries the amber waiting corner dot on wide rows.
-  const square = row.getByRole('button', { name: /Set colour for issue #/ })
+  const square = row.getByTestId('issue-id-square')
   await expect(square).toHaveAttribute('data-badge', 'dot')
 
   // ---- Selecting the row grows the bridge notch ACROSS the aside border. ----
@@ -130,7 +152,7 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
 
   // ---- Colour flows live: pick Violet, the row background re-mixes. ----
   await square.click()
-  const picker = page.getByRole('dialog', { name: /Issue colour for #/ })
+  const picker = page.getByRole('dialog', { name: /Task colour for / })
   await expect(picker).toBeVisible()
   await picker.getByRole('button', { name: 'Violet' }).click()
   await expect(square).toHaveAttribute('data-color', 'violet')
@@ -141,6 +163,22 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
     )
     .toBe(selectedViolet)
   await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
+
+  // ---- DONE: the real Stop hook replaces motion with check + explicit copy. ----
+  const stopped = await fetch(hookUrl as string, {
+    method: 'POST',
+    body: JSON.stringify({ hook_event_name: 'Stop' }),
+  })
+  expect(stopped.ok).toBe(true)
+  await expect(rowSurface).toHaveAttribute('data-phase', 'done', { timeout: 15_000 })
+  await expect(lifecycle).toHaveAttribute('data-phase', 'done')
+  await expect(lifecycle).toContainText(/done/i)
+  await expect(lifecycle.locator('svg')).toBeVisible()
+  await expect(lifecycle.locator('.spb')).toHaveCount(0)
+  await expect(fleet.locator('.rounded-full')).toHaveCount(0)
+  if (process.env.SIDEBAR_DONE_SHOT) {
+    await row.screenshot({ path: process.env.SIDEBAR_DONE_SHOT })
+  }
 
   if (process.env.SIDEBAR_SHOT) {
     await aside.screenshot({ path: process.env.SIDEBAR_SHOT })
@@ -195,7 +233,7 @@ test('collapsed 52px rail keeps the square language and select-then-pick clicks 
 
   // ---- …click #2 on the selected square opens the colour picker. ----
   await firstSquare.click()
-  await expect(page.getByRole('dialog', { name: /Issue colour for #/ })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: /Task colour for / })).toBeVisible()
   await page.keyboard.press('Escape')
 
   if (process.env.RAIL_SHOT) {

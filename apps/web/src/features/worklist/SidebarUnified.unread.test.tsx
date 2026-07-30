@@ -187,10 +187,19 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     expect(deferMutate).toHaveBeenCalledWith({ id: 'd1', until: null })
   })
 
-  it('shows the snooze alarm icon only on a still-snoozed row (#133)', () => {
+  it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', () => {
     render(<SidebarUnified />)
-    expect(screen.getByText('Snoozed issue')).toBeTruthy()
-    // Exactly one alarm icon across the whole sidebar — on the snoozed row only.
-    expect(screen.getAllByLabelText('Snoozed')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Snoozed · 1' }))
+    // Suspended work is out of triage: one dim line, no chrome — the alarm icon
+    // and full row give way to the fold's own "snoozed …" marker (POD-293).
+    const row = screen
+      .getByText('Snoozed issue')
+      .closest('[data-testid="folded-work-row"]') as HTMLElement
+    expect(row).toBeTruthy()
+    expect(row.getAttribute('data-lane')).toBe('snoozed')
+    expect(row.textContent?.toLowerCase()).toContain('snoozed')
+    // No live-row chrome leaks into the fold.
+    expect(row.querySelector('[data-testid="issue-fleet-summary"]')).toBeNull()
+    expect(row.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
   })
 })

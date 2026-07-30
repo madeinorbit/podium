@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { ConversationDiscoveryCache } from './cache.js'
-import { scanAgentConversationsCached } from './scanner.js'
+import { scanAgentConversationsCached, summarizePaths } from './scanner.js'
 import type {
   AgentConversation,
   AgentConversationSummary,
@@ -130,6 +130,85 @@ describe('scanAgentConversationsCached', () => {
     expect(empty.conversations).toEqual([])
     expect(cache.listSummaries()).toEqual([])
     expect(cache.getFresh(file, await stat(root), 'codex')).toBeUndefined()
+    cache.close()
+  })
+})
+
+describe('summarizePaths', () => {
+  function trackingProvider(
+    id: string,
+    agentKind: 'codex' | 'opencode',
+    listRootCalls: string[],
+  ): ConversationProvider {
+    return {
+      id,
+      agentKind,
+      defaultRoots: () => [],
+      async listRoot(root: string): Promise<ProviderRootListing> {
+        listRootCalls.push(root)
+        return { files: [], diagnostics: [], state: { root } }
+      },
+      async summarizeFile(
+        root: string,
+        file: { path: string },
+        _context: ProviderSummaryContext,
+      ): Promise<ProviderSummaryResult> {
+        return {
+          summary: {
+            ...fakeSummary(file.path, file.path.split('/').pop() ?? file.path),
+            agentKind,
+            source: { providerId: id, root, path: file.path },
+          },
+          diagnostics: [],
+        }
+      },
+      async scanRoot(): Promise<{ conversations: AgentConversationSummary[]; diagnostics: [] }> {
+        throw new Error('scanRoot should not be used by cached scanner')
+      },
+      async loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
+        return { ...summary, messages: [] }
+      },
+    }
+  }
+
+  test('targeted refresh never lists roots of providers that own none of the dirty paths', async () => {
+    const codexRoot = await createRoot()
+    const opencodeRoot = await createRoot()
+    const dirty = await writeCandidate(codexRoot, 'one.jsonl', '2026-06-01T10:00:00.000Z')
+    const cache = new ConversationDiscoveryCache(':memory:')
+    const codexCalls: string[] = []
+    const opencodeCalls: string[] = []
+    const codexProvider = trackingProvider('fake-codex', 'codex', codexCalls)
+    const opencodeProvider = trackingProvider('fake-opencode', 'opencode', opencodeCalls)
+
+    const result = await summarizePaths([dirty], {
+      cache,
+      providers: [codexProvider, opencodeProvider],
+      includeDefaults: false,
+      extraRoots: { codex: [codexRoot], opencode: [opencodeRoot] },
+    })
+
+    expect(codexCalls).toEqual([codexRoot])
+    expect(opencodeCalls).toEqual([])
+    expect(result.removed).toEqual([])
+    cache.close()
+  })
+
+  test('empty dirty set does no provider work at all', async () => {
+    const codexRoot = await createRoot()
+    const cache = new ConversationDiscoveryCache(':memory:')
+    const codexCalls: string[] = []
+    const provider = trackingProvider('fake-codex', 'codex', codexCalls)
+
+    const result = await summarizePaths([], {
+      cache,
+      providers: [provider],
+      includeDefaults: false,
+      extraRoots: { codex: [codexRoot] },
+    })
+
+    expect(codexCalls).toEqual([])
+    expect(result.changed).toEqual([])
     cache.close()
   })
 })

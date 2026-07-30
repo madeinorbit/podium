@@ -17,6 +17,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -201,7 +202,14 @@ export function applyRealAgentCodexEnv(
 
 /** SIGTERM every abduco master and tmux server inside the harness dirs, then wipe. */
 export function reapHarnessSessions(port: number): void {
-  const { base, abducoSocketDir, tmuxTmpDir } = harnessEnv(port)
+  const { base, stateDir, abducoSocketDir, tmuxTmpDir } = harnessEnv(port)
+
+  // The harness's daemon installs its own abduco under <state>/bin when none is
+  // on PATH — the leaked masters run exactly that binary. Listing with a missing
+  // `abduco` yields an empty listing, and the rmSync below would then unlink the
+  // sockets and orphan every master invisibly. Prefer the harness's own copy.
+  const harnessAbduco = join(stateDir, 'bin', 'abduco')
+  const abducoBin = existsSync(harnessAbduco) ? harnessAbduco : 'abduco'
 
   // abduco: the listing both reveals master pids and reaps stale sockets. Masters
   // must be signalled BEFORE the directory is removed — an unlinked socket leaves
@@ -228,7 +236,7 @@ export function reapHarnessSessions(port: number): void {
       socketFiles(abducoSocketDir).flatMap((f) => [f, f.split('@')[0] ?? f]),
     )
     const listing = () =>
-      spawnSync('abduco', [], {
+      spawnSync(abducoBin, [], {
         encoding: 'utf8',
         env: { ...process.env, ABDUCO_SOCKET_DIR: abducoSocketDir },
       }).stdout ?? ''
@@ -315,6 +323,88 @@ export function reapHarnessSessions(port: number): void {
   // should already be stopped, but a dying process or filesystem lag can still
   // leave a short removal race; bound it rather than replacing the test result.
   rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  // The per-port scratch repos serve-harness seeds live OUTSIDE base by design
+  // (specs recompute their deterministic paths); reap them with the port's state.
+  const scratchRepo = join(harnessTmpRoot(), `zz-podium-e2e-repo-${port}`)
+  for (const dir of [scratchRepo, `${scratchRepo}-feat`, `${scratchRepo}-target`]) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  }
+}
+
+/**
+ * Minimum age before a pid-file-less harness dir is considered abandoned. A
+ * starting harness creates its dirs before writing harness.pid; never reap
+ * inside that window or a concurrent run on another port loses its sessions.
+ */
+const STALE_HARNESS_DIR_MIN_AGE_MS = 30 * 60 * 1000
+
+/**
+ * Reap ABANDONED per-port harness dirs (POD-107). reapHarnessSessions is keyed
+ * by port, so a run on an ad-hoc port that dies hard (SIGKILL, reboot, a verify
+ * script Ctrl-C'd) parks its abduco masters — keyecho/node processes — under
+ * /tmp/podium-e2e-<port> for days; no later run on a DIFFERENT port ever sweeps
+ * them. This walks every podium-e2e-* dir and reaps those whose harness pid is
+ * dead, or whose pid file never appeared and the dir has gone stale. Live
+ * harnesses on other ports are left alone.
+ */
+export function reapStaleHarnessDirs(now: number = Date.now()): number[] {
+  const reaped: number[] = []
+  let entries: string[]
+  try {
+    entries = readdirSync(harnessTmpRoot())
+  } catch {
+    return reaped
+  }
+  for (const entry of entries) {
+    const m = /^podium-e2e-(\d+)$/.exec(entry)
+    if (!m) continue
+    const port = Number(m[1])
+    let pid: number | undefined
+    try {
+      const parsed = Number.parseInt(readFileSync(harnessPidFile(port), 'utf8').trim(), 10)
+      if (Number.isSafeInteger(parsed) && parsed > 1) pid = parsed
+    } catch {
+      // no pid file
+    }
+    let stale = false
+    if (pid !== undefined) {
+      stale = pid !== process.pid && !processIsAlive(pid)
+    } else {
+      // No usable pid marker: either abandoned before startup finished or a
+      // harness that is starting RIGHT NOW. Only age can tell them apart.
+      try {
+        const { mtimeMs } = statSync(join(harnessTmpRoot(), entry))
+        stale = now - mtimeMs > STALE_HARNESS_DIR_MIN_AGE_MS
+      } catch {
+        // vanished while we looked — someone else reaped it
+      }
+    }
+    if (!stale) continue
+    try {
+      reapHarnessSessions(port)
+      reaped.push(port)
+    } catch {
+      // best-effort: a half-removed dir heals on the next sweep
+    }
+  }
+  // Orphaned scratch repos: past runs whose podium-e2e-<port> dir is already gone
+  // left their zz-podium-e2e-repo-<port>* trees behind (no processes, pure disk
+  // litter). A LIVE harness always has its state dir, so "no state dir + old"
+  // is safe to remove.
+  for (const entry of entries) {
+    const m = /^zz-podium-e2e-repo-(\d+)/.exec(entry)
+    if (!m) continue
+    if (existsSync(harnessStateBase(Number(m[1])))) continue
+    try {
+      const full = join(harnessTmpRoot(), entry)
+      if (now - statSync(full).mtimeMs > STALE_HARNESS_DIR_MIN_AGE_MS) {
+        rmSync(full, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+      }
+    } catch {
+      // vanished while we looked
+    }
+  }
+  return reaped
 }
 
 /** Create the isolation dirs and point this process's env at them. */

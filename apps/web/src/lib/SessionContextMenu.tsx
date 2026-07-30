@@ -13,8 +13,6 @@ import {
   MessageSquareText,
   Moon,
   Pencil,
-  Pin,
-  PinOff,
   Play,
   X,
 } from 'lucide-react'
@@ -23,6 +21,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { useFeature } from '@/lib/use-feature'
 import {
   isSnoozed,
   panelLabel,
@@ -31,6 +30,7 @@ import {
   snoozeUntilTomorrow5am,
 } from './derive'
 import { useNow } from './useNow'
+import { sessionDisplayName } from './WorkerLabel'
 
 export interface ContextMenuAnchor {
   x: number
@@ -103,6 +103,8 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
       return `no ${panelLabel(agentKind)}`
     case 'logged-out':
       return `${panelLabel(agentKind)} logged out`
+    case 'repo-missing':
+      return 'no clone URL for repo'
     default: {
       const exhaustive: never = rejection
       return exhaustive
@@ -120,20 +122,17 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
  */
 export function SessionContextMenu({
   session,
-  pinned,
   anchor,
   onClose,
   onRename,
 }: {
   session: SessionMeta
-  pinned: boolean
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Enter inline rename mode in the host (sidebar row / tab). */
   onRename: () => void
 }): JSX.Element {
   const {
-    setPinned,
     setSnooze,
     clearSnooze,
     hibernateSession,
@@ -146,7 +145,6 @@ export function SessionContextMenu({
     machines,
   } = useStoreSelector(
     (s) => ({
-      setPinned: s.setPinned,
       setSnooze: s.setSnooze,
       clearSnooze: s.clearSnooze,
       hibernateSession: s.hibernateSession,
@@ -162,6 +160,7 @@ export function SessionContextMenu({
   )
   const issues = useReplicaIssues()
   const { guardedKill, guardedArchive } = useSessionGuard()
+  const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
@@ -212,11 +211,18 @@ export function SessionContextMenu({
     onClose()
   }
 
+  // The session's own pane narrates the move (HandoverPane), so this toast is for
+  // the operator who is looking somewhere else: it names WHICH session landed
+  // WHERE, and a failure names the target it never reached (the server rolls the
+  // session back to where it was).
   const handoff = (machineId: string, machineName: string): void => {
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
-      () => toast.success('Handed off to ' + machineName),
-      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+      () => toast.success(`${sessionDisplayName(session)} resumed on ${machineName}`),
+      (error: unknown) =>
+        toast.error(
+          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
+        ),
     )
   }
 
@@ -233,22 +239,20 @@ export function SessionContextMenu({
       // The host opens this on contextmenu; suppress a nested browser menu.
       onContextMenu={(e) => e.preventDefault()}
     >
-      <button type="button" role="menuitem" className={itemCls} onClick={() => run(onRename)}>
-        <Pencil size={14} aria-hidden="true" /> Rename
-      </button>
       <button
+        data-pressable
         type="button"
         role="menuitem"
         className={itemCls}
-        onClick={() => run(() => setPinned('panel', id, !pinned))}
+        onClick={() => run(onRename)}
       >
-        {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
-        {pinned ? 'Unpin' : 'Pin'}
+        <Pencil size={14} aria-hidden="true" /> Rename
       </button>
       {/* Email-style read toggle (#138): mark a read session unread (or an unread
           one read) — mutually exclusive. Store actions are optimistic. */}
       {canMarkUnread && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -259,6 +263,7 @@ export function SessionContextMenu({
       )}
       {canMarkRead && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -268,9 +273,10 @@ export function SessionContextMenu({
         </button>
       )}
 
-      <div className="my-1 h-px bg-border" role="separator" />
+      <hr className="my-1 h-px border-0 bg-border" />
       {snoozed ? (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -284,6 +290,7 @@ export function SessionContextMenu({
             Snooze
           </div>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -292,6 +299,7 @@ export function SessionContextMenu({
             <AlarmClock size={14} aria-hidden="true" /> For 1 hour
           </button>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -300,6 +308,7 @@ export function SessionContextMenu({
             <AlarmClock size={14} aria-hidden="true" /> Until tomorrow
           </button>
           <button
+            data-pressable
             type="button"
             role="menuitem"
             className={itemCls}
@@ -310,9 +319,10 @@ export function SessionContextMenu({
         </>
       )}
 
-      <div className="my-1 h-px bg-border" role="separator" />
+      <hr className="my-1 h-px border-0 bg-border" />
       {canHibernate && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -323,6 +333,7 @@ export function SessionContextMenu({
       )}
       {canResume && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={itemCls}
@@ -331,37 +342,41 @@ export function SessionContextMenu({
           <Play size={14} aria-hidden="true" /> Resume
         </button>
       )}
-      {/* Always offered (POD-821). A blocker disables it and says why inline; with
-          no blocker the submenu names every other repo machine, eligible or not. */}
-      {blocker ? (
-        <button
-          type="button"
-          role="menuitem"
-          disabled
-          className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
-        >
-          <span className="flex items-center gap-2">
+      {/* When enabled, a blocker disables handoff and says why inline; otherwise
+          the submenu names every other repo machine (POD-821). */}
+      {handoffEnabled &&
+        (blocker ? (
+          <button
+            data-pressable
+            type="button"
+            role="menuitem"
+            disabled
+            className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+          >
+            <span className="flex items-center gap-2">
+              <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
+            </span>
+            <span className="pl-6 text-[11px] text-muted-foreground">
+              {handoffBlockerText(blocker, session.agentKind)}
+            </span>
+          </button>
+        ) : (
+          <button
+            data-pressable
+            type="button"
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={handoffTop !== null}
+            className={itemCls}
+            onMouseEnter={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+            onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+          >
             <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-          </span>
-          <span className="pl-6 text-[11px] text-muted-foreground">
-            {handoffBlockerText(blocker, session.agentKind)}
-          </span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          role="menuitem"
-          aria-haspopup="menu"
-          aria-expanded={handoffTop !== null}
-          className={itemCls}
-          onMouseEnter={(event) => setHandoffTop(event.currentTarget.offsetTop)}
-          onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
-        >
-          <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-          <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
-        </button>
-      )}
+            <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
+          </button>
+        ))}
       <button
+        data-pressable
         type="button"
         role="menuitem"
         className={itemCls}
@@ -370,6 +385,7 @@ export function SessionContextMenu({
         <MessageSquareText size={14} aria-hidden="true" /> Ask superagent (BTW)
       </button>
       <button
+        data-pressable
         type="button"
         role="menuitem"
         className={itemCls}
@@ -384,6 +400,7 @@ export function SessionContextMenu({
       </button>
       {canClose && (
         <button
+          data-pressable
           type="button"
           role="menuitem"
           className={`${itemCls} text-destructive hover:bg-destructive/10 hover:text-destructive`}
@@ -392,7 +409,7 @@ export function SessionContextMenu({
           <X size={14} aria-hidden="true" /> Close
         </button>
       )}
-      {handoffTop !== null && (
+      {handoffEnabled && handoffTop !== null && (
         <div
           role="menu"
           aria-label="Handoff targets"
@@ -410,6 +427,7 @@ export function SessionContextMenu({
           {candidates.map(({ machine, rejection }) =>
             rejection ? (
               <button
+                data-pressable
                 key={machine.id}
                 type="button"
                 role="menuitem"
@@ -424,6 +442,7 @@ export function SessionContextMenu({
               </button>
             ) : (
               <button
+                data-pressable
                 key={machine.id}
                 type="button"
                 role="menuitem"

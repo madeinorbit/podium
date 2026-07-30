@@ -51,6 +51,7 @@ import {
   type RouteState,
   routeDefaults,
 } from '../router'
+import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
@@ -60,10 +61,12 @@ import {
   type FileScope,
   type FileTab,
   optimisticDraftIssue,
+  optimisticDraftSortKey,
   optimisticStartingSession,
   type PinKind,
   type PinState,
   planWorktreeMoves,
+  type RecentFileEntry,
   readStoredDockTab,
   reposToViews,
   tabIdFor,
@@ -87,8 +90,10 @@ import {
   PANE_A_KEY,
   PANE_B_KEY,
   PANEL_MODE_KEY,
+  RECENT_FILES_KEY,
   readStoredDockShells,
   readStoredPanelModes,
+  readStoredRecentFiles,
   readStoredView,
   SPLIT_KEY,
   SUPER_OPEN_KEY,
@@ -105,10 +110,23 @@ import {
 } from './types'
 import { type CreateHub, createEngineHub, createEngineOutbox, type OutboxKinds } from './wiring'
 
-/** Default trailing debounce (ms) before a viewed session is marked read. Long
- *  enough that a streaming session settles first (so we mark read once, not on
- *  every frame), short enough that a glance clears the nag promptly. */
+/** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface
+ *  the operator is looking at marks it read immediately (POD-272 — it is already
+ *  on screen); this window then bounds the follow-ups, so a streaming session
+ *  costs one mutation per window plus one trailing pass rather than one a frame.
+ *  Still the default trailing debounce for the standalone useMarkReadOnView. */
 export const MARK_READ_ON_VIEW_MS = 1200
+
+/** The stamp the server's issue-unread compares against read_at: the issue's own
+ *  updatedAt, or a member session's activity when that is newer. Mirrors the
+ *  server's computeUnread so the client reacts to exactly the same events. */
+function issueActivityAt(issue: IssueWire, sessions: SessionMeta[]): string {
+  let latest = issue.updatedAt
+  for (const s of sessions) {
+    if ((s.issueId ?? null) === issue.id && s.lastActiveAt > latest) latest = s.lastActiveAt
+  }
+  return latest
+}
 
 /** How long a FAILED spawn create waits for the session broadcast before it is
  *  treated as definitive (#263 review finding 4): the create can reach the
@@ -161,6 +179,7 @@ interface EngineState {
   view: MainView
   settingsTab: string | null
   openIssueId: string | null
+  peekIssueId: string | null
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
@@ -179,6 +198,7 @@ interface EngineState {
   drafts: Record<string, string>
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
+  recentFiles: RecentFileEntry[]
   outboxSize: number
 }
 
@@ -230,6 +250,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private prevCwds: Record<string, string> = {}
   private markReadKey: string | null = null
   private markReadTimer: ReturnType<typeof setTimeout> | null = null
+  /** When the focused session's eager mark-read last actually fired (POD-272) —
+   *  the throttle window's origin, so a burst of activity costs one mutation. */
+  private markReadFiredAt = 0
+  private issueMarkReadKey: string | null = null
+  private issueMarkReadTimer: ReturnType<typeof setTimeout> | null = null
+  private issueMarkReadFiredAt = 0
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
   private started = false
@@ -343,6 +369,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       view: route.view,
       settingsTab: route.settingsTab,
       openIssueId: route.issueId,
+      peekIssueId: null,
       superThreadId: 'global',
       // Default OPEN: the superagent is the desktop shell's center column now, not
       // an optional dock — only an explicit close ('0') keeps it collapsed.
@@ -366,6 +393,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       drafts: {},
       sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
       fileTabs: [],
+      recentFiles: readStoredRecentFiles(this.ui),
       outboxSize: 0,
     }
     this.statics = this.buildStatics()
@@ -474,6 +502,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }),
     )
 
+    // Agent-state transitions → sound cues [POD-78]. Fed from 'sessions' (not
+    // 'attention'): the attention broadcast is gated on the web-notification
+    // setting and never fires for a clean "done"; sounds want both.
+    const sounder = new NotificationSounder({
+      ui: this.ui,
+      visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
+    })
+    offs.push(sounder.attach())
+    offs.push(this.hub.on('sessions', (list) => sounder.onSessions(list)))
+
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
     if (typeof document !== 'undefined') {
@@ -544,6 +582,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       clearTimeout(this.markReadTimer)
       this.markReadTimer = null
     }
+    if (this.issueMarkReadTimer !== null) {
+      clearTimeout(this.issueMarkReadTimer)
+      this.issueMarkReadTimer = null
+    }
     if (this.awaitingSweepTimer !== null) {
       clearTimeout(this.awaitingSweepTimer)
       this.awaitingSweepTimer = null
@@ -551,6 +593,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     for (const t of this.spawnConfirmTimers) clearTimeout(t)
     this.spawnConfirmTimers.clear()
     this.markReadKey = null
+    this.issueMarkReadKey = null
     for (const off of this.offs.splice(0)) {
       try {
         off()
@@ -600,6 +643,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.has('dockShells'))
       this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(this.state.dockShells))
     if (changed.has('dockTab')) this.ui.set(DOCK_TAB_KEY, this.state.dockTab)
+    if (changed.has('recentFiles'))
+      this.ui.set(RECENT_FILES_KEY, JSON.stringify(this.state.recentFiles))
     // Session-follows-view policy (old lines 1113-1136): diffs consecutive
     // session snapshots, so it reacts to sessions only.
     if (changed.has('sessions')) this.reactWorktreeFollow()
@@ -609,8 +654,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (any('selectedWorktree', 'paneA')) this.mirrorUrl()
     // View-state report to the server (old lines 1038-1060).
     if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession')) this.reportViewState()
-    // Mark-the-viewed-session-read debounce (old useMarkReadOnView call).
+    // Mark-the-viewed-session-read reaction (old useMarkReadOnView call).
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane')) this.updateMarkReadTimer()
+    // …and the same for the issue the operator has in the foreground (POD-272).
+    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+      this.updateIssueMarkReadTimer()
   }
 
   private buildSnapshot(): Store<TApi> {
@@ -766,11 +814,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.reportViewState()
   }
 
-  /** Mark the session the operator is LOOKING AT read on view (#138): a trailing
-   *  debounce keyed on the focused session's id + activity, so a streaming
-   *  session settles first. `unread` + visibility are re-checked at fire time so
-   *  a mid-flight manual mark-unread is respected. (The old useMarkReadOnView
-   *  hook, as an engine reaction.) */
+  /** Mark the session the operator is LOOKING AT read on view (#138), keyed on
+   *  the focused session's id + activity. The activity that lands while the
+   *  session IS the open pane is already on screen, so it's marked read EAGERLY
+   *  — leading edge, no settle wait (POD-272: waiting left a "new" chip on the
+   *  row of the very session being read). MARK_READ_ON_VIEW_MS survives as the
+   *  throttle window: a burst costs one mutation now plus one trailing pass, so
+   *  a streaming session still can't spam the outbox.
+   *
+   *  The trigger stays ACTIVITY, never the `unread` flag itself, so manually
+   *  marking the open session unread isn't instantly undone; `unread` +
+   *  visibility are re-checked at fire time. */
   private updateMarkReadTimer(): void {
     const st = this.state
     const focusedId = st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
@@ -784,15 +838,73 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     if (!session) return
     const sessionId = session.sessionId
+    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.markReadFiredAt)
+    if (wait <= 0) {
+      this.fireMarkSessionRead(sessionId)
+      return
+    }
     this.markReadTimer = setTimeout(() => {
       this.markReadTimer = null
-      const cur = this.state
-      const curFocused = cur.split ? (cur.focusedPane === 'A' ? cur.paneA : cur.paneB) : cur.paneA
-      const s = cur.sessions.find((x) => x.sessionId === sessionId)
-      if (curFocused === sessionId && s?.unread === true && tabIsVisible()) {
-        void this.statics.markSessionRead(sessionId)
-      }
-    }, MARK_READ_ON_VIEW_MS)
+      this.fireMarkSessionRead(sessionId)
+    }, wait)
+  }
+
+  /** The guarded mark-read itself: only when this session is STILL the focused
+   *  pane, still unread, and the tab is visible. */
+  private fireMarkSessionRead(sessionId: string): void {
+    const cur = this.state
+    const curFocused = cur.split ? (cur.focusedPane === 'A' ? cur.paneA : cur.paneB) : cur.paneA
+    const s = cur.sessions.find((x) => x.sessionId === sessionId)
+    if (curFocused !== sessionId || s?.unread !== true || !tabIsVisible()) return
+    this.markReadFiredAt = Date.now()
+    void this.statics.markSessionRead(sessionId)
+  }
+
+  /** The issue in the FOREGROUND: the open issue page, or the issue whose
+   *  sessions the workspace is showing. Any other surface has none. */
+  private foregroundIssue(): IssueWire | undefined {
+    const st = this.state
+    const id =
+      st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
+    return id ? st.issues.find((i) => i.id === id) : undefined
+  }
+
+  /** The issue half of eager mark-read-on-view (POD-272): while an issue is the
+   *  foreground surface its incoming activity is on screen, so the row must not
+   *  hold a "new message" chip for it. Same shape as the session reaction —
+   *  keyed on activity (so a manual mark-unread sticks), leading edge, throttled
+   *  by MARK_READ_ON_VIEW_MS. */
+  private updateIssueMarkReadTimer(): void {
+    const issue = this.foregroundIssue()
+    const key = issue ? `${issue.id}\n${issueActivityAt(issue, this.state.sessions)}` : null
+    if (key === this.issueMarkReadKey) return
+    this.issueMarkReadKey = key
+    if (this.issueMarkReadTimer !== null) {
+      clearTimeout(this.issueMarkReadTimer)
+      this.issueMarkReadTimer = null
+    }
+    if (!issue) return
+    const issueId = issue.id
+    const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.issueMarkReadFiredAt)
+    if (wait <= 0) {
+      this.fireMarkIssueRead(issueId)
+      return
+    }
+    this.issueMarkReadTimer = setTimeout(() => {
+      this.issueMarkReadTimer = null
+      this.fireMarkIssueRead(issueId)
+    }, wait)
+  }
+
+  private fireMarkIssueRead(issueId: string): void {
+    const issue = this.foregroundIssue()
+    if (issue?.id !== issueId || !tabIsVisible()) return
+    const activityAt = Date.parse(issueActivityAt(issue, this.state.sessions))
+    const readAt = issue.readAt ? Date.parse(issue.readAt) : Number.NaN
+    const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)
+    if (!unread) return
+    this.issueMarkReadFiredAt = Date.now()
+    void this.statics.markIssueRead(issueId)
   }
 
   // ----------------------------------------------------------- replica ↔ state
@@ -1079,6 +1191,39 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
+  // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
+  // navigateToSession: opening a tab from a non-workspace view (issues page,
+  // peek overlay) must switch to the workspace via the router (mirrorUrl bails
+  // unless the view is already 'workspace', and setView would re-apply the
+  // current route's stale pane). Selecting the tab's issue/worktree keeps
+  // fileTabsForWorkspace from dropping the tab and bouncing the pane; an open
+  // peek overlay is closed so the tab is actually visible.
+  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: string }): void {
+    this.apply({
+      ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
+      ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
+      ...(this.state.peekIssueId ? { peekIssueId: null } : {}),
+      paneA: args.tabId,
+      focusedPane: 'A',
+    })
+    this.router.navigate({
+      ...routeDefaults('workspace'),
+      ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
+      pane: args.tabId,
+    })
+  }
+
+  // Remember an opened file for the "+"-menu Recent-files list (POD-149) —
+  // strict issue scoping hides a tab from every other issue's strip, so this
+  // list is how a closed-over file stays reachable across the checkout.
+  private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
+    const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
+      `${e.worktreePath} ${e.path} ${e.artifact?.artifactId ?? ''}`
+    const k = key(entry)
+    const rest = this.state.recentFiles.filter((e) => key(e) !== k)
+    this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })
+  }
+
   // ------------------------------------------------------------------- actions
 
   /** The imperative store actions — the old provider's trpc.* closures, moved
@@ -1130,6 +1275,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         if (cur.view === 'issues' && cur.issueId === id) return
         this.router.navigate({ ...cur, view: 'issues', issueId: id })
       },
+      setPeekIssueId: (id: string | null) => this.apply({ peekIssueId: id }),
       setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
       setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),
       setDockTab: (tab: DockTab) => this.apply({ dockTab: tab }),
@@ -1223,20 +1369,79 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const scope: FileScope = { kind: 'session', sessionId }
         const id = tabIdFor(scope, path)
         const st = this.state
-        const worktreePath = st.sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
-        const fileTabs = st.fileTabs.some((t) => t.id === id)
+        const session = st.sessions.find((s) => s.sessionId === sessionId)
+        const cwd = session?.cwd ?? ''
+        // The known worktree containing the session's cwd (deepest match wins,
+        // as in navigateToSession) — a cwd deeper than the worktree root would
+        // otherwise select a path the workspace can't render.
+        const worktreePath =
+          reposToViews(st.repos)
+            .flatMap((repo) => repo.worktrees)
+            .map((w) => w.path)
+            .filter((p) => cwd === p || cwd.startsWith(`${p}/`))
+            .sort((a, b) => b.length - a.length)[0] ?? cwd
+        // Owner (POD-149): the session's explicit issue, else the issue whose
+        // workspace this open happened in. The strip shows the tab only there.
+        // An already-open tab keeps its original owner (reveal must navigate to
+        // the strip that actually lists it, or the pane bounces).
+        const existing = st.fileTabs.find((t) => t.id === id)
+        const issueId = existing
+          ? existing.issueId
+          : (session?.issueId ?? st.selectedIssueId ?? undefined)
+        const fileTabs = existing
           ? st.fileTabs
-          : [...st.fileTabs, { id, scope, path, worktreePath }]
-        this.apply({ fileTabs, paneA: id })
+          : [...st.fileTabs, { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) }]
+        this.apply({ fileTabs })
+        this.revealFileTab({
+          tabId: id,
+          ...(worktreePath ? { worktreePath } : {}),
+          ...(issueId ? { issueId } : {}),
+        })
+        this.recordRecentFile({
+          path,
+          worktreePath,
+          ...(session?.machineId ? { machineId: session.machineId } : {}),
+        })
       },
-      openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => {
+      openFileInWorktree: (args: {
+        machineId?: string
+        root: string
+        path: string
+        issueId?: string
+      }) => {
         const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
         const id = tabIdFor(scope, args.path)
         const st = this.state
-        const fileTabs = st.fileTabs.some((t) => t.id === id)
+        // Owner (POD-149): an explicit issue from the caller (issue pages,
+        // legacy artifacts) wins; a dock/file-browser open belongs to whatever
+        // issue workspace it happened in. An already-open tab keeps its owner.
+        const existing = st.fileTabs.find((t) => t.id === id)
+        const issueId = existing
+          ? existing.issueId
+          : (args.issueId ?? st.selectedIssueId ?? undefined)
+        const fileTabs = existing
           ? st.fileTabs
-          : [...st.fileTabs, { id, scope, path: args.path, worktreePath: args.root }]
-        this.apply({ fileTabs, paneA: id })
+          : [
+              ...st.fileTabs,
+              {
+                id,
+                scope,
+                path: args.path,
+                worktreePath: args.root,
+                ...(issueId ? { issueId } : {}),
+              },
+            ]
+        this.apply({ fileTabs })
+        this.revealFileTab({
+          tabId: id,
+          worktreePath: args.root,
+          ...(issueId ? { issueId } : {}),
+        })
+        this.recordRecentFile({
+          path: args.path,
+          worktreePath: args.root,
+          ...(args.machineId ? { machineId: args.machineId } : {}),
+        })
       },
       // Open a permanent artifact snapshot as a file tab ([spec:SP-0fc9] #441):
       // reads ride the server-local artifact store (the source file may be
@@ -1267,7 +1472,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
                 issueId: args.issueId,
               },
             ]
-        this.apply({ fileTabs, paneA: id })
+        this.apply({ fileTabs })
+        this.revealFileTab({
+          tabId: id,
+          issueId: args.issueId,
+          ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
+        })
+        this.recordRecentFile({
+          path: args.path,
+          worktreePath: args.worktreePath ?? '',
+          artifact: { issueId: args.issueId, artifactId: args.artifactId },
+        })
       },
       closeFileTab: (id: string) => {
         const st = this.state
@@ -1313,6 +1528,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }) as Store<TApi>['writeFileScoped'],
       listDir: ((args: { machineId?: string; root: string; path?: string }) =>
         api.files.list.query(args)) as Store<TApi>['listDir'],
+      gitStatus: ((args: { machineId?: string; root: string }) =>
+        api.git.status.query(args)) as Store<TApi>['gitStatus'],
+      gitLog: ((args: { machineId?: string; root: string }) =>
+        api.git.log.query(args)) as Store<TApi>['gitLog'],
+      gitDiffFile: ((args: { machineId?: string; root: string; path: string }) =>
+        api.git.diffFile.query(args)) as Store<TApi>['gitDiffFile'],
       spawnDraftAgent: (args: {
         target: SpawnTarget
         agentKind: AgentKind
@@ -1323,6 +1544,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const sessionId = randomUUID()
         const issueId = `iss_${randomUUID()}`
         const nowIso = new Date().toISOString()
+        // Mirror the server's stable project identity and new-at-top sort key
+        // before painting. Without these, the placeholder forms a temporary
+        // group at the end and only jumps into place when server truth arrives.
+        const sortKey = optimisticDraftSortKey(
+          this.state.issues,
+          args.target.repoPath,
+          args.target.repoId,
+        )
         // Unified overlay bookkeeping (#263): the placeholders are pending
         // insert overlays — same fold, same retirement (server truth with the
         // same ids lands → retire). Only the TRANSPORT differs from outboxed
@@ -1348,6 +1577,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
             optimisticDraftIssue({
               issueId,
               repoPath: args.target.repoPath,
+              repoId: args.target.repoId,
+              sortKey,
               agentKind: args.agentKind,
               nowIso,
             }),
@@ -1505,6 +1736,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       },
       markIssueUnread: async (id: string) => {
         this.enqueueOverlayed('issueMarkUnread', { id })
+      },
+      setIssueTucked: async (id: string, tucked: boolean) => {
+        this.enqueueOverlayed('issueSetTucked', { id, tucked })
       },
       setSessionDraft: (sessionId: string, text: string) => {
         this.adoptSessionDraft(sessionId, text)

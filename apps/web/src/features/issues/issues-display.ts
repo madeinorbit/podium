@@ -19,7 +19,10 @@ export const DISPLAY_KEY = 'podium.issues.display'
 
 export const DEFAULT_DISPLAY: IssuesDisplay = {
   layout: 'board',
-  ordering: 'updated',
+  // Priority-first by default: the board's job is triage, so the most urgent
+  // work sits at the top of each stage column. `updated` also churned the
+  // columns every time an agent touched an issue; priority + seq holds still.
+  ordering: 'priority',
   flatten: false,
   showAgentTasks: false,
   badges: { labels: true, type: true, estimate: true, due: true, sessions: true },
@@ -68,41 +71,9 @@ export function writeIssuesDisplay(d: IssuesDisplay): string {
   return JSON.stringify(d)
 }
 
-/**
- * Board/list scope filter (issue-as-workspace): drafts and internal
- * (audience: 'agent') issues stay off the board unless explicitly enabled —
- * EXCEPT recoverable tombstones, which must remain reachable through Show deleted
- * even when the original issue was a draft or agent-internal. Children whose
- * parent survives the filter also ride under it (epic drill-down).
- *
- * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
- * an agent acting for the human can cut a human-audience issue that belongs on the
- * board, and the human's own quick note to an agent can be internal.
- */
-export function filterBoardScope(
-  issues: IssueViewModel[],
-  showAgentTasks: boolean,
-): IssueViewModel[] {
-  const noDrafts = issues.filter((i) => !i.draft || !!i.deletedAt)
-  if (showAgentTasks) return noDrafts
-  const byId = new Map(noDrafts.map((i) => [i.id, i]))
-  const topLevelVisible = (i: IssueViewModel): boolean => !!i.deletedAt || i.audience !== 'agent'
-  return noDrafts.filter((i) => {
-    if (topLevelVisible(i)) return true
-    // Internal (audience: agent): keep only when some ancestor chain reaches a
-    // visible issue — it then shows as a child under that parent, not at top level.
-    let cur = i
-    const seen = new Set<string>([i.id])
-    while (cur.parentId) {
-      const parent = byId.get(cur.parentId)
-      if (!parent || seen.has(parent.id)) return false
-      if (topLevelVisible(parent)) return true
-      seen.add(parent.id)
-      cur = parent
-    }
-    return false
-  })
-}
+// The board scope filter is platform-neutral and lives in client-core so the
+// phone board derives from the same predicate (POD-338).
+export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
 
 /** Progress rollup for a human-audience epic (#198): counts across its full
  *  descendant subtree so the human tracks "how far along" without seeing the

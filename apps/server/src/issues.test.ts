@@ -10,6 +10,7 @@ import { SessionStore } from './store'
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
   const setSessionArchived = vi.fn()
+  const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -29,10 +30,18 @@ function harness(sessions: SessionMeta[] = []) {
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
+    clearSessionOffer,
     onWorktreesChanged,
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService(deps), setSessionArchived, onWorktreesChanged }
+  return {
+    store,
+    deps,
+    svc: new IssueService(deps),
+    setSessionArchived,
+    clearSessionOffer,
+    onWorktreesChanged,
+  }
 }
 
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
@@ -236,6 +245,139 @@ describe('IssueService single-issue broadcast (#22)', () => {
   })
 })
 
+// Unread rollups moved to client-core replica derivation (ADR 4 D7); server tests pin only durable readAt below.
+
+describe('IssueService tuck-away (POD-333)', () => {
+  /** A closed issue is the only thing that can be tucked. */
+  const closedIssue = (svc: IssueService) => {
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.close(w.id)
+    return w
+  }
+
+  it('stamps tuckedAt on the wire and PERSISTS it — a fresh client hydrates the fold', () => {
+    const { svc, deps, store } = harness()
+    const w = closedIssue(svc)
+    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+
+    const tucked = svc.setIssueTucked(w.id, true)
+    expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(svc.get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    // Durable, not in-memory: it is in the DB column…
+    expect(store.issues.getIssue(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    // …so a cold service over the same store — the "different browser / after a
+    // restart" case — serves the same fold instead of an un-tucked live row.
+    expect(new IssueService(deps).get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+  })
+
+  it('broadcasts the change so every OTHER connected client folds the same row', () => {
+    const { svc, deps } = harness()
+    const w = closedIssue(svc)
+    ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
+
+    svc.setIssueTucked(w.id, true)
+
+    // The single-issue update path — the same delivery every issue field uses,
+    // which is precisely what the ui-state key could never reach.
+    const sent = deps.broadcast.mock.calls
+      .map((c) => c[0] as { type: string; issue?: { id: string; tuckedAt: string | null } })
+      .filter((m) => m.type === 'issueUpdated')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.issue?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+  })
+
+  it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', () => {
+    // Mutable clock so a repeated tuck could visibly move the stamp if it did.
+    let clock = '2026-06-30T00:00:00.000Z'
+    const store = new SessionStore(':memory:')
+    const broadcast = vi.fn()
+    const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      store,
+      listSessions: () => [],
+      getSettings: () =>
+        normalizeSettings({
+          gitWorkflow: {
+            defaultParentBranch: '',
+            mergeStyle: 'ff-only',
+            autoRebaseBeforeMerge: true,
+          },
+          sessionDefaults: { agent: 'claude-code' },
+        }),
+      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+      broadcast,
+      ...issueTestPlumbing((msg) => broadcast(msg)),
+      setSessionArchived: vi.fn(),
+      clearSessionOffer: vi.fn(),
+      onWorktreesChanged: vi.fn(),
+      now: () => clock,
+    }
+    const svc = new IssueService(deps)
+    const w = closedIssue(svc)
+    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+
+    clock = '2026-06-30T00:01:00.000Z'
+    // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
+    // same control) must not move the stamp.
+    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+
+    expect(svc.setIssueTucked(w.id, false).tuckedAt).toBeNull()
+    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+    // A fresh tuck after an untuck takes the NEW clock.
+    expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+  })
+
+  it('refuses to tuck work that is not finished', () => {
+    const { svc } = harness()
+    const open = svc.create({ repoPath: '/r', title: 'open', startNow: false })
+    expect(() => svc.setIssueTucked(open.id, true)).toThrow(/not finished/)
+    expect(svc.get(open.id)!.tuckedAt).toBeNull()
+    // Untuck stays legal on anything — it only clears.
+    expect(svc.setIssueTucked(open.id, false).tuckedAt).toBeNull()
+  })
+
+  it('reopening clears the tuck, so the next close offers Tuck away again', () => {
+    const { svc } = harness()
+    const w = closedIssue(svc)
+    svc.setIssueTucked(w.id, true)
+    expect(svc.get(w.id)!.tuckedAt).not.toBeNull()
+
+    const reopened = svc.update(w.id, { stage: 'in_progress' })
+    expect(reopened.closedReason).toBeUndefined()
+    expect(reopened.tuckedAt).toBeNull()
+
+    // Closing again leaves it untucked — the row comes back as a live "done" row
+    // carrying the control, rather than auto-folding on a stale dismissal.
+    expect(svc.close(w.id).tuckedAt).toBeNull()
+  })
+
+  it('reopening by STARTING a closed issue clears the tuck too (#24 reopen path)', async () => {
+    // start() reopens outside update(), clearing the closed markers itself — the
+    // dismissal has to be cleared there as well or agents picking work back up
+    // would leave it silently pre-folded.
+    const { svc } = harness()
+    const w = closedIssue(svc)
+    svc.setIssueTucked(w.id, true)
+
+    await svc.start(w.id)
+
+    expect(svc.get(w.id)!.closedReason).toBeUndefined()
+    expect(svc.get(w.id)!.tuckedAt).toBeNull()
+  })
+
+  it('is curation, not activity: it does not touch updatedAt or re-raise unread', () => {
+    const { svc, store } = harness()
+    const w = closedIssue(svc)
+    svc.markIssueRead(w.id)
+    const before = store.issues.getIssue(w.id)!
+
+    const tucked = svc.setIssueTucked(w.id, true)
+
+    expect(tucked.updatedAt).toBe(before.updatedAt)
+    expect(tucked.readAt).toBe(before.readAt)
+  })
+})
+
 describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
   const DAY_MS = 24 * 60 * 60 * 1000
   // A done issue read at the fixed harness clock (2026-06-30T00:00:00Z).
@@ -348,6 +490,81 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect(h.svc.get(done.id)?.archived).toBe(true)
     // The open child's agent keeps its session — the cascade never touched it.
     expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
+  })
+})
+
+describe('IssueService close retires session offers (POD-290)', () => {
+  const offered = (cwd: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+    ({
+      ...sess(cwd, 'idle'),
+      offer: {
+        message: 'Ready to merge',
+        actions: [{ label: 'Merge', prompt: 'Merge it' }],
+        createdAt: '2026-06-30T00:00:00.000Z',
+      },
+      ...over,
+    }) as SessionMeta
+
+  it('closing clears offers on every member session (delegate + coordinator)', () => {
+    const delegate = offered('/r/wt/delegate')
+    const coordinator = offered('/r/wt/coord')
+    const outsider = offered('/elsewhere')
+    const { svc, clearSessionOffer } = harness([delegate, coordinator, outsider])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+
+    expect(clearSessionOffer).toHaveBeenCalledTimes(2)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/delegate')
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/coord')
+    expect(clearSessionOffer).not.toHaveBeenCalledWith('/elsewhere')
+  })
+
+  it('board drag / CLI update({ stage: done }) retires offers the same way', () => {
+    const member = offered('/r/wt')
+    const { svc, clearSessionOffer } = harness([member])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.update(w.id, { stage: 'done' })
+
+    expect(clearSessionOffer).toHaveBeenCalledTimes(1)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt')
+  })
+
+  it('skips sessions without an offer and is a no-op on re-close', () => {
+    const withOffer = offered('/r/wt/offer')
+    const bare = sess('/r/wt/bare', 'idle')
+    const { svc, clearSessionOffer } = harness([withOffer, bare])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+    expect(clearSessionOffer).toHaveBeenCalledTimes(1)
+    expect(clearSessionOffer).toHaveBeenCalledWith('/r/wt/offer')
+
+    clearSessionOffer.mockClear()
+    svc.close(w.id)
+    expect(clearSessionOffer).not.toHaveBeenCalled()
+  })
+
+  it('explicit issueId attachment retires offers even when cwd is outside the worktree', () => {
+    const attached = offered('/elsewhere/agent', { sessionId: 'attached', issueId: undefined })
+    // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
+    const sessions: SessionMeta[] = []
+    const { svc, clearSessionOffer } = harness(sessions)
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    sessions.push({ ...attached, issueId: w.id } as SessionMeta)
+    clearSessionOffer.mockClear()
+
+    svc.close(w.id)
+
+    expect(clearSessionOffer).toHaveBeenCalledWith('attached')
   })
 })
 

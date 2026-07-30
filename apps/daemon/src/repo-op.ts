@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path'
 import type { RepoOp } from '@podium/protocol'
 
 export type RepoOpCommand = { bin: 'git' | 'gh'; argv: string[] } | { error: string }
@@ -17,8 +18,62 @@ export function assertSafeRef(value: string, label: string): string | null {
 
 export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): RepoOpCommand {
   switch (op) {
+    case 'clone': {
+      const { originUrl, path } = args
+      if (!originUrl || !path) return { error: 'missing args' }
+      if (!isAbsolute(path)) return { error: 'clone path must be absolute' }
+      return { bin: 'git', argv: ['clone', '--', originUrl, path] }
+    }
     case 'status':
       return { bin: 'git', argv: ['status', '--porcelain=v1', '-b'] }
+    case 'statusProbe':
+      // Background git-state probe [POD-98]: --no-optional-locks so a probe can
+      // never take index.lock and break an agent's concurrent `git commit`.
+      return { bin: 'git', argv: ['--no-optional-locks', 'status', '--porcelain=v1', '-b'] }
+    case 'revListCount': {
+      // Count commits in `from..to` (merge-axis ahead, unpushed @{u}..HEAD).
+      // The range is one token: a dash value fails as an invalid object name,
+      // and both halves are validated as defense in depth. `@{u}` and `HEAD`
+      // pass the leading-dash guard.
+      const { from, to } = args
+      if (!from || !to) return { error: 'missing args' }
+      const bad = assertSafeRef(from, 'from') ?? assertSafeRef(to, 'to')
+      if (bad) return { error: bad }
+      return { bin: 'git', argv: ['rev-list', '--count', `${from}..${to}`, '--'] }
+    }
+    case 'logHead':
+      // Head sha + committer date, tab-separated — feeds gitState.lastCommitAt.
+      return { bin: 'git', argv: ['log', '-1', '--format=%H%x09%cI'] }
+    case 'logIssueCommits': {
+      // Shas of commits whose message carries the issue's marker — the
+      // restart-proof attribution source on shared checkouts [POD-98]. The
+      // pattern is one argv token (execFile, no shell), ERE via -E; the
+      // leading-dash guard keeps it from parsing as an option.
+      const { grep } = args
+      if (!grep) return { error: 'missing args' }
+      const bad = assertSafeRef(grep, 'grep')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['log', '--reverse', '--format=%H', '-E', '--grep', grep, '-n', '50'],
+      }
+    }
+    case 'logPanel':
+      // Git dock panel [POD-114]: recent commits, tab-separated
+      // shortSha/sha/committerDate/author/subject (subject last — it may itself
+      // contain tabs, so clients split on the first four only).
+      return {
+        bin: 'git',
+        argv: ['--no-optional-locks', 'log', '-50', '--format=%h%x09%H%x09%cI%x09%an%x09%s'],
+      }
+    case 'diffFile': {
+      // Git dock panel [POD-114]: one file's combined (staged+unstaged) diff vs
+      // HEAD. The path rides after `--` as a pathspec, so a dash value can
+      // never parse as an option; untracked files simply produce empty output.
+      const { path } = args
+      if (!path) return { error: 'missing args' }
+      return { bin: 'git', argv: ['--no-optional-locks', 'diff', 'HEAD', '--', path] }
+    }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':
@@ -28,7 +83,7 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!ref) return { error: 'missing args' }
       const bad = assertSafeRef(ref, 'ref')
       if (bad) return { error: bad }
-      return { bin: 'git', argv: ['rev-parse', '--verify', ref + '^{commit}'] }
+      return { bin: 'git', argv: ['rev-parse', '--verify', `${ref}^{commit}`] }
     }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as
@@ -99,6 +154,14 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       const { branch, parentBranch } = args
       if (!branch || !parentBranch) return { error: 'missing args' }
       return { bin: 'git', argv: ['merge-base', '--is-ancestor', '--', branch, parentBranch] }
+    }
+    case 'branchReflog': {
+      // Reflog shas for a branch, oldest last (last line = creation point).
+      // refs/heads/ prefix neutralizes a leading-dash branch name; trailing
+      // `--` keeps the ref from being read as a path.
+      const { branch } = args
+      if (!branch) return { error: 'missing args' }
+      return { bin: 'git', argv: ['log', '-g', '--format=%H', `refs/heads/${branch}`, '--'] }
     }
     case 'worktreeAddReset': {
       // -B (vs worktreeAdd's -b): resets the branch to startPoint if it already

@@ -1,68 +1,100 @@
 import { Platform } from 'react-native'
 
 /**
- * Podium mobile design language ("Podium Dark").
+ * Podium mobile design language — Superade. [POD-131, mirrors apps/web/DESIGN.md]
  *
- * Principles: one deep neutral canvas with layered, softly-lit surfaces;
- * a single violet-blue accent used sparingly; semantic attention colors that
- * match the product's triage language (amber = needs you, green = working);
- * large friendly radii; real depth (shadow + hairline border together).
+ * Token values mirror the web's Superade theme: deep race-navy chassis with
+ * darker engraved tiers below it, a three-tier seam/hairline system, a
+ * six-step ink ramp, and STRICT status semantics — Superade Yellow #f5c518
+ * means "waiting on you" and marks the primary action (The Signal Rule),
+ * Accent Blue #2f6bff is calm liveness (working spinner/timer, success,
+ * info — Superade has no green), Alert Red #e5303f is destructive/alerts
+ * only, terracotta #d97757 is Claude. Issue accents come from the 10-colour
+ * palette in ./issueColors.ts and are always tinted via ./mix.ts, never flat.
  */
 export const color = {
-  // Canvas
-  bg: '#0a0b0f',
-  bgGradientTop: '#101321',
-  bgSunken: '#07080b',
+  // Canvas tiers (darker = deeper)
+  bg: '#0a0f1c',
+  bgGradientTop: '#0a0f1c',
+  bgSunken: '#070b16',
+  /** Engraved column surface (the Tray queue). */
+  engraved: '#070b16',
+  /** Compact section bars, key-bar strip — the darkest tier. */
+  bar: '#050912',
+  /** Agent-roster band tier (POD-100 rail-navy). */
+  rail: '#0e1626',
   // Legacy alias used by older components; same as surface.
-  bgRaised: '#14161d',
+  bgRaised: '#121b30',
 
-  // Surfaces (each step ~4% lighter)
-  surface: '#14161d',
-  surfaceHigh: '#1a1d26',
-  surfacePressed: '#20242f',
-  glass: 'rgba(20, 22, 29, 0.72)',
+  // Surfaces
+  surface: '#121b30',
+  surfaceHigh: '#16223c',
+  surfacePressed: '#1c2a4a',
+  /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
+  elevated: '#16223c',
+  glass: 'rgba(5, 9, 18, 0.78)',
   // Legacy aliases
-  card: '#14161d',
-  cardPressed: '#20242f',
+  card: '#121b30',
+  cardPressed: '#1c2a4a',
 
-  border: 'rgba(148, 163, 197, 0.14)',
-  borderStrong: 'rgba(148, 163, 197, 0.28)',
-  hairline: 'rgba(148, 163, 197, 0.09)',
+  // Seam / hairline tiers
+  border: '#243356',
+  borderStrong: '#364a78',
+  hairline: '#1e2a4c',
+  /** Hairlines on the darkest #050912 bars. */
+  hairlineBar: '#283a66',
 
-  // Ink
-  text: '#f4f6fb',
-  textDim: '#a3adc2',
-  textFaint: '#636d84',
+  // Ink — six-step ramp
+  text: '#f3f3f8',
+  body: '#d7d7e0',
+  textDim: '#9a9aa8',
+  textFaint: '#6c7690',
+  /** Micro labels, hints. */
+  textMicro: '#525c78',
+  /** Mono section labels (project names). */
+  label: '#7a84a0',
 
-  // Accent — violet-blue, with a gradient pair for primary actions
-  accent: '#8b9dff',
-  accentSoft: 'rgba(139, 157, 255, 0.14)',
-  accentBorder: 'rgba(139, 157, 255, 0.45)',
-  accentGradient: ['#8b9dff', '#6f7dff'] as const,
-  onAccent: '#0a0b0f',
+  // Accent = Superade Yellow. One signal everywhere (The Signal Rule).
+  accent: '#f5c518',
+  accentSoft: 'rgba(245, 197, 24, 0.13)',
+  accentBorder: 'rgba(245, 197, 24, 0.45)',
+  accentGradient: ['#f7d031', '#e3b40e'] as const,
+  /** Ink on yellow is always Race Navy — never white. */
+  onAccent: '#0a0f1c',
+  /** Yellow-tinted text (the lit ⏎ key, tinted labels). */
+  accentTint: '#ecd679',
   // Legacy alias
-  accentText: '#0a0b0f',
+  accentText: '#0a0f1c',
 
-  // Attention semantics
-  needsYou: '#ffb454',
-  needsYouSoft: 'rgba(255, 180, 84, 0.12)',
-  needsYouBorder: 'rgba(255, 180, 84, 0.4)',
-  needsYouBg: 'rgba(255, 180, 84, 0.12)',
-  working: '#3ddc97',
-  workingSoft: 'rgba(61, 220, 151, 0.11)',
-  workingBg: 'rgba(61, 220, 151, 0.11)',
-  idle: '#8a94ab',
-  idleSoft: 'rgba(138, 148, 171, 0.12)',
-  idleBg: 'rgba(138, 148, 171, 0.12)',
-  danger: '#ff7a85',
-  dangerSoft: 'rgba(255, 122, 133, 0.12)',
-  dangerBg: 'rgba(255, 122, 133, 0.12)',
+  // Attention semantics — reserved hues, never issue colours
+  needsYou: '#f5c518',
+  needsYouSoft: 'rgba(245, 197, 24, 0.12)',
+  needsYouBorder: 'rgba(245, 197, 24, 0.4)',
+  needsYouBg: 'rgba(245, 197, 24, 0.12)',
+  /** Calm liveness — Superade has no green; blue is "agent working". */
+  working: '#2f6bff',
+  workingSoft: 'rgba(47, 107, 255, 0.13)',
+  workingBg: 'rgba(47, 107, 255, 0.13)',
+  /** Host/health dots, quota bars, done ✓ — blue is the calm "all good". */
+  success: '#2f6bff',
+  idle: '#7a84a0',
+  idleSoft: 'rgba(122, 132, 160, 0.12)',
+  idleBg: 'rgba(122, 132, 160, 0.12)',
+  danger: '#e5303f',
+  dangerSoft: 'rgba(229, 48, 63, 0.12)',
+  dangerBg: 'rgba(229, 48, 63, 0.12)',
+  /** User / YOU rail blue. */
+  info: '#2f6bff',
+  /** Claude brand terracotta. */
+  claude: '#d97757',
+  /** Neutral no-colour issue flow. */
+  flow: '#94a3b8',
 
   // Chat
-  userBubbleGradient: ['#3a4a80', '#2c3862'] as const,
-  userBubble: '#32406e',
-  assistantBubble: '#171a22',
-  toolText: '#6c7690',
+  userBubbleGradient: ['#2450b8', '#1d4ed8'] as const,
+  userBubble: '#1d47a8',
+  assistantBubble: '#121b30',
+  toolText: '#525c78',
 } as const
 
 export const space = {
@@ -74,51 +106,90 @@ export const space = {
   xxl: 32,
 } as const
 
+/** Discrete redesign radii — the workhorse row/square radius is 7. */
 export const radius = {
-  sm: 12,
-  md: 16,
-  lg: 22,
-  xl: 28,
+  xs: 5,
+  sm: 6,
+  md: 7,
+  lg: 10,
+  xl: 14,
   full: 999,
 } as const
 
 export const font = {
-  largeTitle: 32,
-  title: 20,
-  heading: 17,
-  body: 15,
-  small: 13,
-  tiny: 11,
+  largeTitle: 24,
+  title: 18,
+  heading: 15,
+  body: 13,
+  small: 12,
+  tiny: 10,
+  micro: 9,
 } as const
+
+/**
+ * Geist / Geist Mono, with regular and semibold static faces loaded in
+ * app/_layout (POD-143). Medium and bold requests intentionally use semibold
+ * so the app keeps its emphasis hierarchy without shipping near-identical
+ * extra files. Use these instead of fontWeight — mixing a weight-specific
+ * family with fontWeight makes Android synthesize fake bolds.
+ */
+export const sans = (weight: 400 | 500 | 600 | 700 = 400) =>
+  ({
+    fontFamily: {
+      400: 'Geist_400Regular',
+      500: 'Geist_600SemiBold',
+      600: 'Geist_600SemiBold',
+      700: 'Geist_600SemiBold',
+    }[weight],
+  }) as const
+
+export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
+  ({
+    fontFamily: {
+      400: 'GeistMono_400Regular',
+      500: 'GeistMono_600SemiBold',
+      600: 'GeistMono_600SemiBold',
+      700: 'GeistMono_600SemiBold',
+    }[weight],
+  }) as const
+
+/** Mono micro-label style (project/scope labels): tracking ≈ .12em. */
+export const monoLabel = (size = 10) =>
+  ({
+    ...mono(500),
+    fontSize: size,
+    letterSpacing: size * 0.12,
+    textTransform: 'uppercase',
+  }) as const
 
 export type AttentionTone = 'needsYou' | 'working' | 'idle' | 'danger' | 'accent'
 
 export const tone: Record<AttentionTone, { fg: string; bg: string; border: string }> = {
   needsYou: { fg: color.needsYou, bg: color.needsYouSoft, border: color.needsYouBorder },
-  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(61, 220, 151, 0.35)' },
-  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(138, 148, 171, 0.3)' },
-  danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(255, 122, 133, 0.4)' },
+  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(47, 107, 255, 0.35)' },
+  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(122, 132, 160, 0.3)' },
+  danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(229, 48, 63, 0.4)' },
   accent: { fg: color.accent, bg: color.accentSoft, border: color.accentBorder },
 }
 
 /** Depth: shadow + hairline border together (either alone reads flat). */
 export const elevation = {
   card: Platform.select({
-    web: { boxShadow: '0 2px 16px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.4)' },
+    web: { boxShadow: '0 2px 12px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.45)' },
     default: {
       shadowColor: '#000',
-      shadowOpacity: 0.35,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 6,
+      shadowOpacity: 0.4,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 5,
     },
   }) as object,
   raised: Platform.select({
-    web: { boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.45)' },
+    web: { boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.45)' },
     default: {
       shadowColor: '#000',
-      shadowOpacity: 0.5,
-      shadowRadius: 20,
+      shadowOpacity: 0.55,
+      shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
       elevation: 12,
     },
@@ -128,7 +199,7 @@ export const elevation = {
       web: { boxShadow: `0 0 24px ${glowColor}, 0 2px 16px rgba(0,0,0,0.4)` },
       default: {
         shadowColor: glowColor,
-        shadowOpacity: 0.55,
+        shadowOpacity: 0.5,
         shadowRadius: 16,
         shadowOffset: { width: 0, height: 2 },
         elevation: 8,

@@ -2,18 +2,20 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react-native'
+import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
+import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
+import { CountPill } from '../components/StatusGlyphs'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 /**
  * A needs-you card that can be answered without leaving the Inbox: when the
@@ -40,6 +42,7 @@ function NeedsYouCard({
   return (
     <SessionCard
       model={model}
+      issue={issue}
       agentColor={session.agentColor}
       onPress={() => router.push(`/session/${session.sessionId}`)}
     >
@@ -102,9 +105,7 @@ export function InboxScreen() {
           {client.outboxSize > 0 ? (
             <Text style={styles.queued}>{client.outboxSize} queued</Text>
           ) : null}
-          <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
-            <Icon as={Plus} size={19} color={color.text} />
-          </HeaderButton>
+          <NewWorkButton />
           <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
             <Icon as={Settings} size={17} color={color.textDim} />
           </HeaderButton>
@@ -121,9 +122,12 @@ export function InboxScreen() {
             <Text style={[styles.sectionLabel, section.key === 'needsYou' && styles.needsYouLabel]}>
               {section.title.toUpperCase()}
             </Text>
-            <View style={styles.sectionCount}>
+            {section.key === 'needsYou' ? (
+              <CountPill count={section.data.length} />
+            ) : (
               <Text style={styles.sectionCountText}>{section.data.length}</Text>
-            </View>
+            )}
+            <View style={styles.sectionRule} />
           </View>
         )}
         renderItem={({ item: session, section }) =>
@@ -132,6 +136,7 @@ export function InboxScreen() {
           ) : (
             <SessionCard
               model={sessionCardModel(session, issueFor(session), now)}
+              issue={issueFor(session)}
               agentColor={session.agentColor}
               onPress={() => router.push(`/session/${session.sessionId}`)}
             />
@@ -159,37 +164,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.md + 2,
     paddingTop: space.lg,
-    paddingBottom: space.sm + 2,
+    paddingBottom: 5,
   },
   sectionLabel: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    fontWeight: '800',
-    letterSpacing: 1.6,
+    ...monoLabel(9),
+    color: color.label,
   },
   needsYouLabel: {
     color: color.needsYou,
   },
-  sectionCount: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: radius.full,
-    backgroundColor: color.surfaceHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
+  sectionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   sectionCountText: {
-    color: color.textDim,
-    fontSize: 10,
-    fontWeight: '700',
+    ...mono(600),
+    color: color.textFaint,
+    fontSize: font.micro,
   },
   queued: {
+    ...mono(600),
     color: color.needsYou,
     fontSize: font.tiny,
-    fontWeight: '700',
   },
   error: {
     color: color.danger,
@@ -208,8 +207,8 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm + 3,
   },
   continueText: {
+    ...sans(700),
     color: color.onAccent,
     fontSize: font.small,
-    fontWeight: '800',
   },
 })

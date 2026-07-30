@@ -20,7 +20,10 @@ import type {
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
 export class SessionsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    private readonly purgeObservationCheckpoint: (sessionId: string) => void = () => {},
+  ) {}
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {
@@ -45,8 +48,8 @@ export class SessionsRepository {
       .prepare(
         `SELECT id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
-                resume_value, status, exit_code, durable_label, created_at, last_active_at,
-                terminal_cols, terminal_rows, working_ms_total,
+                resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+                terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
@@ -76,6 +79,7 @@ export class SessionsRepository {
       resumeValue: (r.resume_value as string | null) ?? null,
       status: r.status as SessionStatusPersisted,
       exitCode: (r.exit_code as number | null) ?? null,
+      spawnFailure: (r.spawn_failure as string | null) ?? null,
       durableLabel: r.durable_label as string,
       createdAt: r.created_at as string,
       lastActiveAt: r.last_active_at as string,
@@ -90,6 +94,9 @@ export class SessionsRepository {
             : 24,
       },
       ...(r.working_ms_total != null ? { workingMsTotal: r.working_ms_total as number } : {}),
+      ...(Number(r.input_count) > 0 ? { inputCount: Number(r.input_count) } : {}),
+      ...(Number(r.output_count) > 0 ? { outputCount: Number(r.output_count) } : {}),
+      ...(Number(r.activity_count) > 0 ? { activityCount: Number(r.activity_count) } : {}),
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
       machineId: (r.machine_id as string | null) ?? '__local__',
@@ -134,14 +141,15 @@ export class SessionsRepository {
         `INSERT INTO sessions
            (id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
-            resume_value, status, exit_code, durable_label, created_at, last_active_at,
-            terminal_cols, terminal_rows, working_ms_total,
+            resume_value, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+            terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           cwd = excluded.cwd,
            model = excluded.model,
            effort = excluded.effort,
            account_id = excluded.account_id,
@@ -154,11 +162,15 @@ export class SessionsRepository {
            resume_value = excluded.resume_value,
            status = excluded.status,
            exit_code = excluded.exit_code,
+           spawn_failure = excluded.spawn_failure,
            durable_label = excluded.durable_label,
            last_active_at = excluded.last_active_at,
            terminal_cols = excluded.terminal_cols,
            terminal_rows = excluded.terminal_rows,
            working_ms_total = excluded.working_ms_total,
+           input_count = excluded.input_count,
+           output_count = excluded.output_count,
+           activity_count = excluded.activity_count,
            archived = excluded.archived,
            work_state = excluded.work_state,
            machine_id = excluded.machine_id,
@@ -199,12 +211,16 @@ export class SessionsRepository {
         row.resumeValue,
         row.status,
         row.exitCode,
+        row.spawnFailure ?? null,
         row.durableLabel,
         row.createdAt,
         row.lastActiveAt,
         row.geometry?.cols ?? 80,
         row.geometry?.rows ?? 24,
         row.workingMsTotal ?? null,
+        row.inputCount ?? 0,
+        row.outputCount ?? 0,
+        row.activityCount ?? 0,
         row.archived ? 1 : 0,
         row.workState,
         row.machineId ?? '__local__',
@@ -262,6 +278,7 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: string): void {
+    this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
@@ -349,14 +366,35 @@ export class SessionsRepository {
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   listOffers(): OfferMap {
     const rows = this.db
-      .prepare('SELECT session_id, message, actions, created_at FROM offers')
-      .all() as { session_id: string; message: string; actions: string; created_at: string }[]
+      .prepare('SELECT session_id, message, actions, artifacts, created_at FROM offers')
+      .all() as {
+      session_id: string
+      message: string
+      actions: string
+      artifacts: string | null
+      created_at: string
+    }[]
     const out: OfferMap = {}
     for (const r of rows) {
       try {
         const actions = JSON.parse(r.actions)
         if (!Array.isArray(actions)) continue
-        out[r.session_id] = { message: r.message, actions, createdAt: r.created_at }
+        // A corrupt artifacts column degrades to "no artifacts", not "no offer".
+        let artifacts: string[] | undefined
+        if (r.artifacts != null) {
+          try {
+            const parsed = JSON.parse(r.artifacts)
+            if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+              artifacts = parsed
+            }
+          } catch {}
+        }
+        out[r.session_id] = {
+          message: r.message,
+          actions,
+          ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+          createdAt: r.created_at,
+        }
       } catch {
         // corrupt row -> treat as no offer
       }
@@ -370,13 +408,20 @@ export class SessionsRepository {
     if (!id) throw new Error('offer session id is empty')
     this.db
       .prepare(
-        `INSERT INTO offers (session_id, message, actions, created_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO offers (session_id, message, actions, artifacts, created_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            message = excluded.message,
            actions = excluded.actions,
+           artifacts = excluded.artifacts,
            created_at = excluded.created_at`,
       )
-      .run(id, offer.message, JSON.stringify(offer.actions), offer.createdAt)
+      .run(
+        id,
+        offer.message,
+        JSON.stringify(offer.actions),
+        offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
+        offer.createdAt,
+      )
   }
 
   /** Remove a session's offer (no-op if none). */
