@@ -1790,3 +1790,36 @@ When an in-package typecheck disagrees with the author's, compare ENVIRONMENTS b
    matters; check the `Cached: 0 cached` line.
 2. **`cmd | tail` returns the PIPE's status.** I read `bunx tsgo --noEmit | tail -3` as exit 0 while it
    was printing errors. Redirect to a file and echo `$?`, or the exit code you read is `tail`'s.
+
+### Building it WORSE than leaving it undone: the head-pruned revision shortcut
+
+POD-306's refusal, and the fourth fails-open of this run. Deriving an entity's revision from the change
+log is ONE LINE, needs no migration, compiles, and looks right.
+
+It is silently wrong. The log is **head-pruned** (ADR 2 D5), so pruning past every row of a quiet entity
+restarts a derived revision at 1. A replica holding revision 5 then meets revision 1 — and `exp-rev`,
+whose entire job is refusing stale writes, starts **ACCEPTING** them. Every test of the rule keeps
+passing; only its REFUSING arm becomes unreachable, for exactly the rows that matter.
+
+**"Building it would have been WORSE than leaving it undone, because it would have LOOKED done."** It
+re-homed the work (POD-1191) and PINNED the absence in `authority/revision-unassigned.test.ts`, bound to
+the shipped `OWNERSHIP_MATRIX` and written to fail the day the producer lands.
+
+**The companion design call, same issue:** `DeltaFrame.minAvailableSeq` is REQUIRED, not optional.
+Optional, it gets read `?? 0` everywhere — and 0 means "nothing pruned", so an authority that never
+published it is indistinguishable from one whose log is complete, and the rung that depends on it
+silently never fires. Required makes it a compile error; both fixtures had to be updated, which is the
+check working. **Prefer the shape where forgetting is a compile error over the shape where forgetting
+has a plausible default.**
+
+### Claim the MECHANISM, or measure the base — but do not blur them
+
+POD-306 on a red it could not attribute: *"I claim the MECHANISM (load-sensitive timing, unreachable
+from my change), NOT 'red on the base' — I did not obtain a detached tree at the base, and I will not
+dress a same-tree observation up as a base measurement."*
+
+That is the correct third option, and it is the one missing from this ledger's earlier entries. A
+not-mine claim has two honest forms: **measured** (detached checkout at a named SHA, own install,
+identical command) or **mechanistic** (the failing code is disjoint from the diff, stated as reasoning
+rather than as measurement). Passing off the second as the first is the slip POD-351 made in the other
+direction.
