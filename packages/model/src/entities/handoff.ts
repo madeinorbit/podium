@@ -71,8 +71,54 @@
  * > definition here to look composed would defeat the entire point of POD-302,
  * > and reaching into a sibling's worktree is what the one-owner rule forbids.
  * > So these fields stay hand-written, the key set is LOCKED by
- * > `handoff.test.ts` so the list cannot drift while it waits, and the remaining
- * > change is mechanical. Zero new hand-restated fields were added here.
+ * > `handoff.test.ts` so the list cannot drift while it waits. Zero new
+ * > hand-restated fields were added here.
+ *
+ * ---------------------------------------------------------------------------
+ * ATTRIBUTION NEEDS A FORMAT BUMP, NOT AN ADDITIVE FIELD — read this before
+ * composing, because the obvious move breaks every bundle in the wild.
+ * ---------------------------------------------------------------------------
+ *
+ * POD-365 made the attribution pair STRUCTURALLY UNSPLITTABLE at its three
+ * session sites (`NeedsHuman.asked`, `SessionTombstone.deleted`,
+ * `SessionNaming.namedBy`): the timestamp is nested INSIDE the object carrying
+ * the actor, so a half-filled value does not typecheck. That is the right shape
+ * and this representation should not get a weaker one — but applying it here is
+ * not additive, and there are exactly three ways to get it wrong:
+ *
+ *   1. NESTING THE EXISTING KEYS under an attribution object. `exportedAt` and
+ *      `sourceMachineId` are top-level today, and this schema is a FILE format:
+ *      every bundle already written on disk has them flat. Re-nesting them is
+ *      not a wire change to negotiate, it is a reader that can no longer open
+ *      yesterday's export.
+ *   2. ADDING A NESTED PAIR BESIDE the flat `exportedAt`. Then the export
+ *      timestamp has TWO spellings in one schema — the flat key and the nested
+ *      `at` — which is precisely the drift POD-302 exists to kill, introduced by
+ *      the issue that exists to kill it.
+ *   3. NESTING THE ACTOR ONLY and leaving the timestamp flat. This keeps one
+ *      spelling but discards the property POD-365 built the nesting for: a
+ *      half-filled attribution becomes representable again.
+ *
+ * THE RESOLUTION, recorded from the pack rather than improvised: attribution
+ * arrives with **`format: 2`**. `format` is a FILE version, versioned
+ * independently of the wire — that is reason 2 above for why this
+ * representation's semantics genuinely differ from a wire projection, and a
+ * version field's whole purpose is to make a shape change readable. A v2
+ * manifest carries POD-365's nested unsplittable attribution, whose timestamp
+ * IS the export timestamp (one spelling); v1 keeps parsing through a
+ * discriminated union on `format`, upgraded in the read path.
+ *
+ * CONSEQUENCE FOR WHOEVER LANDS IT, stated plainly because it corrects an
+ * earlier claim of mine: the remaining work is therefore NOT purely mechanical.
+ * Swapping hand-written keys for `Pick`s is mechanical; adding attribution is a
+ * format revision that touches the bundle READER (POD-644's transfer path, not
+ * this file) and needs a v1 fixture retained in the golden corpus forever, as
+ * the proof that old bundles still open. Do not fold it into the `Pick` change
+ * as though it were one step.
+ *
+ * `exportedAt` and `sourceMachineId` remain, per POD-364 §9, DEVICE-level facts
+ * — which machine, when. They are not the attribution pair and must not be
+ * mistaken for it: neither names a principal.
  *
  * ===========================================================================
  * OWNERSHIP, VISIBILITY AND THE ONE THING THAT MUST NEVER BE IN A BUNDLE

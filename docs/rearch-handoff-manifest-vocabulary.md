@@ -146,6 +146,57 @@ the failure mode M5 exists to prevent.
   holding on the same tie. Reaching into a sibling's worktree is exactly what the one-owner rule
   forbids, so this waits on the ruling rather than routing around it.
 
+## 5a. Attribution needs a format bump — and the audit cannot grade this issue
+
+Two findings that arrived from siblings after the first three commits, both recorded because each
+would otherwise be discovered the expensive way.
+
+### Attribution is not an additive field
+
+POD-365 made the attribution pair **structurally unsplittable** at its three session sites: the
+timestamp nests *inside* the object carrying the actor, so a half-filled value does not typecheck.
+Right shape — but applying it here is not additive, and all three obvious moves are wrong:
+
+| Move | Why it fails |
+|---|---|
+| Nest the existing `exportedAt` / `sourceMachineId` | This is a **file** format. Every bundle already on disk has them flat; re-nesting yields a reader that cannot open yesterday's export. |
+| Add a nested pair *beside* flat `exportedAt` | The export timestamp then has two spellings in one schema — the drift POD-302 exists to kill, introduced by the issue that exists to kill it. |
+| Nest the actor, leave the timestamp flat | Keeps one spelling but discards the property the nesting was built for: a half-filled attribution becomes representable again. |
+
+**Resolution:** attribution arrives with **`format: 2`**. `format` is a file version, independent of
+the wire — the same property that makes this representation genuinely different from a wire
+projection — and a version field exists precisely to make a shape change readable. v2 carries the
+nested unsplittable attribution whose timestamp *is* the export timestamp; v1 keeps parsing through a
+discriminated union on `format`, upgraded in the read path, with a v1 fixture retained in the golden
+corpus permanently as proof old bundles still open.
+
+**This corrects an earlier claim.** I told the coordinator the remaining work was "mechanical". The
+`Pick` swap is; attribution is not — it is a format revision touching the bundle reader (POD-644's
+transfer path). The two must not be folded into one step.
+
+`exportedAt` and `sourceMachineId` stay **device-level** facts per POD-364 §9 — which machine, when.
+Neither names a principal, so neither is half of the attribution pair.
+
+### `rearch-audit` cannot measure this issue's first criterion
+
+POD-367 reported the audit's `ISSUE_SHAPES` sees 4 of its 17 representations, and POD-366 5 of 24. I
+verified the session side against the script rather than taking it on trust, and the problem here is
+sharper than undercounting:
+
+- The `session-shapes` check greps `^export (interface|type|class) <name>` and its unit is *"a
+  declaration of a session shape outside the canonical aggregate"*. `HandoffManifest` **is** in
+  `SESSION_SHAPES`, and `export type HandoffManifest = z.infer<…>` matches.
+- So the audit counts this representation as debt — but ADR 4 D4 says it is **retained by design**.
+  Its declaration site is permanent. The count cannot reach zero without deleting a representation
+  the ADR requires, and driving it to zero would be the wrong act.
+- My criterion is about hand-restated **fields inside** the representation. The detector never looks
+  at fields.
+
+So "`rearch-audit` OK, baseline exact" is a true statement about the repository and **not** evidence
+for this issue's first criterion. The honest measure is per-representation: the documented `Pick`
+set, and the key-set lock that makes any drift a test failure. Reported to POD-368, which owns
+audit-to-zero and now has all three tables.
+
 ## 6. Evidence
 
 **Wire, proven in the order that makes the proof exist** — before regenerating anything: with
