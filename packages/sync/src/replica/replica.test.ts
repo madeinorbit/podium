@@ -1000,6 +1000,48 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-del', 'm-ev', 'm-up'])
   })
 
+  it('hands every intent the SAME KEY SET, even when provenance is partial', async () => {
+    const h = overlayHarness()
+    await bootstrapped(h, 0, [])
+    queued(h, 'm-both', 'both')
+
+    // Partial provenance: D8 retirement is by envelope provenance, and a change may
+    // carry a causationId with no mutationId. No other fixture in this suite has a
+    // change with only ONE of the two, which is why key presence was uncovered —
+    // with both fields always set, a producer that omitted absent keys is
+    // indistinguishable from one that sets them to undefined.
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 'both', 'x', { causationId: 'cmd-both', mutationId: 'm-both' }),
+        session(2, 'partial', 'y', { causationId: 'cmd-partial' }),
+      ]),
+    )
+
+    // Assert the KEY SET, not the values. Every value-only assertion in this file
+    // passes just as well when an absent field is dropped instead of set to
+    // undefined, and `toEqual` cannot see the difference either — it treats an
+    // undefined-valued key as absent. Object.keys is the only assertion here that
+    // fails when the shape changes.
+    expect(h.overlay.handed[0]?.map((r) => Object.keys(r).sort())).toEqual([
+      ['causationId', 'entity', 'entityId', 'mutationId'],
+      ['causationId', 'entity', 'entityId', 'mutationId'],
+    ])
+    // DECISION (this issue's to make, recorded for POD-370): the batch is a UNIFORM
+    // shape — always all four keys, with an absent field carried as an explicit
+    // undefined rather than omitted. Two reasons. The dedup key inside retirementsOf
+    // already folds absent and undefined together (`?? ''`), so a variable key set
+    // would make two intents that dedup as identical look different to a consumer;
+    // and this module's convention is to assign undefined rather than delete, because
+    // a dropped key reads as "unchanged" to a merge. If POD-370 wants omission
+    // instead, this test names the decision so the change is deliberate.
+    expect(h.overlay.handed[0]?.[1]).toStrictEqual({
+      entity: 'session',
+      entityId: 'partial',
+      causationId: 'cmd-partial',
+      mutationId: undefined,
+    })
+  })
+
   // ── Multi-retirement batching: ONE ordered batch, ONE unit of work (D10) ────
 
   it('submits TWO retirements as ONE ordered batch in ONE transaction', async () => {
