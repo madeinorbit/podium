@@ -838,20 +838,55 @@ describe('secrets are never queued (D4 rules 1 and 3 / POD-352)', () => {
 })
 
 describe('D12 — ordering partitions', () => {
-  it('is FIFO within a partition and concurrent across partitions', async () => {
+  it('is FIFO within a partition', async () => {
     const order: string[] = []
     const { outbox } = await harness((envelope) => {
-      order.push((envelope.input as { issueId: string }).issueId)
+      order.push((envelope.input as { seq: string }).seq)
+      return applied
+    })
+    await outbox.enqueue({ ...close('POD-1'), input: { seq: 'first' } })
+    await outbox.enqueue({ ...close('POD-1'), input: { seq: 'second' } })
+    await outbox.drain()
+
+    expect(order).toEqual(['first', 'second'])
+  })
+
+  it('drains partitions CONCURRENTLY: a slow partition does not delay another', async () => {
+    // This test used to share a name with the FIFO one above and assert only that
+    // the second partition's entry appeared — which a strictly SEQUENTIAL drain
+    // also satisfies. Mutating `Promise.all` into a sequential loop passed the whole
+    // suite, so the name claimed something nothing checked (coordinator broadcast on
+    // tests that assert their own name).
+    //
+    // The property that actually matters is independence, so that is what is
+    // asserted, by ORDERING rather than timing: POD-1's submit hangs until the test
+    // releases it, and POD-2 must still be submitted meanwhile. A sequential drain
+    // can never reach POD-2, so it fails on a behavioural mismatch rather than a
+    // stall — the drain promise is simply still pending when we look.
+    const started: string[] = []
+    let releaseSlow = (): void => {}
+    const slowHeld = new Promise<void>((resolve) => {
+      releaseSlow = resolve
+    })
+    const { outbox } = await harness(async (envelope) => {
+      const id = (envelope.input as { issueId: string }).issueId
+      started.push(id)
+      if (id === 'POD-1') await slowHeld
       return applied
     })
     await outbox.enqueue(close('POD-1'))
-    await outbox.enqueue(close('POD-1'))
     await outbox.enqueue(close('POD-2'))
-    await outbox.drain()
 
-    // Both POD-1 entries in order; POD-2 independent of them.
-    expect(order.filter((i) => i === 'POD-1')).toEqual(['POD-1', 'POD-1'])
-    expect(order).toContain('POD-2')
+    const draining = outbox.drain()
+    // Let the event loop turn over as far as it will while POD-1 is stuck.
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    expect(started).toContain('POD-2')
+    expect(started).toEqual(['POD-1', 'POD-2'])
+
+    releaseSlow()
+    await draining
+    expect(outbox.all().map((r) => r.state)).toEqual(['applied', 'applied'])
   })
 
   it('blocks only its own partition when an entry dead-letters, and unblocks on recovery', async () => {
