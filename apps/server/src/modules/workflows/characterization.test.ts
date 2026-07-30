@@ -176,6 +176,12 @@ function kinds(store: SessionStore): string[] {
   return readEvents(store).map((row) => row.kind)
 }
 
+/** Row count of a broadcast table, to check the ABSENCE of client fan-out. */
+function countRows(store: SessionStore, table: 'changes' | 'podium_events'): number {
+  const db = (store as unknown as { db: { prepare(sql: string): { get(): unknown } } }).db
+  return (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+}
+
 interface Harness {
   store: SessionStore
   service: WorkflowService
@@ -1788,6 +1794,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s2'),
       )
       expect(worker.run.status).toBe('active')
+      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([
         { sessionId: 's1', text: 'Workflow step "Implement" complete: worker did it' },
       ])
@@ -1823,6 +1830,39 @@ describe('POD-730 workflow mutation characterization', () => {
         sessionId: 's1',
         text: 'Workflow step "Implement" blocked: (no summary)',
       })
+    })
+
+    it('PIN a COORDINATOR checkpoint on a step assigned to someone else does not reassign it to the coordinator', () => {
+      // The sharp form of "the assignee survives a checkpoint". Asserting it
+      // after the ASSIGNEE checkpoints would pass for the wrong reason: there
+      // the assignee and the caller are the same session, so the
+      // `?? caller.actor.id` fallback yields the same value either way. Only a
+      // DIFFERENT caller can tell "kept" apart from "overwritten".
+      const { run } = twoStepRun(h)
+      h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: 's2' }, agent('s1'))
+      h.service.checkpoint(
+        {
+          runId: run.id,
+          stepId: 'implement',
+          status: 'complete',
+          summary: 'coordinator closed it out',
+          evidence: EMPTY_EVIDENCE,
+        },
+        agent('s1'),
+      )
+      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      // ...and the fallback still applies when there was no assignee at all.
+      h.service.checkpoint(
+        {
+          runId: run.id,
+          stepId: 'review',
+          status: 'active',
+          summary: '',
+          evidence: EMPTY_EVIDENCE,
+        },
+        agent('s1'),
+      )
+      expect(h.store.workflows.getRunSteps(run.id)[1]?.assignedSessionId).toBe('s1')
     })
 
     it('PIN assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', () => {
@@ -3107,17 +3147,21 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(run.coordinatorSessionId).toBe('s1')
     })
 
-    it('PIN workflow_events is WRITE-ONLY: no reader exists on the repository or anywhere in the product', () => {
-      // There is no listEvents / history query. Run history is only reachable by
-      // raw SQL, which is what this suite does. POD-731 must not drop the
-      // appends on the assumption that nothing reads them: they are the only
-      // durable audit trail this surface has.
+    it('PIN the workflows repository exposes appendEvent and NO event reader', () => {
+      // Renamed to what this body actually checks. It previously claimed "no
+      // reader anywhere in the product", which a unit test cannot see — that
+      // claim is evidenced separately by a byte-wise scan of 1787 files
+      // (NUL-safe, since one NUL byte makes grep answer "no match" for a whole
+      // module) and recorded in docs/workflows/pinned-behaviour-pod730.md.
+      //
+      // Why it is pinned at all: run history is reachable only by raw SQL, so
+      // POD-731 could drop the appendEvent calls with nothing going red. They
+      // are the only durable audit trail this surface has.
       const repositoryMethods = Object.getOwnPropertyNames(
         Object.getPrototypeOf(h.store.workflows),
       ).sort()
       expect(repositoryMethods).toContain('appendEvent')
       expect(repositoryMethods.filter((m) => /event/i.test(m))).toEqual(['appendEvent'])
-      expect(readEvents(h.store)).toEqual([])
     })
   })
 
@@ -3242,6 +3286,12 @@ describe('POD-730 workflow mutation characterization', () => {
         // restart between the checkpoint and the coordinator reading its inbox
         // loses the nudge; only the blocked STATE survives.
         expect(after.notices).toEqual([])
+        // The "ONLY" in this test's name, actually checked: a full run wrote
+        // nothing to either broadcast table, so there is no client fan-out to
+        // lose across a restart. If POD-731 adds a fan-out here, this goes red
+        // rather than the claim quietly becoming false.
+        expect(countRows(after.store, 'changes')).toBe(0)
+        expect(countRows(after.store, 'podium_events')).toBe(0)
         expect(after.service.status({ runId: run.id }, operator).status).toBe('blocked')
         // ...and a blocked run is still "live", so the session read finds it.
         expect(after.service.runs({}, agent('s1')).map((r) => r.id)).toEqual([run.id])
