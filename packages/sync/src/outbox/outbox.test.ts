@@ -218,9 +218,7 @@ describe('D9 invariant 4 — network failure is not a rejection', () => {
     const first = await harness(() => unreachable, { store })
     const record = await first.outbox.enqueue(close('POD-1'))
     // Simulate a crash mid-flight by persisting the in-flight state directly.
-    await store.write([
-      { ...(first.outbox.find(record.mutationId) as OutboxRecord), state: 'sending' },
-    ])
+    store.seed([{ ...(first.outbox.find(record.mutationId) as OutboxRecord), state: 'sending' }])
 
     const second = await harness(() => applied, { store })
     expect(state(second.outbox, record.mutationId)).toBe('queued')
@@ -331,7 +329,7 @@ describe('D9 invariants 1-3 — a definitive rejection is surfaced, parked and r
     const store = new InMemoryOutboxStore()
     const first = await harness(() => applied, { store })
     const record = await first.outbox.enqueue(close('POD-1'))
-    await store.write([
+    store.seed([
       {
         ...(first.outbox.find(record.mutationId) as OutboxRecord),
         state: 'rejected',
@@ -1190,5 +1188,187 @@ describe('review round 1 — the blockers, each with the test that would have ca
     await outbox.discard(queued.mutationId)
     await outbox.purgeCancelled(queued.mutationId) // licence: user-discarded
     expect(store.durable().map((r) => r.mutationId)).toEqual([cancelled.mutationId])
+  })
+})
+
+describe('review round 2 — one physical store, several writers', () => {
+  it('two principal-bound instances on one store do not clobber each other', async () => {
+    // Reviewer's probe, which lost Ada's work outright: both instances open on the
+    // EMPTY shared store, so each held a stale base, and a whole-snapshot write
+    // deleted rows it had never seen. Record-level `apply` plus a fresh rebase is
+    // the fix — and note the instances are opened BEFORE either write, which is
+    // what made the old code fail.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock, idPrefix: 'ada-' })
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'grace-',
+    })
+
+    const a = await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+    const g = await grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual([a.mutationId, g.mutationId])
+    expect(ada.outbox.all().map((r) => r.mutationId)).toEqual([a.mutationId])
+    expect(grace.outbox.all().map((r) => r.mutationId)).toEqual([g.mutationId])
+
+    // Interleaved lifecycles keep both sides intact, in FIFO order.
+    ada.authority.reprogram(() => applied)
+    await ada.outbox.drain()
+    await grace.outbox.enqueue(close('POD-3', { attribution: GRACE }))
+    expect(store.durable().map((r) => r.mutationId)).toEqual([
+      a.mutationId,
+      g.mutationId,
+      'grace-2',
+    ])
+    expect(store.durable().find((r) => r.mutationId === a.mutationId)?.state).toBe('applied')
+  })
+
+  it('enforces mutationId uniqueness ACROSS instances, not just within one', async () => {
+    // Uniqueness is global because the id is the Authority's dedupe key. A
+    // per-instance check would have missed this: Grace's outbox never saw Ada's
+    // record in memory.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const ada = await harness(() => unreachable, { store, clock, idPrefix: 'shared-' })
+    const grace = await harness(() => unreachable, {
+      store,
+      clock,
+      principal: 'u-grace',
+      idPrefix: 'shared-',
+    })
+    await ada.outbox.enqueue(close('POD-1', { attribution: ADA }))
+
+    await expect(grace.outbox.enqueue(close('POD-2', { attribution: GRACE }))).rejects.toThrow(
+      /duplicate mutationId/,
+    )
+    expect(store.durable()).toHaveLength(1)
+  })
+
+  it('accumulates several retirements inside ONE span, and publishes once', async () => {
+    // Reviewer's probe, which resurrected m1: each retirement staged from a base
+    // that is intentionally unchanged until commit and enrolled a full snapshot,
+    // so the second one won. A feed frame can carry several provenance
+    // retirements, so this is a normal path, not an exotic one.
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const a = await outbox.enqueue(close('POD-1'))
+    const b = await outbox.enqueue(close('POD-2'))
+    const c = await outbox.enqueue(close('POD-3'))
+    await outbox.drain()
+
+    const during: number[] = []
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(a.mutationId, span)
+      await outbox.retireApplied(b.mutationId, span)
+      // Nothing published yet: one adoption and one event flush, on commit.
+      during.push(outbox.all().length)
+    })
+
+    expect(during).toEqual([3])
+    expect(store.durable().map((r) => r.mutationId)).toEqual([c.mutationId])
+    expect(outbox.all().map((r) => r.mutationId)).toEqual([c.mutationId])
+    expect(events.filter((e) => e.type === 'retired').map((e) => e.mutationId)).toEqual([
+      a.mutationId,
+      b.mutationId,
+    ])
+  })
+
+  it('rolls back EVERY retirement in an aborted span, and emits none of them', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const a = await outbox.enqueue(close('POD-1'))
+    const b = await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+    const before = store.durable().map((r) => r.mutationId)
+
+    await expect(
+      uow.transact(async (span) => {
+        await outbox.retireApplied(a.mutationId, span)
+        await outbox.retireApplied(b.mutationId, span)
+        throw new Error('entity write failed')
+      }),
+    ).rejects.toThrow(/entity write failed/)
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual(before)
+    expect(outbox.all().map((r) => r.mutationId)).toEqual(before)
+    expect(events.filter((e) => e.type === 'retired')).toEqual([])
+    // And the span's staged view is gone, so a later transaction starts clean.
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(a.mutationId, span)
+    })
+    expect(store.durable().map((r) => r.mutationId)).toEqual([b.mutationId])
+  })
+
+  it('enrolls RETIREMENT only — a user action is not part of a replica commit', async () => {
+    // Writing the boundary down because the first version of this test assumed
+    // otherwise: `retireApplied` is the only span-enrolled operation, because the
+    // span exists to cover the Replica's entity write + cursor advance + the
+    // retirement that follows from them (ADR 2 D10). Enqueue, discard, retry and
+    // edit are USER actions; they are not part of an entity commit and take no
+    // span. An entry created inside a span is therefore not visible to a
+    // non-enrolled operation until the span commits — which is correct, not a
+    // gap: the store does not have it yet either.
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const retiring = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(retiring.mutationId, span)
+      // A mutation with no span of its own JOINS the configured unit of work's
+      // ambient span (that is what `transact` nesting means), so it composes with
+      // the staged removal instead of clobbering it — and it lands at the same
+      // commit.
+      await outbox.enqueue(close('POD-2'))
+    })
+
+    const durable = store.durable()
+    expect(durable.map((r) => r.mutationId)).not.toContain(retiring.mutationId)
+    expect(durable).toHaveLength(1)
+    expect(durable[0]?.state).toBe('queued')
+  })
+
+  it('refuses to resurrect an id the open span has already retired', async () => {
+    const uow = new InMemoryUnitOfWork()
+    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const target = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(target.mutationId, span)
+      // Within this transaction the entry is already gone, so a user action
+      // against it is refused — it is NOT silently re-added by a stale base,
+      // which is the resurrection this whole refactor removes.
+      await expect(outbox.discard(target.mutationId)).rejects.toThrow(/vanished/)
+    })
+
+    expect(store.durable()).toEqual([])
+    expect(outbox.all()).toEqual([])
+  })
+
+  it('picks up another writer changes on its next mutation', async () => {
+    // The rebase is on FRESH truth, so a second tab (ADR 6 D4.6) or a sibling
+    // instance cannot be silently overwritten even for the same principal.
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const tabOne = await harness(() => unreachable, { store, clock, idPrefix: 'one-' })
+    const tabTwo = await harness(() => unreachable, { store, clock, idPrefix: 'two-' })
+
+    const fromOne = await tabOne.outbox.enqueue(close('POD-1'))
+    const fromTwo = await tabTwo.outbox.enqueue(close('POD-2'))
+
+    expect(store.durable().map((r) => r.mutationId)).toEqual([
+      fromOne.mutationId,
+      fromTwo.mutationId,
+    ])
+    // Same principal, so the second tab sees both once it rebases.
+    expect(tabTwo.outbox.all().map((r) => r.mutationId)).toEqual([
+      fromOne.mutationId,
+      fromTwo.mutationId,
+    ])
   })
 })

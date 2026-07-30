@@ -8,6 +8,7 @@
 import type { MutationId } from '@podium/protocol'
 import type {
   OutboxEnvelope,
+  OutboxStoreMutation,
   OutboxStorePort,
   OutboxSubmitOutcome,
   OutboxSubmitPort,
@@ -50,9 +51,26 @@ export class InMemoryOutboxStore implements OutboxStorePort {
    */
   delayNextWrites = 0
 
-  async write(records: readonly OutboxRecord[], span?: SyncSpan): Promise<void> {
+  /**
+   * Record-level apply, with the ORDER contract a real adapter owes: a first
+   * `put` appends, a replacing `put` keeps its position, `remove` deletes by id,
+   * and anything unmentioned is UNTOUCHED. That last clause is the whole point —
+   * it is what stops a writer holding a stale base from deleting another writer's
+   * rows.
+   */
+  async apply(mutation: OutboxStoreMutation, span?: SyncSpan): Promise<void> {
     if (this.failWrite !== undefined) throw this.failWrite
-    const apply = (): void => {
+    const commit = (): void => {
+      const records = this.parse()
+      for (const id of mutation.remove ?? []) {
+        const idx = records.findIndex((r) => r.mutationId === id)
+        if (idx !== -1) records.splice(idx, 1)
+      }
+      for (const record of mutation.put ?? []) {
+        const idx = records.findIndex((r) => r.mutationId === record.mutationId)
+        if (idx === -1) records.push(record)
+        else records[idx] = record
+      }
       this.snapshot = JSON.stringify(records)
       this.writes += 1
     }
@@ -62,16 +80,26 @@ export class InMemoryOutboxStore implements OutboxStorePort {
       await Promise.resolve()
       await Promise.resolve()
     }
-    // Enroll in the span when one is supplied: the write lands with the entity
+    // Enroll in the span when one is supplied: the change lands with the entity
     // rows and the cursor advance, or not at all (ADR 2 D10).
     const enlistable = span as
       | (SyncSpan & { enlist?: (w: () => Promise<void>) => void })
       | undefined
     if (enlistable?.enlist) {
-      enlistable.enlist(async () => apply())
+      enlistable.enlist(async () => commit())
       return
     }
-    apply()
+    commit()
+  }
+
+  /** Seed durable state directly — for crash simulations that need the store to
+   *  contain something no live Outbox put there. */
+  seed(records: readonly OutboxRecord[]): void {
+    this.snapshot = JSON.stringify(records)
+  }
+
+  private parse(): OutboxRecord[] {
+    return JSON.parse(this.snapshot) as OutboxRecord[]
   }
 
   /** What a cold start would find — i.e. what actually survived. */

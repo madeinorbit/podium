@@ -216,7 +216,7 @@ export interface OutboxConfig {
  *
  * 1. **Enrollment is EXPLICIT.** The span is threaded into the participant call
  *    and on into the store write — `outbox.retireApplied(id, span)` →
- *    `store.write(records, span)`. POD-369's objection to the original ambient
+ *    `store.apply(delta, span)`. POD-369's objection to the original ambient
  *    shape is decisive: wrapping unchanged kernel methods in `transact` does not
  *    make their inner store calls join the native transaction, and there is no
  *    portable ambient transaction in a browser runtime. A seam that silently
@@ -246,6 +246,20 @@ export interface OutboxConfig {
  * authority. The Replica still never arbitrates; the Outbox still holds no
  * authorization state. Cache-only discard stays a separate capability and never
  * receives an outbox mutation.
+ *
+ * **Only RETIREMENT enrolls, on the outbox side.** The span exists to cover the
+ * Replica's entity write, its cursor advance, and the retirement that follows from
+ * them, so `retireApplied` is the one outbox operation that takes a span. Enqueue,
+ * discard, retry and edit are USER actions: they are not part of an entity commit,
+ * they take no span. Inside an open span they JOIN it (nested `transact` joins by
+ * contract), so they compose with the staged changes and land at the same commit
+ * rather than clobbering them.
+ *
+ * One narrow, deliberate boundary: `find` / `require` resolve against PUBLISHED
+ * state, so an entry created inside a span is not addressable by id until that
+ * span commits. Nothing needs it to be — a span is a replica commit, not a user
+ * session — and the alternative is ambient span state threaded through every
+ * read.
  *
  * POD-305 (Authority) and POD-373 (cross-hop conformance) WIRE it; the kernel
  * modules only declare it and enroll into it. The crash-between-writes case
