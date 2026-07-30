@@ -1026,3 +1026,46 @@ uncommitted-work finding was real at the time; the accusation about the merge wa
 
 > `merge-base --is-ancestor <branch> <branch>` answers a question about TIPS. To ask whether a specific
 > merge happened, test the SHA the agent cited, not the branch name.
+
+### The kernel's two halves could not actually transact together, and the contradiction was mine
+
+POD-373, the first stream able to test it, proved against the **real** Replica and the **real** Outbox —
+no fake on either side, normal path, no crash injected — that the Outbox **cannot enrol in the span the
+Replica opens**. Verified independently before ruling:
+
+```
+overlay.ts:135   retire(matches, span?): void                 <- synchronous
+outbox.ts:725    async retireAllApplied(ids, span?)           <- async
+span.ts          every hook synchronous, by decision
+replica.ts:412   commitRegions(retirements, write): void       <- sync AND self-opens
+```
+
+`span.join()` is therefore reached strictly after the Replica has already committed:
+`cannot enrol in a span that has already settled`, outbox record durable and stuck in `applied`, replica
+cursor advanced past the frame that confirmed it. **Torn state on the normal path.**
+
+Not adapter-fixable: `OutboxStorePort.read/apply` are Promise-returning because IndexedDB and SQLite are
+async, while the hooks are synchronous because an IndexedDB transaction auto-closes on an unrelated
+await. Sync enrolment cannot reach an async store; async enrolment cannot reach a settled span.
+
+**The contradiction is mine.** I ratified "every hook is synchronous" (correct — rule 3's auto-close
+hazard is real) *and* a Replica that opens its own span. Those compose only if every participant is
+synchronous, which a durable store can never be. Neither author could have seen it: POD-1146 proved the
+halves commit together against IN-MEMORY stores and said explicitly that the real crash-between-writes
+case belonged to POD-373's suite against a real transaction. This is exactly the gap it declined to claim.
+
+**Ruled option (a): the Replica accepts an externally-opened span / `SyncUnitOfWork` rather than
+self-opening** — the shape the seam contract already described. It resolves the tension without touching
+the synchronous-hook rule, because asynchrony belongs in `transact()`'s *body*, where ADR 2 always allowed
+it. The caller composing the hop owns the transaction boundary, which is what a unit of work means.
+
+Scope amended for POD-373 (its brief said wire, do not redesign) rather than reassigned: it has the
+measurement, and it is the only live stream in `packages/sync` — POD-369/370/371/372/1146 are all closed.
+Constraints on the fix: keep commit/abort on `OwnedSyncSpan` only so the Replica becomes a participant
+that *cannot* settle another's span; keep hooks synchronous; a missing span must not silently become an
+untransacted production write; POD-371's no-span fixture must not read as evidence the seam works; and the
+torn state gets a test named after it.
+
+> A participant that OPENS its own transaction cannot take part in anyone else's. If two modules must
+> commit together, neither may be the opener — and in-memory doubles will not show you this, because they
+> make every participant synchronous.
