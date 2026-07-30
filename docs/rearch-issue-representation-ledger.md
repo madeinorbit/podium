@@ -535,7 +535,13 @@ coordinator). Every mutant here used exact-string replacement asserting the text
 results that could be ambiguous were re-run under the full three-assertion protocol: **pattern matched
 exactly once** (not at-least-once — a pattern hitting a different field of the same name also reads as
 a survivor), **file hash changed**, and **the mutant text grepped back out of the file after writing**.
-Reverts verified with `git diff --quiet`.
+Reverts verified with `git diff --quiet` — **which is only a valid revert check because the tree was
+committed before each mutation.** That precondition is load-bearing and was learned the hard way: an
+early revert-to-HEAD in this session discarded uncommitted composition work, which is why the order
+became commit-then-mutate. Against a dirty tree `git diff --quiet` cannot distinguish "my mutation is
+still there" from "something unrelated is uncommitted", and a check that cannot tell those apart is not
+a revert check (POD-365's point, which diffs against a backup copy instead — the more robust form, and
+the one to use if the tree cannot be committed first).
 
 Re-checked that way: the survivor-shaped compound auto-archive mutant (applied at 1 site, hash
 `0e1c6c7b`→`8d5dcba1`, text confirmed present → 3 tests red) and the most load-bearing single claim,
