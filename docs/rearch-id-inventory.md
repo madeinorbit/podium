@@ -521,7 +521,7 @@ list.
 | E6 | reopen / stage-change actor | same | `issue.reopened`, `issue.stage_changed` payload `causedBySessionId` (`crud.ts:425-447`) | same | **Not named in the brief; found by the sweep.** Same shape, same seam, same fix — listed so POD-1075's list is the *whole* family rather than the four that were remembered. |
 | E7 | `startedBySession` | `schema.ts` (`issues`) | `IssueWire.startedBySession` (`issues.ts:311`) | a bare session id, null for operator creates | + on-behalf-of. Per §3.1.3 **A4**, *owner* of an agent-created entity = the agent's `onBehalfOf` human — so this site needs both the pair **and** an `owner` column. |
 | E8 | `coordinatorSessionId` | `schema.ts` (`issues`) | `IssueWire.coordinatorSessionId` (`issues.ts:307`) | a bare session id | A `SessionId` (owner A) and an attribution-adjacent site: "who coordinates" becomes answerable as a person. |
-| E9 | `SessionMeta.spawnedBy` | `schema.ts:47` `spawned_by` | `runtime-state.ts:440` | **freeform string carrying a SIX-member tagged union** — see §3.6.2 for the complete member set, its construction sites and its consumers | The one site where attribution is an **unparsed union in a string**. `'user'` is exactly the role-level value §3.2 says must become a person. Also owner **B**: the tagged arms are composite keys built at scattered call sites, not by one helper. |
+| E9 | `SessionMeta.spawnedBy` | `schema.ts:47` `spawned_by` | `runtime-state.ts:440` | **freeform string carrying an EIGHT-member tagged union** — see §3.6.2 for the complete member set, its construction sites and its consumers | The one site where attribution is an **unparsed union in a string**. `'user'` is exactly the role-level value §3.2 says must become a person. Also owner **B**: the tagged arms are composite keys built at scattered call sites, not by one helper. |
 | E10 | `issue_messages.claimedBy` / `from_author` | `schema.ts:397`, `:394` | tracker mail | session id / freeform author | + on-behalf-of |
 | E11 | `messages.ackedBy` / `deliveredTo` / `fromName` | `schema.ts:~570` | agent mail | session ids / freeform | + on-behalf-of |
 | E12 | `locks` holder identity | `schema.ts:502` | lock wire | holder string | Per §3.1.1 advisory locks are **deployment substrate** (tenant-visible), but the *holder* is still a person-or-agent. |
@@ -546,9 +546,24 @@ adjudicated in POD-364's favour, and corrected here. The root cause on my side w
 column name (`*_source`, which *sounds* like provenance) instead of the type — the same failure as
 trusting a grep over the thing that decides.
 
-The actor for a session deletion is elsewhere and is a genuine E site: `deleted_by_issue_id`
-(`schema.ts:54`) names the issue whose deletion cascaded, and the operator/agent behind it is not
-recorded at all today.
+**Typed at the TS boundary, UNTYPED at storage** — `SessionRow.deletionSource?: SessionDeletionSource | null`
+(`types.ts:182`) over a bare `text("deletion_source")` column (`schema.ts:55`). So a hand-written row
+can carry a third value the type forbids; the cast at `store/sessions.ts:125` would not notice.
+
+> **DO NOT READ THIS RECLASSIFICATION AS "DELETION NEEDS NO ACTOR".** It says the opposite. Moving
+> `deletion_source` out of the attribution set means *this field is not where the actor goes* — not
+> that the deletion path is already covered. Session deletion needs an actor and an on-behalf-of; it
+> has neither today. POD-304 in particular must not conclude from a "typed label, handled" row that
+> the path is done. (Raised by POD-364, whose map records the same warning from the other side.)
+
+**The SITE still needs attribution, and that is the part to carry forward.** POD-364 records the
+field as attribution-*shaped* yet principal-free, needing the actor/on-behalf-of pair added **beside**
+it rather than replacing it — and that is the same conclusion this document reaches from the other
+direction. The two are consistent, stated explicitly so they cannot be read as contradicting:
+`deletion_source` itself is owner **C** (it answers *which path*), while **session deletion has no
+actor recorded anywhere**. `deleted_by_issue_id` (`schema.ts:54`) names the issue whose deletion
+cascaded, never the person or agent, so POD-1075 adds a new attribution pair here rather than
+re-typing an existing field.
 
 #### 3.6.2 CORRECTION — `spawnedBy` has SIX arms, and production writes one this doc omitted
 
@@ -556,14 +571,48 @@ An earlier revision listed five arms, taken from the schema's own comment. **Pro
 sixth.** Repeating a code comment as fact is the same error class as trusting a grep, so the
 complete set is now derived from the construction sites:
 
+**EIGHT arms, derived from the PRODUCERS** (reconciled with POD-364, which enumerated the same way):
+
 | Arm | Constructed at | Notes |
 |---|---|---|
-| `'user'` | operator/web creates | A **role class**, not a person — the §3.2 case |
-| `'steward'` | system paths | Owner **D-adjacent**: per readiness §3.1.6 **S5** the steward is a `system` principal and must NOT gain a human |
-| `superagent:<threadId>` | `apps/server/src/modules/superagent/service.ts:462`, `:704` | Per §3.1.6 **S1/S2** the superagent is per-user, so this arm's *thread* gains an owner |
-| `issue:<issueId>` | issue-attached spawn paths | |
-| `session:<sessionId>` | parent-session spawn paths | |
-| **`automation:<automationId>`** | **`apps/server/src/modules/automations/service.ts:587`** | **The arm this document omitted.** Per §3.1.6 **S6** scheduled automations are delegated — they run as their creator — so this is the arm that most needs the on-behalf-of value. |
+| `'user'` | `router.ts:388` (sessions.create), `:407` (resume); `modules/messages/spawn.ts:44`; `modules/issues/registry.ts:282` (scope `all`); client-side `viewmodels/optimistic-spawn.ts:68` | A **role class**, not a person — the §3.2 case |
+| `'agent'` | `modules/messages/spawn.ts:42`; `modules/issues/registry.ts:286`; `modules/messages/service.ts:2065` | A role class too, and the *fallback* when no session or issue is known |
+| `'system'` | `modules/messages/spawn.ts:45` (bare `m.fromKind`); `mail-pending.ts:35`; `messages/service.ts:1862` | Per readiness §3.1.6 **S5** a `system` principal is NOT delegated and must never gain a human |
+| `'superagent'` (bare) | same `m.fromKind` passthrough | **Distinct from the tagged form below** — the bare arm carries no thread |
+| `session:<sessionId>` | `spawn.ts:40`; `registry.ts:280` | **The only machine-PARSED arm** (`sessionSpawnerParentId`, `steward.ts:226-228`, which returns undefined for every other arm) |
+| `issue:<issueId>` | `spawn.ts:41`; `registry.ts:284`; `modules/issues/service/workflow.ts:166`, `:788` | |
+| `superagent:<threadId>` | `modules/superagent/service.ts:462`, `:704` | Per §3.1.6 **S1/S2** the superagent is per-user, so this arm's *thread* gains an owner |
+| **`automation:<automationId>`** | **`modules/automations/service.ts:587`** | Per §3.1.6 **S6** scheduled automations are delegated — they run as their creator — so this is the arm that most needs the on-behalf-of value |
+
+#### The documented set and the produced set are DIFFERENT SETS, in both directions
+
+Both are recorded, because they answer different questions and POD-361 needs the second one.
+The disagreement between this document and POD-364 turned out to be exactly this: **I enumerated the
+INTENDED vocabulary from the doc comment; POD-364 enumerated the ACTUAL one from the producers.**
+Neither set alone is the truth.
+
+| | Documented at `runtime-state.ts:437-439` | Produced in the tree |
+|---|---|---|
+| `'user'` | ✅ | ✅ |
+| `superagent:<threadId>` | ✅ | ✅ |
+| `issue:<issueId>` | ✅ | ✅ |
+| `session:<sessionId>` | ✅ | ✅ |
+| **`'steward'`** | ✅ | ❌ **written by NOBODY** |
+| **`'agent'`** | ❌ | ✅ `spawn.ts:42`, `registry.ts:286` |
+| **`'system'`** | ❌ | ✅ `spawn.ts:45` (bare `m.fromKind`) |
+| **`'superagent'`** (bare) | ❌ | ✅ same passthrough |
+| **`automation:<automationId>`** | ❌ | ✅ `automations/service.ts:587` |
+
+**Four arms are produced and documented nowhere; one is documented and produced nowhere.**
+For a branded-id flip the PRODUCED set is the one that has to parse, so POD-365 builds its closed
+union from the right-hand column and must **not** include `'steward'` unless a producer appears.
+
+**The `'steward'` phantom cost this document two rounds, and the lesson is not "recount".** I
+corrected the arm *count* from the comment once and still kept the comment's phantom entry, because I
+was treating the comment as a list to be extended rather than as a source to be abandoned. **Never
+read a member set off the doc comment at all** — derive it from the producers and let the comment be
+one more thing to reconcile. (The `system`-principal reasoning I had attached to `'steward'` is real
+and belongs to the bare `'system'` arm.)
 
 **The consumers are why this is load-bearing, and they are all string surgery:**
 
@@ -582,7 +631,7 @@ grounds. This is simultaneously owner **B** (a composite key with no helper), ow
 attribution value), and a hand-restated definition, which is why §3.6's list flags it as the site
 POD-1075 should structure *before* adding a second value to it.
 
-**Cross-document reconciliation:** POD-364 carries the same six-member set.
+**Cross-document reconciliation:** POD-364 enumerated the same eight arms from the producers, independently. Neither of us reached them from the schema comment, which is wrong in both directions.
 
 #### 3.6.3 Reconciliation the other way — `causedBySessionId` IS recorded
 
@@ -597,10 +646,25 @@ CRUD emits `causedBySessionId` on four event kinds and threads `actorSessionId` 
 | `issue.closed` | `crud.ts:450-462` |
 | `close()` threading `actorSessionId` | `crud.ts:816-817` |
 
-Adjudicated in this document's favour; POD-364 corrects theirs.
+Adjudicated in this document's favour; POD-364 corrected theirs and supplied two facts this document
+was missing. Both matter to POD-1075:
+
+1. **It lives on the EVENT PAYLOAD, never on the `issues` row.** There is no actor column
+   (`podium_events.payload`, `schema.ts:300`). That is almost certainly why it read as absent from a
+   schema-first enumeration, and it means attribution for issue transitions is **only** as durable as
+   the event log's retention.
+2. **Every stamp is CONDITIONAL** — `...(actorSessionId ? { causedBySessionId: actorSessionId } : {})`
+   at all four sites (`crud.ts:204`, `:434`, `:446`, `:456`). `actorSessionId` is set only on the
+   agent-relay path, so **an operator-originated close records no actor at all**, and
+   *"no actor recorded"* and *"a human did it"* are **currently indistinguishable**.
+
+Point 2 is the one with teeth. Under multi-user the absent case stops being "the operator, obviously"
+and becomes "one of N people", so POD-1075 cannot infer the human from the absence — it has to stamp
+the pair on the operator path too, which today writes nothing. Consumers that rely on the current
+behaviour: `steward.ts:688`, `:771`, `:938` (skip the causing session).
 
 **E9 is the finding worth acting on early.** `spawnedBy` is a freeform string carrying a
-SIX-member tagged union (§3.6.2), with the tag and the id joined ad hoc. It is simultaneously an
+EIGHT-member tagged union (§3.6.2), with the tag and the id joined ad hoc. It is simultaneously an
 attribution site (E), a composite-key site (B) and a hand-restated definition (D). POD-1075 will
 want it structured before it adds a second value to it, and POD-361's helper API is where the
 `(kind, id)` shape gets named.
