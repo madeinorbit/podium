@@ -94,6 +94,16 @@ export * from './provenance/envelope'
 export * from './projections/issue-read'
 export * from './projections/session-read'
 
+// THE RETAINED-REPRESENTATION REGISTRY (POD-368, closing POD-302) — one entry per
+// representation ADR 4 D1 keeps as a distinct type, each carrying its purpose,
+// why its semantics differ from the canonical aggregate, what it composes, and a
+// declared ADR 9 D3 visibility class checked against ADR 1's matrix. The audit
+// items live in `checks.ts` and every one of them FIRES on a planted fixture:
+// unclassified, undocumented, per-user singleton, capability snapshot, instance
+// partition. `scripts/rearch-audit.ts` closes the loop over the tree.
+export * from './representations/checks'
+export * from './representations/registry'
+
 // Pure derivations over entity shapes.
 export * from './predicates/issue-stage'
 export * from './predicates/machine-selection'

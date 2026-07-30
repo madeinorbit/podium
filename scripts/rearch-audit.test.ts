@@ -1,6 +1,12 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
+import {
+  entityShapedDeclarations,
+  ISSUE_VOCABULARY,
+  SESSION_VOCABULARY,
+} from './representation-audit'
 import {
   type AuditContext,
   type AuditResult,
@@ -498,7 +504,21 @@ describe('against the live repo', () => {
     // entities/agent.ts is now the single declaration of AgentKind AND
     // HarnessAgent, and packages/runtime re-exports it rather than keeping its
     // own identical z.enum copy. The detector stays as a regression guard.
-    const ZERO_BY_DESIGN = new Set(['state-dir-defs', 'agent-kind-enums'])
+    // POD-368's six items are all legitimately at zero, and for them a count is
+    // the WRONG anchor: the whole point of the redefinition is that a zero means
+    // "every restatement is accounted for", which is a state this repo has now
+    // reached. Their anchor is asserted separately below, against the population
+    // the detector parses rather than against the subset it reports — so a
+    // detector that stopped matching still reds.
+    const ZERO_BY_DESIGN = new Set([
+      'state-dir-defs',
+      'agent-kind-enums',
+      'session-shapes',
+      'issue-shapes',
+      'representation-registry-rot',
+      'capability-snapshots',
+      'instance-partitions',
+    ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
       expect(
@@ -506,6 +526,24 @@ describe('against the live repo', () => {
         `${r.id} matched nothing — detector drift, or genuinely deleted?`,
       ).toBeGreaterThan(0)
     }
+  })
+
+  it('the redefined vocabulary detector still binds to the live tree', () => {
+    // The anchor for the six zero-by-design items above. `session-shapes` and
+    // `issue-shapes` report only the UNACCOUNTED-FOR subset, so their zero is a
+    // success — but a broken parser or an empty vocabulary would produce the same
+    // zero. This asserts the population, which cannot be zero while the repo has
+    // any entity-shaped declaration at all.
+    const declarations = entityShapedDeclarations(loadContext(repoRoot))
+    expect(declarations.length, 'the detector parsed NO entity-shaped declaration').toBeGreaterThan(
+      20,
+    )
+    expect(SESSION_VOCABULARY.size, 'session vocabulary loaded empty').toBeGreaterThan(30)
+    expect(ISSUE_VOCABULARY.size, 'issue vocabulary loaded empty').toBeGreaterThan(30)
+    // And the registry it is checked against is non-empty, so
+    // `representation-registry-rot`'s zero means "nothing rotted", not "nothing
+    // to check".
+    expect(RETAINED_REPRESENTATIONS.length).toBe(43)
   })
 
   it('reports real files for every site', () => {

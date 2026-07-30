@@ -162,6 +162,66 @@ one, which is what separates the two categories below — a net count alone cann
 The 19 new sites are filed as POD-1102, `discovered-from` POD-861, mapped to the
 phase issues that delete them (POD-314, POD-333, POD-308, POD-318, POD-325).
 
+### 2026-07-30 — POD-368 redefines the two vocabulary items and adds four (closing POD-302)
+
+`session-shapes` and `issue-shapes` were `^export (interface|type|class) X` over
+hardcoded lists of **nine and seven names**. POD-367 measured what that could
+see: **4 of 17** issue representations, with `packages/model`'s own canonical
+declarations counted as debt and `RefIssueLike` — the largest client-side
+restatement in the repo, retired from a 22-key interface to a `Pick` — invisible,
+because its name was not on the list. The audit printed the identical line before
+and after that work.
+
+**The lists were deliberately not extended**, and that judgement is carried
+forward: a longer literal list reproduces the defect one generation later and
+leaves the criterion **zeroable by renaming an identifier**. The redefined
+detectors key on the entity **vocabulary**, read at runtime out of
+`packages/model`'s field groups, so a rename changes nothing. `scripts/
+representation-audit.ts` carries them; `scripts/representation-audit.test.ts`
+proves each one fires on a planted restatement, stays silent on the composed form,
+survives reformatting, and **still fires after the symbol is renamed**.
+
+| Item | Was → now | Verdict |
+| --- | --- | --- |
+| `session-shapes` | 9 → **0** | **Redefined, not deleted.** New unit: *a declaration restating ≥3 session vocabulary keys that is neither registered in `packages/model`'s retained-representation registry nor excluded with a reason.* Zero means every restatement is accounted for. The old 9 counted four of model's own canonical declarations as debt. |
+| `issue-shapes` | 8 → **0** | Same redefinition. The old 8 included two shapes the inventory explicitly excludes and one field group. |
+| `representation-registry-rot` | new, **0** | The other direction of the loop: a registry entry whose site is missing or no longer declares the symbol. Without it the registry can rot into a list of retired names while everything else reports green. |
+| `per-user-singletons` | new, **8** | **Mapped to POD-1076, not POD-302.** `SessionDurableState.readAt`/`snoozedUntil`, `SessionRow.readAt`, `IssueRow.readAt`/`tuckedAt`/`pinned`, and `readAt` on both auto-archive observations. All **inherited** — 1.4 added none and blessed none (POD-367 §3.5) — and each is later a table migration PLUS a wire change PLUS a replica migration. A ratchet, deliberately not laundered into POD-302's zero. |
+| `capability-snapshots` | new, **0** | Regression guard for ADR 9 D5 A1. `owner`/`actor`/`onBehalfOf` are deliberately not matched: attribution must survive export, and forbidding it would forbid what the matrix requires. |
+| `instance-partitions` | new, **0** | Regression guard for ADR 1 D5 as fenced by Amendment 2. Multi-user is not multi-tenancy. |
+
+**One item was RE-PHASED, and it is recorded here because re-phasing an item is
+the other way to retire a guardrail.** `change-row-typings` (7 sites) moves from
+**POD-302 to POD-308**. Its whole subject is `packages/protocol/src/messages/
+sync.ts`: the strict/lenient/unknown triple exists so a replica can tolerate an
+entity kind it does not know (ADR 2 D9), which is sync-envelope shape and not
+session or issue vocabulary. POD-364's inventory §12 scopes sync infrastructure
+out of 1.4 by name, and ADR 1's matrix files `change-log` / `applied-mutations`
+under `sync-infrastructure` as deployment substrate. The duality collapses when
+one canonical change-row shape lands at the wire cutover — POD-308's, the same
+issue that owns nesting the provenance carrier. **This is what makes POD-302's
+gate pass, so it is the deviation most worth a reviewer's attention.**
+
+Two limits of the redefined detectors, stated because a zero that is read wrongly
+is worse than a red:
+
+1. **A composed representation is invisible to them, by construction.**
+   `Pick<IssueWire, …>` leaves no key list to count. They enumerate
+   RESTATEMENTS; they can never enumerate REPRESENTATIONS. Reading a falling
+   count as "more is composed" is valid; reading a zero as "these are all the
+   representations there are" is not. The registry is the enumeration, and it is
+   deliberately not derived from these detectors.
+2. **`GENERIC_KEYS` is a judgement call**, so its membership is pinned by a test.
+   Adding a key makes the detector blinder; removing one makes it noisier. Either
+   is a decision, and the pin makes it a visible one.
+
+**An observation, not fixed here:** `change-row-typings`'s own anchor is an
+unanchored name alternation, so `MetadataChangeOp` — an op enum, not a change-row
+typing — is counted as one of its 7. The count is therefore an over-count by at
+least one. Left alone deliberately: the item now belongs to POD-308, and silently
+lowering someone else's count while re-phasing it would be two changes wearing one
+justification.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
