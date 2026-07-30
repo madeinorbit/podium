@@ -425,9 +425,15 @@ export type IssueWire = z.infer<typeof IssueWire>
 export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score: z.number() })
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
-export const LintFinding = z.object({
-  id: IssueIdField,
-  seq: z.number().int(),
+/**
+ * The issue-identity members every read projection below opens with. Picked from
+ * `IssueWireCore`, not restated (POD-367): one home for `id`'s brand and `seq`'s
+ * integer constraint, and the pick MASK fixes the emitted key order, which is
+ * what keeps these projections' JSON byte-stable (zod emits in shape order).
+ */
+const IssueRefHead = IssueWireCore.pick({ id: true, seq: true, title: true })
+
+export const LintFinding = IssueRefHead.omit({ title: true }).extend({
   findings: z.array(z.string()),
 })
 export type LintFinding = z.infer<typeof LintFinding>
@@ -440,16 +446,35 @@ export const DoctorReport = z.object({
 })
 export type DoctorReport = z.infer<typeof DoctorReport>
 
-export const IssueGraphNode = z.object({
-  id: IssueIdField,
-  seq: z.number().int(),
-  title: z.string(),
-  stage: IssueStage,
-  priority: z.number().int(),
-  type: IssueType,
-  ready: z.boolean(),
-  blocked: z.boolean(),
-})
+/**
+ * A node of the dependency graph. Picked from `IssueWireCore` (POD-367) —
+ * previously a hand-restated eight-field copy.
+ *
+ * CROSS-BOUNDARY EDGES (docs/multi-user-readiness.md §3.1.2, handed to POD-290
+ * still OPEN): an edge may name an issue the reader cannot see. The two candidate
+ * answers are hiding the edge and showing an opaque "blocked by an issue you
+ * cannot see" reference. BOTH remain expressible through this ONE projection
+ * function and neither is chosen here:
+ *  - hide-the-edge needs no shape at all — the authority omits the node and its
+ *    edges from `IssueGraph`, and every member below is required, so a hidden
+ *    node cannot be half-emitted;
+ *  - opaque-reference needs a node with identity and NOTHING else, which is
+ *    `IssueGraphNode.pick({ id: true })` — a narrowing of this same head, not a
+ *    second projection.
+ * What would preclude the second answer is folding a CONTENT member (title,
+ * stage, priority) into the identity head rather than adding it by mask, because
+ * then an opaque node could not be emitted without leaking content. It is not;
+ * `IssueRefHead` is identity-only. Do not fold content into it.
+ */
+export const IssueGraphNode = IssueRefHead.extend(
+  IssueWireCore.pick({
+    stage: true,
+    priority: true,
+    type: true,
+    ready: true,
+    blocked: true,
+  }).shape,
+)
 export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
 export const IssueGraph = z.object({
   nodes: z.array(IssueGraphNode),
@@ -457,12 +482,9 @@ export const IssueGraph = z.object({
 })
 export type IssueGraph = z.infer<typeof IssueGraph>
 
-export const EpicStatus = z.object({
-  id: IssueIdField,
-  childCount: z.number().int(),
-  childDoneCount: z.number().int(),
-  complete: z.boolean(),
-})
+export const EpicStatus = IssueRefHead.pick({ id: true })
+  .extend(IssueWireCore.pick({ childCount: true, childDoneCount: true }).shape)
+  .extend({ complete: z.boolean() })
 export type EpicStatus = z.infer<typeof EpicStatus>
 
 export const IssueCount = z.object({
@@ -481,10 +503,14 @@ export const IssueStats = z.object({
   deferred: z.number().int(),
 })
 export type IssueStats = z.infer<typeof IssueStats>
-export const OrphanIssue = z.object({
-  id: IssueIdField,
-  seq: z.number().int(),
-  title: z.string(),
+/**
+ * An issue with no parent. Picked from `IssueWireCore` (POD-367) plus `ref`,
+ * which is projection-local ON PURPOSE: it is the DERIVED display ref (prefix +
+ * seq, D-5), and it is spelled `ref` here while `IssueWire` spells the same fact
+ * `displayRef` — one of the D-1 name collisions. The rename is not corrected
+ * here because this key is on the wire; it belongs in the one toWire pair.
+ */
+export const OrphanIssue = IssueRefHead.extend({
   ref: z.string(),
 })
 export type OrphanIssue = z.infer<typeof OrphanIssue>
