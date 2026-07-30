@@ -244,7 +244,7 @@ describe('PublishWorkerClient', () => {
     spawnedWorker(workers, 0).emit('exit', 1)
     expect(spawnedWorker(workers, 1).sent[0]).toMatchObject({
       type: 'reset',
-      state: { generation: 1, ledgerCursor: 1, sessions: [{ sessionId: 's1' }] },
+      state: { generation: 1, ledgerCursor: 1, sessions: [{ sessionId: asSessionId('s1') }] },
     })
     const recoveredWorker = spawnedWorker(workers, 1)
     reply(recoveredWorker, prepareCommand(recoveredWorker, 0))

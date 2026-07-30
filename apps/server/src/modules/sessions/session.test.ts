@@ -65,7 +65,7 @@ describe('Session', () => {
     expect(s.controllerId).toBe('a')
     expect(a.sent).toContainEqual({
       type: 'attached',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       controllerId: 'a',
       geometry: geo,
       epoch: 0,
@@ -95,7 +95,7 @@ describe('Session', () => {
     s.handleInput('a', 'eA==')
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'input',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       data: 'eA==',
       inputOrigin: 'human',
     })
@@ -141,7 +141,7 @@ describe('Session', () => {
     expect(toDaemon).not.toHaveBeenCalled()
     s.handleResize('a', 120, 40)
     expect(s.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 120, rows: 40 })
   })
 
   it('ignores a resize from a controller that isn’t rendering the session', () => {
@@ -154,7 +154,7 @@ describe('Session', () => {
     expect(s.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
     expect(toDaemon).not.toHaveBeenCalledWith({
       type: 'resize',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cols: 200,
       rows: 50,
     })
@@ -169,7 +169,7 @@ describe('Session', () => {
     s.handleResize('a', 200, 50)
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
     expect(s.activityDirty).toBe(true)
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
@@ -187,7 +187,7 @@ describe('Session', () => {
     b.sent.length = 0
     s.handleResize('a', 200, 50)
     for (const c of [a, b]) {
-      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
+      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
     }
   })
 
@@ -200,7 +200,7 @@ describe('Session', () => {
     a.sent.length = 0
     s.reconcileGeometry('a')
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -216,16 +216,16 @@ describe('Session', () => {
     expect(s.controllerId).toBe('b')
     expect(s.epoch).toBe(1)
     expect(s.geometry).toEqual({ cols: 50, rows: 60 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 50, rows: 60 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: 's1' })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'redraw', sessionId: asSessionId('s1') })
     for (const c of [a, b]) {
       expect(c.sent).toContainEqual({
         type: 'controllerChanged',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         controllerId: 'b',
         geometry: { cols: 50, rows: 60 },
       })
-      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 50, rows: 60 })
+      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: asSessionId('s1'), cols: 50, rows: 60 })
     }
   })
 
@@ -287,7 +287,7 @@ describe('Session', () => {
     s.reconcileGeometry('a')
     // The dropped fitted size is now applied — not lost.
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: asSessionId('s1'), cols: 200, rows: 50 })
   })
 
   it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
@@ -319,8 +319,8 @@ describe('Session', () => {
     // The Session numbers frames itself (0,1,…), ignoring the bridge's own seq, so
     // the client's resume cursor stays stable across daemon reattaches.
     expect(frames).toEqual([
-      { type: 'outputFrame', sessionId: 's1', seq: 0, epoch: 0, data: 'ZGF0YQ==' },
-      { type: 'outputFrame', sessionId: 's1', seq: 1, epoch: 0, data: 'ZGF0Yg==' },
+      { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 0, data: 'ZGF0YQ==' },
+      { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 1, epoch: 0, data: 'ZGF0Yg==' },
     ])
   })
 
@@ -335,7 +335,7 @@ describe('Session', () => {
     expect(attached).toMatchObject({ type: 'attached', resumed: true })
     const frames = a.sent.filter((m) => m.type === 'outputFrame')
     expect(frames).toEqual([
-      { type: 'outputFrame', sessionId: 's1', seq: 2, epoch: 0, data: 'Yw==' },
+      { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 2, epoch: 0, data: 'Yw==' },
     ])
   })
 
@@ -452,7 +452,7 @@ describe('Session', () => {
     s.attachClient(a)
     s.onExit(0)
     expect(s.status).toBe('exited')
-    expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: 's1', code: 0 })
+    expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 })
     expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
   })
 
@@ -666,7 +666,7 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(became).toBe(true) // first transcript observed → chat capability flips on
     expect(a.sent.at(-1)).toEqual({
       type: 'transcriptDelta',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       items: [item('u1', 'c1')],
       tail: 'c1',
     })
@@ -685,7 +685,7 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.transcriptItems()).toEqual([item('u2', 'c2')])
     expect(a.sent.at(-1)).toEqual({
       type: 'transcriptDelta',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       items: [item('u2', 'c2')],
       tail: 'c2',
       reset: true,
@@ -699,7 +699,7 @@ describe('Session transcript cache (recent-delta window)', () => {
     const known = makeClient('k')
     s.subscribeTranscript(known, 'c1')
     expect(known.sent).toEqual([
-      { type: 'transcriptDelta', sessionId: 's1', items: [item('b', 'c2'), item('c', 'c3')] },
+      { type: 'transcriptDelta', sessionId: asSessionId('s1'), items: [item('b', 'c2'), item('c', 'c3')] },
     ])
 
     const stale = makeClient('s')
@@ -707,7 +707,7 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(stale.sent).toEqual([
       {
         type: 'transcriptDelta',
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         items: [item('a', 'c1'), item('b', 'c2'), item('c', 'c3')],
       },
     ])

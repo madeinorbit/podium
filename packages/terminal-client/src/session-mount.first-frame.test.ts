@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
@@ -41,7 +42,7 @@ describe('session-mount onFirstFrame', () => {
     const onFirstFrame = vi.fn()
     const mounted = mountSession(document.createElement('div'), {
       hub,
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       onFirstFrame,
     })
 

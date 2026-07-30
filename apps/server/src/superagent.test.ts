@@ -480,7 +480,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('answer_question rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('answer_question', { sessionId: 'nope', answer: '1' })).toBe(
+    expect(await h.sa.callMcpTool('answer_question', { sessionId: asSessionId('nope'), answer: '1' })).toBe(
       'unknown session',
     )
   })
@@ -495,7 +495,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('resume_and_send fails on an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: 'nope', text: 'x' })).toBe(
+    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' })).toBe(
       'failed: unknown session',
     )
   })
@@ -513,7 +513,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('continue_session rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('continue_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('continue_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })
@@ -532,7 +532,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('hibernate_session surfaces the registry refusal reasons', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: asSessionId('nope') })).toBe(
       'failed: unknown session',
     )
     const sessionId = h.spawn(true) // live but no resume ref yet
@@ -563,9 +563,9 @@ describe('session-steering tool belt (issue #62)', () => {
     )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
     expect(
-      await h.sa.callMcpTool('snooze_session', { sessionId: 'nope', until: 'next-message' }),
+      await h.sa.callMcpTool('snooze_session', { sessionId: asSessionId('nope'), until: 'next-message' }),
     ).toBe('unknown session')
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: 'nope' })).toBe('unknown session')
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: asSessionId('nope') })).toBe('unknown session')
   })
 
   it('rename_session sets the user-facing name', async () => {
@@ -575,7 +575,7 @@ describe('session-steering tool belt (issue #62)', () => {
       'renamed',
     )
     expect(h.metaOf(sessionId)?.name).toBe('auth fix')
-    expect(await h.sa.callMcpTool('rename_session', { sessionId: 'nope', name: 'x' })).toBe(
+    expect(await h.sa.callMcpTool('rename_session', { sessionId: asSessionId('nope'), name: 'x' })).toBe(
       'unknown session',
     )
   })
@@ -591,7 +591,7 @@ describe('session-steering tool belt (issue #62)', () => {
       /invalid workState/,
     )
     expect(h.metaOf(sessionId)?.workState).toBe('testing') // unchanged
-    expect(await h.sa.callMcpTool('set_work_state', { sessionId: 'nope', workState: 'done' })).toBe(
+    expect(await h.sa.callMcpTool('set_work_state', { sessionId: asSessionId('nope'), workState: 'done' })).toBe(
       'unknown session',
     )
   })
@@ -636,7 +636,7 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('wait_for_session rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: 'nope' })).toBe(
+    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })

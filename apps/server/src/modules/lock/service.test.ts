@@ -55,7 +55,7 @@ describe('LockService', () => {
     expect(r.granted).toBe(true)
     if (!r.granted) throw new Error('unreachable')
     expect(r.alreadyHeld).toBe(false)
-    expect(r.lock.holder).toEqual({ sessionId: 'sess_1', issueId: 'iss_1', label: 'issue:#1' })
+    expect(r.lock.holder).toEqual({ sessionId: asSessionId('sess_1'), issueId: 'iss_1', label: 'issue:#1' })
     expect(r.lock.secondsLeft).toBe(DEFAULT_LOCK_TTL_SECONDS)
     expect(r.lock.queue).toEqual([])
   })

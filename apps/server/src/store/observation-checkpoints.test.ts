@@ -10,7 +10,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
   try {
     const lease = store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
     expect(lease).toMatchObject({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       provider: 'codex',
       providerSessionId: 'thread-1',
       bindingVersion: 1,

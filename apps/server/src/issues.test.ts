@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type IssueId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId, asUserId, type IssueId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -25,7 +25,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -360,7 +360,7 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -448,7 +448,7 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+      spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -699,7 +699,7 @@ describe('IssueService close retires session offers (POD-290)', () => {
   })
 
   it('explicit issueId attachment retires offers even when cwd is outside the worktree', () => {
-    const attached = offered('/elsewhere/agent', { sessionId: 'attached', issueId: undefined })
+    const attached = offered('/elsewhere/agent', { sessionId: asSessionId('attached'), issueId: undefined })
     // issueId is stamped after create so sessionsForIssue matches on id, not cwd.
     const sessions: SessionMeta[] = []
     const { svc, clearSessionOffer } = harness(sessions)
@@ -1843,7 +1843,7 @@ describe('IssueService.tree (issue #82)', () => {
     })
     sessions.push({
       ...sess('/elsewhere', 'working'),
-      sessionId: 'sess-impl',
+      sessionId: asSessionId('sess-impl'),
       issueId: epic.id,
       agentKind: 'grok',
       model: 'grok-4.5',
@@ -1852,7 +1852,7 @@ describe('IssueService.tree (issue #82)', () => {
     } as SessionMeta)
     sessions.push({
       ...sess('/elsewhere', 'idle'),
-      sessionId: 'sess-rev',
+      sessionId: asSessionId('sess-rev'),
       issueId: epic.id,
       agentKind: 'codex',
       model: 'gpt-5.6-sol',
@@ -1862,7 +1862,7 @@ describe('IssueService.tree (issue #82)', () => {
     } as SessionMeta)
     sessions.push({
       ...sess('/elsewhere', 'working'),
-      sessionId: 'sess-child',
+      sessionId: asSessionId('sess-child'),
       issueId: child.id,
       agentKind: 'claude-code',
       model: 'sonnet',
@@ -1872,7 +1872,7 @@ describe('IssueService.tree (issue #82)', () => {
     // Unrelated session must not appear.
     sessions.push({
       ...sess('/other', 'working'),
-      sessionId: 'sess-other',
+      sessionId: asSessionId('sess-other'),
       issueId: 'iss_other',
     } as SessionMeta)
     svc.setCoordinator(epic.id, asSessionId('sess-impl'))
@@ -1895,7 +1895,7 @@ describe('IssueService.tree (issue #82)', () => {
     expect(rev.phase).toBe('idle')
     expect(t.root.children[0]!.sessions).toEqual([
       expect.objectContaining({
-        sessionId: 'sess-child',
+        sessionId: asSessionId('sess-child'),
         agentKind: 'claude-code',
         status: 'exited',
         phase: 'working',
@@ -2962,7 +2962,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const h = harness([sess('/wt')])
     let n = 0
     const snapshot = vi.fn(async (o: { sourcePath: string }) => ({
-      artifactId: `art${++n}`,
+      artifactId: asArtifactId(`art${++n}`),
       entry: o.sourcePath.split('/').pop() as string,
       files: [{ path: o.sourcePath.split('/').pop() as string, size: 3 }],
     }))
@@ -3131,8 +3131,8 @@ describe('IssueService agent mail (#103)', () => {
       threadId: id,
       inReplyTo: null,
       fromKind: 'agent' as const,
-      fromSession: 'sX',
-      fromIssue: 'iss_sender',
+      fromSession: asSessionId('sX'),
+      fromIssue: asIssueId('iss_sender'),
       toKind: 'issue' as const,
       toId: issueId,
       kind: 'message' as const,
@@ -3143,7 +3143,7 @@ describe('IssueService agent mail (#103)', () => {
       createdAt: '2026-06-30T00:00:00.000Z',
       status,
       deliveredAt: status === 'delivered' || status === 'read' ? '2026-06-30T00:00:01.000Z' : null,
-      deliveredTo: status === 'delivered' || status === 'read' ? 's1' : null,
+      deliveredTo: status === 'delivered' || status === 'read' ? asSessionId('s1') : null,
       readAt: status === 'read' ? '2026-06-30T00:00:02.000Z' : null,
       injectedAt: null,
       deadLetteredAt: null,

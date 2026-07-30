@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { UiState } from '../replica/replica'
 import {
@@ -37,7 +37,7 @@ const errored = (): AgentRuntimeState => ({
   error: { class: 'api', retryable: true },
 })
 
-function meta(over: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
+function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = over
   // POD-361-EDGE-CAST: fixture builds the wire-INPUT shape and brands once, here.
   return {

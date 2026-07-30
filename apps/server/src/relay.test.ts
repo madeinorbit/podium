@@ -2998,7 +2998,7 @@ describe('reconnect identity (hello reclaim)', () => {
      * after the gate landed, because its assertion is that NO broadcast happens and
      * a refused write broadcasts nothing either. It was green for the wrong reason.
      */
-    const seedSession = (reg: SessionRegistry): string =>
+    const seedSession = (reg: SessionRegistry): SessionId =>
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' }).sessionId
     it('broadcasts setSessionDraft to other clients, not the sender', () => {
       const reg = new SessionRegistry()
@@ -3039,7 +3039,7 @@ describe('reconnect identity (hello reclaim)', () => {
       ).not.toThrow()
 
       expect(seen.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
-      expect(reg.sessionStore.sessions.loadDrafts()['no-such-session']).toBeUndefined()
+      expect(reg.sessionStore.sessions.loadDrafts()[asSessionId('no-such-session')]).toBeUndefined()
     })
 
     it('replays stored drafts to a freshly connected client', () => {

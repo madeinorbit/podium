@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,13 +15,13 @@ type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 type HeadlessCb = (e: HeadlessActivityEvent) => void
 
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  headlessSubs: [] as Array<{ sessionId: string; cb: HeadlessCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
+  subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
+  headlessSubs: [] as Array<{ sessionId: SessionId; cb: HeadlessCb }>,
+  subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
-  subscribeHeadless(sessionId: string, cb: HeadlessCb): () => void {
+  subscribeHeadless(sessionId: SessionId, cb: HeadlessCb): () => void {
     this.headlessSubs.push({ sessionId, cb })
     return () => {}
   },

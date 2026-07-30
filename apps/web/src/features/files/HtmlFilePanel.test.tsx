@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -73,7 +74,7 @@ describe('HtmlFilePanel', () => {
     act(() => {
       root.render(
         <HtmlFilePanel
-          scope={{ kind: 'session', sessionId: 's1' }}
+          scope={{ kind: 'session', sessionId: asSessionId('s1') }}
           path="/repo/site/index.html"
           onClose={onClose}
         />,

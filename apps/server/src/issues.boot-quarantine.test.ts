@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 /**
  * Boot crash-loop hardening (Phase 1, deliverable 3): a corrupt issue row must
@@ -19,7 +20,7 @@ function deps(store: SessionStore): IssueDeps {
         gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
   }

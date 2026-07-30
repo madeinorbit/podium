@@ -1,13 +1,4 @@
-import {
-  asSessionId,
-  handoffAvailability,
-  type HandoffAvailability,
-  type HandoffIssue,
-  type HandoffMachine,
-  type HandoffRepo,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asSessionId, handoffAvailability, type HandoffAvailability, type HandoffIssue, type HandoffMachine, type HandoffRepo, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { agentSupportsHandoff } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
@@ -37,7 +28,7 @@ export type IssueHandoff<M> =
  * Callers must also require a single selected issue (`issues.length === 1`).
  */
 export function issueHandoffAvailability<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
+  issue: HandoffIssue & { sessions: readonly { sessionId: SessionId }[] },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
@@ -60,7 +51,7 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
  * eligible case (kept as `handoffTargets` is over `handoffAvailability`).
  */
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
+  issue: HandoffIssue & { sessions: readonly { sessionId: SessionId }[] },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],

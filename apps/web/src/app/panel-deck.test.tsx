@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { act, type JSX, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +12,7 @@ import { composeDeck, type DeckTab } from './panel-deck'
 const events: string[] = []
 
 vi.mock('@/features/terminal/AgentPanel', () => ({
-  AgentPanel: ({ sessionId, active }: { sessionId: string; active?: boolean }): JSX.Element => {
+  AgentPanel: ({ sessionId, active }: { sessionId: SessionId; active?: boolean }): JSX.Element => {
     useEffect(() => {
       events.push(`mount:${sessionId}`)
       return () => {

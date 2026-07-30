@@ -20,7 +20,7 @@
  *    highest-priority cue.
  */
 
-import type { SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { UiState } from '../replica/replica'
 import { play, prewarmAudio, type SoundName } from './cuelume'
 
@@ -169,7 +169,7 @@ export class NotificationSounder {
     return this.deps.ui.get(SOUNDS_ENABLED_KEY) !== 'false'
   }
 
-  private suppressed(sessionId: string): boolean {
+  private suppressed(sessionId: SessionId): boolean {
     if (!this.enabled()) return true
     // Watching the session in a focused window IS the notification.
     if (this.deps.windowFocused() && this.deps.visibleSessionIds().includes(sessionId)) return true

@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { IssueWire } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
@@ -126,7 +126,7 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   duplicate: { id: HUB_ID, canonicalId: 'iss_other' },
   // Promotion/coordination are issueWrite-wrapped like their siblings [spec:SP-6144].
   promote: { id: HUB_ID },
-  setCoordinator: { id: HUB_ID, sessionId: 'sess_hub' },
+  setCoordinator: { id: HUB_ID, sessionId: asSessionId('sess_hub') },
 }
 
 /** Write procs deliberately EXCLUDED from hub forwarding, with the reason. cleanup

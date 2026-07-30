@@ -57,7 +57,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     })
     expect(r).toEqual({ ok: true, via: 'menu', choices: [{ optionIndices: [2] }] })
     expect(h.answerAskUserQuestion).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       choices: [{ optionIndices: [2] }],
     })
     expect(h.resumeAndSend).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
       textFallback: true,
     })
     expect(r).toEqual({ ok: true, via: 'text' })
-    expect(h.resumeAndSend).toHaveBeenCalledWith({ sessionId: 'sess_1', text: 'ship it' })
+    expect(h.resumeAndSend).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1'), text: 'ship it' })
     expect(h.answerAskUserQuestion).not.toHaveBeenCalled()
   })
 

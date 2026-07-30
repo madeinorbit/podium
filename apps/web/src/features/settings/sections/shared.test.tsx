@@ -1,3 +1,4 @@
+import { asAccountId } from '@podium/model'
 import { nativeAccountId } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -182,7 +183,7 @@ describe('RoleBackendEditor · managed account for the coding role (#216)', () =
       // biome-ignore lint/a11y/useValidAriaRole: this selects the Podium backend role
       <RoleBackendEditor
         role="coding"
-        backend={{ accountId: 'managed:openai', harness: 'codex', model: 'auto', effort: 'auto' }}
+        backend={{ accountId: asAccountId('managed:openai'), harness: 'codex', model: 'auto', effort: 'auto' }}
         accounts={[]}
         onChange={onChange}
       />,

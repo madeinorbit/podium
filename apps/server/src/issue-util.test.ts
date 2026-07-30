@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionMeta } from '@podium/model'
 import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
@@ -65,14 +66,14 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
 
   it('single idle live agent → immediate send', () => {
     expect(selectMailNudgeSession([meta({ id: 'a', phase: 'idle' })])).toEqual({
-      sessionId: 'a',
+      sessionId: asSessionId('a'),
       mode: 'send',
     })
   })
 
   it('single busy live agent → queued send', () => {
     expect(selectMailNudgeSession([meta({ id: 'a', phase: 'working' })])).toEqual({
-      sessionId: 'a',
+      sessionId: asSessionId('a'),
       mode: 'queue',
     })
   })
@@ -82,7 +83,7 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
       meta({ id: 'old', phase: 'idle', lastActiveAt: '2026-07-06T00:00:00Z' }),
       meta({ id: 'new', phase: 'working', lastActiveAt: '2026-07-06T01:00:00Z' }),
     ])
-    expect(picked).toEqual({ sessionId: 'new', mode: 'queue' })
+    expect(picked).toEqual({ sessionId: asSessionId('new'), mode: 'queue' })
   })
 
   it('ignores shells and non-live sessions; none live → null', () => {
@@ -98,6 +99,6 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
         meta({ id: 'sh', agentKind: 'shell' }),
         meta({ id: 'a', phase: 'idle' }),
       ]),
-    ).toEqual({ sessionId: 'a', mode: 'send' })
+    ).toEqual({ sessionId: asSessionId('a'), mode: 'send' })
   })
 })

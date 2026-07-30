@@ -42,7 +42,7 @@ const user = (id: UserId): CommandPrincipal => ({
 const agent = (
   sessionId: SessionId,
   onBehalfOf: UserId,
-  chain: string[] = [],
+  chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
   agentSessionId: sessionId,
@@ -266,7 +266,7 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
       // of the human gate above.
       new Map([['parent', ['a']]]),
     )
-    const child = agent(asSessionId('child'), OWNER, ['parent'])
+    const child = agent(asSessionId('child'), OWNER, [asSessionId('parent')])
 
     expect(checkMachineUse(user(OWNER), 'b', ownership)).toBeUndefined()
     expect(checkMachineUse(child, 'b', ownership)).toBe('unauthorized')
@@ -277,15 +277,15 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
 
 describe('the principal itself', () => {
   it('an agent chain carries exactly ONE human, taken from the ROOT and not the leaf', () => {
-    const parents = new Map([
-      ['child', 'parent'],
-      ['parent', 'root'],
+    const parents = new Map<SessionId, SessionId>([
+      [asSessionId('child'), asSessionId('parent')],
+      [asSessionId('parent'), asSessionId('root')],
     ])
-    const onBehalfOf = new Map<string, UserId>([
-      ['root', COLLEAGUE],
+    const onBehalfOf = new Map<SessionId, UserId>([
+      [asSessionId('root'), COLLEAGUE],
       // A leaf-supplied delegator that must NOT win: reading the pair off the
       // leaf is exactly how a sub-agent would carry a delegator its parent lacks.
-      ['child', OWNER],
+      [asSessionId('child'), OWNER],
     ])
 
     const principal = resolvePrincipal(
@@ -299,9 +299,9 @@ describe('the principal itself', () => {
   })
 
   it('a cyclic spawnedBy graph terminates instead of hanging the resolve', () => {
-    const cycle = new Map([
-      ['a', 'b'],
-      ['b', 'a'],
+    const cycle = new Map<SessionId, SessionId>([
+      [asSessionId('a'), asSessionId('b')],
+      [asSessionId('b'), asSessionId('a')],
     ])
 
     const principal = resolvePrincipal(

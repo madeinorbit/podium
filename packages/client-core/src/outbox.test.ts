@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOutbox,
@@ -8,8 +9,8 @@ import {
 } from './outbox'
 
 type Kinds = {
-  rename: { sessionId: string; name: string }
-  snoozeClear: { sessionId: string }
+  rename: { sessionId: SessionId; name: string }
+  snoozeClear: { sessionId: SessionId }
 }
 
 function memoryStorage(seed: string | null = null): {

@@ -10,6 +10,7 @@
  * the durable row. See oracle-support.ts for the tag contract.
  */
 
+import { asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -80,7 +81,7 @@ describe('oracle: create', () => {
     const o = makeOracle()
 
     await expect(
-      o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: '../../evil' }),
+      o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: asSessionId('../../evil') }),
     ).rejects.toThrow()
     expect(o.store.sessions.loadSessions()).toEqual([])
   })

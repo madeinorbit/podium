@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import {
   appendFile,
   mkdir,
@@ -481,14 +482,14 @@ describe('findLiveCodexRollout', () => {
         sessions,
         cwd,
         Date.parse('2026-07-15T08:11:19.000Z'),
-        earlierPane,
+        asSessionId(earlierPane),
       ),
     ).toBeUndefined()
     const exact = await findLiveCodexRollout(
       sessions,
       cwd,
       Date.parse('2026-07-15T09:10:28.000Z'),
-      owningPane,
+      asSessionId(owningPane),
     )
     expect(exact).toMatchObject({
       id: 'native-owner',
@@ -567,7 +568,7 @@ describe('findLiveCodexRollout', () => {
       sessions,
       '/repo/x',
       Date.parse('2026-07-15T09:10:30.000Z'),
-      pane,
+      asSessionId(pane),
     )
     expect(found).toMatchObject({ id: 'bigmeta', path: rollout, confidence: 'exact' })
   })
@@ -708,12 +709,12 @@ describe('findProcessBoundCodexRollout', () => {
     await process(101, paneA, [rolloutA, guardian])
     await process(202, paneB, [rolloutB])
 
-    await expect(findProcessBoundCodexRollout(sessions, paneA, proc)).resolves.toMatchObject({
+    await expect(findProcessBoundCodexRollout(sessions, asSessionId(paneA), proc)).resolves.toMatchObject({
       id: 'native-a',
       path: rolloutA,
       confidence: 'exact',
     })
-    await expect(findProcessBoundCodexRollout(sessions, paneB, proc)).resolves.toMatchObject({
+    await expect(findProcessBoundCodexRollout(sessions, asSessionId(paneB), proc)).resolves.toMatchObject({
       id: 'native-b',
       path: rolloutB,
       confidence: 'exact',
@@ -756,7 +757,7 @@ describe('foldCodexRolloutBootstrap', () => {
       },
       codexBootstrapObservation(
         {
-          podiumSessionId: 'podium-checkpoint',
+          podiumSessionId: asSessionId('podium-checkpoint'),
           providerSessionId,
           observerGeneration: 1,
           bindingVersion: 1,
@@ -976,7 +977,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const folded = await foldCodexRolloutBootstrap(await rollout(contents))
     const now = () => '2026-07-19T09:00:00.000Z'
     const config = {
-      podiumSessionId: 'podium-causal',
+      podiumSessionId: asSessionId('podium-causal'),
       observerGeneration: 1,
       providerSessionId: 'thread-causal',
       bindingVersion: 1,
@@ -1021,7 +1022,7 @@ describe('foldCodexRolloutBootstrap', () => {
       }
       observer.acknowledge({
         type: 'agentObservationAck',
-        sessionId: config.podiumSessionId,
+        sessionId: asSessionId(config.podiumSessionId),
         observerGeneration: config.observerGeneration,
         transitionId: observation.transitionId,
         result: outcome.kind,
@@ -1091,7 +1092,7 @@ describe('foldCodexRolloutBootstrap', () => {
     )
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-ended',
+        podiumSessionId: asSessionId('podium-ended'),
         providerSessionId: 'thread-ended',
         observerGeneration: 1,
         bindingVersion: 1,
@@ -1114,7 +1115,7 @@ describe('foldCodexRolloutBootstrap', () => {
     )
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-ack',
+        podiumSessionId: asSessionId('podium-ack'),
         providerSessionId: 'thread-ack',
         observerGeneration: 4,
         bindingVersion: 2,
@@ -1184,7 +1185,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const now = '2026-07-19T12:05:00.000Z'
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-checkpoint',
+        podiumSessionId: asSessionId('podium-checkpoint'),
         providerSessionId: threadId,
         observerGeneration: 1,
         bindingVersion: 1,
@@ -1207,7 +1208,7 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(
       observer.acknowledge({
         type: 'agentObservationAck',
-        sessionId: 'podium-checkpoint',
+        sessionId: asSessionId('podium-checkpoint'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: rejected.transitionId,
@@ -1257,7 +1258,7 @@ describe('foldCodexRolloutBootstrap', () => {
     if (acceptedOpen.kind === 'rejected') throw new Error(acceptedOpen.rejectionReason)
     observer.acknowledge({
       type: 'agentObservationAck',
-      sessionId: 'podium-checkpoint',
+      sessionId: asSessionId('podium-checkpoint'),
       observerGeneration: 1,
       bindingVersion: 1,
       transitionId: opened.transitionId,
@@ -1288,7 +1289,7 @@ describe('foldCodexRolloutBootstrap', () => {
     )
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-context',
+        podiumSessionId: asSessionId('podium-context'),
         providerSessionId: 'thread-context',
         observerGeneration: 1,
         bindingVersion: 1,
@@ -1320,7 +1321,7 @@ describe('foldCodexRolloutBootstrap', () => {
     )
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-foreign-ack',
+        podiumSessionId: asSessionId('podium-foreign-ack'),
         providerSessionId: 'thread-foreign-ack',
         observerGeneration: 1,
         bindingVersion: 1,
@@ -1356,7 +1357,7 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(
       observer.acknowledge({
         type: 'agentObservationAck',
-        sessionId: 'podium-foreign-ack',
+        sessionId: asSessionId('podium-foreign-ack'),
         observerGeneration: 1,
         bindingVersion: 1,
         transitionId: opened.transitionId,
@@ -1390,7 +1391,7 @@ describe('foldCodexRolloutBootstrap', () => {
         folds += 1
       },
       causal: {
-        podiumSessionId: 'podium-rebind-loop',
+        podiumSessionId: asSessionId('podium-rebind-loop'),
         providerSessionId: 'thread-lease',
         observerGeneration: 1,
         bindingVersion: 1,
@@ -1419,7 +1420,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const rebinds: string[] = []
     const observer = new CodexCausalCursorObserver(
       {
-        podiumSessionId: 'podium-bound',
+        podiumSessionId: asSessionId('podium-bound'),
         providerSessionId: 'thread-bound',
         observerGeneration: 3,
         bindingVersion: 2,
@@ -1475,7 +1476,7 @@ describe('foldCodexRolloutBootstrap', () => {
       resumeValue: 'thread-poll',
       pollMs: 10,
       causal: {
-        podiumSessionId: 'podium-poll',
+        podiumSessionId: asSessionId('podium-poll'),
         providerSessionId: 'thread-poll',
         observerGeneration: 5,
         bindingVersion: 3,
@@ -1497,7 +1498,7 @@ describe('foldCodexRolloutBootstrap', () => {
       expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
       observation.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-poll',
+        sessionId: asSessionId('podium-poll'),
         observerGeneration: 5,
         bindingVersion: 3,
         transitionId: bootstrap.transitionId,
@@ -1509,7 +1510,7 @@ describe('foldCodexRolloutBootstrap', () => {
       observations.splice(1)
       observation.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-poll',
+        sessionId: asSessionId('podium-poll'),
         observerGeneration: 5,
         bindingVersion: 3,
         transitionId: bootstrap.transitionId,
@@ -1529,7 +1530,7 @@ describe('foldCodexRolloutBootstrap', () => {
       observations.splice(2)
       observation.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-poll',
+        sessionId: asSessionId('podium-poll'),
         observerGeneration: 5,
         bindingVersion: 3,
         transitionId: working.transitionId,
@@ -1548,7 +1549,7 @@ describe('foldCodexRolloutBootstrap', () => {
       livePolls.length = 0
       observation.onObservationAck({
         type: 'agentObservationAck',
-        sessionId: 'podium-poll',
+        sessionId: asSessionId('podium-poll'),
         observerGeneration: 5,
         bindingVersion: 3,
         transitionId: terminal.transitionId,
@@ -1602,7 +1603,7 @@ describe('foldCodexRolloutBootstrap', () => {
       resumeValue: 'thread-after-new',
       pollMs: 10,
       causal: {
-        podiumSessionId: 'podium-new',
+        podiumSessionId: asSessionId('podium-new'),
         providerSessionId: 'thread-before-new',
         observerGeneration: 8,
         bindingVersion: 4,

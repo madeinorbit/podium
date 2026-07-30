@@ -1,3 +1,4 @@
+import { type SessionId } from '@podium/model'
 import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
@@ -35,7 +36,7 @@ interface SuperThread {
   title?: string
   repoPath?: string
   /** The headless Podium session rendering this thread (set on the first turn). */
-  podiumSessionId?: string
+  podiumSessionId?: SessionId
   /** The harness's own session id — present once the thread has a real session. */
   harnessSessionId?: string
   /** Query-backed running state for reloads/late joiners. Live events keep the

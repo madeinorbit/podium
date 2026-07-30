@@ -4,6 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
+import { asAccountId, type AccountId } from '@podium/model'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -225,7 +226,7 @@ export function RoleBackendEditor({
    *  native harness, a coding managed account pins the CLI its credential drives,
    *  and everything else leaves it unset (undefined, not absent — the key must be
    *  written so switching back to a native account CLEARS a stale harness). */
-  const harnessFor = (id: string, chosen?: HarnessAgent): HarnessAgent | undefined => {
+  const harnessFor = (id: AccountId, chosen?: HarnessAgent): HarnessAgent | undefined => {
     if (id.startsWith('native:')) {
       const h = id.slice('native:'.length) as HarnessAgent
       return role === 'superagent' ? h : undefined
@@ -271,7 +272,8 @@ export function RoleBackendEditor({
         <Select
           value={accountId}
           onValueChange={(value) => {
-            const nextAccountId = value ?? ''
+            // DECODE EDGE: the picker hands back a raw select value.
+            const nextAccountId = asAccountId(value ?? '')
             onChange({
               accountId: nextAccountId,
               model: 'auto',

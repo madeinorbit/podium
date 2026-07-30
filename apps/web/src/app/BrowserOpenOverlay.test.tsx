@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -47,7 +48,7 @@ afterEach(cleanup)
 
 const request: SessionOpenUrlMessage = {
   type: 'sessionOpenUrl',
-  sessionId: 's1',
+  sessionId: asSessionId('s1'),
   requestId: 'open-1',
   url: 'https://auth.example/authorize',
   callbackTarget: { host: 'localhost', port: 1455, path: '/auth/callback' },
@@ -91,7 +92,7 @@ describe('BrowserOpenOverlay', () => {
     emit('openUrl', request)
     const failed: SessionOpenUrlResultMessage = {
       type: 'sessionOpenUrlResult',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       status: 'failed',
       error: 'callback must match localhost:1455/auth/callback',
@@ -110,7 +111,7 @@ describe('BrowserOpenOverlay', () => {
     emit('openUrl', request)
     emit('openUrlResult', {
       type: 'sessionOpenUrlResult',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-1',
       status: 'completed',
       httpStatus: 200,
@@ -125,7 +126,7 @@ describe('BrowserOpenOverlay', () => {
     render(<BrowserOpenOverlay />)
     const link: SessionOpenUrlMessage = {
       type: 'sessionOpenUrl',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       requestId: 'open-2',
       url: 'https://claude.ai/code/artifact/abc?via=auto_preview',
       intent: 'link',

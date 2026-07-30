@@ -112,7 +112,7 @@ const SESSIONS = new Map([
   // Worker on the same issue, different harness, same machine.
   [
     's2',
-    { sessionId: 's2', cwd: '/repo-a/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
+    { sessionId: asSessionId('s2'), cwd: '/repo-a/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
   ],
   // Foreign session: different issue, different repo, different machine.
   [
@@ -126,7 +126,7 @@ const SESSIONS = new Map([
     },
   ],
   // Session with no issue and no machine — the unreachable/unknown-machine arm.
-  ['s4', { sessionId: 's4', cwd: '/repo-a/wt', agentKind: 'claude-code' }],
+  ['s4', { sessionId: asSessionId('s4'), cwd: '/repo-a/wt', agentKind: 'claude-code' }],
   // Session in a directory that resolves to no repository at all.
   [
     's5',
@@ -246,7 +246,7 @@ function twoStepRun(
 }
 
 /** A second, independent two-step run: issue-2 in repo-b, coordinated by s3. */
-const secondSubject = { issueId: 'issue-2', sessionId: 's3', cwd: '/repo-b/wt' } as const
+const secondSubject = { issueId: 'issue-2', sessionId: asSessionId('s3'), cwd: '/repo-b/wt' } as const
 const s3 = agent(asSessionId('s3'), 'issue-2')
 
 /** Capture a throw as `name: message | code=<code>` so both are pinned at once. */
@@ -1797,7 +1797,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(worker.run.status).toBe('active')
       expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([
-        { sessionId: 's1', text: 'Workflow step "Implement" complete: worker did it' },
+        { sessionId: asSessionId('s1'), text: 'Workflow step "Implement" complete: worker did it' },
       ])
       // The coordinator's own checkpoint does NOT notify.
       h.service.checkpoint(

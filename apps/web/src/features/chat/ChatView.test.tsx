@@ -1,8 +1,4 @@
-import {
-  type SessionMetaInput,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { type SessionId, type SessionMeta, type SessionMetaInput, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,13 +12,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 
 interface ReadCall {
-  input: { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number }
+  input: { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number }
   resolve: (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
 }
 
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
+  subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
+  subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },

@@ -1,8 +1,8 @@
-import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionCardModel, sessionTitle } from './session-card'
 
-function session(overrides: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
+function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = overrides
   return {
     agentKind: 'claude-code',

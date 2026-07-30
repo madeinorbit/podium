@@ -9,13 +9,7 @@
  * no DOM, no network.
  */
 
-import type {
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  SessionMeta,
-  SessionMetaInput,
-} from '@podium/model'
+import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -862,7 +856,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     const api = spawnApi()
     const holder: { engine?: ReturnType<typeof makeEngine>['engine'] } = {}
     api.sessions.create = {
-      mutate: vi.fn(async (input: { sessionId: string }) => {
+      mutate: vi.fn(async (input: { sessionId: SessionId }) => {
         // The broadcast minted the row server-side; only the response is lost.
         holder.engine?.replica.applyChanges('sessions', [session(input.sessionId, '/w')], [])
         throw new Error('transport lost')

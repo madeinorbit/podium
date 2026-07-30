@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/model'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -198,7 +198,7 @@ function MemoryPanel({
     }
   }, [trpc, machineId])
 
-  const sessionLabel = (sessionId: string): string => {
+  const sessionLabel = (sessionId: SessionId): string => {
     const s = sessions.find((s) => s.sessionId === sessionId)
     if (!s) return sessionId.slice(0, 8)
     return `${panelLabel(s.agentKind)} — ${s.title}`
@@ -322,7 +322,7 @@ function BreakdownBody({
   hibernationNote,
 }: {
   data: Breakdown
-  sessionLabel: (sessionId: string) => string
+  sessionLabel: (sessionId: SessionId) => string
   hibernationNote?: JSX.Element | null
 }): JSX.Element {
   const mem = hostMemoryView({

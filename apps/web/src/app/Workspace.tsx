@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import {
   closestCenter,
   DndContext,
@@ -224,7 +225,7 @@ export function Workspace(): JSX.Element {
     ) {
       return
     }
-    setPane('A', allTabs[0]?.id ?? null)
+    setPane('A', allTabs[0] ? asSessionId(allTabs[0].id) : null)
   }, [allTabs, paneA, setPane, sessions, selectedWorktree, worktree])
 
   // Keep pane B (the split's second pane) pointed at something valid. Unlike pane
@@ -331,12 +332,12 @@ export function Workspace(): JSX.Element {
                     // focused session starts a trace at the gesture (no-op switches
                     // — clicking the already-active tab — are skipped).
                     if (t.kind === 'session' && t.id !== paneA) {
-                      beginSwitch({ sessionId: t.id, issueId: issue?.id ?? null })
+                      beginSwitch({ sessionId: asSessionId(t.id), issueId: issue?.id ?? null })
                     }
                     // Opening a session tab marks it read (#126) so the sidebar
                     // row's unread emphasis clears in step with what's on screen.
-                    if (t.kind === 'session') void markSessionRead(t.id)
-                    setPane('A', t.id)
+                    if (t.kind === 'session') void markSessionRead(asSessionId(t.id))
+                    setPane('A', asSessionId(t.id))
                   }}
                   onClose={() => {
                     if (t.kind === 'file') closeFileTab(t.id)
@@ -430,8 +431,8 @@ export function Workspace(): JSX.Element {
               tabs={allTabs}
               onPick={(id) => {
                 // Opening a session into the split pane marks it read too (#126).
-                if (byId.get(id)?.kind === 'session') void markSessionRead(id)
-                setPane('B', id)
+                if (byId.get(id)?.kind === 'session') void markSessionRead(asSessionId(id))
+                setPane('B', asSessionId(id))
               }}
             />
           </div>
@@ -511,7 +512,7 @@ function SortableTab({
           <SessionNameEditor
             value={sessionDisplayName(tab.session)}
             onCommit={(name) => {
-              void renameSession(tab.id, name)
+              void renameSession(asSessionId(tab.id), name)
               setEditing(false)
             }}
             onCancel={() => setEditing(false)}

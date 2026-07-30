@@ -10,7 +10,7 @@ import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
 
 function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
-    sessionId: 's1',
+    sessionId: asSessionId('s1'),
     cwd: '/wt/a',
     agentKind: 'claude-code',
     status: 'live',
@@ -108,7 +108,7 @@ describe('session status (tier 1)', () => {
     })
     const s = await toolkit.status('s1', 'operator')
     expect(s).toMatchObject({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       phase: 'working',
       machine: 'buildbox',
       model: 'claude-opus-4-8',
@@ -176,7 +176,7 @@ describe('session status (tier 1)', () => {
     const birthRef = 'POD-529-A'
     const { toolkit } = harness({
       sessions: [
-        session({ sessionId: 'dc9086cd-8bc9-4eb5-b1da-83094fafa7e4', displayRef: birthRef }),
+        session({ sessionId: asSessionId('dc9086cd-8bc9-4eb5-b1da-83094fafa7e4'), displayRef: birthRef }),
       ],
     })
     const s = await toolkit.status(birthRef, 'operator')
@@ -187,7 +187,7 @@ describe('session status (tier 1)', () => {
 describe('session read (tier 2)', () => {
   it('returns the bounded window with a paging cursor and event-logs the read', async () => {
     const { toolkit, events } = harness({ hasMore: true })
-    const r = await toolkit.read({ sessionId: asSessionId('s1'), turns: 2 }, 'sX')
+    const r = await toolkit.read({ sessionId: asSessionId('s1'), turns: 2 }, asSessionId('sX'))
     expect(r.items.map((i) => i.text)).toEqual(['hi', 'hello'])
     expect(r.cursor).toBe('c1')
     expect(r.hasMore).toBe(true)
@@ -206,7 +206,7 @@ describe('session read (tier 2)', () => {
       text: Array.from({ length: 40 }, (_, l) => `line${n}.${l}`).join('\n'),
     }))
     const { toolkit } = harness({ items: big })
-    const r = await toolkit.read({ sessionId: asSessionId('s1') }, 'op')
+    const r = await toolkit.read({ sessionId: asSessionId('s1') }, asSessionId('op'))
     expect(r.truncated).toBe(true)
     const totalLines = r.items.reduce((a, i) => a + i.text.split('\n').length + 1, 0)
     expect(totalLines).toBeLessThanOrEqual(READ_LINE_CAP)
@@ -216,14 +216,14 @@ describe('session read (tier 2)', () => {
 
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
-    await expect(toolkit.read({ sessionId: asSessionId('nope') }, 'op')).rejects.toThrow(/unknown session/)
+    await expect(toolkit.read({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
   })
 
   it('accepts a permanent session birth ref and reads the canonical session id', async () => {
     const { toolkit, reads } = harness({
-      sessions: [session({ sessionId: 's1', displayRef: 'POD-529-A' })],
+      sessions: [session({ sessionId: asSessionId('s1'), displayRef: 'POD-529-A' })],
     })
-    const r = await toolkit.read({ sessionId: asSessionId('POD-529-A') }, 'op')
+    const r = await toolkit.read({ sessionId: asSessionId('POD-529-A') }, asSessionId('op'))
     expect(r.sessionId).toBe('s1')
     expect(reads).toHaveLength(1)
   })
@@ -238,7 +238,7 @@ describe('session recap (tier 3)', () => {
 
   it('first call summarizes the latest window and persists the watermark per (reader, target)', async () => {
     const { toolkit, events, watermarks } = harness({ items: ITEMS })
-    const r = await toolkit.recap({ sessionId: asSessionId('s1') }, 'parent-1')
+    const r = await toolkit.recap({ sessionId: asSessionId('s1') }, asSessionId('parent-1'))
     expect(r.newItems).toBe(3)
     expect(r.delta).toBe(false)
     expect(r.recap).toContain('Recap: 1 user / 2 assistant turns')
@@ -254,9 +254,9 @@ describe('session recap (tier 3)', () => {
 
   it('the second call summarizes ONLY the delta and advances the watermark', async () => {
     const { toolkit, reads } = harness({ items: ITEMS })
-    await toolkit.recap({ sessionId: asSessionId('s1') }, 'parent-1')
+    await toolkit.recap({ sessionId: asSessionId('s1') }, asSessionId('parent-1'))
     // Simulate new activity by re-calling: the fake slices after the anchor.
-    const r2 = await toolkit.recap({ sessionId: asSessionId('s1') }, 'parent-1')
+    const r2 = await toolkit.recap({ sessionId: asSessionId('s1') }, asSessionId('parent-1'))
     expect(reads[1]).toEqual({ anchor: 'c3', direction: 'after' })
     expect(r2.delta).toBe(true)
     expect(r2.newItems).toBe(0)
@@ -266,7 +266,7 @@ describe('session recap (tier 3)', () => {
 
   it('an explicit --since overrides the persisted watermark and the delta pays only for what follows', async () => {
     const { toolkit, reads, watermarks } = harness({ items: ITEMS })
-    const r = await toolkit.recap({ sessionId: asSessionId('s1'), since: 'c1' }, 'op')
+    const r = await toolkit.recap({ sessionId: asSessionId('s1'), since: 'c1' }, asSessionId('op'))
     expect(reads[0]).toEqual({ anchor: 'c1', direction: 'after' })
     expect(r.delta).toBe(true)
     expect(r.newItems).toBe(2)
@@ -278,8 +278,8 @@ describe('session recap (tier 3)', () => {
 
   it('watermarks are per-reader: a second caller re-summarizes from its own mark', async () => {
     const { toolkit, watermarks } = harness({ items: ITEMS })
-    await toolkit.recap({ sessionId: asSessionId('s1') }, 'reader-a')
-    const r = await toolkit.recap({ sessionId: asSessionId('s1') }, 'reader-b')
+    await toolkit.recap({ sessionId: asSessionId('s1') }, asSessionId('reader-a'))
+    const r = await toolkit.recap({ sessionId: asSessionId('s1') }, asSessionId('reader-b'))
     expect(r.delta).toBe(false)
     expect(r.newItems).toBe(3)
     expect(watermarks.get('reader-a|s1')).toBe('c3')
@@ -288,15 +288,15 @@ describe('session recap (tier 3)', () => {
 
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
-    await expect(toolkit.recap({ sessionId: asSessionId('nope') }, 'op')).rejects.toThrow(/unknown session/)
+    await expect(toolkit.recap({ sessionId: asSessionId('nope') }, asSessionId('op'))).rejects.toThrow(/unknown session/)
   })
 
   it('accepts a permanent session birth ref and keys watermarks by canonical session id', async () => {
     const { toolkit, watermarks } = harness({
-      sessions: [session({ sessionId: 's1', displayRef: 'POD-529-A' })],
+      sessions: [session({ sessionId: asSessionId('s1'), displayRef: 'POD-529-A' })],
       items: ITEMS,
     })
-    const r = await toolkit.recap({ sessionId: asSessionId('POD-529-A') }, 'parent-1')
+    const r = await toolkit.recap({ sessionId: asSessionId('POD-529-A') }, asSessionId('parent-1'))
     expect(r.sessionId).toBe('s1')
     expect(watermarks.get('parent-1|s1')).toBe('c3')
   })

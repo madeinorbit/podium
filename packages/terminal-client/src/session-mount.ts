@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { extractCodexPromptDraft } from './prompt-extract'
@@ -16,7 +17,7 @@ import { mountKeyToolbar } from './toolbar'
 
 export interface MountSessionOptions {
   hub: SocketHub
-  sessionId: string
+  sessionId: SessionId
   toolbarEl?: HTMLElement
   test?: boolean
   onState?: (state: ConnectionState) => void
@@ -440,7 +441,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       sendInput: (s: string) => connection.sendInput(s),
       takeControl: () => connection.requestControl(),
       sessions: () => hub.sessions(),
-      attach: (id: string) => hub.attach(id),
+      attach: (id: SessionId) => hub.attach(id),
       simulateKeyboard: (inset: number) => {
         // Percentage heights don't resolve when the parent has auto height, so we
         // compute the explicit pixel value from the element's current rendered height.

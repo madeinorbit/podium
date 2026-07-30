@@ -21,6 +21,7 @@
  * rows live, not whether the write queues offline.
  */
 
+import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
@@ -208,7 +209,7 @@ describe('oracle: the offline-queued write set', () => {
     // executor presence and not on some incidental property of the harness.
     const sent: unknown[] = []
     const dropped: string[] = []
-    const withExecutor = createOutbox<{ ask: { sessionId: string } }>({
+    const withExecutor = createOutbox<{ ask: { sessionId: SessionId } }>({
       storage: memoryStorage(),
       awaitingStorage: memoryStorage(),
       executors: {

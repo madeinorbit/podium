@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOutbox, OUTBOX_LS_KEY, type Outbox, type OutboxEntry } from './outbox'
 import { createReplica } from './replica'
@@ -10,8 +12,8 @@ import { createReplica } from './replica'
 // ---------------------------------------------------------------------------
 
 type Kinds = {
-  rename: { sessionId: string; name: string }
-  snoozeClear: { sessionId: string }
+  rename: { sessionId: SessionId; name: string }
+  snoozeClear: { sessionId: SessionId }
 }
 
 /** Executor recorder: every drained call lands in `calls`, resolved via `impl`. */
@@ -50,8 +52,8 @@ describe('outbox', () => {
     const { calls, executors } = makeExecutors()
     const ob = createOutbox<Kinds>({ executors })
     outboxes.push(ob)
-    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = ob.enqueue('snoozeClear', { sessionId: 's2' })
+    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     await ob.drain()
     expect(calls.map((c) => c.kind)).toEqual(['rename', 'snoozeClear'])
     expect(calls[0]?.input).toEqual({ sessionId: 's1', name: 'one', mutationId: a.mutationId })
@@ -62,8 +64,8 @@ describe('outbox', () => {
   it('keeps mutationIds stable across a simulated reload (re-init from localStorage)', async () => {
     // "Offline" first life: entries persist but never drain.
     const first = make({ isOnline: () => false })
-    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = first.enqueue('rename', { sessionId: 's1', name: 'two' })
+    const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'two' })
     first.dispose()
     // Second life re-reads the same localStorage key — same ids, same order.
     const { calls, executors } = makeExecutors()
@@ -86,8 +88,8 @@ describe('outbox', () => {
     })
     const ob = createOutbox<Kinds>({ executors, onPoison: (entry) => dropped.push(entry) })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'bad' })
-    const ok = ob.enqueue('rename', { sessionId: 's1', name: 'good' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'bad' })
+    const ok = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'good' })
     await ob.drain()
     // The poison entry is gone, the one behind it still delivered.
     expect(dropped.map((e) => e.kind)).toEqual(['rename'])
@@ -103,7 +105,7 @@ describe('outbox', () => {
     })
     const ob = createOutbox<Kinds>({ executors, retryMs: 5 })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await ob.drain()
     // Failed pass: attempted once, entry retained (never dropped silently).
     expect(calls).toHaveLength(1)
@@ -122,7 +124,7 @@ describe('outbox', () => {
     const { calls, executors } = makeExecutors(() => gate)
     const ob = createOutbox<Kinds>({ executors })
     outboxes.push(ob)
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     const d1 = ob.drain()
     const d2 = ob.drain()
     await Promise.resolve()
@@ -138,8 +140,8 @@ describe('outbox', () => {
     const sizes: number[] = []
     const ob = make({ isOnline: () => false })
     const off = ob.subscribe((n) => sizes.push(n))
-    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
-    ob.enqueue('snoozeClear', { sessionId: 's2' })
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    ob.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     expect(sizes).toEqual([1, 2])
     await ob.drain()
     expect(sizes).toEqual([1, 2, 1, 0])
@@ -170,8 +172,8 @@ describe('outbox', () => {
       isOnline: () => false,
     })
     outboxes.push(first)
-    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
-    const b = first.enqueue('snoozeClear', { sessionId: 's2' })
+    const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
+    const b = first.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
     first.dispose()
     // Collection persistence lands asynchronously (a microtask hop per write).
     await new Promise((r) => setTimeout(r, 0))

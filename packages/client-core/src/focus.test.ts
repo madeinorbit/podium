@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   attentionGroup,
@@ -21,7 +21,7 @@ const working = (since: string): AgentRuntimeState => ({
   nativeSubagentCount: 0,
 })
 
-function meta(over: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
+function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = over
   // POD-361-EDGE-CAST: a fixture builds the WIRE-INPUT shape (plain string ids) and brands
   // once here, matching the other fixture builders in this package.

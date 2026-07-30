@@ -17,7 +17,7 @@
  * and attention routing per-user. None of it is asserted as desirable.
  */
 
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, type IssueScope } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -88,16 +88,22 @@ describe('characterization: the sender is stamped from the capability, never fro
     // an AGENT — enveloped, peer-clamped, cooldown-subject — never the operator.
     expect(senderFromCapability({ scope: { kind: 'none' }, actorSessionId: asSessionId('s1') })).toEqual({
       kind: 'agent',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
     expect(senderFromCapability({ scope: { kind: 'none' } })).toEqual({ kind: 'agent' })
     expect(
       senderFromCapability({ scope: { kind: 'subtree', rootId: asIssueId('iss_a') }, actorSessionId: asSessionId('s1') }),
-    ).toEqual({ kind: 'agent', issueId: 'iss_a', sessionId: 's1' })
+    ).toEqual({ kind: 'agent', issueId: 'iss_a', sessionId: asSessionId('s1') })
     // A subtree scope with no rootId cannot claim an issue.
-    expect(senderFromCapability({ scope: { kind: 'subtree' }, actorSessionId: asSessionId('s1') })).toEqual({
+    // The scope literal is DELIBERATELY malformed — a subtree arm with no rootId,
+    // which `IssueScope` makes unrepresentable. The cast is the point of the test:
+    // it pins the RUNTIME behaviour for a value the types now forbid, so the guard
+    // survives if something ever produces one (POD-362 composed this parameter;
+    // before that the service restated the scope shape and accepted this freely).
+    const malformedSubtree = { kind: 'subtree' } as unknown as IssueScope
+    expect(senderFromCapability({ scope: malformedSubtree, actorSessionId: asSessionId('s1') })).toEqual({
       kind: 'agent',
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
     })
   })
 })
@@ -657,7 +663,7 @@ describe('characterization: reply to a legacy raw-ref sender (A7, POD-463)', () 
       threadId: 'thr_legacy',
       inReplyTo: null,
       fromKind: 'agent',
-      fromSession,
+      fromSession: fromSession === null ? null : asSessionId(fromSession),
       fromName: null,
       // The migrated shape: a REF STRING where an id belongs.
       fromIssue: asIssueId(fromIssue),

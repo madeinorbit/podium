@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -106,7 +107,7 @@ describe('selector-scoped store', () => {
     const draftsBefore = renders.drafts ?? 0
 
     // Change ONLY the drafts slice.
-    act(() => latestStore?.setSessionDraft('s1', 'hello'))
+    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
     await settle()
 
     expect(renders.drafts).toBe(draftsBefore + 1)
@@ -162,7 +163,7 @@ describe('selector-scoped store', () => {
     const before = { ...commits }
 
     // Unrelated slice: none of the three read `drafts`.
-    act(() => latestStore?.setSessionDraft('s1', 'hello'))
+    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
     await settle()
 
     expect(commits.workspace ?? 0).toBe(before.workspace ?? 0)
@@ -170,7 +171,7 @@ describe('selector-scoped store', () => {
     expect(commits['host-indicators'] ?? 0).toBe(before['host-indicators'] ?? 0)
 
     // Sanity: a slice they DO read (paneA via setPane) re-commits Workspace.
-    act(() => latestStore?.setPane('A', 'session-1'))
+    act(() => latestStore?.setPane('A', asSessionId('session-1')))
     await settle()
     expect(commits.workspace ?? 0).toBeGreaterThan(before.workspace ?? 0)
   })
@@ -180,11 +181,11 @@ describe('selector-scoped store', () => {
     const snapA = latestStore
     // A drafts write that sets the SAME value is a no-op — the store publishes a
     // shallow-equal object and keeps the old snapshot identity.
-    act(() => latestStore?.setSessionDraft('s1', 'x'))
+    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'x'))
     await settle()
     const snapB = latestStore
     expect(snapB).not.toBe(snapA)
-    act(() => latestStore?.setSessionDraft('s1', 'x'))
+    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'x'))
     await settle()
     expect(latestStore).toBe(snapB)
   })

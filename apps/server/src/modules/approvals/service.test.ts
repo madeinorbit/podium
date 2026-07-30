@@ -1,4 +1,4 @@
-import { asIssueId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import type { ApprovalOp, ControlMessage, LiveServerMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
@@ -29,7 +29,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
 }
 
 const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
-  svc.request({ op, sessionId: 's1', machineId: 'm1' })
+  svc.request({ op, sessionId: asSessionId('s1'), machineId: 'm1' })
 
 describe('ApprovalService', () => {
   it('request files a pending row, logs, and broadcasts', () => {
@@ -108,7 +108,7 @@ describe('ApprovalService', () => {
       resultText: 'published workflow revision wfr_1',
     })
     expect(executed).toEqual([
-      { op: { kind: 'workflow-publish', revisionId: 'wfr_1' }, sessionId: 's1' },
+      { op: { kind: 'workflow-publish', revisionId: 'wfr_1' }, sessionId: asSessionId('s1') },
     ])
     expect(sent).toEqual([])
     expect(events.at(-1)?.kind).toBe('issue.approval_succeeded')

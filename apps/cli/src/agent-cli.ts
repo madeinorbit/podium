@@ -16,6 +16,7 @@
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
+import type { SessionId } from '@podium/model'
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
@@ -113,7 +114,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
           : {}),
       })) as {
         ok: boolean
-        sessionId: string
+        sessionId: SessionId
         issueId: string
         issueSeq: number
         cwd: string

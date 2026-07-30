@@ -314,7 +314,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const lease = handshake('gen_session_archive')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
-      sessionId: 'ses_done',
+      sessionId: asSessionId('ses_done'),
       issueId: null,
       stoppedAt: '2026-07-01T00:00:00.000Z',
       readAt: '2026-07-02T00:00:00.000Z',

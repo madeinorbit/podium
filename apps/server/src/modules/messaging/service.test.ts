@@ -634,7 +634,7 @@ describe('MessagingService', () => {
     it('does not indicate for sessions without a bound topic', () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: () => 'iss_unbound',
+        sessionIssueId: () => asIssueId('iss_unbound'),
       })
       h.bus.emit('session.stateChanged', {
         sessionId: asSessionId('s_unbound'),
@@ -829,7 +829,7 @@ describe('MessagingService', () => {
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
     expect(h.createForumTopic).toHaveBeenCalledWith('42', 'POD-9 Slash commands')
-    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: 'sess_1' })
+    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: asSessionId('sess_1') })
     expect(h.answerCallback).toHaveBeenCalledWith('cb1', 'Created topic')
     expect(h.sent[0]!.threadRef).toBe('9001')
     h.inbound('status in topic', { threadRef: '9001' })
@@ -1025,7 +1025,7 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
     const h = makeHarness({
-      sessionIssueId: (sessionId) => (sessionId === 's_pod' ? 'iss_pod' : null),
+      sessionIssueId: (sessionId) => (sessionId === asSessionId('s_pod') ? asIssueId('iss_pod') : null),
     })
     h.topics.upsert({
       issueId: 'iss_pod',
@@ -1051,7 +1051,7 @@ describe('MessagingService', () => {
 
   it('sendNotice with sessionId falls back to main chat when the issue has no bound topic', async () => {
     const h = makeHarness({
-      sessionIssueId: () => 'iss_unbound',
+      sessionIssueId: () => asIssueId('iss_unbound'),
     })
     h.inbound('in topic', { threadRef: '77' })
     h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {

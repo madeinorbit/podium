@@ -24,7 +24,7 @@ describe('WorkflowService', () => {
     [
       's1',
       {
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         cwd: '/repo/wt',
         issueId: 'issue-1',
         agentKind: 'claude-code',
@@ -33,7 +33,7 @@ describe('WorkflowService', () => {
     ],
     [
       's2',
-      { sessionId: 's2', cwd: '/repo/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
+      { sessionId: asSessionId('s2'), cwd: '/repo/wt', issueId: 'issue-1', agentKind: 'codex', machineId: 'm1' },
     ],
   ])
 
@@ -334,7 +334,7 @@ describe('WorkflowService', () => {
     expect(completed.run.status).toBe('complete')
     expect(completed.message).toBe('Workflow complete.')
     expect(notices).toEqual([
-      { sessionId: 's1', text: 'Workflow step "Review" complete: reviewed' },
+      { sessionId: asSessionId('s1'), text: 'Workflow step "Review" complete: reviewed' },
     ])
     expect(service.runs({}, operator)).toEqual([])
     expect(service.runs({ includeTerminal: true }, operator)).toHaveLength(1)

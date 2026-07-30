@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,7 +29,7 @@ const fakeHub = {
 const superagentThreads = [{ id: 'global', kind: 'global' as const, harnessSessionId: 'harness-1' }]
 
 let isMobile = false
-let storeSessions: Array<{ sessionId: string; cwd: string }> = []
+let storeSessions: Array<{ sessionId: SessionId; cwd: string }> = []
 let storeIssues: ReturnType<typeof makeIssue>[] = []
 let storeSelectedIssueId: string | null = null
 const uiStateMap = new Map<string, string>()
@@ -561,7 +563,7 @@ describe('Open in terminal', () => {
     )
     expect(btn).not.toBeNull()
     // The resumed PTY session lands in the sessions broadcast a beat later.
-    storeSessions = [{ sessionId: 'pty-1', cwd: '/home/u' }]
+    storeSessions = [{ sessionId: asSessionId('pty-1'), cwd: '/home/u' }]
     await act(async () => {
       btn?.click()
       await Promise.resolve()

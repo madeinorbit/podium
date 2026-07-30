@@ -37,7 +37,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     store,
     listSessions: () => sessions,
     getSettings: () => settings,
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,
@@ -71,7 +71,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
 }
 
 const fakeSession = (s: Partial<SessionMetaInput>): SessionMeta =>
-  ({ sessionId: 's?', agentKind: 'claude-code', cwd: '/', status: 'live', ...s }) as never
+  ({ sessionId: asSessionId('s?'), agentKind: 'claude-code', cwd: '/', status: 'live', ...s }) as never
 
 // #175: comment bodies left IssueWire — read the thread via IssueService.comments.
 const stewardComments = (issues: IssueService, id: string) =>
@@ -204,8 +204,8 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
 
   it('nudges a parent once for one accepted live terminal cursor; duplicate/restart replay is inert', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
-      fakeSession({ sessionId: 'child', status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('child'), status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
     ]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
     store.events.appendEvent({
@@ -240,8 +240,8 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
   })
   it('nudges exactly once when final child bookkeeping closes working to idle', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
-      fakeSession({ sessionId: 'child', status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('child'), status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
     ]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
     const closure = {
@@ -361,7 +361,7 @@ describe('StewardService unblock handler', () => {
   })
 
   it('replayed events do not duplicate the comment or nudge (reset-cursor idempotence)', async () => {
-    const sessions = [fakeSession({ sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('s1'), cwd: '/r/.worktrees/issue-2-b' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -379,7 +379,7 @@ describe('StewardService unblock handler', () => {
   })
 
   it('retries a missing nudge after the comment was durably written', async () => {
-    const sessions = [fakeSession({ sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('s1'), cwd: '/r/.worktrees/issue-2-b' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -434,12 +434,12 @@ describe('StewardService unblock handler', () => {
   it('nudges only live/starting agent sessions — never shells, never parked sessions', async () => {
     const sessions = [
       // queueText would resurrect this via its resume ref — must be skipped.
-      fakeSession({ sessionId: 'parked', cwd: '/r/.worktrees/issue-2-b', status: 'exited' }),
-      fakeSession({ sessionId: 'hib', cwd: '/r/.worktrees/issue-2-b', status: 'hibernated' }),
+      fakeSession({ sessionId: asSessionId('parked'), cwd: '/r/.worktrees/issue-2-b', status: 'exited' }),
+      fakeSession({ sessionId: asSessionId('hib'), cwd: '/r/.worktrees/issue-2-b', status: 'hibernated' }),
       // a shell would have the nudge typed into bash — must be skipped.
-      fakeSession({ sessionId: 'sh', cwd: '/r/.worktrees/issue-2-b', agentKind: 'shell' }),
-      fakeSession({ sessionId: 'live1', cwd: '/r/.worktrees/issue-2-b' }),
-      fakeSession({ sessionId: 'elsewhere', cwd: '/other' }),
+      fakeSession({ sessionId: asSessionId('sh'), cwd: '/r/.worktrees/issue-2-b', agentKind: 'shell' }),
+      fakeSession({ sessionId: asSessionId('live1'), cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({ sessionId: asSessionId('elsewhere'), cwd: '/other' }),
     ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -475,8 +475,8 @@ describe('StewardService unblock handler', () => {
   it('suppresses the nudge to the session that caused the close, still nudges others', async () => {
     const sessions = [
       // The agent that closed the blocker: it already knows — must NOT be nudged.
-      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-2-b' }),
-      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-2-b' }),
     ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -493,7 +493,7 @@ describe('StewardService unblock handler', () => {
   })
 
   it('already-communicated (§07b, POD-913): suppresses the nudge when the closer already messaged the dependent directly', async () => {
-    const sessions = [fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-2-b' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-2-b' })]
     const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -511,7 +511,7 @@ describe('StewardService unblock handler', () => {
 
 describe('StewardService parent-nudge handler', () => {
   it('child close → parent comment with note excerpt + one nudge with correct counts', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false }) // seq 1
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -541,7 +541,7 @@ describe('StewardService parent-nudge handler', () => {
   })
 
   it('already-communicated (§07b, POD-913): suppresses the nudge when the child already messaged the parent directly', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -562,7 +562,7 @@ describe('StewardService parent-nudge handler', () => {
   })
 
   it('two children closing in one batch → two comments, ONE nudge with latest counts', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -594,7 +594,7 @@ describe('StewardService parent-nudge handler', () => {
   })
 
   it('cursor-rewind replay posts no duplicate comment and no second nudge', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -629,8 +629,8 @@ describe('StewardService parent-nudge handler', () => {
   it('suppresses the nudge to the session that caused the child close, comment still lands', async () => {
     const sessions = [
       // The orchestrator session that closed the child itself — no self-nudge.
-      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-1-epic' }),
-      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
@@ -653,8 +653,8 @@ describe('StewardService parent-nudge handler', () => {
 
   it('shell and exited sessions in the parent worktree get nothing', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parked', cwd: '/r/.worktrees/issue-1-epic', status: 'exited' }),
-      fakeSession({ sessionId: 'sh', cwd: '/r/.worktrees/issue-1-epic', agentKind: 'shell' }),
+      fakeSession({ sessionId: asSessionId('parked'), cwd: '/r/.worktrees/issue-1-epic', status: 'exited' }),
+      fakeSession({ sessionId: asSessionId('sh'), cwd: '/r/.worktrees/issue-1-epic', agentKind: 'shell' }),
     ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
@@ -691,7 +691,7 @@ describe('StewardService parent-nudge handler', () => {
 
 describe('StewardService child→review parent nudge', () => {
   it('a child moving to review notifies the parent (comment + nudge), other stages ignored', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -717,8 +717,8 @@ describe('StewardService child→review parent nudge', () => {
 
   it('suppresses the review nudge to the session that caused the transition (#116 carried)', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-1-epic' }),
-      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
@@ -739,7 +739,7 @@ describe('StewardService child→review parent nudge', () => {
 
 describe('StewardService child→needs_human parent nudge', () => {
   it('a child needing a human notifies the parent AND leaves a breadcrumb', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -834,7 +834,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 
   it('an issue-event subscription fires once and dedups on cursor-rewind replay', async () => {
-    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
@@ -854,7 +854,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 
   it('already-communicated (§07b, POD-913): suppresses a subscription nudge when the source issue already messaged the subscriber directly', async () => {
-    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
@@ -869,8 +869,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('delivers terminal-fenced exits to session.exited-only subscribers', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'watcher', cwd: '/w' }),
-      fakeSession({ sessionId: 'worker', cwd: '/x' }),
+      fakeSession({ sessionId: asSessionId('watcher'), cwd: '/w' }),
+      fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
     const { store, steward, sendTextWhenReady } = harness({ sessions })
     store.events.addSubscription(
@@ -898,8 +898,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('a session.finished subscription nudges the subscriber session', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'watcher', cwd: '/w' }),
-      fakeSession({ sessionId: 'worker', cwd: '/x' }),
+      fakeSession({ sessionId: asSessionId('watcher'), cwd: '/w' }),
+      fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
     const { store, steward, sendTextWhenReady } = harness({ sessions })
     store.events.addSubscription(
@@ -945,9 +945,9 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     // Sessions bound (issueId) to the child vs an unrelated issue; the parent's own
     // session receives the nudge. Pushed after creation so ids are known.
     sessions.push(
-      fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/epic', issueId: epic.id }),
-      fakeSession({ sessionId: 'kid', cwd: '/k', issueId: child.id }),
-      fakeSession({ sessionId: 'stranger', cwd: '/s', issueId: outsider.id }),
+      fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/epic', issueId: epic.id }),
+      fakeSession({ sessionId: asSessionId('kid'), cwd: '/k', issueId: child.id }),
+      fakeSession({ sessionId: asSessionId('stranger'), cwd: '/s', issueId: outsider.id }),
     )
     store.events.addSubscription(
       seedSub({
@@ -980,7 +980,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 
   it('a disabled subscription is silent', async () => {
-    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
@@ -995,8 +995,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('suppresses the nudge to the session that caused the source event (#116)', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/p' }),
-      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/p' }),
+      fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/p' }),
+      fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/p' }),
     ]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
@@ -1045,7 +1045,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 
   it('a notify:false subscription never pushes', async () => {
-    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, notify } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
@@ -1301,7 +1301,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
   })
 
   it('review→out→review re-fires the review parentnudge', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -1360,7 +1360,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     expect(ackFallback).toHaveBeenCalledTimes(1)
 
     // Review path: re-process the same review transition without leaving review.
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const rev = harness({ sessions })
     const parent = rev.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     rev.issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -1380,9 +1380,9 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
   it('preserves POD-907 exit-after-done silence within one completion cycle', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1436,7 +1436,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
   })
 
   it('needs_human clear→set re-fires the needs_human parentnudge', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -1482,13 +1482,13 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const sessions = [
       // Parked parent — issue parentnudge would skip this; session-parent wake must not.
       fakeSession({
-        sessionId: 'parent',
+        sessionId: asSessionId('parent'),
         status: 'hibernated',
         cwd: '/r/parent',
         title: 'Coordinator',
       }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/child',
         title: 'Worker',
@@ -1522,13 +1522,13 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const childIssue = issues.create({ repoPath: '/r', title: 'Child issue', startNow: false })
     sessions.push(
       fakeSession({
-        sessionId: 'parent',
+        sessionId: asSessionId('parent'),
         status: 'hibernated',
         cwd: '/r/parent',
         title: 'Coordinator',
       }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/child',
         title: 'Worker',
@@ -1550,9 +1550,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('wakes a parked session parent when the child errors', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'exited', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'exited', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1574,9 +1574,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('wakes a session parent on child exit-without-report (session.exited)', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'exited',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1598,7 +1598,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('resolves parent from event payload spawnedBy when the child row is gone', async () => {
     // killSession removes the child before agentExit; payload carries spawnedBy.
-    const sessions = [fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' })]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
     store.events.appendEvent({
       ts: 't',
@@ -1613,14 +1613,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('is silent when the child has no session-spawner parent', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'issue:iss_x', // issue provenance — not the session edge
       }),
-      fakeSession({ sessionId: 'orphan', status: 'live', cwd: '/r/o' }),
+      fakeSession({ sessionId: asSessionId('orphan'), status: 'live', cwd: '/r/o' }),
     ]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
     store.events.appendEvent({
@@ -1641,9 +1641,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('a terminal child re-emitting settle each poll (fresh event id) wakes the parent ONCE (POD-921)', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1689,9 +1689,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     // Acceptance (b): zombie / grok cwd-watch idle-cycle must not re-arm the
     // parent wake. Leave-idle retires ackfallback settle: only — not phase-reported.
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1742,9 +1742,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     // Acceptance (c): sticky cleared only by parent acknowledgment; then a later
     // settle re-claims and re-wakes exactly once.
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',
@@ -1812,7 +1812,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
   })
 
   it('issue needs_human parentnudge path is unchanged (issue parent, live targets)', async () => {
-    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const sessions = [fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
@@ -1834,9 +1834,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
 
   it('keeps ackfallback alongside session-parent wake on the same settle', async () => {
     const sessions = [
-      fakeSession({ sessionId: 'parent', status: 'live', cwd: '/r/p' }),
+      fakeSession({ sessionId: asSessionId('parent'), status: 'live', cwd: '/r/p' }),
       fakeSession({
-        sessionId: 'child',
+        sessionId: asSessionId('child'),
         status: 'live',
         cwd: '/r/c',
         spawnedBy: 'session:parent',

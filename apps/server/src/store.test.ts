@@ -35,7 +35,7 @@ describe('versioned drafts — column guard (POD-859)', () => {
     )
     const repo = new SessionsRepository(db)
     expect(() => repo.loadDraftDocs()).not.toThrow()
-    expect(repo.loadDraftDocs().sess).toEqual({
+    expect(repo.loadDraftDocs()[asSessionId('sess')]).toEqual({
       text: 'legacy draft',
       updatedAt: '2026-01-01T00:00:00.000Z',
       rev: 0,
@@ -57,7 +57,7 @@ describe('versioned drafts — column guard (POD-859)', () => {
         history: ['old'],
       }),
     ).not.toThrow()
-    expect(repo.loadDraftDocs().sess).toMatchObject({ text: 'v2 text', rev: 0, history: [] })
+    expect(repo.loadDraftDocs()[asSessionId('sess')]).toMatchObject({ text: 'v2 text', rev: 0, history: [] })
     db.close()
   })
 })

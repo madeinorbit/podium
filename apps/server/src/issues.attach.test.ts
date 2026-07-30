@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -10,7 +10,7 @@ import { SessionStore } from './store'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
-  const issueBySession = new Map<string, string | null>()
+  const issueBySession = new Map<SessionId, IssueId | null>()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
@@ -30,7 +30,7 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -109,18 +109,18 @@ describe('attachSession', () => {
   it('moves the session to the target issue and cleans up the empty draft', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const draft = svc.createDraftFor('/r')
-    issueBySession.set('s1', draft.id)
+    issueBySession.set(asSessionId('s1'), draft.id)
     const target = svc.create({ repoPath: '/r', title: 'Real', startNow: false })
     const w = svc.attachSession({ sessionId: asSessionId('s1'), targetId: target.id })
     expect(w.id).toBe(target.id)
-    expect(issueBySession.get('s1')).toBe(target.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(target.id)
     expect(svc.get(draft.id)).toBeNull() // empty draft deleted
   })
 
   it('self-attach is a no-op', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    issueBySession.set('s1', a.id)
+    issueBySession.set(asSessionId('s1'), a.id)
     const w = svc.attachSession({ sessionId: asSessionId('s1'), targetId: a.id })
     expect(w.id).toBe(a.id)
     expect(svc.get(a.id)).not.toBeNull()
@@ -129,8 +129,8 @@ describe('attachSession', () => {
   it('keeps a draft that still has sessions', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1')), sess(asSessionId('s2'))])
     const draft = svc.createDraftFor('/r')
-    issueBySession.set('s1', draft.id)
-    issueBySession.set('s2', draft.id) // second session keeps the draft alive
+    issueBySession.set(asSessionId('s1'), draft.id)
+    issueBySession.set(asSessionId('s2'), draft.id) // second session keeps the draft alive
     const target = svc.create({ repoPath: '/r', title: 'T', startNow: false })
     svc.attachSession({ sessionId: asSessionId('s1'), targetId: target.id })
     expect(svc.get(draft.id)).not.toBeNull()
@@ -141,13 +141,13 @@ describe('attachSession', () => {
   it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const real = svc.create({ repoPath: '/r', title: 'R', startNow: false })
-    issueBySession.set('s1', real.id)
+    issueBySession.set(asSessionId('s1'), real.id)
     const other = svc.create({ repoPath: '/r', title: 'O', startNow: false })
 
     expect(() => svc.attachSession({ sessionId: asSessionId('s1'), targetId: other.id })).toThrow(
       /attach blocked/,
     )
-    expect(issueBySession.get('s1')).toBe(real.id) // unmoved
+    expect(issueBySession.get(asSessionId('s1'))).toBe(real.id) // unmoved
 
     // Self-attach stays a no-op without confirmation.
     expect(svc.attachSession({ sessionId: asSessionId('s1'), targetId: real.id }).id).toBe(real.id)
@@ -160,7 +160,7 @@ describe('attachSession', () => {
     expect(unconfirmed).toThrow(/native subagent must not self-attach/)
     expect(unconfirmed).toThrow(/parent must attach it/)
     expect(unconfirmed).toThrow(/--confirm-rehome/)
-    expect(issueBySession.get('s1')).toBe(real.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(real.id)
     expect(svc.list('/r').filter((issue) => issue.parentId === real.id)).toHaveLength(0)
 
     const child = svc.attachSession({
@@ -169,14 +169,14 @@ describe('attachSession', () => {
       confirmRehome: true,
     })
     expect(child.parentId).toBe(real.id)
-    expect(issueBySession.get('s1')).toBe(child.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(child.id)
   })
 
   it('keeps a draft that owns a worktree or has children', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const draft = svc.createDraftFor('/r')
     svc.update(draft.id, { worktreePath: '/r/.worktrees/x' })
-    issueBySession.set('s1', draft.id)
+    issueBySession.set(asSessionId('s1'), draft.id)
     const target = svc.create({ repoPath: '/r', title: 'T', startNow: false })
     svc.attachSession({ sessionId: asSessionId('s1'), targetId: target.id })
     expect(svc.get(draft.id)).not.toBeNull()
@@ -185,7 +185,7 @@ describe('attachSession', () => {
   it('newSubissue creates a child of the current issue and moves there', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const parent = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    issueBySession.set('s1', parent.id)
+    issueBySession.set(asSessionId('s1'), parent.id)
     const w = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSubissue: { title: 'Side quest', origin: 'human' },
@@ -195,7 +195,7 @@ describe('attachSession', () => {
     expect(w.parentId).toBe(parent.id)
     expect(w.origin).toBe('human')
     expect(w.draft).toBe(false)
-    expect(issueBySession.get('s1')).toBe(w.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     expect(svc.get(parent.id)).not.toBeNull()
   })
 
@@ -211,13 +211,13 @@ describe('attachSession', () => {
       newSubissue: { title: 'child', origin: 'human' },
     })
     expect(w.parentId).toBe(parent.id)
-    expect(issueBySession.get('s1')).toBe(w.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
   })
 
   it('newSpinoff creates a TOP-LEVEL issue with a discovered-from edge and moves there (POD-85)', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
-    issueBySession.set('s1', origin.id)
+    issueBySession.set(asSessionId('s1'), origin.id)
     const w = svc.attachSession({
       sessionId: asSessionId('s1'),
       newSpinoff: { title: 'Adjacent discovery', origin: 'agent' },
@@ -227,7 +227,7 @@ describe('attachSession', () => {
     // Provenance, not containment: no parent, but a discovered-from edge back.
     expect(w.parentId ?? null).toBeNull()
     expect(w.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
-    expect(issueBySession.get('s1')).toBe(w.id)
+    expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
     // Agent-created but immediately worked: NOT proposed — the session is on it.
     expect(w.stage).not.toBe('proposed')
     // The origin's tally of decomposition children is untouched.
@@ -237,7 +237,7 @@ describe('attachSession', () => {
   it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
-    issueBySession.set('s1', origin.id)
+    issueBySession.set(asSessionId('s1'), origin.id)
     expect(() =>
       svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'agent' } }),
     ).toThrow(/--confirm-rehome/)
@@ -250,7 +250,7 @@ describe('attachSession', () => {
       }),
     ).toThrow(/not both/)
     // Unattached session with no --id: nothing to spin off from.
-    issueBySession.delete('s1')
+    issueBySession.delete(asSessionId('s1'))
     expect(() =>
       svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'human' } }),
     ).toThrow(/no origin/)

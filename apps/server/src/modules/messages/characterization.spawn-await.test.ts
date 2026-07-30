@@ -211,7 +211,7 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
   it('inherits the issue’s machine pin and reports the machine the spawn landed on', async () => {
     const h = mailHarness({
       spawnSession: (input) => ({
-        sessionId: 'child1',
+        sessionId: asSessionId('child1'),
         machineId: input.machineId,
         machine: 'Builder',
       }),
@@ -341,14 +341,14 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       title: 'the child',
     })
     const r = (await h.gate.dispatch(parentCapFor(h, iss.id), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { done: boolean; result: string; snapshot: Record<string, unknown> }
     expect(r.done).toBe(false)
     expect(r.result).toBe('working')
     // The snapshot is what makes the timeout actionable rather than a shrug.
     expect(r.snapshot).toEqual({
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       status: 'live',
       phase: 'working',
       title: 'the child',
@@ -425,7 +425,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       h.sessions.length = 0
     }
     const r = (await h.gate.dispatch(parentCapFor(h, iss.id), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 1,
     })) as { done: boolean; result: string; snapshot: unknown }
     expect(r).toEqual({ done: true, result: 'gone', snapshot: null })
@@ -457,7 +457,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // Move the clock so the next wait starts strictly after that ack.
     h.advance(1000)
     const stale = (await h.gate.dispatch(cap, undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { result: string }
     // Believing a stale ack would tell the parent that NEW work finished.
@@ -475,7 +475,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       { inReplyTo: asked2.message.id, body: 'round 2 done' },
     )
     const r = (await h.gate.dispatch(cap, undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })) as { done: boolean; result: string; ack: { id: string; body: string } }
     expect(r).toMatchObject({ done: true, result: 'acked' })
@@ -498,7 +498,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       h.agentCap(parentIssue.id, asSessionId('sParent')),
       undefined,
       'awaitAgent',
-      { sessionId: 'sChild', timeoutSeconds: 0 },
+      { sessionId: asSessionId('sChild'), timeoutSeconds: 0 },
     )) as { result: string }
     expect(asParent.result).toBe('working')
 
@@ -506,7 +506,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     const stranger = h.createIssue({ title: 'stranger' })
     await expect(
       h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'awaitAgent', {
-        sessionId: 'sChild',
+        sessionId: asSessionId('sChild'),
         timeoutSeconds: 0,
       }),
     ).rejects.toThrow(
@@ -514,7 +514,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     )
     await expect(
       h.gate.dispatch(OPERATOR, undefined, 'awaitAgent', {
-        sessionId: 'sNoSuchSession',
+        sessionId: asSessionId('sNoSuchSession'),
         timeoutSeconds: 0,
       }),
     ).rejects.toThrow('session not found')
@@ -543,7 +543,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     expect(facts.hasActive(factKey, 'sParent', h.now())).toBe(true)
 
     await h.gate.dispatch(h.agentCap(parentIssue.id, asSessionId('sParent')), undefined, 'awaitAgent', {
-      sessionId: 'sChild',
+      sessionId: asSessionId('sChild'),
       timeoutSeconds: 0,
     })
     // POD-917/POD-923: cleared so a later GENUINE re-completion can re-wake once.
@@ -562,7 +562,7 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'ask', {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       question: 'what is the status?',
       timeoutSeconds: 0,
     })) as { answered: boolean; questionId: string; reason: string; snapshot: unknown }
@@ -571,7 +571,7 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
       'no answer yet — the question is delivered/queued; check back or await the ack',
     )
     expect(r.snapshot).toEqual({
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       status: 'live',
       phase: 'working',
       issueId: iss.id,
@@ -593,13 +593,13 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, status: 'hibernated' })
     // First ask: a peer keeps wake.
     await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
-      sessionId: 'sTheirs',
+      sessionId: asSessionId('sTheirs'),
       question: 'q1',
       timeoutSeconds: 0,
     })
     // Second within the cooldown window: clamped to wait, and the caller is told.
     const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
-      sessionId: 'sTheirs',
+      sessionId: asSessionId('sTheirs'),
       question: 'q2',
       timeoutSeconds: 0,
     })) as { clamped?: boolean; questionId: string }
@@ -627,7 +627,7 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
       )
     }
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'ask', {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       question: 'q',
       timeoutSeconds: 30,
     })) as { answered: boolean; answer: string; ackId: string }

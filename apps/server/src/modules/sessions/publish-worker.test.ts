@@ -73,7 +73,7 @@ describe('publish worker entrypoint', () => {
     if (!result?.ok) throw new Error('expected successful publication')
     expect(JSON.parse(result.publication.bytes)).toMatchObject({
       type: 'sessionsChanged',
-      sessions: [{ sessionId: 's1' }],
+      sessions: [{ sessionId: asSessionId('s1') }],
     })
   })
 

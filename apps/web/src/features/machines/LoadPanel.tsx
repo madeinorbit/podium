@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { Loader2 } from 'lucide-react'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/model'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire, SessionId } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -89,7 +89,7 @@ export function LoadPanel({
   const projectBytes = data?.projects.reduce((sum, p) => sum + p.bytes, 0) ?? 0
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
 
-  const sessionLabel = (sessionId: string): string => {
+  const sessionLabel = (sessionId: SessionId): string => {
     const s = sessions.find((s) => s.sessionId === sessionId)
     if (!s) return sessionId.slice(0, 8)
     return `${panelLabel(s.agentKind)} — ${s.title}`

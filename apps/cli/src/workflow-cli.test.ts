@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ApprovalOp, WorkflowGitObservation, WorkflowRunWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -39,7 +40,7 @@ function run(status: WorkflowRunWire['status'] = 'active'): WorkflowRunWire {
     id: 'wrun_1',
     subjectKind: 'issue',
     subjectId: 'issue-1',
-    coordinatorSessionId: 'session-1',
+    coordinatorSessionId: asSessionId('session-1'),
     revision: {
       id: 'wfr_1',
       workflowId: 'wf_1',
@@ -61,7 +62,7 @@ function run(status: WorkflowRunWire['status'] = 'active'): WorkflowRunWire {
         executionProfileId: null,
         executionProfileSnapshot: null,
         status: status === 'complete' ? 'complete' : 'active',
-        assignedSessionId: 'session-1',
+        assignedSessionId: asSessionId('session-1'),
         attempt: 1,
         summary: '',
         evidence: { summary: '', tests: [], artifacts: [] },

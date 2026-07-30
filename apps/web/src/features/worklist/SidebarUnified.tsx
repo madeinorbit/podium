@@ -1,12 +1,6 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  asIssueId,
-  type AgentKind,
-  type IssueColorSlot,
-  type IssueWire,
-  type SessionMeta,
-} from '@podium/model'
+import { asIssueId, asSessionId, type AgentKind, type IssueColorSlot, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -952,9 +946,10 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
   // starts a trace at t0. Skipped for no-op switches (target already in pane A)
   // and for file-tab targets (`file:…` — no session to trace).
-  const traceSwitchTo = (target: string | null, issueId: string | null) => {
+  const traceSwitchTo = (target: SessionId | null, issueId: string | null) => {
     if (target && target !== paneA && !target.startsWith('file:')) {
-      beginSwitch({ sessionId: target, issueId })
+      // The `file:` prefix is excluded above, so what remains is a session id.
+      beginSwitch({ sessionId: asSessionId(target), issueId })
     }
   }
   const selectIssue = (issue: IssueWire, paneSession?: string) => {
@@ -989,7 +984,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setPane('A', target)
     setView('workspace')
   }
-  const selectPanelForIssue = (issue: IssueWire, sessionId: string) => {
+  const selectPanelForIssue = (issue: IssueWire, sessionId: SessionId) => {
     selectIssue(issue, sessionId)
     // Opening a specific member session marks THAT session read too (#126).
     void markSessionRead(sessionId)
@@ -1008,7 +1003,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     if (opened && members.some((s) => s.sessionId === opened)) void markSessionRead(opened)
     setView('workspace')
   }
-  const selectPanel = (worktreePath: string, sessionId: string) => {
+  const selectPanel = (worktreePath: string, sessionId: SessionId) => {
     traceSwitchTo(sessionId, null)
     setSelectedIssueId(null)
     setSelectedWorktree(worktreePath)
@@ -1881,7 +1876,7 @@ function UnifiedIssueRow({
   paneA: string | null
   now: number
   onSelectIssue: (issue: IssueWire) => void
-  onSelectPanelForIssue: (issue: IssueWire, sessionId: string) => void
+  onSelectPanelForIssue: (issue: IssueWire, sessionId: SessionId) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
   onRenameIssue: (id: string, title: string) => void
@@ -2249,7 +2244,7 @@ function UnifiedWorktreeRow({
   paneA: string | null
   now: number
   onSelect: () => void
-  onSelectPanel: (sessionId: string) => void
+  onSelectPanel: (sessionId: SessionId) => void
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)

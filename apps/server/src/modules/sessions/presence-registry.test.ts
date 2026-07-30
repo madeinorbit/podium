@@ -18,7 +18,7 @@
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { OPERATOR, SOLE_USER_ID, asUserId, type SessionId } from '@podium/model'
+import { OPERATOR, SOLE_USER_ID, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
@@ -252,7 +252,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     const denied = presence.execute('sessions.rename', { sessionId, name: 'x' }, stranger)
     const missing = presence.execute(
       'sessions.rename',
-      { sessionId: '00000000-0000-4000-8000-000000000000', name: 'x' },
+      { sessionId: asSessionId('00000000-0000-4000-8000-000000000000'), name: 'x' },
       stranger,
     )
 
@@ -276,7 +276,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     expect(
       presence.execute(
         'sessions.rename',
-        { sessionId: 'nope', name: 'x' },
+        { sessionId: asSessionId('nope'), name: 'x' },
         soleHumanPrincipal(OPERATOR),
       ).outcome,
     ).toBe('denied')

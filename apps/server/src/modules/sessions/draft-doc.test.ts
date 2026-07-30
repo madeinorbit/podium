@@ -27,7 +27,7 @@ describe('emptyDraftDoc', () => {
   it('is an empty, never-edited seed at rev 0', () => {
     const d = emptyDraftDoc(asSessionId('s9'))
     expect(d).toEqual({
-      sessionId: 's9',
+      sessionId: asSessionId('s9'),
       text: '',
       rev: 0,
       origin: 'seed',

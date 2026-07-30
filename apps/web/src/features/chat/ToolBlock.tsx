@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { resolveAgainstCwd } from '@/lib/file-path'
@@ -16,9 +17,9 @@ export function ToolBlock({
   openFile,
 }: {
   block: ChatBlock
-  sessionId: string
+  sessionId: SessionId
   cwd: string
-  openFile: (sessionId: string, path: string) => void
+  openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { item } = block

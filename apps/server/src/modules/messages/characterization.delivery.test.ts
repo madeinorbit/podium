@@ -264,7 +264,7 @@ describe('characterization: urgency x target state (D3)', () => {
     // ONLY the interrupt is pushed, and via interruptText (ESC first, so an open
     // question menu is visibly cancelled before the text lands).
     expect(h.pushes).toEqual([
-      { fn: 'interruptText', sessionId: 'sBusy', text: 'c', inputOrigin: 'mail' },
+      { fn: 'interruptText', sessionId: asSessionId('sBusy'), text: 'c', inputOrigin: 'mail' },
     ])
     expect(int.disposition).toBe('delivered')
   })
@@ -320,7 +320,7 @@ describe('characterization: urgency x target state (D3)', () => {
     // queueText resurrects a parked session; the row rides the durable queue.
     expect(wake.disposition).toBe('queued')
     expect(h.pushes).toEqual([
-      { fn: 'queueText', sessionId: 's1', text: 'now', inputOrigin: 'mail' },
+      { fn: 'queueText', sessionId: asSessionId('s1'), text: 'now', inputOrigin: 'mail' },
     ])
   })
 
@@ -422,7 +422,7 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     const from = h.createIssue({ title: 'waker' })
     const to = h.createIssue({ title: 'sleeper' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, status: 'hibernated' })
-    const sender = { kind: 'agent' as const, issueId: from.id, sessionId: 'sFrom' }
+    const sender = { kind: 'agent' as const, issueId: from.id, sessionId: asSessionId('sFrom') }
 
     const first = h.svc.send(sender, {
       to: { kind: 'session', id: 'sTo' },
@@ -456,8 +456,8 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     const b = h.createIssue({ title: 'b' })
     h.put({ sessionId: asSessionId('sA'), issueId: a.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sB'), issueId: b.id, phase: 'idle' })
-    const agentA = { kind: 'agent' as const, issueId: a.id, sessionId: 'sA' }
-    const agentB = { kind: 'agent' as const, issueId: b.id, sessionId: 'sB' }
+    const agentA = { kind: 'agent' as const, issueId: a.id, sessionId: asSessionId('sA') }
+    const agentB = { kind: 'agent' as const, issueId: b.id, sessionId: asSessionId('sB') }
 
     // The operator's kick carries hop 0; delivering it stamps sA's turn hop, so
     // what sA sends inside that turn chains at hop 1 — and so on down the

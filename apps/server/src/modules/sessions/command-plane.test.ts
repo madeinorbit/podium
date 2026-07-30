@@ -47,7 +47,7 @@ const human = (id: UserId): CommandPrincipal => ({
 const agentFor = (
   sessionId: SessionId,
   onBehalfOf: UserId,
-  chain: string[] = [],
+  chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
   agentSessionId: sessionId,
@@ -313,7 +313,7 @@ describe('delegation, resolved live at every apply', () => {
       // human gate.
       new Map([['parent', ['a']]]),
     )
-    const child = agentFor(asSessionId('child'), INSTANCE_OWNER, ['parent'])
+    const child = agentFor(asSessionId('child'), INSTANCE_OWNER, [asSessionId('parent')])
 
     // The human may spawn on 'b'...
     await expect(

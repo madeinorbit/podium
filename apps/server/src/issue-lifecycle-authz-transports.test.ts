@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, type IssueId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
@@ -26,7 +26,7 @@ interface LifecycleFixture {
 }
 
 function fixture(registry: SessionRegistry): LifecycleFixture {
-  const create = (title: string, parentId?: string) =>
+  const create = (title: string, parentId?: IssueId) =>
     registry.issues.create({
       repoPath: '/repo',
       title,

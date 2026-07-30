@@ -1,3 +1,4 @@
+import { asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from './issue-authz'
@@ -15,7 +16,7 @@ import { SessionStore } from './store'
 
 function harness(
   answerSessionQuestion?: IssueCommandDeps['answerSessionQuestion'],
-  opts: { actorSessionId?: string } = {},
+  opts: { actorSessionId?: SessionId } = {},
 ) {
   const store = new SessionStore(':memory:')
   const deps: IssueDeps = {
@@ -30,7 +31,7 @@ function harness(
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now: () => '2026-07-14T00:00:00.000Z',
@@ -123,7 +124,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   })
 
   it('setNeedsHuman defaults askedBy to the calling session', async () => {
-    const { svc, call } = harness(undefined, { actorSessionId: 'sess_self' })
+    const { svc, call } = harness(undefined, { actorSessionId: asSessionId('sess_self') })
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
     expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_self')
@@ -141,14 +142,14 @@ describe('issues.answerQuestion (issue #53)', () => {
       capability: {
         role: 'worker' as const,
         scope: { kind: 'subtree' as const, rootId: a.id },
-        actorSessionId: 'sess_me',
+        actorSessionId: asSessionId('sess_me'),
       },
     }
     // Pointing askedBy at another session (in-subtree write, so the scope gate
     // alone would allow it) is refused: answerQuestion would later deliver the
     // human's answer INTO that session.
     await expect(
-      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_victim' }, worker),
+      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') }, worker),
     ).rejects.toThrow(/askedBy is server-authoritative/)
     expect(svc.get(a.id)!.needsHuman).toBe(false) // nothing was flagged
     // Own session passes, explicitly or by default.
@@ -159,7 +160,7 @@ describe('issues.answerQuestion (issue #53)', () => {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
     await expect(
-      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_victim' }, sessionless),
+      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') }, sessionless),
     ).rejects.toThrow(/askedBy is server-authoritative/)
   })
 })

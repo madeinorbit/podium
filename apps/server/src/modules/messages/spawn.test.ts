@@ -71,14 +71,14 @@ describe('makeSpawnOnWake', () => {
       issues: () => fakeIssues({ machineId: 'm1' } as Partial<typeof ISSUE>),
       createSession: (i) => {
         calls.push(i)
-        return { sessionId: 'child1' }
+        return { sessionId: asSessionId('child1') }
       },
     })
     const r = seam.spawn({
       issueId: ISSUE.id,
       message: row({ fromKind: 'agent', fromSession: 'sParent' }),
     })
-    expect(r).toEqual({ ok: true, sessionId: 'child1' })
+    expect(r).toEqual({ ok: true, sessionId: asSessionId('child1') })
     expect(calls[0]).toMatchObject({
       cwd: '/wt/a',
       agentKind: 'claude-code',
@@ -94,7 +94,7 @@ describe('makeSpawnOnWake', () => {
       issues: () => fakeIssues({ worktreePath: null } as unknown as Partial<typeof ISSUE>),
       createSession: (i) => {
         calls.push(i)
-        return { sessionId: 'c' }
+        return { sessionId: asSessionId('c') }
       },
     })
     expect(seam.spawn({ issueId: ISSUE.id, message: row({}) }).ok).toBe(true)
@@ -153,7 +153,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
           // The real createSession registers the session; mirror that so
           // follow-up sends resolve the child.
           sessions.push({
-            sessionId: 'child1',
+            sessionId: asSessionId('child1'),
             cwd: i.cwd,
             agentKind: 'claude-code',
             status: 'live',
@@ -162,7 +162,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
             spawnedBy: i.spawnedBy,
             issueId: i.issueId,
           } as SessionMeta)
-          return { sessionId: 'child1' }
+          return { sessionId: asSessionId('child1') }
         },
       }),
       now: () => '2026-07-13T00:00:00.000Z',

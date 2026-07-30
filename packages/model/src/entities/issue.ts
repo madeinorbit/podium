@@ -275,7 +275,10 @@ const IssueWireTail = z.object({
   /** Bare session id of the agent session that created this issue (started-by
    *  provenance). Null/absent for operator/human creates. Additive so pre-field
    *  payloads still parse. */
-  startedBySession: z.string().optional(),
+  // Branded by POD-362: the store row types this `SessionId` and its own doc
+  // calls it a session id. `SessionIdField` (brand-only) so what parses is
+  // unchanged — the field is additive and must keep accepting what it accepts.
+  startedBySession: SessionIdField.optional(),
 })
 
 /**
