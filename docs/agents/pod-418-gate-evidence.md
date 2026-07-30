@@ -109,3 +109,29 @@ unclassified leaf regardless of what it looks like.
   pinned literal count; adding settings entries would be editing another issue's
   ratchet.
 - **`accounts.credential` not re-homed** — see the decisions above.
+
+## A note on the diff's size, and one thing I undid
+
+`biome check --write` on the touched files also reformatted `annotations/matrix.ts`
+(613 reflowed lines) and re-sorted the whole `index.ts` barrel — for a semantic
+change of three `sites` entries and one export block. Both files are edited by
+every sibling in this fan-out, so that churn is pure merge conflict. Reverted to
+the integration base and re-applied by hand: `matrix.ts` +16/-3, `index.ts` +11/-0.
+The pre-existing formatting debt in those two files is left where it was.
+
+Final diffstat against `issue/279-integration`:
+
+```
+ docs/agents/pod-418-gate-evidence.md               | 111 ++++
+ packages/model/src/annotations/matrix.ts           |  16 +-
+ packages/model/src/fields/per-user-key.test.ts     |  63 +++
+ packages/model/src/fields/per-user-key.ts          |  35 +-
+ packages/model/src/index.ts                        |  11 +
+ packages/model/src/settings/classification.test.ts | 248 +++++++
+ packages/model/src/settings/classification.ts      | 301 ++++++++
+ packages/model/src/settings/preferences.ts         | 305 ++++++++
+ packages/model/src/settings/secrets.test.ts        | 239 ++++++
+ packages/model/src/settings/secrets.ts             | 251 ++++++
+ packages/runtime/src/settings.classification.test.ts | 216 +++++
+ packages/runtime/src/settings.ts                   | 256 +++---
+```
