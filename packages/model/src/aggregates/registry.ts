@@ -91,20 +91,46 @@ export interface CanonicalAggregate {
  * deliberately small (readiness §3.1.1) and a session or an issue is not
  * substrate.
  */
-export const CANONICAL_AGGREGATES: readonly CanonicalAggregate[] = [
-  {
-    name: 'Session',
+export const CANONICAL_AGGREGATE_NAMES = ['Session', 'Issue'] as const
+export type CanonicalAggregateName = (typeof CANONICAL_AGGREGATE_NAMES)[number]
+
+/**
+ * Keyed by name rather than an array literal, and that is the whole point.
+ *
+ * `Record<CanonicalAggregateName, …>` makes an OMISSION a compile error, and the
+ * excess-property check makes an entry with no name in the union one too. An
+ * array cannot express either: dropping a member from
+ * `readonly CanonicalAggregate[]` is perfectly well-typed, and
+ * `registry.test.ts`'s mutant E proved the consequence — the whole `Session`
+ * entry deleted, the suite green, `bunx tsgo --noEmit` green, and the test count
+ * silently down by three as every `it.each` iterated one fewer case.
+ *
+ * This is the shape POD-367 found on the other side of the same lesson: its
+ * command list is guarded by `satisfies Record<IssueCommandName, …>` in the
+ * server registry, so a deletion there fails compilation. Mine had no such
+ * guard. Now it does — and the runtime membership pin stays, because the two
+ * instruments do not overlap: a type can see an omitted KEY, and only a runtime
+ * assertion can see the coverage of a loop over that key set shrinking.
+ *
+ * `name` is NOT a member of the values. It is the key, applied when the list is
+ * built, so a key/name mismatch is unrepresentable rather than merely tested.
+ */
+const AGGREGATE_BY_NAME: Record<CanonicalAggregateName, Omit<CanonicalAggregate, 'name'>> = {
+  Session: {
     schema: SessionAggregate,
     matrixRow: ROW.sessionIdentity,
     visibility: 'personal',
   },
-  {
-    name: 'Issue',
+  Issue: {
     schema: IssueAggregate,
     matrixRow: ROW.issueCore,
     visibility: 'personal',
   },
-]
+}
+
+export const CANONICAL_AGGREGATES: readonly CanonicalAggregate[] = CANONICAL_AGGREGATE_NAMES.map(
+  (name) => ({ name, ...AGGREGATE_BY_NAME[name] }),
+)
 
 /**
  * PER-USER STATE MEMBERS that must never appear as a field on a canonical
