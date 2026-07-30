@@ -124,6 +124,18 @@ export interface Site {
 // Per-site owner derivation
 // ---------------------------------------------------------------------------
 
+/**
+ * A React render key (`key={...}`, and the `id`/`ref` of a list item in a .tsx).
+ *
+ * Entity-bearing, and a key — but NOT owner B. Owner B means "adopts a
+ * collision-safe helper", and a render key is scoped to one sibling list, so it
+ * has no injectivity requirement to protect: `issue:${issue.id}` keeps working
+ * verbatim after the flip, because a brand IS a string. Putting these on
+ * POD-361's helper worklist would send it to edit JSX for no behavioural reason.
+ */
+const isRenderKey = (file: string, field: string): boolean =>
+  file.endsWith('.tsx') && (field === 'key' || field === 'id' || field === 'ref')
+
 /** Attribution fields (owner E). Each names WHO acted and gains an on-behalf-of
  *  UserId in POD-1075. Enumerated, not pattern-matched: "is this attribution?"
  *  is a semantic question, and a regex guessing at it would be the kind of
@@ -172,11 +184,13 @@ const DELETE_MARKERS = [
 const NOT_AN_IDENTITY = new Set(['deletionSource', 'deletion_source'])
 
 const ownerFor = (
+  file: string,
   kind: SiteKind,
   name: string,
   text: string,
   correlation: boolean,
   isSchemaFile: boolean,
+  entityBearing: boolean,
 ): { owner: Owner; reason: string } => {
   for (const marker of DELETE_MARKERS) {
     // Word-ish match so `OPERATOR` does not catch `OPERATOR_LIKE_THING`.
@@ -204,11 +218,27 @@ const ownerFor = (
   }
   switch (kind) {
     case 'composite-key':
+      // A key over non-identity values (paths, display strings, cursors) is a real
+      // composite key and NOT branded-id work. Owner C, so POD-361's worklist is
+      // only the rows it should actually migrate.
+      if (!entityBearing) {
+        return {
+          owner: 'C-stringly-on-purpose',
+          reason: 'composite key over non-entity values (paths/display/cursors) — not a branded id',
+        }
+      }
       return {
         owner: 'B-helper-adoption',
         reason: 'ad-hoc composite key; adopts a typed key helper',
       }
     case 'tagged-identity':
+      if (isRenderKey(file, name.split('=')[0] ?? '')) {
+        return {
+          owner: 'A-consequence',
+          reason:
+            'React render key — sibling-scoped, no injectivity requirement; a brand is still a string',
+        }
+      }
       return {
         owner: 'B-helper-adoption',
         reason: 'tag+id in one string; the tag is a closed vocabulary living unparsed',
@@ -302,6 +332,53 @@ const isZodExpression = (node: ts.Node): boolean => {
   return false
 }
 
+/**
+ * Identity-bearing names that the `*Id` shape does not catch. Small and
+ * enumerated on purpose.
+ *
+ * `resume` covers `ResumeRef` — the `(kind, value)` pair that IS the native
+ * conversation identity, keyed as `${resume.kind}:${resume.value}` in
+ * session-identity.ts, and the exact site `ids.ts`'s shipped `resumeKey()` helper
+ * exists to replace. Neither part is named `*Id`, so a name-shape test alone
+ * demotes the canonical owner-B site in the brief to owner C. That is the same
+ * trap as gating the detector itself on id-ish names, one level up.
+ */
+const IDENTITY_PARTS = new Set(['resume', 'nativeId'])
+
+/**
+ * Does any identifier or property name inside this expression name an identity?
+ *
+ * This is the B-vs-C discriminator for keys, and it is the fix for a review
+ * finding: a composite key over filesystem paths or display values is a genuine
+ * key but is NOT branded-id migration work, so it must land on owner C. Being a
+ * key and being entity-bearing are two separate questions and the first
+ * revision of this sweep conflated them, putting URLs and paths on POD-361's
+ * worklist.
+ */
+const mentionsIdentity = (node: ts.Node): boolean => {
+  let found = false
+  const walk = (current: ts.Node): void => {
+    if (found) return
+    if (
+      ts.isIdentifier(current) &&
+      (ID_NAME.test(current.text) || IDENTITY_PARTS.has(current.text))
+    ) {
+      found = true
+      return
+    }
+    if (
+      ts.isPropertyAccessExpression(current) &&
+      (ID_NAME.test(current.name.text) || IDENTITY_PARTS.has(current.name.text))
+    ) {
+      found = true
+      return
+    }
+    ts.forEachChild(current, walk)
+  }
+  walk(node)
+  return found
+}
+
 /** Map/Set methods whose first argument IS a key. */
 const KEYED_CALLS = new Set(['get', 'set', 'has', 'delete', 'add'])
 
@@ -380,11 +457,25 @@ const sweepFile = (file: string, sites: Site[]): void => {
   if (SELF_EXCLUDED.has(rel)) return
   const isSchemaFile = /migrations\/schema\.ts$/.test(rel) || /\/schema\.ts$/.test(rel)
 
-  const record = (node: ts.Node, kind: SiteKind, name: string): void => {
+  const record = (
+    node: ts.Node,
+    kind: SiteKind,
+    name: string,
+    /** For key kinds: does the key carry an entity identity? Decides B vs C. */
+    entityBearing = true,
+  ): void => {
     const { line } = source.getLineAndCharacterOfPosition(node.getStart(source))
     const text = snippet(source, node)
     const correlation = CORRELATION.has(name)
-    const { owner, reason } = ownerFor(kind, name, text, correlation, isSchemaFile)
+    const { owner, reason } = ownerFor(
+      rel,
+      kind,
+      name,
+      text,
+      correlation,
+      isSchemaFile,
+      entityBearing,
+    )
     sites.push({
       file: rel,
       line: line + 1,
@@ -464,7 +555,18 @@ const sweepFile = (file: string, sites: Site[]): void => {
       const separated =
         node.head.text !== '' || node.templateSpans.some((span) => span.literal.text !== '')
       if (separated && usedAsKey(node)) {
-        record(node, 'composite-key', parts.filter(Boolean).join('+') || '<expressions>')
+        // Whether the key is ENTITY-BEARING decides B vs C, not whether it is a
+        // key. `${sessionsRoot}${NUL}${procRoot}` is a genuine composite key over
+        // filesystem paths — real, but not branded-id migration work.
+        // Deep walk, not a top-level part-name check: `${e.artifact?.artifactId ?? ''}`
+        // has a BinaryExpression as its span, so a top-level name test sees ''
+        // and demotes a real artifact key to owner C.
+        record(
+          node,
+          'composite-key',
+          parts.filter(Boolean).join('+') || '<expressions>',
+          mentionsIdentity(node),
+        )
       }
     }
 
@@ -476,20 +578,38 @@ const sweepFile = (file: string, sites: Site[]): void => {
     //      a field, so log lines with a prefix do not qualify.
     if (ts.isTemplateExpression(node) && node.templateSpans.length === 1) {
       const tag = node.head.text
-      const suffix = node.templateSpans[0]?.literal.text ?? ''
-      const looksTagged = /[:/|@#]$/.test(tag) && suffix === ''
+      const span = node.templateSpans[0]
+      const suffix = span?.literal.text ?? ''
+      // A BARE TAG, not any string ending in punctuation. My first version tested
+      // only `/[:/|@#]$/`, which made every URL and path a "tagged identity":
+      // `http://localhost:${port}` ends in ':', `scripts/systemd/${n}` ends in '/',
+      // `updated #${i.seq}` ends in '#'. A tag is one lowercase word — no dots, no
+      // slashes, no spaces — so a scheme, a path and a sentence are all excluded
+      // by construction rather than by a blocklist.
+      const looksTagged = /^[a-z][a-z0-9_-]*[:@#|]$/i.test(tag) && suffix === ''
+      // AND the substituted value must be an IDENTITY. This is the discriminator
+      // that separates `automation:${automation.id}` from `http://localhost:${port}`
+      // — the tag shape alone cannot, and `port`/`seq` are not entity ids.
+      const substituted =
+        span === undefined
+          ? ''
+          : ts.isIdentifier(span.expression)
+            ? span.expression.text
+            : ts.isPropertyAccessExpression(span.expression)
+              ? span.expression.name.text
+              : ''
       const assignedToField =
         node.parent !== undefined &&
         ts.isPropertyAssignment(node.parent) &&
         ts.isIdentifier(node.parent.name)
-      if (looksTagged && (usedAsKey(node) || assignedToField)) {
+      if (looksTagged && ID_NAME.test(substituted) && (usedAsKey(node) || assignedToField)) {
         const field =
           node.parent !== undefined &&
           ts.isPropertyAssignment(node.parent) &&
           ts.isIdentifier(node.parent.name)
             ? node.parent.name.text
             : 'key'
-        record(node, 'tagged-identity', `${field}=${tag}`)
+        record(node, 'tagged-identity', `${field}=${tag}`, true)
       }
     }
 
@@ -515,23 +635,35 @@ const sweepFile = (file: string, sites: Site[]): void => {
         const keyShapedSeparator =
           KEY_SEPARATOR_CONTROLS.test(separator) || /^(\\|\\||::|\\|)$/.test(separator)
         if (keyShapedSeparator || usedAsKey(node)) {
-          record(node, 'composite-key', `join(${escapeControls(separator)})`)
+          record(
+            node,
+            'composite-key',
+            `join(${escapeControls(separator)})`,
+            mentionsIdentity(node),
+          )
         }
       }
     }
 
-    // (3d) CONCATENATED KEYS — `a + SEP + b` consumed as a key. Rarer than the
-    //      other two forms here, but it is the third way to build one and an
-    //      inventory that stops at two would be making the same mistake twice.
+    // (3d) CONCATENATED KEYS — `a + SEP + b` consumed as a key.
+    //
+    //      NUMERIC ARITHMETIC IS EXCLUDED. My first version required only "used as
+    //      a key plus a quote somewhere in the text", which reported
+    //      `argv[argv.indexOf('--join') + 1]` — an array INDEX, not a key. The
+    //      quote came from the flag name. So: no numeric literal operand, no
+    //      `indexOf`/`lastIndexOf`/`length` arithmetic, and at least one operand
+    //      must name an identity.
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
       usedAsKey(node) &&
-      // Only when a literal separator appears somewhere in the chain, else every
-      // arithmetic sum used as a key qualifies.
-      /['"`]/.test(node.getText(source))
+      /['"`]/.test(node.getText(source)) &&
+      !ts.isNumericLiteral(node.right) &&
+      !ts.isNumericLiteral(node.left) &&
+      !/\b(indexOf|lastIndexOf|length|charCodeAt|\.size)\b/.test(node.getText(source)) &&
+      mentionsIdentity(node)
     ) {
-      record(node, 'composite-key', 'concat(+)')
+      record(node, 'composite-key', 'concat(+)', true)
     }
 
     ts.forEachChild(node, visit)

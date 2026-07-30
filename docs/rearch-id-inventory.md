@@ -33,7 +33,7 @@ methods were used and cross-checked.
 
 | Method | What it establishes | Evidence |
 |---|---|---|
-| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1572** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison, composite-key and tagged-identity sites, each with its **per-site owner**. | 11 487 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv` (2 233 rows). |
+| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1572** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison, composite-key and tagged-identity sites, each with its **per-site owner**. | 11 370 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv` (2 116 rows). |
 | **NUL-byte guard** — `bun run lint:no-nul` | That the grep blind spot is *real on this branch*, and that the AST walk is not subject to it. | See §0.1 — one file on this base is binary to `grep`, and the AST walk swept it anyway. |
 | **Type checker** — `bun run typecheck` (tsgo, per-package) | That the sweep's file set is the file set the build actually compiles, and that nothing in this issue's additions is type-invisible. | Green; output in the handoff. |
 
@@ -92,8 +92,9 @@ the one package this document had claimed to cover completely.
 **Fixed at the detector, then re-derived** — not by patching the named lines, because patching the
 seven named lines leaves the eighth. Four forms added: `.join(sep)` on an array literal, `.join(sep)`
 on a mapped array, single-substitution templates with a literal prefix (`automation:${id}`), and
-`+` concatenation. Result: composite keys **70 → 102**, plus a new **tagged-identity** class with
-**130** sites. All seven reviewer-named sites are now found *by the detector*:
+`+` concatenation, then NARROWED twice (§0.3). Net result: **90** composite-key sites and **25**
+tagged-identity sites, **69** of them owner B. All seven reviewer-named sites are found *by the
+detector*:
 
 | Site | Form |
 |---|---|
@@ -122,7 +123,49 @@ with a stated gap, because it teaches the reader to skim. The distinction that f
 
 So a NUL-class separator is self-evidently a key, while a `\n` separator counts only when the
 `usedAsKey` test independently says so. That still catches `mirror.ts`'s `${machineId}\n${nativeId}`
-and drops every help screen: 399 → 102, with all seven reviewer sites surviving.
+and drops every help screen: 399 → 102, with all seven reviewer sites surviving. (A second
+narrowing pass, §0.3, took the key counts to their final 90 + 25.)
+
+### 0.3 Narrowing pass — being a key and being MIGRATION WORK are different questions
+
+Extending the detector made it over-report, and a second review caught that too. **A padded owner-B
+list is not a safer error than a short one: it sends POD-361 to edit URLs and JSX.** Three narrowings,
+each verified against the sites that must survive:
+
+**1. A tag is one word, not any string ending in punctuation.** My `tagged-identity` rule tested only
+`/[:/|@#]$/`, so every URL, path and sentence qualified — `http://localhost:${port}` ends in `:`,
+`scripts/systemd/${n}` ends in `/`, `updated #${i.seq}` ends in `#`. Now the prefix must match
+`^[a-z][a-z0-9_-]*[:@#|]$` (no dots, slashes or spaces — a scheme, a path and a sentence are excluded
+by construction rather than by a blocklist) **and** the substituted value must be identity-named.
+That second test is the real discriminator: `port` and `seq` are not entity ids. 130 → 25.
+
+**2. Numeric arithmetic is not a composite key.** The `+` rule required only "used as a key, with a
+quote somewhere in the text", which reported `argv[argv.indexOf('--join') + 1]` — an array *index*,
+where the quote came from the flag name. Now: no numeric-literal operand, no
+`indexOf`/`lastIndexOf`/`length` arithmetic, and at least one operand must name an identity.
+
+**3. Owner B means "needs a collision-safe helper", so two kinds of real key are NOT B:**
+
+| Key | Owner | Why |
+|---|---|---|
+| over non-entity values — `${sessionsRoot}${NUL}${procRoot}`, `${botToken}\n${chatId}` | **C** | A genuine composite key, but not over a Podium entity id, so not branded-id work |
+| a **React render key** — `key={\`issue:${issue.id}\`}` in a `.tsx` | **A-consequence** | Sibling-scoped, so it has no injectivity requirement to protect. `issue:${issue.id}` keeps working verbatim after the flip, because a brand **is** a string |
+
+**Verified, not assumed.** After all three narrowings: all five reviewer-named false positives are
+gone, and all sixteen canonical sites — the brief's `mirror.ts` ×3 and `session-identity.ts` ×2, the
+reviewer's seven, plus `ledger.ts:66`, `transcript-indexer.ts:79`, `search.ts:173` and
+`engine.ts:1183` — are present **on owner B**. Every one of the 69 surviving B rows was then read
+individually.
+
+Two of those narrowings needed a counter-fix, which is worth recording because both were
+*name-shape* traps of the same kind this document keeps hitting:
+
+- `session-identity.ts:69` — `${resume.kind}:${resume.value}` names **neither** part `*Id`, so the
+  identity test demoted the brief's canonical `resumeKey` adoption site to C. Fixed by an enumerated
+  `IDENTITY_PARTS` set (`resume`, `nativeId`) — the `ResumeRef` pair *is* the native conversation
+  identity, and `ids.ts` already ships `resumeKey()` for exactly it.
+- `engine.ts:1183` — `${e.artifact?.artifactId ?? ''}`'s span is a `??` expression, so a *top-level*
+  part-name check saw `''`. Fixed by walking the expression tree instead.
 
 **Remaining stated limits.** A key assembled across statements (build a string, mutate it, use it) is
 not detected. And **owner-D detection is narrower than the D set**: the sweep flags `'__local__'`
@@ -218,9 +261,9 @@ because "is this attribution?" and "is this a placeholder?" are semantic questio
 answer plausibly and wrongly. The rules live in `ownerFor()` in the sweep, so the classification is
 re-derivable and auditable rather than hand-typed.
 
-Distribution over all 11 487 sites: `A-consequence` 8 746 · `A-schema-flip` 1 689 ·
-`C-stringly-on-purpose` 725 · `B-helper-adoption` 232 · `E-attribution` 83 · `D-delete-not-brand` 12.
-The committed ledger snapshots the 2 233 decision-bearing rows (the declaration classes, every
+Distribution over all 11 370 sites: `A-consequence` 8 755 · `A-schema-flip` 1 689 ·
+`C-stringly-on-purpose` 762 · `E-attribution` 83 · `B-helper-adoption` 69 · `D-delete-not-brand` 12.
+The committed ledger snapshots the 2 116 decision-bearing rows (the declaration classes, every
 composite key and tagged identity, and **every** D and E row regardless of syntax class); the
 `A-consequence` bulk is reproducible from the script and is what the flip's own type errors
 enumerate for free.
@@ -309,7 +352,7 @@ a manifest is read by a *different build* than wrote it.
 
 ### 3.3 Owner B — helper adoption (composite keys)
 
-**102 detected composite-key sites plus 130 tagged-identity sites** (232 owner-B rows), every one in
+**90 detected composite-key sites plus 25 tagged-identity sites — 69 of them owner B**, every one in
 the committed ledger with its owner and reason. §0.2 covers the detector and the syntax forms it
 gained. The named ones first.
 
@@ -557,7 +600,7 @@ CRUD emits `causedBySessionId` on four event kinds and threads `actorSessionId` 
 Adjudicated in this document's favour; POD-364 corrects theirs.
 
 **E9 is the finding worth acting on early.** `spawnedBy` is a freeform string carrying a
-five-member tagged union, with the tag and the id joined ad hoc. It is simultaneously an
+SIX-member tagged union (§3.6.2), with the tag and the id joined ad hoc. It is simultaneously an
 attribution site (E), a composite-key site (B) and a hand-restated definition (D). POD-1075 will
 want it structured before it adds a second value to it, and POD-361's helper API is where the
 `(kind, id)` shape gets named.
@@ -704,6 +747,6 @@ bun run test:unit                  # the fixtures, in the lane CI runs
 
 `docs/rearch-id-inventory.sites.tsv` is the committed snapshot of the decision-bearing rows: the
 declaration classes, every composite key and tagged identity, and EVERY owner-D and owner-E row
-whatever its syntax class (2 233 rows). Each carries its own `owner` and `ownerReason`. The
+whatever its syntax class (2 116 rows). Each carries its own `owner` and `ownerReason`. The
 `A-consequence` bulk (8 145 object-literal fields, 1 183 comparisons) is reproducible from the
 script and is not snapshotted: it is what the flip's own type errors enumerate for free.
