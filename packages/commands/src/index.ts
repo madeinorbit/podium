@@ -204,6 +204,18 @@ export {
   WRITE_POLICY,
 } from './issues/cells'
 export {
+  SPEC_CONTRACT_NAMES,
+  SPEC_CONTRACTS,
+  type SpecContractName,
+  SpecStatus,
+  specsCreateContract,
+  specsCreateInput,
+  specsRemoveContract,
+  specsRemoveInput,
+  specsSaveContract,
+  specsSaveInput,
+} from './specs/contracts'
+export {
   MUTATION_RESULT_KINDS,
   MutationEnvelope,
   MutationResult,
