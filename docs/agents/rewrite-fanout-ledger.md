@@ -1069,3 +1069,32 @@ torn state gets a test named after it.
 > A participant that OPENS its own transaction cannot take part in anyone else's. If two modules must
 > commit together, neither may be the opener — and in-memory doubles will not show you this, because they
 > make every participant synchronous.
+
+### Restarting a wedged session is a puzzle, not a command (POD-1159)
+
+POD-362 sat `live/working` for three hours with zero file activity after an API interruption, ignoring two
+mails. Its seven commits were safe and its tree clean, so the correct repair was to stop it and put a
+fresh agent on the same issue. That sequence does not exist:
+
+    podium session stop <id>        -> worktree freed, branch kept
+    podium issue start --id 362     -> fatal: a branch named 'issue/362-...' already exists
+
+`issue start` unconditionally CREATES the branch, so it can never restart an issue that has ever been
+started — and `stop` frees the worktree, so afterwards there is no tree to run in either. What worked:
+`git worktree prune`, a manual `git worktree add <path> <branch>`, then **`podium session send <id>
+--wake`**, whose name reads like messaging and which is mentioned only inside `stop`'s help prose. It is
+also the *better* repair, because it keeps the transcript.
+
+> The puzzle has a wrong answer that looks right: rename the branch so `issue start` succeeds, then merge
+> the old branch into the new one. That loses the transcript and, on a 134-file branch, invites exactly
+> the semantic-merge errors this run has already paid for twice.
+
+Three distinct ways a session has gone quiet in this run — silent death, API 529 mid-turn, and
+live-but-idle wedge — all on the same issue. Restart is the most common repair a coordinator needs.
+
+### Six concurrent implementers is this box's ceiling
+
+Load average **28.7 on 8 cores** with six agents, memory fine at 11/23GB, and **zero file writes across
+every worktree for 15 minutes** — they were all CPU-bound in vitest simultaneously, not stalled. I ran
+only the cheap gates that pass, because by the run's own rule a lane under that load yields noise rather
+than evidence. Ten concurrent implementers is not achievable here; six is.
