@@ -497,15 +497,26 @@ describe('AC4 · the per-user split actually happened', () => {
     }
   })
 
-  it('the ONE remaining singleton is readAt, and it is named with its owner', () => {
+  it('the ONE remaining singleton is readAt, still on the session row, owned by POD-1076', async () => {
     // Honest reporting rather than a green claim: `read_at` is still a column on the
     // session row. POD-1076 owns the (userId, entityId) move and POD-380 recorded
     // why it waits (POD-1077's scoped feed). What POD-382 can and does assert is
     // that its COMMAND is already self-scoped, so the move is storage-only — no
     // contract change, no wire change, no replica migration.
     const o = makeOracle()
-    const row = o.reg.modules.sessions.listSessions()
-    expect(row).toBeDefined()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    await o.call.sessions.markRead({ sessionId })
+
+    // MEASURED, not asserted: `read_at` is a column on the SESSION row, so one
+    // user's read state is still the instance's. When POD-1076 moves it to a
+    // (userId, entityId) row this goes red, and the claim above gets updated rather
+    // than quietly outliving its truth.
+    const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
+    expect(row?.readAt).not.toBeNull()
+
+    // And the part POD-382 can close: the COMMAND is already self-scoped and
+    // per-user-classified, so the remaining move is storage-only — no contract
+    // change, no wire change, no replica migration.
     expect(presenceCommand('sessions.markRead')?.policy?.scope).toBe('self')
     expect(presenceCommand('sessions.markRead')?.visibility).toBe('per-user-state')
   })

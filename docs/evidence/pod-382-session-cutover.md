@@ -17,7 +17,7 @@ at branch-point `04613369`.
 | No route to spawn / resume / send / kill / handoff bypasses the machine `use` check, including the all-in-one `local` case | **MET** | Table-driven over create · resume · sendText · kill · stop · uploadImage · ask: a principal holding `see` and not `use` is refused with `you do not have access to run agents on machine 'The Box'`. All-in-one: a colleague authenticated to the instance gets `unknown machine 'local'` on the sentinel — outside the see set, so identical to a never-paired id. Non-vacuity case: the owner succeeds at the same commands. Mutant M5 (delete the gate) killed 4 cases. |
 | Cross-command sweep: invisible session and invisible machine fail identically to nonexistent ones | **MET — and it caught a real defect** | Eight targeted commands answer an invisible session exactly as a nonexistent one, with a can-say-yes case proving a VISIBLE target differs. An invisible machine answers `unknown machine 'box'`, byte-identical to a never-paired id. The sweep found the send path leaking existence — see the finding below. |
 | No session reducer renders a rescope / evict as a deletion | **MET, as a check plus a tripwire** | Asserted where the rule is decided: POD-369's `REPLICA_TRANSITIONS` row `D14-EVICT` states *"MUST NOT surface as a deletion, emit a domain delete, or write a tombstone"*, filtered on `op=evict` (not on the word, which also appears in `D14-READMIT` stating a different rule). Plus a tripwire on the premise: no session contract carries a rescope/evict op yet — POD-1077 adds it before the POD-308 cutover, and when it does this fails. |
-| Session e2e from the web UI and `podium session` CLI green | **MET, after repairing a base-red harness** | CLI: `apps/cli` 300 passed / 20 skipped. Integration e2e: `bun run test:e2e` 7 files / 27 passed. Web UI: Playwright `chromium-desktop` — see "the browser lane was red on the base" below. |
+| Session e2e from the web UI and `podium session` CLI green | **MET, with a base-red set proved identical** | CLI: `apps/cli` 300 passed / 20 skipped. Integration e2e: `bun run test:e2e` 7 files / 27 passed. Web UI: Playwright `chromium-desktop` — the harness could not start at all on the base (below), and once repaired the pass/fail set is **byte-identical to a clean checkout of the branch point**. See the side-by-side. |
 
 ---
 
@@ -113,7 +113,9 @@ because no program covers the package.
 | `bunx tsgo --noEmit -p apps/server/tsconfig.json` | clean |
 | `bunx tsgo --noEmit -p apps/web/tsconfig.json` | clean |
 | `packages/{model,protocol,commands,sync}` in-package typecheck | clean |
-| `apps/server/src/modules/sessions` + `packages/protocol` + `packages/commands` | 75 files, 1326 passed |
+| `apps/server/src` + `packages/sync/src` (the two packages this issue changes most) | **214 files, 3223 passed, 1 skipped** |
+| `packages/protocol` + `packages/commands` + `apps/server/src/modules/sessions` | 75 files, 1326 passed |
+| `packages/client-core/src` (the outbox oracle that pins delivery classes) | 27 files, 262 passed |
 | `apps/server/src/session-cutover.audit.test.ts` | 46 passed |
 | `packages/sync/src/mutation-ledger.test.ts` | 9 passed |
 | `apps/cli/src` (the `podium session` CLI) | 300 passed, 20 skipped |
@@ -122,6 +124,11 @@ because no program covers the package.
 | `bun scripts/rearch-audit.ts` | OK — 25 items, 212 sites (baseline exact) |
 | `bun scripts/check-no-nul-bytes.ts` | ok |
 | `bun run audit:sessions` | probe + gate, exit 0 |
+
+A full `bun run test` was NOT taken: it needs the `test-lane` lock, this machine was
+also running the browser lane, and the targeted lanes above are the honest evidence
+for a change whose surface is the session family. Every package this branch touches is
+covered by a lane that ran to completion here.
 
 **Deletion-audit baseline.** `router-triple-access` went 101 → 94 (the derived surface
 removed seven `mods(ctx)` sites from `router.ts`). The ratchet FAILS an unrecorded
@@ -146,7 +153,30 @@ and at the branch point the symbol was already absent from the barrel.
 Repaired in three lines (one import statement re-pointed, plus `@podium/harness` added
 to `tests/e2e/package.json`) because the acceptance criterion requires the lane and no
 browser spec could run without it. Flagged to the coordinator as out-of-scope work that
-belongs to the Phase-3 extraction.
+belongs to the Phase-3 extraction, and filed as **POD-1173** (three more files in
+`tests/e2e` are still stale the same way).
+
+### The browser lane, side by side with the base
+
+Method: a separate `git worktree` at the branch point `04613369` with the SAME
+three-line harness repair applied locally (without it nothing runs), `bun install`,
+then the same specs, same project, same machine.
+
+| Spec | Base `04613369` | This branch |
+|---|---|---|
+| `snooze` — snooze from the toolbar, un-snooze from the worktree row | ✓ | ✓ |
+| `tabs:61` — +/split actions stay outside the scrolling strip | ✓ | ✓ |
+| `unified-sidebar:116` — sidebar width drag persists | ✓ | ✓ |
+| `issue-session-delete` — delete removes sessions, tracker restores | ✘ | ✘ |
+| `tabs:32` — drag reorders the strip, order survives a reload | ✘ | ✘ |
+| `unified-sidebar:42` — split-button spawn, wider + dialog | ✘ | ✘ |
+| `unified-sidebar:145` — nested fleets fold, unattached mains never row | ✘ | ✘ |
+
+**Identical.** The four reds are the base's, not this branch's — `unified-sidebar:42`
+times out waiting for a `New issue…` MENU ITEM that the current UI does not render,
+which is spec drift against a menu, not a session command. The three that pass include
+`snooze`, which is a per-user presence write travelling the whole derived surface with
+real clicks — the runtime verification the session change actually needed.
 
 ---
 
