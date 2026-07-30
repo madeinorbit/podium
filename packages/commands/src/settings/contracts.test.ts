@@ -21,7 +21,7 @@ import {
   SETTINGS_TIERS,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { registryClassificationErrors } from '../contract'
+import { type AnyCommandContract, registryClassificationErrors } from '../contract'
 import {
   CONTRACT_TIER,
   contractMatrixRow,
@@ -116,7 +116,15 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
     })
 
     it(`${name}: carries no machineVerb — there is no compute to place work on`, () => {
-      expect(SETTINGS_CONTRACTS[name].policy.machineVerb).toBeUndefined()
+      // Asserted as ABSENCE of the key, not as an `undefined` read: a contract
+      // that declared `machineVerb: undefined` would satisfy the second and is
+      // not the same declaration. Read through the erased view, because the
+      // `as const satisfies` narrows the optional field out of the literal type.
+      const policy = (SETTINGS_CONTRACTS[name] as AnyCommandContract).policy
+      expect('machineVerb' in policy).toBe(false)
+      expect(policy.machineVerb).toBeUndefined()
+      // …and the in-check can say YES: a policy that HAS the key is detected.
+      expect('machineVerb' in { ...policy, machineVerb: 'use' as const }).toBe(true)
     })
 
     it(`${name}: creates nothing, because the matrix row has no owner`, () => {
@@ -139,6 +147,22 @@ describe('the preference arms are offline-eligible and differ only where the row
   it('both are offline-eligible', () => {
     expect(SETTINGS_CONTRACTS['settings.updatePersonal'].delivery.class).toBe('offline-eligible')
     expect(SETTINGS_CONTRACTS['settings.updateInstance'].delivery.class).toBe('offline-eligible')
+  })
+
+  it('each tier ARGUES its own offline-eligibility rather than sharing one cell', () => {
+    // POD-735's precedent: a delivery class copied from a row's column is a
+    // class nobody argued. The two reconciliations must be DIFFERENT texts, and
+    // each must carry the reasoning specific to its tier — single-writer for the
+    // personal row, the surviving field-LWW group for the instance one.
+    const personal = SETTINGS_CONTRACTS['settings.updatePersonal'].delivery
+    const instance = SETTINGS_CONTRACTS['settings.updateInstance'].delivery
+    expect(personal.outboxReconciliation).not.toBe(instance.outboxReconciliation)
+    expect(personal.outboxReconciliation).toContain('SINGLE-WRITER')
+    expect(instance.outboxReconciliation).toContain('field-LWW')
+    // Both name the inertness test D18.3 turns on, which is what makes the
+    // class an argument rather than an inheritance.
+    expect(personal.outboxReconciliation).toContain('INERT')
+    expect(instance.outboxReconciliation).toContain('inert')
   })
 
   it('personal is per-user-state at a member floor; instance is substrate at an admin floor', () => {

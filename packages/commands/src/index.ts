@@ -255,10 +255,12 @@ export {
 } from './settings/contracts'
 export {
   type ChangedLeaf,
+  applySettingsPatch,
   changedSettingsLeaves,
   ONLINE_ONLY_SETTINGS_COMMANDS,
   type PlanOptions,
   planSettingsWrite,
+  readSettingsLeaf,
   type SettingsWriteIntent,
   type SettingsWritePlan,
   type SettingsWriteRefusal,

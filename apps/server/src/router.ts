@@ -53,6 +53,7 @@ import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
+import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import type { RegistryModules } from './relay'
@@ -192,6 +193,12 @@ const superagentFamily = superagentFamilyProcedures()
  *  spread stays readable beside the three reads the `specs` router also serves,
  *  while the CONTRACT TABLE decides the membership. */
 const specFamily = specFamilyProcedures()
+
+/** The four settings writes, built from their contracts at module load
+ *  (POD-420). Same shape as `specFamily`: the CONTRACT TABLE decides membership,
+ *  and the spread stays readable beside the read and the three hand-written
+ *  procedures the `settings` router also serves. */
+const settingsFamily = settingsFamilyProcedures()
 
 import type { PinState, SnoozeMap } from './store/types'
 
@@ -566,6 +573,28 @@ export const appRouter = t.router({
         ),
       ),
   }),
+  /**
+   * THE SETTINGS WRITE SURFACE IS PART DERIVED (POD-420, 3.7c).
+   *
+   * `updatePersonal · updateInstance · setSecret · clearSecret` come from
+   * `SETTINGS_CONTRACTS` via `settingsFamilyProcedures()`, one contract per ADR 1
+   * matrix row — which is the whole point: the blob's members sit on three rows
+   * with three different visibility classes and two different offline classes,
+   * and one command cannot answer for all of them.
+   *
+   * WHAT STAYS HAND-WRITTEN, and why each is not an oversight:
+   *  - `get` is a READ; a `visibility` class describes what a command WRITES, and
+   *    what this one returns changes shape under POD-419 and POD-421.
+   *  - `set` is the legacy blob write, still called by the sidebar, the
+   *    auto-continue dialog and the engine — and it now REFUSES a secret change
+   *    (`assertNoSecretChange`), so the only way to write credential material is
+   *    the online-sensitive, admin-grade, never-queued pair above.
+   *  - `telegramSetupStart` / `telegramSetupPoll` are a stateful pairing ceremony
+   *    over a third-party API, not a settings write with a payload.
+   *
+   * `scripts/audit-settings-commands.ts` names those three exceptions BY KEY and
+   * fails on any other hand-written `.mutation(` here, in both directions.
+   */
   settings: t.router({
     get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
     // Whole-object set: the client always round-trips the full blob, so there is
@@ -573,6 +602,7 @@ export const appRouter = t.router({
     set: t.procedure
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
+    ...settingsFamily,
     telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))

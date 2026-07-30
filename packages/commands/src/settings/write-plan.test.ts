@@ -20,9 +20,11 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  applySettingsPatch,
   changedSettingsLeaves,
   ONLINE_ONLY_SETTINGS_COMMANDS,
   planSettingsWrite,
+  readSettingsLeaf,
 } from './write-plan'
 
 /** A settings-blob-shaped fixture. Only the members a case touches. */
@@ -39,6 +41,33 @@ const edit = (patch: Record<string, unknown>): Record<string, unknown> => ({ ...
 
 const ONLINE = { online: true }
 const OFFLINE = { online: false }
+
+describe('reading and writing one leaf by path', () => {
+  it('reads a deep leaf, and answers undefined for an absent one', () => {
+    expect(readSettingsLeaf(base, 'roles.coding.model')).toBe('auto')
+    expect(readSettingsLeaf(base, 'roles.coding.nothing')).toBeUndefined()
+    expect(readSettingsLeaf(base, 'nothing.at.all')).toBeUndefined()
+  })
+
+  it('writes a deep leaf without mutating the original', () => {
+    const next = applySettingsPatch(base, { 'roles.coding.model': 'opus' })
+    expect(readSettingsLeaf(next, 'roles.coding.model')).toBe('opus')
+    expect(readSettingsLeaf(base, 'roles.coding.model')).toBe('auto')
+    // The untouched siblings survive — a patch is not a replace.
+    expect(readSettingsLeaf(next, 'roles.coding.effort')).toBe('auto')
+    expect(readSettingsLeaf(next, 'sidebar.repoSort')).toBe('lastUsed')
+  })
+
+  it('creates missing intermediates, so a leaf lands on a blob written by an older build', () => {
+    expect(readSettingsLeaf(applySettingsPatch({}, { 'a.b.c': 1 }), 'a.b.c')).toBe(1)
+  })
+
+  it('round-trips through the differ: applying a patch makes the diff empty', () => {
+    const next = applySettingsPatch(base, { 'sidebar.repoSort': 'custom' })
+    expect(changedSettingsLeaves(base, next).map((l) => l.path)).toEqual(['sidebar.repoSort'])
+    expect(changedSettingsLeaves(next, next)).toEqual([])
+  })
+})
 
 describe('leaf diffing stops at the classified path', () => {
   it('finds a changed deep leaf, at its own address', () => {

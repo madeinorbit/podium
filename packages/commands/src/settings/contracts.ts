@@ -210,22 +210,85 @@ const SERVED_ON: readonly TransportTag[] = ['trpc']
  * outbox executor names a settings command — so the day one appears, the
  * exposure decision is retaken deliberately instead of by accident.
  */
-const PREFERENCE_DELIVERY: DeliveryPolicy = {
+const PREFERENCE_REAUTHORIZATION =
+  'Re-authorized at every apply against the delegation resolved LIVE (ADR 9 D5 A1 / ADR 3 D8): the ' +
+  'role floor and, for the personal tier, the OWNING USER are re-checked at drain, never read from ' +
+  'a capability frozen at enqueue. A principal who lost the floor between enqueue and drain has the ' +
+  'entry refused and is told so — the entry is dead-lettered rather than retried, because a rights ' +
+  'change is not a transient failure (ADR 3 Amendment 1 D16).'
+
+/**
+ * THE PERSONAL TIER'S offline-eligibility, argued rather than inherited.
+ *
+ * POD-735 is the precedent for NOT simply copying the row's `offline` column: it
+ * argued `automations` online-only against ADR 1 §7's `offline-eligible`,
+ * because ADR 3 Amendment 1 D18.3 as amended is hard and an ARMED automation is
+ * not inert text. The test that reasoning suggests is *what does this write DO
+ * while it sits in a queue, and what does it do when replayed late?*
+ *
+ * A personal preference is genuinely inert on both counts. It arms nothing,
+ * spawns nothing and executes nowhere — `sidebar.repoSort`, `roles.*.model`,
+ * `autoContinue.enabled` are read at the next decision point and have no effect
+ * until something asks. Replayed late it is a stale opinion overwriting a newer
+ * one, which is the ordinary last-writer cost every offline-eligible class
+ * accepts, and the row is SINGLE-WRITER (keyed `(userId)`), so the only writer
+ * it can race is the same person on another device.
+ *
+ * The one member that gave pause is `autoContinue.enabled`, which does gate an
+ * automatic action. It is still inert as a WRITE: it is a boolean the
+ * auto-continue loop reads when it next runs, not a command that starts one, and
+ * queueing it can at most delay or advance an opinion by the length of a
+ * partition. That is the D18.3 line — it forbids a command whose APPLY executes
+ * on someone's hardware, not one whose value is later read by something that
+ * does.
+ */
+const PERSONAL_PREFERENCE_DELIVERY: DeliveryPolicy = {
   class: 'offline-eligible',
   outboxReconciliation:
-    'MAY be queued, and is not queued today. The class is the matrix row’s (`offline: ' +
-    '"offline-eligible"` on both preference rows): a preference is field-LWW at the instance tier ' +
-    'and single-writer at the personal one, so a write replayed after a reconnect lands on a clock ' +
-    'the Authority assigns and never on a client wall clock (ADR 1 D3 condition 1). Exposure ' +
-    'deliberately omits `outbox` because no client executor dispatches a settings write — a ' +
-    'transport nothing serves is a decoration (POD-385), and POD-419 owns the replica/outbox audit ' +
-    'that would land one.',
-  applyTimeReauthorization:
-    'Re-authorized at every apply against the delegation resolved LIVE (ADR 9 D5 A1 / ADR 3 D8): the ' +
-    'role floor and, for the personal tier, the OWNING USER are re-checked at drain, never read from ' +
-    'a capability frozen at enqueue. A principal who lost the floor between enqueue and drain has the ' +
-    'entry refused and is told so — the entry is dead-lettered rather than retried, because a rights ' +
-    'change is not a transient failure (ADR 3 Amendment 1 D16).',
+    'MAY be queued, and is not queued today. ARGUED, not inherited from the row (POD-735’s ' +
+    'precedent for departing from a written column): a personal preference is INERT — it arms ' +
+    'nothing and executes nowhere, so a queued write does nothing while it waits, and replayed late ' +
+    'it is at worst a stale opinion overwriting a newer one on a SINGLE-WRITER row keyed `(userId)`. ' +
+    '`autoContinue.enabled` is the member that gave pause and is still inert as a write: it is a ' +
+    'boolean the loop reads when it next runs, not a command that starts one, which is the D18.3 ' +
+    'line. Exposure deliberately omits `outbox` because no client executor dispatches a settings ' +
+    'write — a transport nothing serves is a decoration (POD-385), and POD-419 owns the ' +
+    'replica/outbox audit that would land one.',
+  applyTimeReauthorization: PREFERENCE_REAUTHORIZATION,
+}
+
+/**
+ * THE INSTANCE TIER'S offline-eligibility, which is the harder of the two and is
+ * argued separately for that reason.
+ *
+ * Same inertness test, same answer — a merge style and a memory ceiling are rows
+ * read at a decision point, not work placed on compute — but the CONFLICT story
+ * differs and it is the reason this is not one shared cell. The instance row is
+ * `field-LWW` and is *"THE ONLY SURVIVING field-LWW MEMBER"* (ADR 1 Amendment 1
+ * D10), whose four D3 conditions the row re-checks explicitly: a defined clock
+ * (the Authority-assigned event time at commit — client wall clocks never
+ * arbitrate), an independent key group, low semantic risk, and reset-to-default
+ * as a write on the same clock. A queued instance preference is exactly the case
+ * that machinery was kept for, so `offline-eligible` here is not a copied class
+ * but the one the conflict rule was designed around.
+ *
+ * The blast radius is real and is answered elsewhere: `hibernation.enabled` and
+ * `gitWorkflow.mergeStyle` affect everybody on the deployment, which is why the
+ * ROLE FLOOR is admin. A delivery class is not the gate for "should this person
+ * be allowed to", and using one as such would be enforcing authorization through
+ * a connectivity requirement.
+ */
+const INSTANCE_PREFERENCE_DELIVERY: DeliveryPolicy = {
+  class: 'offline-eligible',
+  outboxReconciliation:
+    'MAY be queued, and is not queued today. ARGUED per tier: an instance preference is inert in the ' +
+    'same way the personal ones are, and its conflict rule is the one case ADR 1 Amendment 1 D10 ' +
+    'KEPT field-LWW for — a defined Authority clock, an independent key group, low semantic risk, ' +
+    'and reset-to-default as a write on the same clock, which is precisely a queued-then-replayed ' +
+    'toggle. The instance-wide blast radius is answered by the ADMIN ROLE FLOOR, not by a ' +
+    'connectivity requirement: a delivery class is not an authorization gate. Exposure omits ' +
+    '`outbox` for the same reason the personal tier does — nothing dispatches it (POD-385).',
+  applyTimeReauthorization: PREFERENCE_REAUTHORIZATION,
 }
 
 /**
@@ -452,7 +515,7 @@ export const settingsUpdatePersonalContract = {
       '`per-user-singletons` ratchet counts it and POD-302 owns the re-key.',
   },
   exposure: SERVED_ON,
-  delivery: PREFERENCE_DELIVERY,
+  delivery: PERSONAL_PREFERENCE_DELIVERY,
   redaction: PREFERENCE_REDACTION,
   ownership: PREFERENCE_OWNERSHIP,
   attribution: SETTINGS_ATTRIBUTION,
@@ -507,7 +570,7 @@ export const settingsUpdateInstanceContract = {
       'contract is what it will read.',
   },
   exposure: SERVED_ON,
-  delivery: PREFERENCE_DELIVERY,
+  delivery: INSTANCE_PREFERENCE_DELIVERY,
   redaction: PREFERENCE_REDACTION,
   ownership: PREFERENCE_OWNERSHIP,
   attribution: SETTINGS_ATTRIBUTION,

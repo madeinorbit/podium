@@ -1924,13 +1924,16 @@ describe('agent state', () => {
 
       expect(telegram).not.toHaveBeenCalled()
 
+      // The bot token is a SERVER-OWNED SECRET and no longer rides the blob
+      // write (POD-420): `settings.set` refuses a secret change, so configuring
+      // one goes through the online-sensitive command that exists for it.
+      reg.modules.settings.setSecret('notifications.telegramBotToken', '123456:secret')
       const settings = reg.modules.settings.getSettings()
       reg.modules.settings.setSettings({
         ...settings,
         experimental: { ...settings.experimental, notifications: true },
         notifications: {
           ...settings.notifications,
-          telegramBotToken: '123456:secret',
           telegramChatId: '-100123',
         },
       })

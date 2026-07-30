@@ -67,6 +67,55 @@ function canonical(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`
 }
 
+// ---------------------------------------------------------------------------
+// Reading and writing one leaf, by dotted path
+// ---------------------------------------------------------------------------
+
+/**
+ * The value at a dotted path, or `undefined` when the path is not present.
+ *
+ * Pure and shape-agnostic on purpose: the HANDLER applying a path-addressed
+ * patch and the GUARD comparing a blob's secret leaves against the stored ones
+ * must ask the same question the same way. Two readers of one address is how the
+ * guard and the write end up disagreeing about which leaf they mean.
+ */
+export function readSettingsLeaf(blob: unknown, path: string): unknown {
+  let cursor: unknown = blob
+  for (const segment of path.split('.')) {
+    if (!isPlainObject(cursor)) return undefined
+    cursor = cursor[segment]
+  }
+  return cursor
+}
+
+/**
+ * A COPY of `blob` with each dotted path set to its patch value.
+ *
+ * Structurally shared where untouched and copied along each written path — the
+ * standard immutable update — so a caller holding the previous object still sees
+ * the previous values. Intermediate objects are created when missing, which is
+ * what makes a leaf writable on a blob saved by an older build that did not have
+ * it.
+ *
+ * It applies what it is given and classifies NOTHING: the tier gate is the
+ * command's input schema, which refuses an unclassified or cross-tier path
+ * before a handler runs. Re-deciding it here would be a second answer to the
+ * authorization question, and the two would drift.
+ */
+export function applySettingsPatch<T>(blob: T, values: Readonly<Record<string, unknown>>): T {
+  let out = blob as unknown
+  for (const [path, value] of Object.entries(values)) out = writeLeaf(out, path.split('.'), value)
+  return out as T
+}
+
+function writeLeaf(node: unknown, segments: readonly string[], value: unknown): unknown {
+  const [head, ...rest] = segments
+  if (head === undefined) return value
+  const base: Blob = isPlainObject(node) ? { ...node } : {}
+  base[head] = rest.length === 0 ? value : writeLeaf(base[head], rest, value)
+  return base
+}
+
 /** One leaf that differs between two settings objects. */
 export interface ChangedLeaf {
   readonly path: string
