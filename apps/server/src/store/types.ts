@@ -193,7 +193,51 @@ export interface MachineRecord {
   inventory?: import('@podium/model').Inventory
 }
 
-/** One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text). */
+/**
+ * One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS STILL HAND-WRITTEN — inventory §3 #2, measured at POD-1141.
+ * ---------------------------------------------------------------------------
+ *
+ * Every other issue representation now composes from the shared field groups in
+ * `@podium/model`'s `fields/issue.ts`. This one does not, and the reason is
+ * recorded here rather than left to be rediscovered. NOTHING BELOW IS ENFORCED
+ * BY A TEST — it is an analysis handed to the issue that owns the change, not a
+ * claim that an invariant holds.
+ *
+ * A `Pick` of the aggregate does not typecheck, and neither does a mapped-type
+ * derivation, because the divergence is not a uniform transform:
+ *
+ *   - `stage`, `type` are `string` here, `IssueStage` / `IssueType` enums on the
+ *     group — the row deliberately stores unvalidated text.
+ *   - `panel` is `string | null` here (RAW JSON), `IssuePanel` (an object) there.
+ *   - the aggregate RENAMES three facts this row predates: `blockedBy` ->
+ *     `blockedByNotes`, `origin` -> `intentOrigin`, `draft` -> `isDraftVessel`.
+ *   - `description` / `notes` are plain strings here and `IssueDocuments`
+ *     op-stream documents there.
+ *   - optionality is historical, not derivable: `linearId: string | null` is a
+ *     required key while `brief?: string | null` is optional, for no reason a
+ *     transform could infer.
+ *
+ * A per-key transform table encoding all of that would be as long as this
+ * interface and harder to read — a restatement in a worse form, not a deletion
+ * of one. And it would protect nothing: a mapped type is checked structurally,
+ * so it cannot notice two type-identical members being DIFFERENT FACTS.
+ *
+ * What #2 actually needs is the one documented `toStorage` / `fromStorage` pair
+ * (ADR 4 §4.1) with `IssueAggregate` as the in-memory type — a mapper IS checked
+ * per key, which is the property a derivation cannot buy. That is a store-wide
+ * change: `IssueRow` is the in-memory service type today (`Map<string, IssueRow>`
+ * in `service/core.ts`, 153 references across 28 files), so the pair only becomes
+ * real when those sites move onto the aggregate. Landing the pair without them
+ * would be mechanism with no callers.
+ *
+ * THE MUTANT THAT WOULD PROVE THE PAIR, handed to whoever builds it: swap
+ * `origin` and `audience` in `toStorage` (both `string`, both 'human' | 'agent',
+ * type-identical and byte-identical) and require a named test to die. If nothing
+ * reddens, the pair is not yet checked per key and the composition is unproven.
+ */
 export interface IssueRow {
   id: string
   repoPath: string

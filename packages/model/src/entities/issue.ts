@@ -68,166 +68,45 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
-import {
-  ArtifactIdField,
-  IssueIdField,
-  machineIdBlockedOnPOD318,
-  RepoIdField,
-  SessionIdField,
-} from '../ids'
+import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
 import { z } from 'zod'
-import { ISSUE_COLOR_SLOTS } from './issue-color'
 import { SessionMeta } from './session'
+import {
+  IssueColor,
+  IssueComment,
+  IssueDepWire,
+  IssueGitState,
+  IssuePanel,
+  IssueSessionSummary,
+  IssueStage,
+  IssueType,
+} from './issue-vocabulary'
+// The SHARED FIELD GROUPS (POD-365) that `IssueWire` is now composed from rather
+// than restating. Importable only since POD-1141 split the vocabulary layer out:
+// before that, `fields/issue.ts` imported this module, so reaching back for a
+// group threw at module load. See `./issue-vocabulary.ts`.
+import {
+  IssueAgentDefaults,
+  IssueCoordination,
+  IssueDerived,
+  IssueGraphRefs,
+  IssueIdentity,
+  IssueLifecycle,
+  IssueLinear,
+  IssuePanelGroup,
+  IssueText,
+  IssueTriage,
+  IssueWorkspace,
+  NeedsHuman,
+} from '../fields/issue'
 
-// ---------------------------------------------------------------------------
-// Issue vocabularies
-// ---------------------------------------------------------------------------
-
-// Ordered lifecycle stages an issue moves through. [spec:SP-0078]
-// Agent-proposed work is deliberately inert until an operator accepts it. [spec:SP-6144]
-export const IssueStage = z.enum([
-  'proposed',
-  'backlog',
-  'planning',
-  'in_progress',
-  'review',
-  'done',
-])
-export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = [
-  'proposed',
-  'backlog',
-  'planning',
-  'in_progress',
-  'review',
-  'done',
-]
-
-export const IssueType = z.enum([
-  'task',
-  'bug',
-  'feature',
-  'chore',
-  'epic',
-  'decision',
-  'spike',
-  'story',
-  'milestone',
-  'automation',
-])
-export type IssueType = z.infer<typeof IssueType>
-
-export const ISSUE_DEP_TYPES = [
-  'blocks',
-  'related',
-  'parent-child',
-  'discovered-from',
-  'tracks',
-  'supersedes',
-  'caused-by',
-  'validates',
-] as const
-
-/** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
- *  as the slot NAME, never a hex (the palette maps slots to full colouring
- *  schemes client-side).
- *
- *  Built FROM {@link ISSUE_COLOR_SLOTS} rather than restating the list. Before
- *  POD-300 this enum was a second hand-maintained copy in `@podium/protocol`
- *  (protocol could not import the domain package) with a drift test in
- *  apps/server pinning the two; now that both live in L0 the drift is
- *  structurally impossible, which is the whole point of "every entity defined
- *  once". Same members, same order — byte-identical. */
-export const IssueColor = z.enum(ISSUE_COLOR_SLOTS)
-export type IssueColor = z.infer<typeof IssueColor>
-
-// ---------------------------------------------------------------------------
-// Issue-owned detail
-// ---------------------------------------------------------------------------
-
-export const IssueSessionSummary = z.object({
-  total: z.number().int().nonnegative(),
-  byPhase: z.record(z.number().int().nonnegative()),
-})
-export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
-
-export const IssueDepWire = z.object({ id: IssueIdField, type: z.string() })
-export type IssueDepWire = z.infer<typeof IssueDepWire>
-
-export const IssueComment = z.object({
-  id: z.string(),
-  author: z.string(),
-  body: z.string(),
-  createdAt: z.string(),
-})
-export type IssueComment = z.infer<typeof IssueComment>
-
-/** Agent-published, human-facing issue panel (right-sidebar "Issue" tab).
- *  Distinct from the agent's internal todo list: agents intentionally update
- *  this so the HUMAN can see what's left, review artifacts, decide deferrals. */
-export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
-export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
-export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file — absolute, or relative to the issue worktree. */
-  path: z.string(),
-  title: z.string().optional(),
-  addedAt: z.string(),
-  /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
-   *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
-   *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
-   *  live /files/asset route against the worktree. */
-  artifactId: ArtifactIdField.optional(),
-  /** Relpath of the primary file inside the snapshot bundle. */
-  entry: z.string().optional(),
-  /** Bundle manifest — relpaths + sizes of every snapshotted file. */
-  files: z.array(z.object({ path: z.string(), size: z.number() })).optional(),
-})
-export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
-export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
-export type IssuePanelDeferred = z.infer<typeof IssuePanelDeferred>
-export const IssuePanel = z.object({
-  todos: z.array(IssuePanelTodo).default([]),
-  artifacts: z.array(IssuePanelArtifact).default([]),
-  deferred: z.array(IssuePanelDeferred).default([]),
-})
-export type IssuePanel = z.infer<typeof IssuePanel>
-
-/** Git status of a task's checkout [POD-98] — derived server-side at
- *  serialization (like `sessions`), never persisted. Two axes: the MERGE axis
- *  (`ahead` vs parentBranch — only meaningful on a private issue branch) and
- *  the TASK axis (`commits`/`dirtyOwn` — harness-attributed, the only truthful
- *  counters on a shared checkout like main or a long-lived project branch).
- *  Tolerant so payloads from newer peers parse rather than failing the issue. */
-export const IssueGitState = z.object({
-  /** ISO time of the last completed probe. */
-  updatedAt: z.string(),
-  /** A probe is in flight — clients render the stamp's loading shimmer. */
-  computing: z.boolean().optional(),
-  /** Branch the checkout is actually on (may differ from issue.branch). */
-  branch: z.string().nullable(),
-  /** True = multi-task checkout (repo root / long-lived branch): the merge
-   *  axis is suppressed and only attributed counters render. */
-  shared: z.boolean(),
-  /** Merge axis: commits on branch not on parentBranch. Absent when shared. */
-  ahead: z.number().int().optional(),
-  /** Working-tree dirty file count (whole checkout). */
-  dirtyFiles: z.number().int(),
-  /** Task axis: dirty files ∩ this task's harness-observed touched files.
-   *  Absent when the harness has no touched-file set (fallback mode). */
-  dirtyOwn: z.number().int().optional(),
-  /** Task axis: commit shas attributed to this task's sessions. */
-  commits: z.array(z.string()).optional(),
-  /** ISO committer date of the checkout's last commit. */
-  lastCommitAt: z.string().optional(),
-  /** Commits not yet on the upstream (@{u}..HEAD). Absent = no upstream. */
-  unpushed: z.number().int().optional(),
-  /** Branch fully contained in parentBranch (merge axis only). */
-  merged: z.boolean().optional(),
-  /** True when counters come from checkout-level fallback (no harness
-   *  attribution available) — the UI discloses this in the hover. */
-  fallback: z.boolean().optional(),
-})
-export type IssueGitState = z.infer<typeof IssueGitState>
+/**
+ * THE VOCABULARY LAYER MOVED OUT (POD-1141) — see `./issue-vocabulary.ts` for
+ * why. Re-exported here, unchanged, so this module's export surface is exactly
+ * what it was: every consumer that imported a vocabulary from `entities/issue`
+ * still can, and POD-360's export-surface registry sees the same names.
+ */
+export * from './issue-vocabulary'
 
 // ---------------------------------------------------------------------------
 // The issue wire/read projection
@@ -236,58 +115,58 @@ export type IssueGitState = z.infer<typeof IssueGitState>
 /** The issue fields that precede the provenance keys on today's wire (POD-304 —
  *  see `IssueWireEntity` / `IssueWire` below the shape). */
 const IssueWireCore = z.object({
-  id: IssueIdField,
+  id: IssueIdentity.shape.id,
   repoPath: z.string(),
   /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
-  repoId: RepoIdField.optional(),
+  repoId: IssueIdentity.shape.repoId,
   /** Human-facing repo prefix (#474), e.g. `POD`. Absent until backfilled. */
-  prefix: z.string().optional(),
+  prefix: IssueDerived.shape.prefix,
   /** Human-facing issue reference (#474): `POD-13` (or `#13` before a prefix
    *  exists). Derived server-side; the single source for every render site.
    *  Optional on the wire so legacy/mock payloads still parse — read it through
    *  `issueDisplayRef()` which falls back to `#seq`. */
-  displayRef: z.string().optional(),
-  seq: z.number().int(),
-  title: z.string(),
+  displayRef: IssueDerived.shape.displayRef,
+  seq: IssueIdentity.shape.seq,
+  title: IssueText.shape.title,
   description: z.string(),
   /** Technical handoff for agents; description remains the human summary. [spec:SP-6144] */
-  brief: z.string().optional(),
-  stage: IssueStage,
-  worktreePath: z.string().nullable(),
-  branch: z.string().nullable(),
-  parentBranch: z.string(),
-  defaultAgent: z.string(),
+  brief: IssueText.shape.brief,
+  stage: IssueLifecycle.shape.stage,
+  worktreePath: IssueWorkspace.shape.worktreePath,
+  branch: IssueWorkspace.shape.branch,
+  parentBranch: IssueWorkspace.shape.parentBranch,
+  defaultAgent: IssueAgentDefaults.shape.defaultAgent,
   // Model + reasoning-effort the issue's sessions launch with ('auto' = agent decides).
-  defaultModel: z.string(),
-  defaultEffort: z.string(),
+  defaultModel: IssueAgentDefaults.shape.defaultModel,
+  defaultEffort: IssueAgentDefaults.shape.defaultEffort,
   // Machine (daemon) this issue's agents run on; absent = pick by repo affinity.
   // CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): resolvable to
   // LOCAL_MACHINE_ID = 'local' today, and a length-only brand would launder that
   // sentinel rather than flag it. POD-318 retires it, then this becomes MachineIdField.
-  machineId: machineIdBlockedOnPOD318.optional(),
-  linearId: z.string().optional(),
-  linearIdentifier: z.string().optional(),
-  linearUrl: z.string().optional(),
-  activityNotes: z.string().optional(),
-  notesUpdatedAt: z.string().optional(),
-  suggestedStage: IssueStage.optional(),
-  suggestedReason: z.string().optional(),
+  machineId: IssueWorkspace.shape.machineId,
+  linearId: IssueLinear.shape.linearId,
+  linearIdentifier: IssueLinear.shape.linearIdentifier,
+  linearUrl: IssueLinear.shape.linearUrl,
+  activityNotes: IssueText.shape.activityNotes,
+  notesUpdatedAt: IssueText.shape.notesUpdatedAt,
+  suggestedStage: IssueLifecycle.shape.suggestedStage,
+  suggestedReason: IssueText.shape.suggestedReason,
   blockedBy: z.array(IssueIdField),
-  dependencyNote: z.string().optional(),
-  prUrl: z.string().optional(),
-  priority: z.number().int(),
-  type: IssueType,
+  dependencyNote: IssueText.shape.dependencyNote,
+  prUrl: IssueLinear.shape.prUrl,
+  priority: IssueTriage.shape.priority,
+  type: IssueTriage.shape.type,
   assignee: z.string().optional(),
-  parentId: IssueIdField.optional(),
-  design: z.string().optional(),
-  acceptance: z.string().optional(),
+  parentId: IssueGraphRefs.shape.parentId,
+  design: IssueText.shape.design,
+  acceptance: IssueText.shape.acceptance,
   notes: z.string().optional(),
-  dueAt: z.string().optional(),
-  deferUntil: z.string().optional(),
-  closedReason: z.string().optional(),
+  dueAt: IssueTriage.shape.dueAt,
+  deferUntil: IssueLifecycle.shape.deferUntil,
+  closedReason: IssueLifecycle.shape.closedReason,
   /** When the closed-predicate last flipped true — the stable completion-decay
    *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
-  closedAt: z.string().optional(),
+  closedAt: IssueLifecycle.shape.closedAt,
   /** Tuck-away (POD-293/POD-333): ISO time the operator dismissed this finished
    *  issue into the sidebar's Closed fold, or null while it has not been tucked.
    *  SERVER-side and GLOBAL (single-operator, like `readAt`) — the state used to
@@ -298,20 +177,20 @@ const IssueWireCore = z.object({
    *  "not tucked" rather than failing the whole issue; a current server always
    *  sends it, explicitly null when untucked. */
   tuckedAt: z.string().nullable().optional().catch(undefined),
-  supersededBy: IssueIdField.optional(),
-  duplicateOf: IssueIdField.optional(),
+  supersededBy: IssueGraphRefs.shape.supersededBy,
+  duplicateOf: IssueGraphRefs.shape.duplicateOf,
   pinned: z.boolean(),
   /** Manual order (POD-168, POD-100 §4 R1): fractional sort key, lexicographic
    *  ASCENDING = top of the scope. One key space per sibling scope — a project
    *  group's top level, a parent's children, and PINNED sort independently.
    *  Absent = legacy row (sorts after keyed rows, in creation order). */
-  sortKey: z.string().optional(),
+  sortKey: IssueTriage.shape.sortKey,
   /** User-assigned colour slot [spec:SP-b4d1]; absent = no colour = the neutral
    *  slate flow. Additive + tolerant (an unknown value from a newer peer parses
    *  as unset rather than failing the whole issue). */
   color: IssueColor.optional().catch(undefined),
-  estimateMin: z.number().int().optional(),
-  needsHuman: z.boolean(),
+  estimateMin: IssueTriage.shape.estimateMin,
+  needsHuman: NeedsHuman.shape.needsHuman,
   humanQuestion: z.string().optional(),
   /** Structured suggested answers for `humanQuestion` (issue #53) — the Tray's
    *  answer chips. Absent = free-form question. Tolerant so a malformed value
@@ -327,8 +206,8 @@ const IssueWireCore = z.object({
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt: z.string().optional(),
   /** Agent-published human-facing panel; absent = nothing published yet. */
-  panel: IssuePanel.optional(),
-  labels: z.array(z.string()),
+  panel: IssuePanelGroup.shape.panel,
+  labels: IssueTriage.shape.labels,
   deps: z.array(IssueDepWire),
   dependents: z.array(IssueDepWire),
   /** DEPRECATED (#175): comment bodies left the wire — fetch them lazily via the
@@ -347,9 +226,9 @@ const IssueWireCore = z.object({
   childDoneCount: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  archived: z.boolean(),
+  archived: IssueLifecycle.shape.archived,
   /** Soft-delete tombstone. Present means hidden from active work but recoverable. */
-  deletedAt: z.string().optional(),
+  deletedAt: IssueLifecycle.shape.deletedAt,
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this issue, or null if never opened. */
   readAt: z.string().nullable().catch(null).default(null),
@@ -389,7 +268,7 @@ const IssueWireTail = z.object({
   /** Designated coordinator session (bare session id) for actionable issue-addressed
    *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
    *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
-  coordinatorSessionId: SessionIdField.optional(),
+  coordinatorSessionId: IssueCoordination.shape.coordinatorSessionId,
   /** Bare session id of the agent session that created this issue (started-by
    *  provenance). Null/absent for operator/human creates. Additive so pre-field
    *  payloads still parse. */

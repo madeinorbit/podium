@@ -1,4 +1,11 @@
-import type { IssueColorSlot, IssueTreeSession, IssueWire, SessionMeta } from '@podium/model'
+import type {
+  IssueColorSlot,
+  IssueTree,
+  IssueTreeNode,
+  IssueTreeSession,
+  IssueWire,
+  SessionMeta,
+} from '@podium/model'
 import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -117,38 +124,14 @@ export interface DepReportEntry {
  *  definition moved, the import surface did not (POD-366). */
 export type { IssueTreeSession }
 
-/** One node of an epic subtree payload — see tree() (issue #82). */
-export interface IssueTreeNode {
-  id: string
-  seq: number
-  title: string
-  stage: string
-  priority: number
-  type: string
-  assignee?: string
-  branch?: string
-  needsHuman: boolean
-  humanQuestion?: string
-  /** Seqs of `blocks` targets this issue waits on (open or closed). */
-  blocksDeps: number[]
-  /** First 300 chars of the description, whitespace collapsed to one line. */
-  description: string
-  closed: boolean
-  blocked: boolean
-  ready: boolean
-  /** Sessions currently on this issue (siblings), compact [spec:SP-99d3]. */
-  sessions: IssueTreeSession[]
-  children: IssueTreeNode[]
-  /** Direct children omitted here by the depth/node cap ('(+N more)' in the CLI). */
-  omittedChildren: number
-}
-
-export interface IssueTree {
-  root: IssueTreeNode
-  totalNodes: number
-  /** Total children omitted across the tree by the depth/node cap. */
-  omitted: number
-}
+/** One node of an epic subtree payload — see tree() (issue #82).
+ *
+ *  DEFINED IN `@podium/model` since POD-1141, for the same reason
+ *  {@link IssueTreeSession} above is: `packages/issue-client` cannot import
+ *  `apps/server`, so it hand-copied this shape (inventory §3 #7, a drifted
+ *  duplicate that dropped `id` and `type`). The definition moved; this module's
+ *  import surface did not. */
+export type { IssueTree, IssueTreeNode }
 
 export interface IssueDeps {
   store: SessionStore

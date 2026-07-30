@@ -211,6 +211,56 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
     expect(sources.map(([f]) => f)).toContain('machine.ts')
   })
 
+  /**
+   * THE SHARED FIELD GROUPS, scanned so composition cannot launder a brand
+   * (POD-1141).
+   *
+   * Since POD-1141 an entity may write `machineId: IssueWorkspace.shape.machineId`
+   * instead of naming the carve-out directly. That is a SECOND legitimate syntax
+   * form for the same concept, and the detector above could not see through it —
+   * so it reported the composed line as an offender.
+   *
+   * The fix is the detector, not the line. Crucially it is NOT an allowlist for
+   * the `<Group>.shape.<key>` spelling: the referenced group member is resolved
+   * in `fields/`, and the form is accepted ONLY when that member is itself bound
+   * to `machineIdBlockedOnPOD318`. Rebinding `IssueWorkspace.machineId` to
+   * `MachineIdField` therefore still fails this test — which is the whole
+   * property, since composition otherwise moves the branding decision to a file
+   * this scan never read.
+   */
+  const fieldsDir = join(import.meta.dirname, '..', 'fields')
+  const fieldSources = readdirSync(fieldsDir)
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    .map((f) => [f, readFileSync(join(fieldsDir, f), 'utf8')] as const)
+
+  /** `IssueWorkspace.shape.machineId` -> is that member the carve-out? */
+  const composedFromCarveOut = (rhs: string): boolean => {
+    const ref = /^(\w+)\.shape\.(\w+),?$/.exec(rhs.trim())
+    if (!ref) return false
+    const [, group, key] = ref
+    for (const [, src] of fieldSources) {
+      const block = new RegExp(`export const ${group} = z\\.object\\(\\{[\\s\\S]*?\\n\\}\\)`).exec(
+        src,
+      )?.[0]
+      if (!block) continue
+      const member = new RegExp(`^\\s*${key}\\s*:\\s*(.+)$`, 'm').exec(block)?.[1]
+      return member?.includes('machineIdBlockedOnPOD318') ?? false
+    }
+    return false
+  }
+
+  it('reads the field-group sources the composition check depends on', () => {
+    // Verify the instrument: if `fields/` were empty or renamed,
+    // `composedFromCarveOut` would return false for everything, which reads as
+    // "offender" rather than as a silent pass — but the group it must resolve
+    // has to actually be there for the ACCEPT path to be exercised at all.
+    expect(fieldSources.length).toBeGreaterThanOrEqual(6)
+    expect(composedFromCarveOut('IssueWorkspace.shape.machineId')).toBe(true)
+    // ...and it must be able to say NO: a group member that is not the carve-out.
+    expect(composedFromCarveOut('IssueWorkspace.shape.branch')).toBe(false)
+    expect(composedFromCarveOut('NoSuchGroup.shape.machineId')).toBe(false)
+  })
+
   it('has no machine-id-shaped field bound to MachineIdField', () => {
     const offenders: string[] = []
     for (const [file, src] of sources) {
@@ -219,7 +269,8 @@ describe('MachineId is adopted at ZERO entity fields until POD-318', () => {
         // `machine_id:`, and MachineWire's own bare `id:`.
         const m = /^\s*(\w*[Mm]achine_?[Ii]d)\s*:\s*(.+)$/.exec(line)
         if (!m) continue
-        if (!m[2]?.includes('machineIdBlockedOnPOD318')) {
+        const rhs = m[2] ?? ''
+        if (!rhs.includes('machineIdBlockedOnPOD318') && !composedFromCarveOut(rhs)) {
           offenders.push(`${file}:${i + 1}: ${line.trim()}`)
         }
       }

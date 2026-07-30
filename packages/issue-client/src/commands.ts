@@ -1,4 +1,9 @@
-import { IssueColor, type IssueTreeSession } from '@podium/model'
+import {
+  IssueColor,
+  type IssueShowWire,
+  type IssueTreeNode,
+  type IssueTreeSession,
+} from '@podium/model'
 import { TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
@@ -64,32 +69,15 @@ const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
 })
 
 /** The slice of an issue wire the show renderer reads. */
-interface ShowWire {
-  id: string
-  seq: number
-  title: string
-  description: string
-  brief?: string | null
-  stage: string
-  priority: number
-  ready: boolean
-  blocked: boolean
-  assignee?: string | null
-  needsHuman?: boolean
-  humanQuestion?: string | null
-  labels?: string[]
-  worktreePath?: string | null
-  branch?: string | null
-  defaultAgent?: string | null
-  defaultModel?: string | null
-  defaultEffort?: string | null
-  machineId?: string | null
-  color?: string | null
-  /** Designated coordinator session id (bare). */
-  coordinatorSessionId?: string | null
-  /** Member sessions currently on this issue [spec:SP-99d3]. */
-  sessions?: ShowSession[]
-}
+/**
+ * The issue as this client's `show` renderer reads it.
+ *
+ * Inventory §3 #8 marked this a 22-key hand restatement, and it was. The key
+ * set now comes from {@link IssueShowWire} in `@podium/model` (POD-1141) and is
+ * not repeated here; only the session element is this client's, because it
+ * carries the version-skew tolerance documented on {@link ShowSession}.
+ */
+type ShowWire = IssueShowWire<ShowSession>
 
 /** Compact session fields the show/tree renderers need [spec:SP-99d3]. */
 /**
@@ -208,24 +196,25 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
 }
 
 /** One node of the issues.tree payload (issue #82) as the CLI renders it. */
-interface TreeNode {
-  seq: number
-  title: string
-  stage: string
-  priority: number
-  assignee?: string
-  branch?: string
-  needsHuman: boolean
-  humanQuestion?: string
-  blocksDeps: number[]
-  description: string
-  closed: boolean
-  blocked: boolean
-  ready: boolean
-  /** Compact sessions on this issue [spec:SP-99d3]. Absent on older servers. */
+/**
+ * One node of a tree payload as this client reads it.
+ *
+ * Inventory §3 #7 marked this a DRIFTED DUPLICATE of #6 `IssueTreeNode` — a hand
+ * copy that dropped `id` and `type`. The thirteen shared keys now come from
+ * {@link IssueTreeNode} in `@podium/model` (POD-1141).
+ *
+ * Two members are re-declared, and both are VERSION SKEW rather than contract:
+ * this client also runs against a REMOTE relay, so it can meet an older server
+ * that predates the compact `sessions` array [spec:SP-99d3]. The current server
+ * always sends it. Tightening the read to the server's required `sessions` would
+ * be a behaviour change dressed as a refactor, so the tolerance stays — spelled
+ * as tolerance instead of looking like part of the contract. `children` recurses
+ * into THIS type so the tolerance holds all the way down.
+ */
+type TreeNode = Omit<IssueTreeNode<ShowSession>, 'sessions' | 'children'> & {
+  /** Absent on older servers. */
   sessions?: ShowSession[]
   children: TreeNode[]
-  omittedChildren: number
 }
 
 export const ISSUE_COMMANDS: IssueCommand[] = [
