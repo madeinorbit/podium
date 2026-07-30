@@ -1,3 +1,7 @@
+import {
+  asSessionId,
+  type RepoId,
+} from '@podium/model'
 /**
  * ORACLE — session handoff across two machines (POD-379 for POD-642).
  *
@@ -122,11 +126,12 @@ async function handoffFixture(
               sizeBytes: 3,
               manifest: {
                 format: 1,
-                sessionId: msg.sessionId,
+                // // POD-361-EDGE-CAST: the daemon frame's ids are plain strings.
+                sessionId: asSessionId(msg.sessionId),
                 agentKind: 'claude-code',
                 resume: { kind: 'claude-session', value: 'native-id' },
                 transcriptFilename: 'native-id.jsonl',
-                repoId: store.repos.listRepos('m1')[0]?.repoId as string,
+                repoId: store.repos.listRepos('m1')[0]?.repoId as RepoId,
                 branch: 'x',
                 headSha: SHA,
                 snapshotSha: null,

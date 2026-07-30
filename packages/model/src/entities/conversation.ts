@@ -22,6 +22,7 @@
  */
 
 import { z } from 'zod'
+import { ConversationIdField } from '../ids'
 import { AgentKind } from './agent'
 import { ResumeRef } from './session'
 
@@ -34,6 +35,10 @@ export const ConversationGit = z.object({
 export type ConversationGit = z.infer<typeof ConversationGit>
 
 export const ConversationSummaryWire = z.object({
+  /** UNBRANDED BY DECISION: the NATIVE agent session id — evidence, not identity
+   *  (see `podiumId` below, and the doc comment there). POD-360 recorded that no
+   *  brand exists for a native id and that none should: a resume that rolls into
+   *  a new file gets a new one, which is the opposite of a stable identity. */
   id: z.string(),
   /** Absolute transcript path on the owning machine (discovery evidence). The
    *  registry records it on the conversation's segment so later reads locate the
@@ -42,8 +47,10 @@ export const ConversationSummaryWire = z.object({
   /** Podium-generated stable identity (docs/spec/conversation-registry.md). `id`
    *  above is the NATIVE agent session id — evidence, not identity: a resume that
    *  rolls into a new file gets a new `id` but keeps this `podiumId`. Server-
-   *  enriched; absent on daemon-originated payloads and for un-indexed rows. */
-  podiumId: z.string().optional(),
+   *  enriched; absent on daemon-originated payloads and for un-indexed rows.
+   *
+   *  THE branded `ConversationId` on this schema. */
+  podiumId: ConversationIdField.optional(),
   agentKind: AgentKind,
   title: z.string().optional(),
   /** Curated display name (user rename via conversations.setMeta). Server-
@@ -53,6 +60,7 @@ export const ConversationSummaryWire = z.object({
   /** Curated work summary (command center / work-LLM). Server-enriched. */
   summary: z.string().optional(),
   projectPath: z.string().optional(),
+  /** UNBRANDED: the parent's NATIVE id, same id space as `id` above. */
   parentConversationId: z.string().optional(),
   statusHint: z.string().optional(),
   createdAt: z.string().optional(),
@@ -64,6 +72,7 @@ export const ConversationSummaryWire = z.object({
   sizeBytes: z.number().int().nonnegative().optional(),
   git: ConversationGit.optional(),
   resume: ResumeRef.optional(),
+  /** UNBRANDED: a provider NAME ('claude-code'), not an entity id. */
   providerId: z.string(),
 })
 export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>

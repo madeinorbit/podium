@@ -1,4 +1,9 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  type IssueWireInput,
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterIssueNav, issueNavList, subIssuesOf } from './derive'
 
@@ -8,7 +13,7 @@ function sess(
   id: string,
   cwd: string,
   hoursAgo: number,
-  over: Partial<SessionMeta> = {},
+  over: Partial<SessionMetaInput> = {},
 ): SessionMeta {
   return {
     sessionId: id,
@@ -23,7 +28,7 @@ function sess(
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i',
     repoPath: '/home/u/acme',

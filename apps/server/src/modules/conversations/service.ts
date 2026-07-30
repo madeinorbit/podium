@@ -1,8 +1,8 @@
-import type {
-  AgentKind,
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
-  TranscriptItem,
+import {
+  type AgentKind,
+  type ConversationDiagnosticWire,
+  type ConversationSummaryWire,
+  type TranscriptItem,
 } from '@podium/model'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -268,7 +268,9 @@ export class ConversationsService {
     // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
     // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
     this.triggerLakeSweep(machineId)
-    return enriched
+    // POD-361-EDGE-CAST (POD-362 owns): `ensureConversationIdentity` returns a
+    // plain string; branding the store's mint site is POD-362's change.
+    return enriched as ConversationSummaryWire[]
   }
 
   /** Legacy snapshot fan-out ONLY ([spec:SP-3fe2] #257): the changes were

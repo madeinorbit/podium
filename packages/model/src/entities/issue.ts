@@ -68,6 +68,13 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
+import {
+  ArtifactIdField,
+  IssueIdField,
+  machineIdBlockedOnPOD318,
+  RepoIdField,
+  SessionIdField,
+} from '../ids'
 import { z } from 'zod'
 import { ISSUE_COLOR_SLOTS } from './issue-color'
 import { SessionMeta } from './session'
@@ -144,7 +151,7 @@ export const IssueSessionSummary = z.object({
 })
 export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
-export const IssueDepWire = z.object({ id: z.string(), type: z.string() })
+export const IssueDepWire = z.object({ id: IssueIdField, type: z.string() })
 export type IssueDepWire = z.infer<typeof IssueDepWire>
 
 export const IssueComment = z.object({
@@ -169,7 +176,7 @@ export const IssuePanelArtifact = z.object({
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
    *  live /files/asset route against the worktree. */
-  artifactId: z.string().optional(),
+  artifactId: ArtifactIdField.optional(),
   /** Relpath of the primary file inside the snapshot bundle. */
   entry: z.string().optional(),
   /** Bundle manifest — relpaths + sizes of every snapshotted file. */
@@ -229,10 +236,10 @@ export type IssueGitState = z.infer<typeof IssueGitState>
 /** The issue fields that precede the provenance keys on today's wire (POD-304 —
  *  see `IssueWireEntity` / `IssueWire` below the shape). */
 const IssueWireCore = z.object({
-  id: z.string(),
+  id: IssueIdField,
   repoPath: z.string(),
   /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
-  repoId: z.string().optional(),
+  repoId: RepoIdField.optional(),
   /** Human-facing repo prefix (#474), e.g. `POD`. Absent until backfilled. */
   prefix: z.string().optional(),
   /** Human-facing issue reference (#474): `POD-13` (or `#13` before a prefix
@@ -254,7 +261,10 @@ const IssueWireCore = z.object({
   defaultModel: z.string(),
   defaultEffort: z.string(),
   // Machine (daemon) this issue's agents run on; absent = pick by repo affinity.
-  machineId: z.string().optional(),
+  // CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): resolvable to
+  // LOCAL_MACHINE_ID = 'local' today, and a length-only brand would launder that
+  // sentinel rather than flag it. POD-318 retires it, then this becomes MachineIdField.
+  machineId: machineIdBlockedOnPOD318.optional(),
   linearId: z.string().optional(),
   linearIdentifier: z.string().optional(),
   linearUrl: z.string().optional(),
@@ -262,13 +272,13 @@ const IssueWireCore = z.object({
   notesUpdatedAt: z.string().optional(),
   suggestedStage: IssueStage.optional(),
   suggestedReason: z.string().optional(),
-  blockedBy: z.array(z.string()),
+  blockedBy: z.array(IssueIdField),
   dependencyNote: z.string().optional(),
   prUrl: z.string().optional(),
   priority: z.number().int(),
   type: IssueType,
   assignee: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
   design: z.string().optional(),
   acceptance: z.string().optional(),
   notes: z.string().optional(),
@@ -288,8 +298,8 @@ const IssueWireCore = z.object({
    *  "not tucked" rather than failing the whole issue; a current server always
    *  sends it, explicitly null when untucked. */
   tuckedAt: z.string().nullable().optional().catch(undefined),
-  supersededBy: z.string().optional(),
-  duplicateOf: z.string().optional(),
+  supersededBy: IssueIdField.optional(),
+  duplicateOf: IssueIdField.optional(),
   pinned: z.boolean(),
   /** Manual order (POD-168, POD-100 §4 R1): fractional sort key, lexicographic
    *  ASCENDING = top of the scope. One key space per sibling scope — a project
@@ -313,7 +323,7 @@ const IssueWireCore = z.object({
    *  ONE HALF OF AN ATTRIBUTION PAIR — see this file's header note 2. Relocated
    *  unchanged; §3.1.3 A3 makes attribution (actor, on-behalf-of), and the
    *  placement decision belongs to POD-304 / POD-643. */
-  humanQuestionAskedBy: z.string().optional(),
+  humanQuestionAskedBy: SessionIdField.optional(),
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt: z.string().optional(),
   /** Agent-published human-facing panel; absent = nothing published yet. */
@@ -379,7 +389,7 @@ const IssueWireTail = z.object({
   /** Designated coordinator session (bare session id) for actionable issue-addressed
    *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
    *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
-  coordinatorSessionId: z.string().optional(),
+  coordinatorSessionId: SessionIdField.optional(),
   /** Bare session id of the agent session that created this issue (started-by
    *  provenance). Null/absent for operator/human creates. Additive so pre-field
    *  payloads still parse. */
@@ -416,7 +426,7 @@ export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
 export const LintFinding = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   findings: z.array(z.string()),
 })
@@ -431,7 +441,7 @@ export const DoctorReport = z.object({
 export type DoctorReport = z.infer<typeof DoctorReport>
 
 export const IssueGraphNode = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   title: z.string(),
   stage: IssueStage,
@@ -448,7 +458,7 @@ export const IssueGraph = z.object({
 export type IssueGraph = z.infer<typeof IssueGraph>
 
 export const EpicStatus = z.object({
-  id: z.string(),
+  id: IssueIdField,
   childCount: z.number().int(),
   childDoneCount: z.number().int(),
   complete: z.boolean(),
@@ -472,7 +482,7 @@ export const IssueStats = z.object({
 })
 export type IssueStats = z.infer<typeof IssueStats>
 export const OrphanIssue = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   title: z.string(),
   ref: z.string(),

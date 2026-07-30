@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 /** Agent roster band grammar (POD-170, POD-100 laws L2/L6): band shell,
  *  terracotta-glyphed roster rows, and carried-over row controls. */
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRosterBand, GroupedSessionRows, PanelRow } from './sidebar-common'
@@ -17,7 +20,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-const session = (over: Partial<SessionMeta> = {}): SessionMeta =>
+const session = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   ({
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -124,7 +127,7 @@ describe('PanelRow roster variant', () => {
             nativeSubagentCount: 0,
             error: { class: 'crash', retryable: true },
           },
-        } as Partial<SessionMeta>)}
+        } as Partial<SessionMetaInput>)}
         active={false}
         onSelect={vi.fn()}
         roster

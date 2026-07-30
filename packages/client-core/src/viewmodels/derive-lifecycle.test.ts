@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupUnifiedWorkRows,
@@ -12,7 +12,7 @@ import {
 
 const NOW = Date.parse('2026-07-23T12:00:00.000Z')
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'issue',
     repoPath: '/r/a',
@@ -42,7 +42,7 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
   } as IssueWire
 }
 
-function session(over: Partial<SessionMeta> = {}): SessionMeta {
+function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: 'session',
     cwd: '/r/a',

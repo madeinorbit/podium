@@ -1,4 +1,9 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  type IssueWireInput,
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,
@@ -29,7 +34,7 @@ import {
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function sess(id: string, cwd: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     cwd,
@@ -44,15 +49,15 @@ function sess(id: string, cwd: string, over: Partial<SessionMeta> = {}): Session
   } as unknown as SessionMeta
 }
 
-const needsYou = (id: string, cwd: string, over: Partial<SessionMeta> = {}): SessionMeta =>
-  sess(id, cwd, { agentState: { phase: 'needs_user' }, ...over } as Partial<SessionMeta>)
+const needsYou = (id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
+  sess(id, cwd, { agentState: { phase: 'needs_user' }, ...over } as Partial<SessionMetaInput>)
 const working = (id: string, cwd: string): SessionMeta =>
-  sess(id, cwd, { agentState: { phase: 'working' } } as Partial<SessionMeta>)
-const idle = (id: string, cwd: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+  sess(id, cwd, { agentState: { phase: 'working' } } as Partial<SessionMetaInput>)
+const idle = (id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
   sess(id, cwd, {
     agentState: { phase: 'idle', idle: { kind: 'done' } },
     ...over,
-  } as Partial<SessionMeta>)
+  } as Partial<SessionMetaInput>)
 
 function navWt(path: string, over: Partial<WorktreeNavView> = {}): WorktreeNavView {
   return {
@@ -66,7 +71,7 @@ function navWt(path: string, over: Partial<WorktreeNavView> = {}): WorktreeNavVi
   }
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -383,7 +388,7 @@ describe('splitPinnedWork (PINNED section, POD-166)', () => {
 })
 
 describe('isRowUnread (sidebar unread emphasis)', () => {
-  const issueRow = (over: Partial<IssueWire>): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
+  const issueRow = (over: Partial<IssueWireInput>): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
     kind: 'issue',
     issue: issue(over),
     sessions: [],
@@ -398,22 +403,22 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
   })
 
   it('an issue row follows the issue own server-derived unread flag', () => {
-    expect(isRowUnread(issueRow({ unread: true } as Partial<IssueWire>))).toBe(true)
-    expect(isRowUnread(issueRow({ unread: false } as Partial<IssueWire>))).toBe(false)
+    expect(isRowUnread(issueRow({ unread: true } as Partial<IssueWireInput>))).toBe(true)
+    expect(isRowUnread(issueRow({ unread: false } as Partial<IssueWireInput>))).toBe(false)
   })
 
   it('a worktree row is unread iff ANY of its sessions is unread', () => {
     expect(
       isRowUnread(
         wtRow([
-          idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMeta>),
-          idle('b', '/r/a/.worktrees/x', { unread: true } as Partial<SessionMeta>),
+          idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMetaInput>),
+          idle('b', '/r/a/.worktrees/x', { unread: true } as Partial<SessionMetaInput>),
         ]),
       ),
     ).toBe(true)
     expect(
       isRowUnread(
-        wtRow([idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMeta>)]),
+        wtRow([idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMetaInput>)]),
       ),
     ).toBe(false)
   })
@@ -425,7 +430,7 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
 
 describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {
   const issueRow = (
-    over: Partial<IssueWire>,
+    over: Partial<IssueWireInput>,
     sessions: SessionMeta[] = [],
   ): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
     kind: 'issue',
@@ -443,27 +448,27 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
 
   it('emphasizes an unread issue row with no working session', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [idle('a', '/w')])),
+      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWireInput>, [idle('a', '/w')])),
     ).toBe(true)
   })
 
   it('suppresses an unread issue row that has a currently-working session', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [working('a', '/w')])),
+      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWireInput>, [working('a', '/w')])),
     ).toBe(false)
   })
 
   it('suppresses an unread worktree row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
-        wtRow([idle('a', '/w', { unread: true } as Partial<SessionMeta>), working('b', '/w')]),
+        wtRow([idle('a', '/w', { unread: true } as Partial<SessionMetaInput>), working('b', '/w')]),
       ),
     ).toBe(false)
   })
 
   it('leaves a read row un-emphasized regardless of working state', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: false } as Partial<IssueWire>, [working('a', '/w')])),
+      rowUnreadEmphasized(issueRow({ unread: false } as Partial<IssueWireInput>, [working('a', '/w')])),
     ).toBe(false)
   })
 })
@@ -656,8 +661,8 @@ describe('groupUnifiedWorkRows', () => {
   it('merges rows from different paths that share a repoId into one group', () => {
     const rows = rowsFor(
       [
-        issue({ id: 'i1', repoPath: '/machine1/a', repoId: 'repo-a' } as Partial<IssueWire>),
-        issue({ id: 'i2', repoPath: '/machine2/a', repoId: 'repo-a' } as Partial<IssueWire>),
+        issue({ id: 'i1', repoPath: '/machine1/a', repoId: 'repo-a' } as Partial<IssueWireInput>),
+        issue({ id: 'i2', repoPath: '/machine2/a', repoId: 'repo-a' } as Partial<IssueWireInput>),
       ],
       [idle('s1', '/x', { issueId: 'i1' }), idle('s2', '/x', { issueId: 'i2' })],
     )
@@ -734,7 +739,7 @@ describe('groupUnifiedWorkRows', () => {
   it('folds only settled top-level closures while open selection stays visible', () => {
     const closedRow = (
       id: string,
-      over: Partial<IssueWire> = {},
+      over: Partial<IssueWireInput> = {},
       sessions: SessionMeta[] = [],
     ): UnifiedWorkRow => ({
       kind: 'issue',
@@ -1103,7 +1108,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
 
   it('L5: the shipped done-decay applies to nested children — no fold, just the clock', () => {
     const { root } = tree()
-    const doneChild = (over: Partial<IssueWire>) =>
+    const doneChild = (over: Partial<IssueWireInput>) =>
       issue({
         id: 'dc',
         seq: 9,

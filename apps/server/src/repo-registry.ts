@@ -1,3 +1,4 @@
+import { type GitRepositoryWire } from '@podium/model'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -184,7 +185,9 @@ export class RepoRegistry {
     )
 
     return {
-      repositories: perMachine.flatMap((r) => r.repositories),
+      // POD-361-EDGE-CAST (POD-362 owns): `repoId`/`machineId` are stamped from
+      // plain-string store rows.
+      repositories: perMachine.flatMap((r) => r.repositories) as GitRepositoryWire[],
       diagnostics: perMachine.flatMap((r) => r.diagnostics),
     }
   }

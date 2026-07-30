@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionMeta } from '@podium/model'
+import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   isUnstartedSession,
@@ -12,7 +12,7 @@ import {
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: `s-${Math.random().toString(36).slice(2, 8)}`,
     cwd: '/r/acme',

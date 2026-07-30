@@ -26,7 +26,7 @@ function session(sessionId: string, title = sessionId): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  }
+  } as unknown as SessionMeta
 }
 
 function upsert(seq: number, value: SessionMeta): MetadataChange {

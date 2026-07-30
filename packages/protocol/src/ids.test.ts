@@ -1,3 +1,18 @@
+/**
+ * The ids surface, AFTER the move to @podium/model (POD-361).
+ *
+ * These assertions are the pre-move ones, kept alive and re-pointed at
+ * `./index` — the barrel — on purpose, so the suite spans BOTH homes: it pins
+ * the brands' and the key helpers' behaviour (as it always did) AND that every
+ * name `@podium/protocol` used to export from `src/ids.ts` still resolves from
+ * the package. A test that had followed the code to its new home would have
+ * left the re-export surface unpinned, and a broken barrel is exactly how a
+ * "no consumer was updated" claim quietly stops being true.
+ *
+ * The new behaviour POD-361 added (field-position schemas, the (userId, entityId)
+ * and (subject, resource) keys, the MachineId carve-out ratchet) is pinned at the
+ * new home: packages/model/src/ids/{brands,keys}.test.ts.
+ */
 import { describe, expect, it } from 'vitest'
 import {
   asIssueId,
@@ -14,7 +29,7 @@ import {
   resumeKey,
   SessionId,
   ThreadId,
-} from './ids'
+} from './index'
 
 describe('branded id schemas', () => {
   const schemas = { MachineId, SessionId, IssueId, RepoId, ConversationId, MutationId, ThreadId }

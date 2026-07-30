@@ -1,8 +1,8 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueWire, IssueWireInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { boardIssues, filterBoardScope } from './board-scope'
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'issue',
     repoPath: '/r/a',

@@ -1,6 +1,7 @@
 import {
-  type HandoffAvailability,
+  asSessionId,
   handoffAvailability,
+  type HandoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
@@ -43,7 +44,7 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
 ): IssueHandoff<M> {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
   const agents = issue.sessions
-    .map((ref) => byId.get(ref.sessionId))
+    .map((ref) => byId.get(asSessionId(ref.sessionId))) // // POD-361-EDGE-CAST
     // Handoff eligibility is a harness CAPABILITY, read from the one declarative
     // table, not a pair of literals re-listed here (POD-1105).
     .filter((s): s is SessionMeta => s !== undefined && agentSupportsHandoff(s.agentKind))

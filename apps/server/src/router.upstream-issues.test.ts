@@ -53,7 +53,7 @@ function hubIssue(id: string): IssueWire {
     draft: false,
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
-  }
+  } as unknown as IssueWire
 }
 
 const registries: SessionRegistry[] = []

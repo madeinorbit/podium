@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionContextMenu } from './SessionContextMenu'
@@ -63,7 +66,7 @@ const machine = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function meta(over: Partial<SessionMeta> = {}): SessionMeta {
+function meta(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: 's',
     agentKind: 'claude-code',

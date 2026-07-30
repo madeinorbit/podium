@@ -2,7 +2,10 @@
 // cross-harness]: gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -357,7 +360,7 @@ describe('agent spawn (gate)', () => {
 })
 
 describe('agent await (bounded, never hangs)', () => {
-  const child = (over: Partial<SessionMeta>): SessionMeta =>
+  const child = (over: Partial<SessionMetaInput>): SessionMeta =>
     ({
       sessionId: 'child1',
       cwd: '/wt/a',
@@ -669,7 +672,7 @@ describe('agent await (bounded, never hangs)', () => {
 
 describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', () => {
   // A target on the PARENT's own issue subtree, so `messages.send` authz passes.
-  const target = (over: Partial<SessionMeta>): SessionMeta =>
+  const target = (over: Partial<SessionMetaInput>): SessionMeta =>
     ({
       sessionId: 's1',
       cwd: '/wt/b',
@@ -756,7 +759,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
 })
 
 describe('session ask — the seance (#237 tier 4)', () => {
-  const child = (over: Partial<SessionMeta>): SessionMeta =>
+  const child = (over: Partial<SessionMetaInput>): SessionMeta =>
     ({
       sessionId: 'child1',
       cwd: '/wt/a',

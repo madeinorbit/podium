@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 
@@ -31,8 +32,9 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
         .filter((s) => s.archived)
         .map((s) => s.sessionId),
     )
-    expect(archived.has(a)).toBe(true)
-    expect(archived.has(b)).toBe(true)
+    // // POD-361-EDGE-CAST: createSession() returns a plain-string id; the set holds branded ones.
+    expect(archived.has(asSessionId(a))).toBe(true)
+    expect(archived.has(asSessionId(b))).toBe(true)
     // The issue itself is archived (and, being a real issue, not reaped).
     expect(reg.issues.get(issue.id)?.archived).toBe(true)
   })

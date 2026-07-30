@@ -1,5 +1,5 @@
 // Cross-harness child grouping + native-subagent expand rules (M6 / POD-900).
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   groupSessionsByParent,
@@ -11,7 +11,7 @@ import {
   sessionsNeedChildRows,
 } from './derive'
 
-function sess(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     cwd: '/repo',

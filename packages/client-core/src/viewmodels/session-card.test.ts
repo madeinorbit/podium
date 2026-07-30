@@ -1,8 +1,8 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionCardModel, sessionTitle } from './session-card'
 
-function session(overrides: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
+function session(overrides: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
   const { sessionId, ...rest } = overrides
   return {
     agentKind: 'claude-code',
@@ -21,11 +21,11 @@ function session(overrides: Partial<SessionMeta> & { sessionId: string }): Sessi
     unread: false,
     ...rest,
     sessionId,
-  }
+  } as unknown as SessionMeta
 }
 
 function issue(
-  overrides: Partial<IssueWire> & { id: string; seq: number; title: string },
+  overrides: Partial<IssueWireInput> & { id: string; seq: number; title: string },
 ): IssueWire {
   const { id, seq, title, ...rest } = overrides
   return {
@@ -66,7 +66,7 @@ function issue(
     id,
     seq,
     title,
-  }
+  } as unknown as IssueWire
 }
 
 describe('session card view model', () => {

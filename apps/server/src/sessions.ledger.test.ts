@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  asSessionId,
+  type SessionMeta,
+} from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -259,7 +262,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(h) upstream mirror sets and staleness flips are explicitly captured (#247)', () => {
     const upstreamMeta: SessionMeta = {
-      sessionId: 'hub-s1',
+      sessionId: asSessionId('hub-s1'), // // POD-361-EDGE-CAST
       agentKind: 'shell',
       title: 'hub session',
       cwd: '/hub/w',
@@ -315,7 +318,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('keeps the local side of an id collision visible and reveals the upstream row on removal', () => {
     const registry = makeRegistry()
     const upstream: SessionMeta = {
-      sessionId: 'union-collision',
+      sessionId: asSessionId('union-collision'),
       agentKind: 'shell',
       title: 'hub',
       cwd: '/hub',
@@ -462,7 +465,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.onClientMessage(clientId, { type: 'detach', sessionId })
     registry.modules.sessions.setUpstreamSessions([
       {
-        sessionId: 'hub-explicit',
+        sessionId: asSessionId('hub-explicit'),
         agentKind: 'shell',
         title: 'hub',
         cwd: '/hub',

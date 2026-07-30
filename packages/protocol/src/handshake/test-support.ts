@@ -9,7 +9,7 @@
  * implements policy would let a strategy's test pass for the fake's reasons.
  */
 
-import type { MachineId } from '../ids'
+import type { MachineId } from '@podium/model'
 import {
   asCapabilityRef,
   asDeviceId,

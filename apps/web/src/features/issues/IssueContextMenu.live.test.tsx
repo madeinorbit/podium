@@ -1,4 +1,10 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -49,7 +55,7 @@ const machine = (id: string) => ({
   online: true,
   inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
 })
-const session = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
+const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
   ({
     agentKind: 'claude-code',
     // A real session always carries a title (the harness's, until renamed); the
@@ -91,8 +97,8 @@ afterEach(() => {
 describe('IssueContextMenu handoff (POD-850)', () => {
   it('hides handoff while the feature is disabled', () => {
     featureEnabled.value = false
-    state.sessions = [session({ sessionId: 'agent' })]
-    open(makeIssue({ sessions: [{ sessionId: 'agent' } as SessionMeta] }))
+    state.sessions = [session({ sessionId: asSessionId('agent') })]
+    open(makeIssue({ sessions: [{ sessionId: asSessionId('agent') } as SessionMeta] }))
     expect(screen.queryByRole('menuitem', { name: /Handoff/ })).toBeNull()
   })
 
@@ -104,16 +110,16 @@ describe('IssueContextMenu handoff (POD-850)', () => {
       repoWire(LUD, '/home/mgw/src/other/podium', []),
     ]
     state.machines = [machine(MAC), machine(LUD)]
-    state.sessions = [session({ sessionId: 'agent' })]
+    state.sessions = [session({ sessionId: asSessionId('agent') })]
     open(
       makeIssue({
         worktreePath: '/Users/mw/Source/other/podium/.worktrees/issue-779',
-        sessions: [{ sessionId: 'agent' } as SessionMeta],
+        sessions: [{ sessionId: asSessionId('agent') } as SessionMeta],
       }),
     )
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: 'agent', machineId: LUD })
+    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('agent'), machineId: LUD })
   })
 
   it('POD-779 shape: still shows Handoff with the reason when the agent drifted off its worktree', () => {
@@ -124,8 +130,8 @@ describe('IssueContextMenu handoff (POD-850)', () => {
       repoWire(LUD, '/home/mgw/src/other/podium', []),
     ]
     state.machines = [machine(MAC), machine(LUD)]
-    state.sessions = [session({ sessionId: 'agent', cwd: '/home/mgw/src/other/podium' })]
-    open(makeIssue({ worktreePath: null, sessions: [{ sessionId: 'agent' } as SessionMeta] }))
+    state.sessions = [session({ sessionId: asSessionId('agent'), cwd: '/home/mgw/src/other/podium' })]
+    open(makeIssue({ worktreePath: null, sessions: [{ sessionId: asSessionId('agent') } as SessionMeta] }))
     const item = handoffItem()
     expect((item as HTMLButtonElement).disabled).toBe(true)
     expect(item.textContent).toContain('Only sessions in a worktree can be handed off')
@@ -138,8 +144,8 @@ describe('IssueContextMenu handoff (POD-850)', () => {
       ]),
     ]
     state.machines = [machine(MAC)]
-    state.sessions = [session({ sessionId: 'sh', agentKind: 'shell' })]
-    open(makeIssue({ sessions: [{ sessionId: 'sh' } as SessionMeta] }))
+    state.sessions = [session({ sessionId: asSessionId('sh'), agentKind: 'shell' })]
+    open(makeIssue({ sessions: [{ sessionId: asSessionId('sh') } as SessionMeta] }))
     expect(handoffItem().textContent).toContain('No agent session to hand off')
   })
 })

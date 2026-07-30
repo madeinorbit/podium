@@ -1,11 +1,14 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 
 /**
  * Build a valid `IssueWire` for unit tests, overriding any fields via `over`.
  * Shared by the issue-card and issue-page tests so all exercise the same
  * fully-populated wire shape.
  */
-export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
+export const makeIssue = (over: Partial<IssueWireInput> = {}): IssueWire =>
   ({
     id: 'i',
     repoPath: '/r',

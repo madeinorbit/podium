@@ -15,7 +15,6 @@ import handoff from './handoff.json' with { type: 'json' }
 import harness from './harness.json' with { type: 'json' }
 import headless from './headless.json' with { type: 'json' }
 import host from './host.json' with { type: 'json' }
-import ids from './ids.json' with { type: 'json' }
 import inventory from './inventory.json' with { type: 'json' }
 import issues from './issues.json' with { type: 'json' }
 import maintenance from './maintenance.json' with { type: 'json' }
@@ -46,7 +45,6 @@ export const GOLDEN: Record<string, unknown> = {
   harness: harness,
   headless: headless,
   host: host,
-  ids: ids,
   inventory: inventory,
   issues: issues,
   maintenance: maintenance,

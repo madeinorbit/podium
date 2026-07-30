@@ -10,9 +10,13 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import type { IssueWire } from '@podium/model'
+import {
+  asIssueId,
+  type IssueWire,
+  type IssueWireInput,
+} from '@podium/model'
 
-function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
+function issue(partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
   return {
     repoPath: '/p',
     description: '',
@@ -47,7 +51,7 @@ function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'tit
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...partial,
-  }
+  } as unknown as IssueWire
 }
 
 describe('parseSlashCommand', () => {
@@ -70,7 +74,7 @@ describe('parseSlashCommand', () => {
 describe('issue formatters', () => {
   const issues = [
     issue({
-      id: 'a',
+      id: asIssueId('a'),
       seq: 1,
       displayRef: 'POD-1',
       title: 'Done one',
@@ -78,7 +82,7 @@ describe('issue formatters', () => {
       updatedAt: '2026-07-16T12:00:00.000Z',
     }),
     issue({
-      id: 'b',
+      id: asIssueId('b'),
       seq: 2,
       displayRef: 'POD-2',
       title: 'In flight',
@@ -86,7 +90,7 @@ describe('issue formatters', () => {
       updatedAt: '2026-07-15T12:00:00.000Z',
     }),
     issue({
-      id: 'c',
+      id: asIssueId('c'),
       seq: 3,
       displayRef: 'POD-3',
       title: 'Internal',
@@ -94,7 +98,7 @@ describe('issue formatters', () => {
       audience: 'agent',
     }),
     issue({
-      id: 'd',
+      id: asIssueId('d'),
       seq: 4,
       displayRef: 'POD-4',
       title: 'Ready task',
@@ -145,7 +149,7 @@ describe('issue formatters', () => {
 
   it('picks the live session for btw wiring', () => {
     const withSessions = issue({
-      id: 'e',
+      id: asIssueId('e'),
       seq: 5,
       title: 'Epic',
       sessions: [

@@ -5,12 +5,15 @@
  * modules/automations/.
  */
 
-import type {
-  AutomationRunOutcome,
-  AutomationRunWire,
-  AutomationScheduleKind,
-  AutomationSessionMode,
-  AutomationWire,
+import {
+  type AutomationId,
+  type AutomationRunId,
+  type AutomationRunOutcome,
+  type AutomationRunWire,
+  type AutomationScheduleKind,
+  type AutomationSessionMode,
+  type AutomationWire,
+  type SessionId,
 } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -18,16 +21,18 @@ export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire
 export type AutomationRunRow = AutomationRunWire
 
+// POD-361-EDGE-CAST (POD-362 owns the removal): a sqlite row is untyped, so the
+// brands are applied at this read boundary. The real fix is a typed store row.
 function rowToAutomation(r: Record<string, unknown>): AutomationRow {
   return {
-    id: r.id as string,
+    id: r.id as AutomationId,
     name: r.name as string,
     enabled: Number(r.enabled) !== 0,
     repoPath: (r.repo_path as string | null) ?? null,
     scheduleKind: (r.schedule_kind as AutomationScheduleKind) ?? 'cron',
     cron: (r.cron as string) || null,
     runAt: (r.run_at as string | null) ?? null,
-    targetSessionId: (r.target_session_id as string | null) ?? null,
+    targetSessionId: (r.target_session_id as SessionId | null) ?? null,
     agentKind: r.agent_kind as string,
     model: r.model as string,
     effort: r.effort as string,
@@ -39,12 +44,13 @@ function rowToAutomation(r: Record<string, unknown>): AutomationRow {
   }
 }
 
+// POD-361-EDGE-CAST: as above.
 function rowToRun(r: Record<string, unknown>): AutomationRunRow {
   return {
-    id: r.id as string,
-    automationId: r.automation_id as string,
+    id: r.id as AutomationRunId,
+    automationId: r.automation_id as AutomationId,
     firedAt: r.fired_at as string,
-    sessionId: (r.session_id as string | null) ?? null,
+    sessionId: (r.session_id as SessionId | null) ?? null,
     outcome: r.outcome as AutomationRunOutcome,
     detail: (r.detail as string | null) ?? null,
   }

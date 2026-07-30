@@ -1,5 +1,9 @@
 import { beginSwitch, getRecentSwitchTraces, resetSwitchTraces } from '@podium/client-core/perf'
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
 import type { JSX } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -64,7 +68,7 @@ const fakeReplica = {
   },
 }
 
-function meta(over: Partial<SessionMeta>): SessionMeta {
+function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -82,7 +86,7 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 function item(id: string, cursor: string, text: string): TranscriptItem {

@@ -1,4 +1,8 @@
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -89,7 +93,7 @@ vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` 
 
 const { ChatView } = await import('./ChatView')
 
-function meta(over: Partial<SessionMeta>): SessionMeta {
+function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -107,7 +111,7 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 function item(id: string, cursor: string, text: string): TranscriptItem {

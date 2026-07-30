@@ -85,6 +85,7 @@
  */
 
 import { z } from 'zod'
+import { machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
 import { AgentKind, HarnessAgent } from './agent'
 
 // ---------------------------------------------------------------------------
@@ -164,7 +165,7 @@ export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 /** `SEE` — health/liveness sample, plus the machine identity it is about. */
 export const HostMetricsWire = z.object({
   hostname: z.string(),
-  machineId: z.string().optional(), // server-filled before broadcast
+  machineId: machineIdBlockedOnPOD318.optional(), // server-filled before broadcast
   name: z.string().optional(), // server-filled before broadcast
   sampledAt: z.string(), // ISO 8601
   memory: HostMemoryWire,
@@ -181,7 +182,11 @@ export type HostMetricsWire = z.infer<typeof HostMetricsWire>
  *  verb; `inventory` is what a principal with `see` but not `use` must not
  *  learn, and it is a single field so the projection split is a field drop. */
 export const MachineWire = z.object({
-  id: z.string(),
+  /** THE machine id itself, and the sharpest carve-out of the seven: the server
+   *  UPSERTS this row with `id: LOCAL_MACHINE_ID = 'local'` (`ensureLocalMachine`),
+   *  so branding this field would mint a well-typed `MachineId` for the sentinel
+   *  at its source. ADR 1 Amendment 2 D16.2. */
+  id: machineIdBlockedOnPOD318,
   name: z.string(),
   hostname: z.string(),
   online: z.boolean(),
@@ -202,7 +207,7 @@ export type MachineWire = z.infer<typeof MachineWire>
  *  list, one of the named-but-undecided existence-leak cases. Marked `USE`
  *  because it names sessions running on someone else's hardware. */
 export const AgentMemoryWire = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   bytes: z.number().int().nonnegative(),
   processCount: z.number().int().nonnegative(),
 })
@@ -279,7 +284,7 @@ export type AgentQuotaWire = z.infer<typeof AgentQuotaWire>
  *  single-machine; the server fans out one request per online machine and tags
  *  each reply. */
 export const MachineQuotaWire = z.object({
-  machineId: z.string(),
+  machineId: machineIdBlockedOnPOD318,
   machineName: z.string(),
   hostname: z.string(),
   agents: z.array(AgentQuotaWire),
@@ -313,10 +318,12 @@ export const GitRepositoryWire = z.object({
   originUrl: z.string().optional(),
   // Always present on the wire; defaults to [] so producers may omit it safely.
   worktrees: z.array(GitWorktreeWire).default([]),
-  /** Server-stamped on scanReposAll(); the daemon never sets this. */
-  machineId: z.string().optional(),
+  /** Server-stamped on scanReposAll(); the daemon never sets this. CARVED OUT:
+   *  `repos.machine_id` DEFAULTS to '__local__', so the database manufactures the
+   *  sentinel for any insert that omits the column (ADR 1 Amendment 2 D16.2). */
+  machineId: machineIdBlockedOnPOD318.optional(),
   /** Server-stamped stable repo identity (#74); the daemon never sets this. */
-  repoId: z.string().optional(),
+  repoId: RepoIdField.optional(),
 })
 export type GitRepositoryWire = z.infer<typeof GitRepositoryWire>
 

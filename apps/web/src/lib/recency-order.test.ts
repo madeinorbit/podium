@@ -1,4 +1,8 @@
-import type { AgentRuntimeState, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type AgentRuntimeState,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { partitionWorkItems, sortSessionsForSidebar } from './derive'
 import { compareRecency, groupSessions } from './home'
@@ -17,7 +21,7 @@ const working = (since: string): AgentRuntimeState => ({
 
 const SAME = '2026-06-10T00:00:00.000Z'
 
-function meta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
+function meta(over: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta {
   return {
     agentKind: 'shell',
     title: 't',
@@ -34,7 +38,7 @@ function meta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 describe('compareRecency', () => {
@@ -81,7 +85,7 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
   const mid = '2026-06-09T00:00:00.000Z'
   const recent = '2026-06-10T00:00:00.000Z'
 
-  const agent = (over: Partial<SessionMeta> & { sessionId: string }): SessionMeta =>
+  const agent = (over: Partial<SessionMetaInput> & { sessionId: string }): SessionMeta =>
     meta({ agentKind: 'claude-code', ...over })
 
   it('orders NEEDS YOUR ATTENTION newest-active first', () => {

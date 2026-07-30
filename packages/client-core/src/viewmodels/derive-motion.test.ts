@@ -1,10 +1,10 @@
-import type { AgentRuntimeState, IssueWire, SessionMeta } from '@podium/model'
+import type { AgentRuntimeState, IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { formatClock, motionPhase, motionTiming } from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: 's1',
     cwd: '/r/acme',
@@ -70,9 +70,7 @@ describe('motionPhase — the four phases of the motion grammar', () => {
       },
       agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
     })
-    expect(
-      motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire),
-    ).toBe('done')
+    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire)).toBe('done')
   })
 
   it('a finished run (idle done / ended) is done', () => {

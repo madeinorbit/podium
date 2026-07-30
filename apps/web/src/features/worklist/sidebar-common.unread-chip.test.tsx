@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -15,7 +18,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-function sess(over: Partial<SessionMeta>): SessionMeta {
+function sess(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 'sess',
     agentKind: 'claude-code',
@@ -41,7 +44,7 @@ function renderRow(session: SessionMeta, active = false): void {
   render(<PanelRow session={session} active={active} onSelect={vi.fn()} />)
 }
 
-const doneTurn = (over: Partial<SessionMeta> = {}): SessionMeta =>
+const doneTurn = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   sess({
     unread: true,
     agentState: {

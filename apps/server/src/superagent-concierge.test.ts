@@ -1,4 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -65,7 +68,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   return { registry, repos, sa, turnReqs, settle }
 }
 
-const wire = (o: Partial<IssueWire>): IssueWire =>
+const wire = (o: Partial<IssueWireInput>): IssueWire =>
   ({
     id: 'iss_x',
     repoPath: '/r',

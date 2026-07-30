@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   attentionGroup,
@@ -9,7 +12,7 @@ import {
   relativeTime,
 } from '../src/lib/home'
 
-const base = (over: Partial<SessionMeta> = {}): SessionMeta => ({
+const base = (over: Partial<SessionMetaInput> = {}): SessionMeta => ({
   sessionId: 's1',
   agentKind: 'claude-code',
   title: 't',

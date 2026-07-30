@@ -1,4 +1,8 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -63,7 +67,7 @@ class FakeWS {
   close(): void {}
 }
 
-function serverSession(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function serverSession(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     agentKind: 'claude-code',
@@ -81,7 +85,7 @@ function serverSession(id: string, over: Partial<SessionMeta> = {}): SessionMeta
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }

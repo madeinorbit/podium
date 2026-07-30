@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMarkReadOnView } from './use-mark-read-on-view'
@@ -9,7 +12,7 @@ import { useMarkReadOnView } from './use-mark-read-on-view'
 // session the user keeps returning to), so this hook marks the focused+visible
 // session read on a trailing debounce keyed on its activity.
 
-function sess(over: Partial<SessionMeta>): SessionMeta {
+function sess(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',

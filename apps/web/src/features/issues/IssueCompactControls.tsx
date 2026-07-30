@@ -130,7 +130,9 @@ export function IssueCompactControls({ issue }: { issue: IssueWire }): JSX.Eleme
   const [starting, setStarting] = useState(false)
   const [sending, setSending] = useState<ReadonlySet<string>>(new Set())
 
-  const openFull = (id = issue.id): void => {
+  // POD-361-EDGE-CAST: `IssueContextMenu.onOpen` takes a plain string id, so the
+  // default-argument type must widen to match it (POD-363 brands the prop).
+  const openFull = (id: string = issue.id): void => {
     setOpenIssueId(id)
     setView('issues')
   }

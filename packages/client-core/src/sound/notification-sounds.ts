@@ -156,7 +156,9 @@ export class NotificationSounder {
     }
     // Forget rows that left the list so a session that returns re-arms.
     if (this.conditions.size > sessions.length) {
-      const live = new Set(sessions.map((s) => s.sessionId))
+      // The condition map is keyed by the raw id string, so the liveness set is
+      // too — a Set<SessionId> could not be probed with the map's own keys.
+      const live = new Set<string>(sessions.map((s) => s.sessionId))
       for (const id of this.conditions.keys()) {
         if (!live.has(id)) this.conditions.delete(id)
       }

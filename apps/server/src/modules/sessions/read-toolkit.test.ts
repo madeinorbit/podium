@@ -2,13 +2,17 @@
 // transcript text), issue-ref target resolution, the read line cap, and the
 // per-read event log.
 
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
 
-function session(over: Partial<SessionMeta>): SessionMeta {
+function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     cwd: '/wt/a',

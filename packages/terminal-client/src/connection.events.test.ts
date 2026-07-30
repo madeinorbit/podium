@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import { asSessionId, type SessionMeta } from '@podium/model'
 import {
   createDispatcher,
   type DispatchHandlers,
@@ -39,7 +39,8 @@ function setup() {
 }
 
 const meta = (sessionId: string): SessionMeta => ({
-  sessionId,
+  // POD-361-EDGE-CAST: test helper takes a plain string id.
+  sessionId: asSessionId(sessionId),
   agentKind: 'claude-code',
   title: 't',
   cwd: '/w',

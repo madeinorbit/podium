@@ -8,7 +8,15 @@
  * what yanked the engine's worktree selection (see engine.test.ts).
  */
 
-import type { AutomationRunWire, AutomationWire, IssueWire, SessionMeta } from '@podium/model'
+import {
+  type AutomationRunWire,
+  type AutomationWire,
+  asAutomationId,
+  asAutomationRunId,
+  asSessionId,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
@@ -35,7 +43,8 @@ function session(id: string): SessionMeta {
 const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as IssueWire
 
 const automation = (id: string, name = id): AutomationWire => ({
-  id,
+  // POD-361-EDGE-CAST: fixture helpers take plain string ids.
+  id: asAutomationId(id),
   name,
   enabled: true,
   repoPath: '/r',
@@ -54,10 +63,10 @@ const automation = (id: string, name = id): AutomationWire => ({
 })
 
 const automationRun = (id: string, automationId: string): AutomationRunWire => ({
-  id,
-  automationId,
+  id: asAutomationRunId(id), // POD-361-EDGE-CAST
+  automationId: asAutomationId(automationId),
   firedAt: '2026-07-01T00:00:00.000Z',
-  sessionId: 'sess_1',
+  sessionId: asSessionId('sess_1'),
   outcome: 'spawned',
   detail: null,
 })

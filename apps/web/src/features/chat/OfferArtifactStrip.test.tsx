@@ -1,4 +1,10 @@
-import type { IssuePanelArtifact, IssueWire, SessionMeta, SessionOffer } from '@podium/model'
+import {
+  asArtifactId,
+  type IssuePanelArtifact,
+  type IssueWire,
+  type SessionMeta,
+  type SessionOffer,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -20,7 +26,7 @@ vi.mock('@/app/store', () => ({
 const art = (path: string, addedAt: string, artifactId?: string): IssuePanelArtifact => ({
   path,
   addedAt,
-  ...(artifactId ? { artifactId } : {}),
+  ...(artifactId ? { artifactId: asArtifactId(artifactId) } : {}), // // POD-361-EDGE-CAST
 })
 
 const makeIssue = (artifacts: IssuePanelArtifact[]): IssueWire =>

@@ -1,4 +1,8 @@
-import type { SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
 import type { HeadlessActivityEvent } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -86,7 +90,7 @@ vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` 
 
 const { ChatView } = await import('./ChatView')
 
-function meta(over: Partial<SessionMeta>): SessionMeta {
+function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 'h1',
     agentKind: 'claude-code',
@@ -105,7 +109,7 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
     unread: false,
     headless: true,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 let container: HTMLDivElement

@@ -1,4 +1,11 @@
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  asIssueId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionMeta,
+  type SessionMetaInput,
+  type TranscriptItem,
+} from '@podium/model'
 
 /**
  * Fixture metadata for demo mode (`?demo=1` on web): realistic sessions and
@@ -19,7 +26,7 @@ const T0 = Date.now()
 const min = (n: number) => new Date(T0 - n * 60_000).toISOString()
 
 function session(
-  partial: Partial<SessionMeta> & { sessionId: string; title: string },
+  partial: Partial<SessionMetaInput> & { sessionId: string; title: string },
 ): SessionMeta {
   return {
     agentKind: 'claude-code',
@@ -111,7 +118,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
+  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
 ): IssueWire {
   return {
     repoPath: '/home/dev/src/podium',
@@ -154,7 +161,7 @@ function proposal(
 
 export const DEMO_ISSUES: IssueWire[] = [
   proposal({
-    id: 'demo-proposal-retry',
+    id: asIssueId('demo-proposal-retry'),
     seq: 301,
     priority: 1,
     type: 'bug',
@@ -168,7 +175,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     updatedAt: min(90),
   }),
   proposal({
-    id: 'demo-proposal-quota',
+    id: asIssueId('demo-proposal-quota'),
     seq: 298,
     type: 'feature',
     color: 'lime',
@@ -181,7 +188,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     updatedAt: min(210),
   }),
   proposal({
-    id: 'demo-proposal-cleanup',
+    id: asIssueId('demo-proposal-cleanup'),
     seq: 294,
     priority: 3,
     type: 'chore',
@@ -196,7 +203,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     updatedAt: min(1400),
   }),
   {
-    id: 'demo-issue-auth',
+    id: asIssueId('demo-issue-auth'),
     repoPath: '/home/dev/src/podium',
     seq: 87,
     title: 'OAuth refresh loop logs users out',
@@ -222,7 +229,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     dependents: [],
     comments: [
       {
-        id: 'c1',
+        id: asIssueId('c1'),
         author: 'till',
         body: 'Repros on Safari with two tabs open. Backend logs show 401 storms.',
         createdAt: min(180),
@@ -245,7 +252,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     unread: false,
   } as IssueWire,
   {
-    id: 'demo-issue-header',
+    id: asIssueId('demo-issue-header'),
     repoPath: '/home/dev/src/podium',
     seq: 121,
     title: 'Session header redesign',
@@ -317,7 +324,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     unread: false,
   } as IssueWire,
   {
-    id: 'demo-issue-ci',
+    id: asIssueId('demo-issue-ci'),
     repoPath: '/home/dev/src/podium',
     seq: 118,
     title: 'CI runner migration',
@@ -362,19 +369,19 @@ export const DEMO_ISSUES: IssueWire[] = [
 export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
   'demo-auth': [
     {
-      id: 't1',
+      id: asIssueId('t1'),
       role: 'user',
       text: 'The OAuth refresh loop is logging users out — see POD-87. Find the race and fix it.',
       ts: min(55),
     },
     {
-      id: 't2',
+      id: asIssueId('t2'),
       role: 'assistant',
       text: 'Reproduced it. Two tabs refresh concurrently; the second rotation invalidates the first tab’s brand-new token. The fix is either a rotation grace window or refresh-token reuse detection with a shared lock.',
       ts: min(30),
     },
     {
-      id: 't3',
+      id: asIssueId('t3'),
       role: 'tool',
       text: '',
       toolName: 'Bash',
@@ -384,7 +391,7 @@ export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
       ts: min(12),
     },
     {
-      id: 't4',
+      id: asIssueId('t4'),
       role: 'tool',
       text: '',
       toolName: 'AskUserQuestion',
@@ -417,13 +424,13 @@ export const DEMO_SUPER_SESSION = 'demo-superagent'
 
 DEMO_TRANSCRIPTS[DEMO_SUPER_SESSION] = [
   {
-    id: 'super-t1',
+    id: asIssueId('super-t1'),
     role: 'user',
     text: 'What needs my attention across my repos this morning?',
     ts: min(65),
   },
   {
-    id: 'super-t2',
+    id: asIssueId('super-t2'),
     role: 'assistant',
     text: 'Three things: the OAuth bug (#87) has a question waiting for you, the payments e2e suite is being deflaked (ETA ~20m), and CI runner migration is idle-ready to merge once tests go green. I can queue the merge for you.',
     ts: min(64),

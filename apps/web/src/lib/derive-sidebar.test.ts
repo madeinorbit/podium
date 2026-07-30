@@ -1,4 +1,8 @@
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type GitRepositoryWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   dedupeSessionsByResume,
@@ -12,7 +16,7 @@ import {
 const NOW = Date.parse('2026-06-21T12:00:00.000Z')
 
 /** Minimal session: idle/done (non-working) by default, last active `hoursAgo`. */
-function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, hoursAgo: number, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     lastActiveAt: new Date(NOW - hoursAgo * 3_600_000).toISOString(),
@@ -29,7 +33,7 @@ const working = (id: string, hoursAgo: number): SessionMeta =>
   sess(id, hoursAgo, {
     status: 'live',
     agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
-  } as Partial<SessionMeta>)
+  } as Partial<SessionMetaInput>)
 
 describe('worktreeForCwd', () => {
   const roots = ['/repo', '/repo/.worktrees/feat', '/other']
@@ -51,7 +55,7 @@ describe('worktreeForCwd', () => {
 
 describe('sessionsForWorktree (containment grouping)', () => {
   const roots = ['/repo', '/repo/.worktrees/feat']
-  const at = (id: string, cwd: string): SessionMeta => sess(id, 1, { cwd } as Partial<SessionMeta>)
+  const at = (id: string, cwd: string): SessionMeta => sess(id, 1, { cwd } as Partial<SessionMetaInput>)
 
   it('a session whose cwd is a SUBDIRECTORY of the worktree still shows in it', () => {
     const list = [at('a', '/repo/packages/web'), at('b', '/repo')]
@@ -83,8 +87,8 @@ describe('sidebarSections (containment grouping)', () => {
       },
     ]
     const sessions = [
-      sess('inMain', 1, { cwd: '/repo/packages/web' } as Partial<SessionMeta>),
-      sess('inFeat', 1, { cwd: '/repo/.worktrees/feat/apps' } as Partial<SessionMeta>),
+      sess('inMain', 1, { cwd: '/repo/packages/web' } as Partial<SessionMetaInput>),
+      sess('inFeat', 1, { cwd: '/repo/.worktrees/feat/apps' } as Partial<SessionMetaInput>),
     ]
     const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW)
     const worktrees = sections.repos.flatMap((r) => r.worktrees)
@@ -121,8 +125,8 @@ describe('sidebarSections (containment grouping)', () => {
       issue('unstarted', { worktreePath: null }),
     ]
     const sessions = [
-      sess('agent', 1, { cwd: '/repo/.worktrees/feat' } as Partial<SessionMeta>),
-      sess('sh', 1, { cwd: '/repo/.worktrees/feat', agentKind: 'shell' } as Partial<SessionMeta>),
+      sess('agent', 1, { cwd: '/repo/.worktrees/feat' } as Partial<SessionMetaInput>),
+      sess('sh', 1, { cwd: '/repo/.worktrees/feat', agentKind: 'shell' } as Partial<SessionMetaInput>),
     ]
     const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW, issues)
     const worktrees = sections.repos.flatMap((r) => r.worktrees)
@@ -207,7 +211,7 @@ function withResume(
   return sess(id, hoursAgo, {
     status,
     ...(resumeValue ? { resume: { kind: 'codex-thread', value: resumeValue } } : {}),
-  } as Partial<SessionMeta>)
+  } as Partial<SessionMetaInput>)
 }
 
 describe('dedupeSessionsByResume', () => {

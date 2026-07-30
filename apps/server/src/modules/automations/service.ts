@@ -13,7 +13,13 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { AgentKind, AutomationScheduleKind, AutomationSessionMode } from '@podium/model'
+import {
+  asAutomationId,
+  asSessionId,
+  type AgentKind,
+  type AutomationScheduleKind,
+  type AutomationSessionMode,
+} from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
 import type {
@@ -196,14 +202,15 @@ export class AutomationsService {
     this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once')
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
-      id: `aut_${randomUUID()}`,
+      // POD-361-EDGE-CAST (POD-362 owns): mint site; the id is generated here.
+      id: asAutomationId(`aut_${randomUUID()}`),
       name: input.name.trim(),
       enabled,
       repoPath: input.repoPath?.trim() || null,
       scheduleKind,
       cron,
       runAt,
-      targetSessionId: input.targetSessionId?.trim() || null,
+      targetSessionId: input.targetSessionId?.trim() ? asSessionId(input.targetSessionId.trim()) : null, // POD-361-EDGE-CAST: untyped command input.
       agentKind: input.agentKind,
       model: input.model ?? 'auto',
       effort: input.effort ?? 'auto',
@@ -250,7 +257,12 @@ export class AutomationsService {
       cron,
       runAt,
       ...(patch.targetSessionId !== undefined
-        ? { targetSessionId: patch.targetSessionId?.trim() || null }
+        ? {
+            // POD-361-EDGE-CAST: untyped command input.
+            targetSessionId: patch.targetSessionId?.trim()
+              ? asSessionId(patch.targetSessionId.trim())
+              : null,
+          }
         : {}),
       ...(patch.agentKind !== undefined ? { agentKind: patch.agentKind } : {}),
       ...(patch.model !== undefined ? { model: patch.model } : {}),

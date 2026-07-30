@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   handoffBlockerText,
@@ -6,7 +9,7 @@ import {
   sessionMenuEligibility,
 } from './SessionContextMenu'
 
-function meta(over: Partial<SessionMeta>): SessionMeta {
+function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's',
     agentKind: 'claude-code',
@@ -24,7 +27,7 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 describe('sessionMenuEligibility', () => {

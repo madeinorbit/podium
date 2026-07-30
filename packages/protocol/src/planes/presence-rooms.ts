@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { IssueId, SessionId } from '../ids'
+import { IssueId, SessionId } from '@podium/model'
 import { AgentIdentityId, UserId } from './principal'
 
 /**

@@ -80,7 +80,7 @@ function session(id: string, title = id): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  }
+  } as unknown as SessionMeta
 }
 
 let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }

@@ -1,9 +1,12 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { deriveTrayItems, offerKey, workingSessionCount } from './derive-tray'
 
-const session = (over: Partial<SessionMeta>): SessionMeta =>
+const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
     sessionId: 's1',
     agentKind: 'claude-code',

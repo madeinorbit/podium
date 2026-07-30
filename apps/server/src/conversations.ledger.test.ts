@@ -1,4 +1,7 @@
-import type { ConversationSummaryWire } from '@podium/model'
+import {
+  type ConversationSummaryWireInput,
+  type ConversationSummaryWire,
+} from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -29,7 +32,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   const conv = (
     id: string,
-    extra: Partial<ConversationSummaryWire> = {},
+    extra: Partial<ConversationSummaryWireInput> = {},
   ): ConversationSummaryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 

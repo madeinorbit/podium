@@ -38,6 +38,7 @@
  */
 
 import { z } from 'zod'
+import { AutomationIdField, AutomationRunIdField, SessionIdField } from '../ids'
 
 /** How a scheduled fire chooses the agent conversation [spec:SP-17db]. */
 export const AutomationSessionMode = z.enum(['fresh', 'resume'])
@@ -52,7 +53,7 @@ export type AutomationRunOutcome = z.infer<typeof AutomationRunOutcome>
 
 /** Durable scheduled-automation definition [spec:SP-17db]. */
 export const AutomationWire = z.object({
-  id: z.string(),
+  id: AutomationIdField,
   name: z.string(),
   enabled: z.boolean(),
   repoPath: z.string().nullable(),
@@ -60,7 +61,7 @@ export const AutomationWire = z.object({
   cron: z.string().nullable(),
   runAt: z.string().nullable(),
   /** Explicit existing-session target. null keeps the fresh/previous-run behavior. */
-  targetSessionId: z.string().nullable(),
+  targetSessionId: SessionIdField.nullable(),
   agentKind: z.string(),
   model: z.string(),
   effort: z.string(),
@@ -74,10 +75,15 @@ export type AutomationWire = z.infer<typeof AutomationWire>
 
 /** Durable record of one scheduled occurrence, including non-spawning outcomes. */
 export const AutomationRunWire = z.object({
-  id: z.string(),
-  automationId: z.string(),
+  /** A RUN's own id — a distinct id space from `automationId` below, which is
+   *  precisely the swap a brand exists to catch. */
+  id: AutomationRunIdField,
+  automationId: AutomationIdField,
   firedAt: z.string(),
-  sessionId: z.string().nullable(),
+  /** ATTRIBUTION, ACTOR HALF: the session this fire spawned. Flipped to its
+   *  current brand at POD-361; POD-1075 adds the on-behalf-of value (§3.1.6 S6
+   *  makes a scheduled automation run as its creator). */
+  sessionId: SessionIdField.nullable(),
   outcome: AutomationRunOutcome,
   detail: z.string().nullable(),
 })

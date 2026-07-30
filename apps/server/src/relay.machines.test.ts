@@ -1,3 +1,4 @@
+import { asRepoId, asSessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -243,11 +244,12 @@ async function handoffRegistry(
     if (msg.type === 'handoffExportRequest') {
       const manifest = {
         format: 1 as const,
-        sessionId: msg.sessionId,
+        // // POD-361-EDGE-CAST: the daemon frame's ids are plain strings on the request side.
+        sessionId: asSessionId(msg.sessionId),
         agentKind: 'claude-code' as const,
         resume: { kind: 'claude-session' as const, value: 'native-id' },
         transcriptFilename: 'native-id.jsonl',
-        repoId: store.repos.listRepos('m1')[0]!.repoId!,
+        repoId: asRepoId(store.repos.listRepos('m1')[0]!.repoId!),
         branch: 'x',
         headSha: sha,
         snapshotSha: null,

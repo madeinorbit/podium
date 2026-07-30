@@ -1,13 +1,17 @@
-import type {
-  AgentKind,
-  AgentRuntimeState,
-  Geometry,
-  ResumeRef,
-  SessionMeta,
-  SessionOffer,
-  SessionOrigin,
-  TranscriptItem,
-  WorkState,
+import {
+  asAccountId,
+  asConversationId,
+  asIssueId,
+  asSessionId,
+  type AgentKind,
+  type AgentRuntimeState,
+  type Geometry,
+  type ResumeRef,
+  type SessionMeta,
+  type SessionOffer,
+  type SessionOrigin,
+  type TranscriptItem,
+  type WorkState,
 } from '@podium/model'
 import { WorkState as WorkStateSchema } from '@podium/model'
 import type {
@@ -1144,11 +1148,14 @@ export class Session {
 
   toMeta(): SessionMeta {
     return {
-      sessionId: this.sessionId,
+      // POD-361-EDGE-CAST (POD-362 owns): every id on the server's own runtime
+      // Session object is a plain string; branding THOSE fields is POD-362's
+      // change, so the wire projection brands at its boundary.
+      sessionId: asSessionId(this.sessionId),
       agentKind: this.agentKind,
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
-      ...(this.accountId ? { accountId: this.accountId } : {}),
+      ...(this.accountId ? { accountId: asAccountId(this.accountId) } : {}),
       title: this.title,
       ...(this.name ? { name: this.name } : {}),
       ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),
@@ -1193,11 +1200,13 @@ export class Session {
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
-      ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
+      ...(this.conversationPodiumId
+        ? { conversationPodiumId: asConversationId(this.conversationPodiumId) }
+        : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       ...(this.headless ? { headless: true } : {}),
-      ...(this.issueId ? { issueId: this.issueId } : {}),
-      ...(this.refIssueId ? { refIssueId: this.refIssueId } : {}),
+      ...(this.issueId ? { issueId: asIssueId(this.issueId) } : {}),
+      ...(this.refIssueId ? { refIssueId: asIssueId(this.refIssueId) } : {}),
       ...(this.refLetter ? { refLetter: this.refLetter } : {}),
       ...(this.refDraft != null ? { refDraft: this.refDraft } : {}),
       ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),

@@ -1,4 +1,8 @@
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type GitRepositoryWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   agentBadge,
@@ -521,7 +525,7 @@ describe('partitionWorkItems', () => {
   })
 })
 
-const base = (over: Partial<SessionMeta>): SessionMeta =>
+const base = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
     sessionId: 's',
     agentKind: 'claude-code',
