@@ -7,10 +7,13 @@
  * WHY THIS EXISTS NOW, BEFORE ACCOUNTS DO
  * ---------------------------------------------------------------------------
  *
- * There are no user accounts yet: `packages/runtime/src/auth-store.ts` is one
- * password per instance and `client_sessions` has no user column, so today every
- * authenticated human resolves to the SAME person. POD-1075 lands the `User`
- * aggregate and real per-user client sessions.
+ * POD-1075 has landed the `User` aggregate, the `users` table and the per-user
+ * `client_sessions` column, so a person is now a real row. What has NOT changed
+ * is the AUTHENTICATOR: `packages/runtime/src/auth-store.ts` is still one
+ * password per instance, so every authenticated human still resolves to the SAME
+ * person — the first admin. Per-user credentials and login are Phase 3
+ * (POD-315), and until they land, `resolvePrincipal` returning one identity is
+ * the honest answer rather than a placeholder.
  *
  * That is precisely why the resolution has to be a PORT rather than a constant.
  * ADR 3 Amendment 1's rejected-alternatives table says it directly: keeping
@@ -52,19 +55,37 @@
  */
 
 import type { Capability } from '@podium/model'
-import { asUserId, type UserId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 
 /**
- * The single human of a pre-accounts instance.
+ * THE INSTANCE'S ONE ACCOUNT — re-exported from `@podium/model`, which is now
+ * its single home (POD-1075).
  *
- * NOT a "default identity" — D14's rule that there is no default identity is
- * about a principal being SYNTHESIZED for an unauthenticated caller, and nothing
- * here does that: an unauthenticated request never reaches a resolver at all.
- * This is the instance's one real account, unnamed because the account table
- * that would name it is POD-1075's. When that table lands, this constant is
- * replaced by a lookup and every call site below is unchanged.
+ * This module used to declare `INSTANCE_OWNER = 'instance-owner'` here, with a
+ * promise attached: *"when that table lands, this constant is replaced by a
+ * lookup and every call site below is unchanged."* The table has landed. The
+ * constant is now `FIRST_ADMIN_USER_ID` in `packages/model`'s
+ * `identity/user.ts`, beside the `User` aggregate and the account role, and the
+ * re-export is what keeps that promise — no call site in this app changed.
+ *
+ * WHY THE VALUE MOVED AND THE NAME WENT WITH IT (POD-1172). Two constants named
+ * the one pre-accounts human and disagreed: this one, and `SOLE_USER_ID`
+ * (`'user:sole'`) which `sessionOwner` stamps as every session's owner. Each was
+ * internally consistent, so nothing compared them until POD-351's delegation
+ * ceiling needed both — where, unreconciled, the intersection denied EVERY agent
+ * write. `'user:sole'` won because it is the value the POD-380 migration already
+ * WROTE INTO THE DATABASE for every pin, snooze and saved tab order, and a
+ * migration is frozen history; this one was minted in memory and persisted
+ * nowhere, so retiring it costs nothing. `rename-target-path.ts`'s
+ * `samePrincipal` bridge and its tripwire are deleted with it.
+ *
+ * NOT a "default identity" — ADR 3 Amendment 1 D14's rule that there is no
+ * default identity is about a principal being SYNTHESIZED for an unauthenticated
+ * caller, and nothing here does that: an unauthenticated request never reaches a
+ * resolver at all. This is the instance's one real account, and it now has a row
+ * in `users` with `role = 'admin'`.
  */
-export const INSTANCE_OWNER: UserId = asUserId('instance-owner')
+export { FIRST_ADMIN_USER_ID }
 
 /** A person acting directly (tRPC cookie, local CLI, in-process MCP). */
 export interface UserCommandPrincipal {
@@ -174,7 +195,7 @@ export function resolvePrincipal(
 ): CommandPrincipal {
   const actorSessionId = capability.actorSessionId
   if (actorSessionId === undefined) {
-    return { kind: 'user', user: INSTANCE_OWNER, capability }
+    return { kind: 'user', user: FIRST_ADMIN_USER_ID, capability }
   }
   const chain: string[] = []
   let cursor: string | undefined = delegations.parentSessionOf(actorSessionId)
@@ -186,7 +207,7 @@ export function resolvePrincipal(
   // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
   const root = chain[chain.length - 1] ?? actorSessionId
-  const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? INSTANCE_OWNER
+  const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? FIRST_ADMIN_USER_ID
   return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
 }
 

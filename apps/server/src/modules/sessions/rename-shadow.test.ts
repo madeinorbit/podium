@@ -45,12 +45,12 @@
 import { OPERATOR, SOLE_USER_ID } from '@podium/model'
 import { isExposedOn, presenceCommand } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
+import { FIRST_ADMIN_USER_ID, type CommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
 import { MIGRATED_COMMANDS, renamePath, RENAME_PATH_ENV } from './rename-adapter'
 import { PresenceRegistry, soleHumanPrincipal } from './presence-registry'
-import { renameOnTargetPath, type RenameServices, samePrincipal } from './rename-target-path'
+import { renameOnTargetPath, type RenameServices } from './rename-target-path'
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []
@@ -93,14 +93,14 @@ const agentCapability = { ...OPERATOR, actorSessionId: 'agent-sess-1' }
 const agentPrincipal: CommandPrincipal = {
   kind: 'agent',
   agentSessionId: 'agent-sess-1',
-  onBehalfOf: INSTANCE_OWNER,
+  onBehalfOf: FIRST_ADMIN_USER_ID,
   capability: agentCapability,
   chain: [],
 }
 
 const humanPrincipal: CommandPrincipal = {
   kind: 'user',
-  user: INSTANCE_OWNER,
+  user: FIRST_ADMIN_USER_ID,
   capability: OPERATOR,
 }
 
@@ -353,58 +353,82 @@ describe('the compatibility adapter moves ONE command and defaults to the target
 })
 
 // ---------------------------------------------------------------------------
-// A DEFECT THIS SKELETON FOUND, PINNED SO IT CANNOT DRIFT FURTHER
+// A DEFECT THIS SKELETON FOUND — NOW CLOSED (POD-1172, by POD-1075)
 // ---------------------------------------------------------------------------
 
 /**
- * TWO CONSTANTS NAME THE ONE PRE-ACCOUNTS HUMAN, and the delegation ceiling is
- * the first code in the tree to put them side by side.
+ * TWO CONSTANTS NAMED THE ONE PRE-ACCOUNTS HUMAN, and the delegation ceiling was
+ * the first code in the tree to put them side by side:
  *
  *   SOLE_USER_ID   'user:sole'       @podium/model, POD-380 — what sessionOwner stamps
- *   INSTANCE_OWNER 'instance-owner'  command-principal.ts, POD-381 — what resolvePrincipal mints
+ *   INSTANCE_OWNER 'instance-owner'  command-principal.ts, POD-381 — what resolvePrincipal minted
  *
  * Nothing compared them before, because POD-380 read owners with a principal
  * built from the first and POD-381 built principals nobody checked against an
- * owner column. The ceiling needs both, and unreconciled it DENIES EVERY AGENT
- * WRITE — a liveness defect that fails closed, so not a leak, but one that would
- * have surfaced as "agents inexplicably cannot rename" the day accounts land.
+ * owner column. The ceiling needed both, and unreconciled it DENIED EVERY AGENT
+ * WRITE — a liveness defect that failed closed, so not a leak, but one that would
+ * have surfaced as "agents inexplicably cannot rename".
  *
- * These tests exist so the bridge is visible rather than incidental, and so that
- * whoever reconciles the constants is told they can delete it.
+ * POD-351 bridged it in ONE named place (`samePrincipal`) and put a TRIPWIRE on
+ * the premise — an assertion that the two constants still differed — so that
+ * whoever reconciled them would be told to delete the bridge rather than let it
+ * become a permanent alias table.
+ *
+ * IT FIRED, AND THIS IS WHAT REPLACED IT. POD-1075's `FIRST_ADMIN_USER_ID` is
+ * the reconciliation: one constant, value `'user:sole'`, because that is the id
+ * the POD-380 migration had already written into every pin, snooze and
+ * tab-order row and a migration is frozen history. `samePrincipal` is deleted,
+ * the comparison in `rename-target-path.ts` is a plain equality, and the
+ * tripwire is deleted with them.
+ *
+ * What survives is the test that was never about the bridge: the ceiling itself.
+ * That one is kept — and strengthened — below.
  */
-describe('the sole-human identity fork this skeleton surfaced', () => {
-  it('the two constants still disagree — delete samePrincipal when this fails', () => {
-    // A DELIBERATE TRIPWIRE on the premise, not on the workaround. When POD-1075
-    // (or whoever reconciles them) makes these equal, this test fails and points
-    // at the bridge that should go with it. Without it the bridge would outlive
-    // its reason and quietly become a permanent alias table.
-    expect(SOLE_USER_ID as string).not.toBe(INSTANCE_OWNER as string)
+describe('the sole-human identity fork this skeleton surfaced, now reconciled', () => {
+  it('there is ONE constant for the one human, and it is the stored value', () => {
+    // The tripwire's successor. It asserts the reconciliation rather than the
+    // fork: if a second spelling is ever reintroduced, the id the database
+    // actually holds is the one that must win, and this says which that is.
+    expect(FIRST_ADMIN_USER_ID as string).toBe(SOLE_USER_ID as string)
+    expect(FIRST_ADMIN_USER_ID as string).toBe('user:sole')
   })
 
-  it('bridges the two spellings, and ONLY those two', () => {
-    expect(samePrincipal(INSTANCE_OWNER, SOLE_USER_ID)).toBe(true)
-    expect(samePrincipal(SOLE_USER_ID, INSTANCE_OWNER)).toBe(true)
-    expect(samePrincipal('user:alice', 'user:alice')).toBe(true)
+  it('an agent whose human IS the sole human may write — the ceiling can say YES', () => {
+    // The positive control, and the test the old bridge existed to make pass.
+    // Without it, the denial below could be produced by a ceiling that refuses
+    // everything — which is exactly what the unreconciled constants DID, and
+    // what nothing in the suite would have distinguished from correctness.
+    const { sessions, mutations } = stack()
+    const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const ownAgent: CommandPrincipal = {
+      kind: 'agent',
+      agentSessionId: 'agent-sess-8',
+      onBehalfOf: FIRST_ADMIN_USER_ID,
+      capability: agentCapability,
+      chain: [],
+    }
 
-    // The bar that keeps this from being an ambient "everyone is the same person"
-    // hole: two DIFFERENT real users are still different, and neither is the sole
-    // human. A bridge that returned true here would erase the whole ownership
-    // dimension the day accounts land.
-    expect(samePrincipal('user:alice', 'user:bob')).toBe(false)
-    expect(samePrincipal('user:alice', SOLE_USER_ID)).toBe(false)
-    expect(samePrincipal('user:alice', INSTANCE_OWNER)).toBe(false)
+    const dispatch = renameOnTargetPath(
+      { sessions: sessions as RenameServices, mutations },
+      { sessionId: created.sessionId, name: 'mine to rename' },
+      ownAgent,
+      'trpc',
+    )
+
+    expect(dispatch.outcome).toBe('applied')
+    expect(observe(sessions, created.sessionId).name).toBe('mine to rename')
   })
 
   it('an agent whose human does NOT hold the session is denied at apply', () => {
-    // The ceiling doing its job — and the counterfactual for the bridge above. If
-    // samePrincipal were a blanket true, this would pass authorization and the
-    // delegation ceiling would be decorative.
+    // The ceiling doing its job, and the counterfactual for the YES above: the
+    // two together are what make the ceiling an instrument rather than a
+    // constant answer.
     const { sessions, mutations } = stack()
     const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: 'agent-sess-9',
-      onBehalfOf: 'user:stranger' as typeof INSTANCE_OWNER,
+      onBehalfOf: 'user:stranger' as typeof FIRST_ADMIN_USER_ID,
       capability: agentCapability,
       chain: [],
     }

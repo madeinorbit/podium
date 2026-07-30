@@ -43,7 +43,7 @@
 
 import { OPERATOR } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
+import { FIRST_ADMIN_USER_ID, type CommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
 import { renameOnTargetPath, type RenameServices } from './rename-target-path'
@@ -67,7 +67,7 @@ function revocableStack() {
 
   // Mutable ownership, read LIVE on every call — which is the whole mechanism.
   // There is no snapshot to invalidate because there is no snapshot.
-  const ownership = { owner: INSTANCE_OWNER as string | null, grants: [] as string[] }
+  const ownership = { owner: FIRST_ADMIN_USER_ID as string | null, grants: [] as string[] }
 
   const deps = {
     sessions: new Proxy(sessions, {
@@ -108,11 +108,11 @@ function revocableStack() {
  */
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
-  user: userId as typeof INSTANCE_OWNER,
+  user: userId as typeof FIRST_ADMIN_USER_ID,
   capability: { role: 'worker', scope: { kind: 'owned', userId } },
 })
 
-const human = humanScoped(INSTANCE_OWNER)
+const human = humanScoped(FIRST_ADMIN_USER_ID)
 
 /**
  * The AGENT's capability is deliberately left as admin/all. Its own scope is
@@ -123,7 +123,7 @@ const human = humanScoped(INSTANCE_OWNER)
 const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal => ({
   kind: 'agent',
   agentSessionId,
-  onBehalfOf: onBehalfOf as typeof INSTANCE_OWNER,
+  onBehalfOf: onBehalfOf as typeof FIRST_ADMIN_USER_ID,
   capability: { ...OPERATOR, actorSessionId: agentSessionId },
   chain: [],
 })
@@ -178,7 +178,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     // to write and none to forget. The AGENT's own capability is admin/all here and
     // is untouched — only its human lost the row.
     const s = revocableStack()
-    const agent = agentOf('agent-sess-1', INSTANCE_OWNER)
+    const agent = agentOf('agent-sess-1', FIRST_ADMIN_USER_ID)
 
     // Instrument first: this agent CAN write before the revocation.
     expect(
@@ -218,7 +218,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
       ).outcome,
     ).toBe('denied')
 
-    s.ownership.owner = INSTANCE_OWNER
+    s.ownership.owner = FIRST_ADMIN_USER_ID
 
     expect(
       renameOnTargetPath(
@@ -234,7 +234,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
   it('a GRANT, not just ownership, is enough — and is also read live', () => {
     const s = revocableStack()
     s.ownership.owner = 'user:someone-else'
-    s.ownership.grants = [INSTANCE_OWNER]
+    s.ownership.grants = [FIRST_ADMIN_USER_ID]
 
     expect(
       renameOnTargetPath(
@@ -352,7 +352,7 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
     expect(call('s1')).toBe('applied')
     s.ownership.owner = 'user:someone-else'
     expect(call('s2')).toBe('denied')
-    s.ownership.owner = INSTANCE_OWNER
+    s.ownership.owner = FIRST_ADMIN_USER_ID
     expect(call('s3')).toBe('applied')
   })
 })
@@ -405,7 +405,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
 
     const operator: CommandPrincipal = {
       kind: 'user',
-      user: INSTANCE_OWNER,
+      user: FIRST_ADMIN_USER_ID,
       capability: OPERATOR,
     }
 
@@ -434,7 +434,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
     const dispatch = renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'agent tried', mutationId: 'op-2' },
-      agentOf('agent-sess-7', INSTANCE_OWNER),
+      agentOf('agent-sess-7', FIRST_ADMIN_USER_ID),
       'outbox',
     )
 

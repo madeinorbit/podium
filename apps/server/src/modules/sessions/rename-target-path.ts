@@ -63,9 +63,9 @@ import {
   type SessionRenameOutcome,
   sessionRenameContract,
 } from '@podium/commands'
-import { type AuthTarget, authorize, SOLE_USER_ID, type UserId } from '@podium/model'
+import { type AuthTarget, authorize, type UserId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
-import { INSTANCE_OWNER, onBehalfOfUser } from '../../command-principal'
+import { onBehalfOfUser } from '../../command-principal'
 import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionsService } from './service'
 
@@ -174,35 +174,27 @@ function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
 }
 
 /**
- * TWO CONSTANTS NAME THE ONE HUMAN, AND THIS IS THE FIRST CODE TO COMPARE THEM.
+ * THE TWO CONSTANTS ARE NOW ONE, AND THE BRIDGE THAT SPANNED THEM IS GONE
+ * (POD-1172, closed by POD-1075).
  *
- * `SOLE_USER_ID` (`'user:sole'`, `@podium/model`, POD-380) is what
- * `SessionsService.sessionOwner` stamps as every session's owner.
- * `INSTANCE_OWNER` (`'instance-owner'`, `../../command-principal`, POD-381) is
- * what `resolvePrincipal` mints as every human's `UserId`. Both mean "the
- * instance's one pre-accounts account", both are replaced by POD-1075's real
- * accounts, and until now nothing ever put one beside the other — POD-380 reads
- * owners with a `PresencePrincipal` built from `SOLE_USER_ID`, POD-381 builds
- * principals nobody had yet checked against an owner column.
+ * This is where a `samePrincipal` bridge used to live. `SOLE_USER_ID`
+ * (`'user:sole'`, what `SessionsService.sessionOwner` stamps as every session's
+ * owner) and `INSTANCE_OWNER` (`'instance-owner'`, what `resolvePrincipal`
+ * minted as every human's `UserId`) both named the instance's one pre-accounts
+ * human and DISAGREED. Each was internally consistent, so nothing ever put one
+ * beside the other until the delegation ceiling below needed BOTH — where,
+ * unreconciled, the intersection denied every agent write. It failed closed, so
+ * a liveness defect rather than a leak, but it would have surfaced as "agents
+ * inexplicably cannot rename".
  *
- * The delegation ceiling below is the first check that needs BOTH, and with the
- * two spellings unreconciled it denies every agent write. It fails CLOSED, so
- * this is a liveness defect and not a leak — but it is a real one, and it would
- * have surfaced as "agents inexplicably cannot rename" the day accounts landed.
- *
- * REPORTED, NOT PAPERED OVER: filed as a discovered issue against POD-1075's
- * account work, because reconciling the two constants means editing two other
- * issues' files and the fix belongs with the aggregate that replaces both. This
- * function is the bridge in the meantime, and it is deliberately ONE named place
- * rather than an inline `||` — when the constants become one, this collapses to
- * an equality and `rename-shadow.test.ts` says so.
+ * The bridge was deliberately ONE named place rather than an inline `||`, with a
+ * tripwire asserting the constants still differed, so that whoever reconciled
+ * them would be told to delete it. POD-1075's `FIRST_ADMIN_USER_ID` is that
+ * reconciliation — `'user:sole'` won, because it is the value the POD-380
+ * migration already wrote into the database — and the comparison below has
+ * collapsed to the plain equality it always should have been. The tripwire in
+ * `rename-shadow.test.ts` went with it.
  */
-const SAME_SOLE_HUMAN: readonly string[] = [INSTANCE_OWNER, SOLE_USER_ID]
-
-export function samePrincipal(a: string, b: string): boolean {
-  if (a === b) return true
-  return SAME_SOLE_HUMAN.includes(a) && SAME_SOLE_HUMAN.includes(b)
-}
 
 /** Does this human currently own, or hold a grant on, the target? Read live. */
 function holdsTarget(human: UserId, target: AuthTarget): boolean {
@@ -211,7 +203,7 @@ function holdsTarget(human: UserId, target: AuthTarget): boolean {
   // (§3.1.1 default-closed, §3.1.4 M4's all-in-one case).
   if (target.owner === null) return false
   const owner = target.owner
-  return samePrincipal(owner, human) || (target.grants ?? []).some((g) => samePrincipal(g, human))
+  return owner === human || (target.grants ?? []).includes(human)
 }
 
 /**

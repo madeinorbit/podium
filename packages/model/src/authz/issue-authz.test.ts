@@ -194,9 +194,53 @@ describe('self scope (per-user state)', () => {
 describe('OPERATOR keeps its unconstrained reach across the new target kinds', () => {
   it('writes an owned entity it does not own, and any per-user row', () => {
     // Today's single shared password resolves to admin/all, and POD-380 must not
-    // change that: the migration is behaviour-preserving until POD-1075 mints a
-    // real user principal. `scope: 'all'` short-circuits before target kind is read.
+    // change that: the migration is behaviour-preserving. `scope: 'all'`
+    // short-circuits before target kind is read.
     expect(authorize(OPERATOR, 'write', session('somebody-else'))).toBe('allow')
     expect(authorize(OPERATOR, 'write', { kind: 'per-user-row', userId: 'bob' })).toBe('allow')
+  })
+
+  /**
+   * REVISITED AT POD-1075, AND KEPT — with the qualifier narrowed to what is
+   * still true.
+   *
+   * POD-351 recorded that `authorize()` returns before the owner is ever read
+   * when the scope is `all`, which is why its revocation tests initially passed
+   * against an implementation with NO ownership check at all. Two pins carry
+   * that qualifier so the claim never reads wider than its evidence, and
+   * POD-1075 was named as the moment to look at them again: an ADMIN is a real
+   * scoped user, not an unconstrained operator.
+   *
+   * WHAT CHANGED: a first admin now EXISTS as a row, with `role = 'admin'` and
+   * `FIRST_ADMIN_USER_ID` as its id.
+   *
+   * WHAT DID NOT: the short-circuit, and deliberately. `OPERATOR` is
+   * `admin`/`all`, and the two halves of that are independent gates — the
+   * ACCOUNT role (`admin`, an instance-level fact about a person, ADR 9 D1.4)
+   * and the CAPABILITY scope (`all`, what this call may reach). Narrowing the
+   * scope to `owned` is what makes an admin a scoped user, and it is an
+   * ENFORCEMENT change: ADR 9 D1.5 says `OPERATOR` *"survives only as a
+   * migration artefact"* and ADR 9's compliance checklist requires that no code
+   * path construct an unconstrained capability from "someone authenticated" —
+   * but the thing that would have to stop doing so is `resolvePrincipal`, and
+   * it cannot until the transport can tell two humans apart. That is Phase 3
+   * (POD-315/POD-290), and this issue's brief excludes authz enforcement in as
+   * many words.
+   *
+   * So the pins stay, and this test says what they are now pinning: not "there
+   * are no users" — there are — but "the shared-password transport still mints
+   * one unconstrained capability".
+   */
+  it('is the FIRST ADMIN’s reach, and the scope — not the role — is what is unconstrained', () => {
+    expect(OPERATOR.role).toBe('admin')
+    expect(OPERATOR.scope).toEqual({ kind: 'all' })
+
+    // The counterfactual that keeps the short-circuit honest: the SAME admin
+    // role, scoped to what it owns, does NOT reach somebody else's entity. So
+    // the reach above is the scope talking, and flipping `resolvePrincipal` to
+    // mint an `owned` scope is all that stands between here and a scoped admin.
+    const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: 'user:sole' } }
+    expect(authorize(scopedAdmin, 'write', session('somebody-else'))).toBe('forbidden')
+    expect(authorize(scopedAdmin, 'write', session('user:sole'))).toBe('allow')
   })
 })
