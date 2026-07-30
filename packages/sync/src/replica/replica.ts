@@ -20,23 +20,27 @@
  *    share (Amendment 1 D12.7). If this file ever needs to ask "may this principal
  *    see X", the design has drifted.
  *
- * RE-DELIVERY AND OVERLAP — a fork the ADR does not spell out, resolved here.
- * D13 says "accept iff `fromSeq === cursor`, otherwise it is a gap". Taken
- * literally, a transport that re-delivers a frame we already applied would be read
- * as a gap and heal forever — the same endless-heal shape D13 exists to prevent,
- * arriving from the other side. The covered range makes the distinction decidable
- * without arbitration, so:
- *   - `frame.seq <= cursor.seq` → already certified by our own cursor → IGNORE.
- *   - `fromSeq < cursor.seq < frame.seq` → apply the uncovered tail only.
- *   - `fromSeq > cursor.seq` → a genuine hole → rung 1.
- * This is the same truncation D6.3 already requires for a frame straddling the
- * snapshot point, so it is an application of a decided rule rather than a new one.
+ * D13 IS FOLLOWED LITERALLY: accept iff `fromSeq === cursor`, otherwise rung 1.
+ * An earlier revision of this file also absorbed re-delivered and partially
+ * overlapping frames through two locally-derived transitions. Removed after
+ * review: D13.1 normatively guarantees frames for one connection are contiguous
+ * and non-overlapping, so those are protocol violations rather than cases to
+ * tolerate, and tolerating them made the acceptance rule WEAKER than the one the
+ * amendment strengthened. On a contract shared with POD-1077 and POD-308, a
+ * locally documented fork is not good enough.
+ *
+ * ORDER IS THE CORRECTNESS PROPERTY, including inside one frame. Changes go to
+ * the store as ONE ordered operation list (see `CacheOperation`), never grouped
+ * by op kind — grouping applied every upsert before every removal, so
+ * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
 import type { OptimisticOverlayPort } from './overlay'
 import {
   type AuthorityReadPort,
   type CacheMutation,
+  type CacheOperation,
+  type KnownKindValidatorPort,
   type ReplicaCacheStore,
   ReplicaStoreCorruptError,
 } from './ports'
@@ -61,6 +65,12 @@ export interface ReplicaOptions {
   readonly authority: AuthorityReadPort
   /** Optional until POD-372/POD-351 land real reducers. Absent ⇒ the view is the base. */
   readonly overlay?: OptimisticOverlayPort
+  /**
+   * ADR 2 D7 rung 3's known-kind check. Absent ⇒ no kind is known ⇒ everything is
+   * parsed leniently (D4), which is the correct posture for a kernel that has not
+   * been told any schemas. POD-308/POD-351 supply the real one.
+   */
+  readonly validator?: KnownKindValidatorPort
   readonly onEvent?: (event: ReplicaEvent) => void
   /** ADR 2 D6.5 — a failed bootstrap RESTARTS (resumable bootstrap is deferred). */
   readonly maxBootstrapAttempts?: number
@@ -80,6 +90,7 @@ export class Replica {
   private readonly store: ReplicaCacheStore
   private readonly authority: AuthorityReadPort
   private readonly overlayPort: OptimisticOverlayPort | undefined
+  private readonly validator: KnownKindValidatorPort | undefined
   private readonly emit: (event: ReplicaEvent) => void
   private readonly maxBootstrapAttempts: number
 
@@ -116,6 +127,7 @@ export class Replica {
     this.store = options.store
     this.authority = options.authority
     this.overlayPort = options.overlay
+    this.validator = options.validator
     this.emit = options.onEvent ?? (() => {})
     this.maxBootstrapAttempts = options.maxBootstrapAttempts ?? 3
     this.cursorValue = this.readCursorSafely()
@@ -243,6 +255,14 @@ export class Replica {
     }
 
     if (this.state === 'bootstrapping' || this.state === 'healing') {
+      // Validate BEFORE buffering. Buffering first meant a malformed frame
+      // received during a heal or a walk was applied later without ever passing
+      // rung 3 — the cursor advanced over a corrupt payload. Rung 3 must be
+      // unavoidable on EVERY route into the store, not only the live one.
+      if (this.rejects(frame) !== null) {
+        this.startRebootstrap('malformed')
+        return this.outcome('D7-3-MALFORMED')
+      }
       this.buffer.push(frame)
       return this.outcome('D6-BUFFER')
     }
@@ -260,8 +280,7 @@ export class Replica {
       return this.outcome('D7-4-EPOCH')
     }
 
-    const malformed = validateFrame(frame)
-    if (malformed !== null) {
+    if (this.rejects(frame) !== null) {
       this.startRebootstrap('malformed')
       return this.outcome('D7-3-MALFORMED')
     }
@@ -277,27 +296,38 @@ export class Replica {
     return this.applyCertified(frame)
   }
 
-  /** Rung 0 and its neighbours: everything decided by the covered range. */
+  /**
+   * Rung 0, literally as Amendment 1 D13 states it: **accept iff
+   * `fromSeq === cursor`. Otherwise it is a gap.**
+   *
+   * An earlier version of this file also accepted a wholly re-delivered frame
+   * (ignoring it) and a partially overlapping one (truncating to the uncovered
+   * tail). Both are removed. D13.1 normatively guarantees that frames for one
+   * connection are "strictly ordered, contiguous and NON-OVERLAPPING", so those
+   * cases are protocol violations rather than situations to be tolerated — and
+   * tolerating them made the rule WEAKER than the one it replaced, when the
+   * amendment's whole point is that an explicit lower bound is STRONGER (it also
+   * catches a frame that vanished between two others). A replica that quietly
+   * absorbs an overlapping frame removes the only check that would have caught an
+   * authority emitting them, on a contract shared with POD-1077 and POD-308.
+   *
+   * The cost of strictness is one heal round trip if a transport ever does
+   * re-deliver, which resolves and terminates — it is not the endless-heal shape
+   * D13 exists to prevent, because the heal advances the cursor.
+   */
   private applyCertified(frame: DeltaFrame): TransitionOutcome {
     const cursor = this.cursorValue as Cursor
 
-    if (frame.seq <= cursor.seq) return this.outcome('D13-DUPLICATE')
-
-    if (frame.fromSeq > cursor.seq) {
-      // A genuine hole. Do NOT apply — the cursor would then certify data we
-      // never received, which is a permanent lie rather than a lost update.
+    if (frame.fromSeq !== cursor.seq) {
+      // Do NOT apply. Applying would make the cursor certify data we never
+      // received, which is a permanent lie rather than a lost update.
       this.buffer.push(frame)
       this.counters.pendingGap = true
       this.startHeal()
       return this.outcome('D7-1-GAP')
     }
 
-    const overlap = frame.fromSeq < cursor.seq
-    const changes = overlap ? frame.changes.filter((c) => c.seq > cursor.seq) : frame.changes
-    const rowId = this.commitChanges(changes, { ...cursor, seq: frame.seq })
-
-    if (overlap) return this.outcome('D13-OVERLAP')
-    return this.outcome(rowId)
+    return this.outcome(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }))
   }
 
   /**
@@ -306,47 +336,46 @@ export class Replica {
    * that best describes what the frame carried.
    */
   private commitChanges(changes: readonly ChangeEnvelope[], nextCursor: Cursor): string {
-    const upserts: NonNullable<CacheMutation['upserts']>[number][] = []
-    const removals: { entity: string; entityId: string }[] = []
-    const evictions: { entity: string; entityId: string }[] = []
     const readmissions = new Set<string>()
-
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
-      if (change.op === 'upsert') {
-        // Amendment 1 D14.2 — an upsert whose revision has NOT moved is still a
-        // valid upsert. Never dedupe by revision here: that is authority-side
-        // change detection (ChangeBaseline), not a replica constraint, and
-        // dropping one would break re-admission after an evict.
-        if (this.exits.get(key) === 'evicted') readmissions.add(key)
-        upserts.push({
-          entity: change.entity,
-          entityId: change.entityId,
-          value: change.payload,
-          revision: change.revision,
-          // ADR 2 D8 — provenance rides BESIDE the value, never inside it.
-          provenance: {
-            seq: change.seq,
-            originId: change.originId,
-            causationId: change.causationId,
-            mutationId: change.mutationId,
-          },
-        })
-      } else if (change.op === 'remove') {
-        removals.push({ entity: change.entity, entityId: change.entityId })
-      } else {
-        evictions.push({ entity: change.entity, entityId: change.entityId })
-      }
+      // Amendment 1 D14.2 — an upsert whose revision has NOT moved is still a
+      // valid upsert. Never dedupe by revision here: that is authority-side
+      // change detection (ChangeBaseline), not a replica constraint, and dropping
+      // one would break re-admission after an evict.
+      if (change.op === 'upsert' && this.exits.get(key) === 'evicted') readmissions.add(key)
     }
 
-    this.store.applyAtomic({ upserts, removals, evictions, cursor: nextCursor })
+    this.store.applyAtomic(toMutation(changes, nextCursor))
     this.cursorValue = nextCursor
     this.counters.pendingGap = false
 
-    // Emit only after the commit, so no observer can see uncommitted state.
+    return this.emitApplied(changes, nextCursor, readmissions)
+  }
+
+  /**
+   * The ONE post-commit emission path, shared by live application, heal
+   * application and post-install replay of buffered frames.
+   *
+   * It is one function on purpose. It used to be two — `commitChanges` and a
+   * separate `replayEmissions` for the bootstrap path — and they drifted: only
+   * the first retired overlay entries, and only for upserts, so a tombstone or an
+   * eviction carrying provenance never retired the command that caused it, and
+   * nothing applied through a bootstrap retired anything at all. Two emission
+   * paths for one concept is how a contract in a docstring stops being true.
+   *
+   * Emission happens strictly AFTER the commit, so no observer can see
+   * uncommitted state.
+   */
+  private emitApplied(
+    changes: readonly ChangeEnvelope[],
+    cursor: Cursor,
+    readmissions: ReadonlySet<string>,
+  ): string {
     let sawEvict = false
     let sawRemove = false
     let sawReadmit = false
+
     for (const change of changes) {
       const key = entityKey(change.entity, change.entityId)
       if (change.op === 'upsert') {
@@ -355,14 +384,6 @@ export class Replica {
         this.exits.delete(key)
         const record = this.store.read(change.entity, change.entityId)
         if (record !== undefined) this.emit({ type: 'upserted', record, readmitted })
-        if (change.causationId !== undefined || change.mutationId !== undefined) {
-          this.overlayPort?.retire({
-            entity: change.entity,
-            entityId: change.entityId,
-            causationId: change.causationId,
-            mutationId: change.mutationId,
-          })
-        }
       } else if (change.op === 'remove') {
         sawRemove = true
         this.exits.set(key, 'removed')
@@ -375,12 +396,24 @@ export class Replica {
         this.exits.set(key, 'evicted')
         this.emit({ type: 'evicted', entity: change.entity, entityId: change.entityId })
       }
+
+      // ADR 2 D8 — retirement is EXACT, by envelope provenance, for EVERY op that
+      // carries it. A delete I authored must retire its outbox entry exactly as an
+      // edit I authored does; matching on values instead would be arbitration.
+      if (change.causationId !== undefined || change.mutationId !== undefined) {
+        this.overlayPort?.retire({
+          entity: change.entity,
+          entityId: change.entityId,
+          causationId: change.causationId,
+          mutationId: change.mutationId,
+        })
+      }
     }
 
     const watermarkOnly = changes.length === 0
     if (watermarkOnly) this.counters.watermarksApplied += 1
     this.counters.framesApplied += 1
-    this.emit({ type: 'cursor', cursor: nextCursor, watermarkOnly })
+    this.emit({ type: 'cursor', cursor, watermarkOnly })
 
     if (watermarkOnly) return 'D13-WATERMARK'
     if (sawEvict) return 'D14-EVICT'
@@ -436,7 +469,15 @@ export class Replica {
     })
   }
 
-  /** Apply buffered frames while they stay contiguous; the first hole heals again. */
+  /**
+   * Apply buffered frames while they chain exactly; the first that does not,
+   * heals again.
+   *
+   * A frame wholly at or below the cursor is DROPPED, not applied and not healed:
+   * our own cursor already certifies that range, so there is nothing to learn
+   * from it and nothing to lose by discarding it. That is not the acceptance of
+   * an overlapping frame — nothing from it reaches the store.
+   */
   private drainBuffer(): void {
     const buffered = this.buffer
     this.buffer = []
@@ -448,17 +489,16 @@ export class Replica {
         return
       }
       if (frame.seq <= cursor.seq) {
-        this.note('D13-DUPLICATE')
+        this.note('D6-BUFFER-COVERED')
         continue
       }
-      if (frame.fromSeq > cursor.seq) {
+      if (frame.fromSeq !== cursor.seq) {
         this.buffer = buffered.slice(i)
         this.counters.pendingGap = true
         this.startHeal()
         return
       }
-      const changes = frame.changes.filter((c) => c.seq > cursor.seq)
-      this.note(this.commitChanges(changes, { ...cursor, seq: frame.seq }))
+      this.note(this.commitChanges(frame.changes, { ...cursor, seq: frame.seq }))
     }
   }
 
@@ -588,29 +628,30 @@ export class Replica {
     const buffered = this.buffer
     this.buffer = []
 
-    // Fold the buffered frames against the snapshot point. The rule is over
-    // FRAMES, so watermarks and evicts are covered without naming them.
+    // Fold the buffered frames against the snapshot point. No truncation: a frame
+    // is either dropped (wholly covered by the snapshot) or applied whole from an
+    // exact chain, and anything else heals. Truncating a straddling frame would
+    // mean applying a fragment of a certified range, which is precisely the
+    // acceptance D13 forbids — and it would have to be re-validated to be safe,
+    // so the simple rule is also the cheap one.
     const mutations: CacheMutation[] = []
     const emissions: { changes: readonly ChangeEnvelope[]; cursor: Cursor }[] = []
     let running = snapshotCursor
     let gapAt = -1
     for (let i = 0; i < buffered.length; i += 1) {
       const frame = buffered[i] as DeltaFrame
-      if (frame.feedId !== head.feedId || frame.epoch !== head.epoch) continue // D7-4: a stale-epoch frame is simply not ours
+      if (frame.feedId !== head.feedId || frame.epoch !== head.epoch) continue // not ours (D7-4)
       if (frame.seq <= running.seq) {
         this.note('D6-BUFFER-COVERED')
         continue
       }
-      if (frame.fromSeq > running.seq) {
+      if (frame.fromSeq !== running.seq) {
         gapAt = i
         break
       }
-      if (frame.fromSeq < running.seq) this.note('D6-BUFFER-STRADDLE')
-      // D6-BUFFER-STRADDLE (also covers the exact-fit case)
-      const changes = frame.changes.filter((c) => c.seq > running.seq)
       const next: Cursor = { ...running, seq: frame.seq }
-      mutations.push(toMutation(changes, next))
-      emissions.push({ changes, cursor: next })
+      mutations.push(toMutation(frame.changes, next))
+      emissions.push({ changes: frame.changes, cursor: next })
       running = next
     }
 
@@ -630,36 +671,28 @@ export class Replica {
       entityCount: rows.length,
       bufferedFramesApplied: mutations.length,
     })
-    for (const emission of emissions) this.replayEmissions(emission.changes, emission.cursor)
+    // Same emission/retirement semantics as the live and heal paths — one
+    // function, so a change applied through a bootstrap retires its outbox entry
+    // exactly as a change applied live does.
+    for (const emission of emissions) {
+      this.emitApplied(emission.changes, emission.cursor, new Set())
+    }
 
     this.setPosture('live')
     if (gapAt >= 0) {
+      // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
+      // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
+      // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->
+      // install -> the same frame, forever. D7 requires every failure to resolve
+      // strictly DOWNWARD and terminate, and a bootstrap has just delivered
+      // authoritative truth — a stale frame buffered around the walk is not
+      // something to hold the ladder open for. One heal catches up, resolved
+      // against the authority instead of against our own stale buffer.
       this.note('D6-INSTALL-GAP')
-      this.buffer = buffered.slice(gapAt)
+      this.buffer = []
       this.counters.pendingGap = true
       this.startHeal()
     }
-  }
-
-  /** Emit the events for changes already committed inside `installSnapshot`. */
-  private replayEmissions(changes: readonly ChangeEnvelope[], cursor: Cursor): void {
-    for (const change of changes) {
-      const key = entityKey(change.entity, change.entityId)
-      if (change.op === 'upsert') {
-        this.exits.delete(key)
-        const record = this.store.read(change.entity, change.entityId)
-        if (record !== undefined) this.emit({ type: 'upserted', record, readmitted: false })
-      } else if (change.op === 'remove') {
-        this.exits.set(key, 'removed')
-        this.emit({ type: 'removed', entity: change.entity, entityId: change.entityId })
-      } else {
-        this.exits.set(key, 'evicted')
-        this.emit({ type: 'evicted', entity: change.entity, entityId: change.entityId })
-      }
-    }
-    this.counters.framesApplied += 1
-    if (changes.length === 0) this.counters.watermarksApplied += 1
-    this.emit({ type: 'cursor', cursor, watermarkOnly: changes.length === 0 })
   }
 
   // ─── Rung 5 ───────────────────────────────────────────────────────────────
@@ -678,6 +711,29 @@ export class Replica {
     this.exits.clear()
     this.startRebootstrap('local-corruption')
     return this.outcome('D7-5-CORRUPT')
+  }
+
+  /**
+   * Everything rung 3 rejects, in one place so no route into the store can skip
+   * it: generic frame/range shape, plus the injected known-kind check.
+   *
+   * The asymmetry is D4's and it is deliberate — an UNKNOWN entity kind is
+   * accepted with an opaque value and the cursor advances past it, because
+   * quarantining it would create an invisible permanent gap that heals to the same
+   * rows forever. A KNOWN kind that fails its schema, or whose embedded id
+   * disagrees with the envelope, is a rung-3 rejection.
+   */
+  private rejects(frame: DeltaFrame): string | null {
+    const shape = validateFrame(frame)
+    if (shape !== null) return shape
+    const validator = this.validator
+    if (validator === undefined) return null
+    for (const change of frame.changes) {
+      if (!validator.knows(change.entity)) continue
+      const reason = validator.validate(change)
+      if (reason !== null) return reason
+    }
+    return null
   }
 
   // ─── Plumbing ─────────────────────────────────────────────────────────────
@@ -731,29 +787,28 @@ export class Replica {
 }
 
 function toMutation(changes: readonly ChangeEnvelope[], cursor: Cursor): CacheMutation {
-  return {
-    upserts: changes
-      .filter((c) => c.op === 'upsert')
-      .map((c) => ({
-        entity: c.entity,
-        entityId: c.entityId,
-        value: c.payload,
-        revision: c.revision,
+  // ONE ordered list. See CacheOperation in ports.ts for why three buckets was a
+  // bug rather than a style choice.
+  const operations: CacheOperation[] = changes.map((change) => {
+    if (change.op === 'upsert') {
+      return {
+        kind: 'upsert',
+        entity: change.entity,
+        entityId: change.entityId,
+        value: change.payload,
+        revision: change.revision,
+        // ADR 2 D8 — provenance rides BESIDE the value, never inside it.
         provenance: {
-          seq: c.seq,
-          originId: c.originId,
-          causationId: c.causationId,
-          mutationId: c.mutationId,
+          seq: change.seq,
+          originId: change.originId,
+          causationId: change.causationId,
+          mutationId: change.mutationId,
         },
-      })),
-    removals: changes
-      .filter((c) => c.op === 'remove')
-      .map((c) => ({ entity: c.entity, entityId: c.entityId })),
-    evictions: changes
-      .filter((c) => c.op === 'evict')
-      .map((c) => ({ entity: c.entity, entityId: c.entityId })),
-    cursor,
-  }
+      }
+    }
+    return { kind: change.op, entity: change.entity, entityId: change.entityId }
+  })
+  return { operations, cursor }
 }
 
 function rungFor(cause: RebootstrapCause): HealRung {

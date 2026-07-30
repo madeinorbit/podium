@@ -15,6 +15,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryReplicaStore } from './memory-store'
 import type { OptimisticOverlayPort, PendingMutation } from './overlay'
+import type { KnownKindValidatorPort } from './ports'
 import { Replica } from './replica'
 import {
   bootstrapChunk,
@@ -48,7 +49,11 @@ interface Harness {
 }
 
 function harness(
-  options: { overlay?: OptimisticOverlayPort; maxBootstrapAttempts?: number } = {},
+  options: {
+    overlay?: OptimisticOverlayPort
+    validator?: KnownKindValidatorPort
+    maxBootstrapAttempts?: number
+  } = {},
 ): Harness {
   const store = new InMemoryReplicaStore()
   const authority = new FakeAuthority()
@@ -57,6 +62,7 @@ function harness(
     store: store.cache,
     authority,
     overlay: options.overlay,
+    validator: options.validator,
     maxBootstrapAttempts: options.maxBootstrapAttempts,
     onEvent: (event) => events.push(event),
   })
@@ -266,39 +272,43 @@ describe('D7 rung 1 — gaps, genuine out-of-order delivery, and duplicates', ()
     expect(h.replica.stats().bufferedFrames).toBe(0)
   })
 
-  it('a re-delivered frame is IGNORED — not read as a gap, not healed', async () => {
+  it('a re-delivered frame is a GAP, not something to absorb (literal D13)', async () => {
     const h = harness()
     await bootstrapped(h, 0, [])
     const frame = deltaFrame(0, 3, [session(3, 's1', 'one')])
     h.replica.receive(frame)
-    const transactionsAfterFirst = h.store.transactions
+    h.authority.changesSinceQueue = [deltaFrame(3, 3, [])]
 
     const outcome = h.replica.receive(frame)
     await h.replica.settled()
 
-    expect(outcome.rowId).toBe('D13-DUPLICATE')
+    // D13.1 guarantees contiguous non-overlapping frames per connection, so a
+    // re-delivery is a protocol violation. Absorbing it would remove the only
+    // check that catches an authority emitting overlapping ranges.
+    expect(outcome.rowId).toBe('D7-1-GAP')
+    expect(h.authority.changesSinceCalls).toEqual([cursorAt(3)])
+    // And it resolves — one heal, not a loop.
+    expect(h.replica.posture).toBe('live')
     expect(h.replica.cursor?.seq).toBe(3)
-    expect(h.store.transactions).toBe(transactionsAfterFirst) // nothing re-applied
-    expect(h.authority.changesSinceCalls).toHaveLength(0) // and no heal loop
-    expect(h.replica.stats().heals).toBe(0)
+    expect(h.replica.stats().heals).toBe(1)
   })
 
-  it('a partially overlapping frame applies only its uncovered tail', async () => {
+  it('a partially overlapping frame is a GAP too — never truncated and applied', async () => {
     const h = harness()
     await bootstrapped(h, 0, [])
     h.replica.receive(deltaFrame(0, 3, [session(3, 's1', 'first')]))
+    h.authority.changesSinceQueue = [deltaFrame(3, 6, [session(6, 's2', 'tail')])]
 
-    // (1, 6] overlaps what we already hold through 3.
     const outcome = h.replica.receive(
       deltaFrame(1, 6, [session(3, 's1', 'STALE-REPLAY'), session(6, 's2', 'tail')]),
     )
+    await h.replica.settled()
 
-    expect(outcome.rowId).toBe('D13-OVERLAP')
-    expect(h.replica.cursor?.seq).toBe(6)
-    expect(h.replica.view('session', 's2')).toEqual({ name: 'tail' })
-    // The already-covered row was not re-applied — it would have overwritten nothing
-    // here, but re-applying is how a truncation bug hides.
+    expect(outcome.rowId).toBe('D7-1-GAP')
+    // The stale replay never reached the store; the heal supplied the tail.
     expect(h.replica.view('session', 's1')).toEqual({ name: 'first' })
+    expect(h.replica.view('session', 's2')).toEqual({ name: 'tail' })
+    expect(h.replica.cursor?.seq).toBe(6)
   })
 
   it('cursor too old to resume from: the heal reply says re-bootstrap (rung 2)', async () => {
@@ -568,15 +578,16 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     expect(h.replica.stats().bufferedFrames).toBe(0)
   })
 
-  it('discards a buffered frame the snapshot already covers, and truncates a straddling one', async () => {
+  it('drops a buffered frame the snapshot covers, and HEALS rather than truncating a straddling one', async () => {
     const h = harness()
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
+    h.authority.changesSinceQueue = [deltaFrame(30, 35, [session(35, 'tail', 'Z')])]
 
     h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [session(10, 'a', 'A')], false))
     await Promise.resolve()
-    h.replica.receive(deltaFrame(5, 20, [session(20, 'covered', 'X')])) // wholly ≤ 30
+    h.replica.receive(deltaFrame(5, 20, [session(20, 'covered', 'X')])) // wholly <= 30
     h.replica.receive(
       deltaFrame(25, 35, [session(28, 'also-covered', 'Y'), session(35, 'tail', 'Z')]),
     )
@@ -584,10 +595,10 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     await h.replica.settled()
 
     expect(h.replica.trace).toContain('D6-BUFFER-COVERED')
-    expect(h.replica.trace).toContain('D6-BUFFER-STRADDLE')
+    // The straddling frame was NOT truncated and applied — it healed instead.
+    expect(h.replica.trace).toContain('D6-INSTALL-GAP')
     expect(h.replica.cursor?.seq).toBe(35)
     expect(h.replica.view('session', 'tail')).toEqual({ name: 'Z' })
-    // Rows at or below the snapshot point come from the SNAPSHOT, not the buffer.
     expect(h.replica.view('session', 'covered')).toBeUndefined()
     expect(h.replica.view('session', 'also-covered')).toBeUndefined()
   })
@@ -902,6 +913,66 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.replica.view('session', 's1')).toEqual({ name: 'typed name' })
   })
 
+  it('retires on EVERY provenance-carrying op, not only upserts', async () => {
+    const overlay = fakeOverlay()
+    const h = harness({ overlay })
+    await bootstrapped(h, 0, [session(0, 'gone', 'a'), session(0, 'unshared', 'b')])
+
+    h.replica.receive(
+      deltaFrame(0, 3, [
+        {
+          seq: 1,
+          entity: 'session',
+          entityId: 'gone',
+          op: 'remove',
+          causationId: 'cmd-del',
+          mutationId: 'm-del',
+        },
+        {
+          seq: 2,
+          entity: 'session',
+          entityId: 'unshared',
+          op: 'evict',
+          causationId: 'cmd-ev',
+          mutationId: 'm-ev',
+        },
+        session(3, 'kept', 'c', { causationId: 'cmd-up', mutationId: 'm-up' }),
+      ]),
+    )
+
+    // A delete I authored must retire its outbox entry exactly as an edit does;
+    // previously only the upsert branch retired, so a tombstone caused by my own
+    // command left its overlay entry pending forever.
+    expect(overlay.retired.map((r) => (r as { mutationId?: string }).mutationId)).toEqual([
+      'm-del',
+      'm-ev',
+      'm-up',
+    ])
+  })
+
+  it('retires through the BOOTSTRAP path too, not only live and heal', async () => {
+    const overlay = fakeOverlay()
+    const h = harness({ overlay })
+    await bootstrapped(h, 5, [])
+    const channel = h.authority.driveManually()
+
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(10, [], false))
+    await Promise.resolve()
+    h.replica.receive(
+      deltaFrame(10, 11, [
+        session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: 'm-buffered' }),
+      ]),
+    )
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    // The bootstrap replay used to be a second emission path that retired nothing.
+    expect(overlay.retired.map((r) => (r as { mutationId?: string }).mutationId)).toEqual([
+      'm-buffered',
+    ])
+  })
+
   it('survives a rescope, because it is derived from the outbox rather than cached', async () => {
     const overlay = fakeOverlay()
     const h = harness({ overlay })
@@ -920,6 +991,195 @@ describe('the optimistic-overlay reducer seam', () => {
     // The cache was replaced; the user's unsent edit is still on screen.
     expect(h.replica.entities()[0]?.value).toEqual({ name: 'server name v2' })
     expect(h.replica.view('session', 's1')).toEqual({ name: 'typed name' })
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('feed order is the correctness property, including inside one frame', () => {
+  it('remove(seq 1) then upsert(seq 2) for one entity leaves the entity PRESENT', async () => {
+    const h = harness()
+    await bootstrapped(h, 0, [])
+
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        removeChange(1, 'session', 's1'),
+        upsertChange(2, 'session', 's1', { name: 'recreated' }),
+      ]),
+    )
+
+    // Grouping the frame by op kind applied the upsert first and then deleted it.
+    // The store port takes ONE ordered operation list so no adapter can do that.
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'recreated' })
+    expect(h.replica.exitKind('session', 's1')).toBeUndefined()
+  })
+
+  it('evict(seq 1) then re-admitting upsert(seq 2) in ONE frame leaves it present', async () => {
+    const h = harness()
+    await bootstrapped(h, 0, [session(0, 's1', 'v', { revision: 4 })])
+
+    h.replica.receive(
+      deltaFrame(0, 2, [evictChange(1, 'session', 's1'), session(2, 's1', 'v', { revision: 4 })]),
+    )
+
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'v' })
+    expect(h.replica.exitKind('session', 's1')).toBeUndefined()
+  })
+
+  it('upsert(seq 1) then remove(seq 2) still deletes — order cuts both ways', async () => {
+    const h = harness()
+    await bootstrapped(h, 0, [])
+
+    h.replica.receive(
+      deltaFrame(0, 2, [
+        upsertChange(1, 'session', 's1', { name: 'brief' }),
+        removeChange(2, 'session', 's1'),
+      ]),
+    )
+
+    expect(h.replica.view('session', 's1')).toBeUndefined()
+    expect(h.replica.exitKind('session', 's1')).toBe('removed')
+  })
+
+  it('holds order through a heal reply and through buffered bootstrap frames', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [
+      deltaFrame(10, 12, [
+        removeChange(11, 'session', 'healed'),
+        upsertChange(12, 'session', 'healed', { name: 'back' }),
+      ]),
+    ]
+    // A gap drives the heal; the heal reply carries remove-then-upsert in one range.
+    h.replica.receive(deltaFrame(12, 13, [session(13, 'later', 'L')]))
+    await h.replica.settled()
+    expect(h.replica.view('session', 'healed')).toEqual({ name: 'back' })
+    expect(h.replica.view('session', 'later')).toEqual({ name: 'L' })
+
+    // ...and through the install path's buffered frames.
+    const channel = h.authority.driveManually()
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(50, [], false))
+    await Promise.resolve()
+    h.replica.receive(
+      deltaFrame(50, 52, [
+        removeChange(51, 'session', 'buf'),
+        upsertChange(52, 'session', 'buf', { name: 'survived' }),
+      ]),
+    )
+    channel.push(bootstrapChunk(50, [], true))
+    await h.replica.settled()
+    expect(h.replica.view('session', 'buf')).toEqual({ name: 'survived' })
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('rung 3 is unavoidable on every route into the store', () => {
+  const badEvict = deltaFrame(10, 14, [
+    { seq: 11, entity: 'session', entityId: 'i', op: 'evict', payload: {} },
+  ])
+
+  it('rejects a malformed frame that arrives DURING a heal, before it is buffered', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.authority.changesSinceQueue = [deltaFrame(10, 11, [])]
+    h.authority.slice = { snapshotSeq: 60, rows: [] }
+
+    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')])) // gap -> healing
+    expect(h.replica.posture).toBe('healing')
+    const outcome = h.replica.receive(badEvict) // arrives mid-heal
+    await h.replica.settled()
+
+    // Buffering first meant this was applied later without ever passing rung 3.
+    expect(outcome.rowId).toBe('D7-3-MALFORMED')
+    expect(h.replica.cursor?.seq).toBe(60)
+  })
+
+  it('rejects a malformed frame that arrives DURING a bootstrap walk', async () => {
+    const h = harness()
+    await bootstrapped(h, 5, [])
+    const channel = h.authority.driveManually()
+    h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(30, [], false))
+    await Promise.resolve()
+
+    const outcome = h.replica.receive(badEvict)
+
+    expect(outcome.rowId).toBe('D7-3-MALFORMED')
+  })
+
+  it('an injected validator makes known-kind schema and id-mismatch failures reachable', async () => {
+    const validator = {
+      knows: (entity: string) => entity === 'session',
+      validate: (change: ChangeEnvelope) => {
+        const payload = change.payload as { id?: string; name?: unknown } | undefined
+        if (payload === undefined) return null
+        if (typeof payload.name !== 'string') return 'session.name must be a string'
+        // The #247-round-2 rule: an embedded id must match the envelope's.
+        if (payload.id !== undefined && payload.id !== change.entityId)
+          return 'embedded id mismatch'
+        return null
+      },
+    }
+    const h = harness({ validator })
+    await bootstrapped(h, 10, [])
+    h.authority.slice = { snapshotSeq: 99, rows: [] }
+
+    const outcome = h.replica.receive(
+      deltaFrame(10, 11, [upsertChange(11, 'session', 's1', { id: 'SOMEONE-ELSE', name: 'x' })]),
+    )
+    await h.replica.settled()
+
+    expect(outcome.rowId).toBe('D7-3-MALFORMED')
+    expect(h.replica.cursor?.seq).toBe(99)
+  })
+
+  it('keeps UNKNOWN kinds lenient — they apply and the cursor advances (D4)', async () => {
+    const validator = {
+      knows: (entity: string) => entity === 'session',
+      validate: () => 'session is always invalid in this test',
+    }
+    const h = harness({ validator })
+    await bootstrapped(h, 10, [])
+
+    const outcome = h.replica.receive(
+      deltaFrame(10, 11, [upsertChange(11, 'kindFromTheFuture', 'k1', { anything: true })]),
+    )
+
+    // Quarantining an unknown kind would be an invisible permanent gap that heals
+    // to the same rows forever — the exact failure D4's leniency prevents.
+    expect(outcome.rowId).toBe('D7-0-APPLY')
+    expect(h.replica.cursor?.seq).toBe(11)
+    expect(h.replica.view('kindFromTheFuture', 'k1')).toEqual({ anything: true })
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('the ladder always resolves downward and TERMINATES', () => {
+  it('an unsatisfiable buffered frame does not loop install -> heal -> install', async () => {
+    const h = harness()
+    // The authority can only ever offer a snapshot at 10, and never a delta.
+    h.authority.slice = { snapshotSeq: 10, rows: [] }
+    h.replica.connect()
+    await h.replica.settled()
+
+    // A frame far ahead of anything the authority will serve. Re-buffering it
+    // across the install kept the ladder open forever: install -> heal ->
+    // "re-bootstrap" -> install -> the same frame, with no exit.
+    h.replica.receive(deltaFrame(20, 21, [session(21, 'unreachable', 'U')]))
+    await h.replica.settled()
+
+    expect(h.authority.bootstrapCalls).toBeLessThanOrEqual(3)
+    expect(h.replica.stats().bufferedFrames).toBe(0)
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor?.seq).toBe(10)
+  })
+
+  it('settled() itself refuses to hide a non-terminating ladder', async () => {
+    // The guard exists because a loop here presents as a hang, not a failure.
+    const h = harness()
+    h.authority.slice = { snapshotSeq: 1, rows: [] }
+    h.replica.connect()
+    await expect(h.replica.settled()).resolves.toBeUndefined()
   })
 })
 

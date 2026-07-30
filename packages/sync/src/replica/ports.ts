@@ -21,25 +21,44 @@
 
 import type {
   BootstrapChunk,
+  ChangeEnvelope,
   ChangeProvenance,
   ChangesSinceReply,
   Cursor,
   EntityRecord,
 } from './types'
 
+/**
+ * ONE operation against the cache, in FEED ORDER.
+ *
+ * This is a list and not three buckets, and that is load-bearing. An earlier
+ * shape partitioned a frame into upserts/removals/evictions, which silently
+ * reordered them: `remove(seq 1)` followed by `upsert(seq 2)` for one entity
+ * applied the upsert first and then deleted it, so a re-created entity ended up
+ * ABSENT. Feed order IS the correctness property (ADR 2 D9: "order is the
+ * correctness property"; D13: "apply changes in seq order"), and a port that
+ * cannot express it hands every adapter the same bug. Keeping the three kinds as
+ * a discriminated union rather than a flag also keeps `remove` and `evict`
+ * distinguishable all the way down (Amendment 1 D14.5).
+ */
+export type CacheOperation =
+  | {
+      readonly kind: 'upsert'
+      readonly entity: string
+      readonly entityId: string
+      readonly value: unknown
+      readonly revision?: number
+      readonly provenance: ChangeProvenance & { readonly seq: number }
+    }
+  /** Tombstone (`op: 'remove'`) — the entity is gone, globally. */
+  | { readonly kind: 'remove'; readonly entity: string; readonly entityId: string }
+  /** Visibility exit (`op: 'evict'`) — gone from THIS principal's view only. */
+  | { readonly kind: 'evict'; readonly entity: string; readonly entityId: string }
+
 /** One atomic batch. Everything in it commits together or not at all (ADR 2 D10, ADR 6 D4.1). */
 export interface CacheMutation {
-  readonly upserts?: readonly {
-    readonly entity: string
-    readonly entityId: string
-    readonly value: unknown
-    readonly revision?: number
-    readonly provenance: ChangeProvenance & { readonly seq: number }
-  }[]
-  /** Tombstones (`op: 'remove'`). */
-  readonly removals?: readonly { readonly entity: string; readonly entityId: string }[]
-  /** Visibility exits (`op: 'evict'`). Separate from `removals` all the way down. */
-  readonly evictions?: readonly { readonly entity: string; readonly entityId: string }[]
+  /** Applied strictly in order. Adapters MUST NOT regroup or reorder. */
+  readonly operations: readonly CacheOperation[]
   /** The cursor must never be ahead of the data it claims (ADR 2 D10). */
   readonly cursor?: Cursor
 }
@@ -101,4 +120,34 @@ export interface AuthorityReadPort {
    * never own the loop"); the Replica just consumes chunks as they arrive.
    */
   bootstrap(): AsyncIterable<BootstrapChunk>
+}
+
+/**
+ * The KNOWN-KIND validation seam (ADR 2 D7 rung 3 + D4's lenient-parsing rule).
+ *
+ * D7 rung 3 fires on "known-kind row fails validation, corrupt payload, id
+ * mismatch". The Replica cannot perform any of those checks itself: a payload is
+ * `unknown` here by design, because knowing an entity's schema would mean knowing
+ * the domain, and the whole point of D4's lenient parsing is that a replica which
+ * does NOT know a kind must still advance its cursor past it rather than
+ * quarantining it into an invisible permanent gap.
+ *
+ * So the check is injected. Whoever knows the schemas (POD-308's wire adapter,
+ * POD-351's contracts) supplies this; the kernel supplies neither, and the
+ * direction lint stops it from importing one.
+ *
+ * The asymmetry is the decision: **unknown kinds are lenient, known kinds are
+ * strict.** A validator that claims to know a kind takes on the obligation to
+ * reject a corrupt one; a validator that does not know a kind must let it
+ * through, cursor and all.
+ */
+export interface KnownKindValidatorPort {
+  /** Does this replica know this entity kind's schema? */
+  knows(entity: string): boolean
+  /**
+   * Validate a change of a KNOWN kind — payload shape, and any id embedded in
+   * the payload against the envelope's `entityId` (the #247-round-2 rule ADR 2
+   * D7 ratifies as protocol law). Return a reason to reject, or null to accept.
+   */
+  validate(change: ChangeEnvelope): string | null
 }

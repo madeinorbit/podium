@@ -19,6 +19,11 @@
  * time; the replica may never take the incremental one on its own initiative,
  * because choosing which entities left the view would be the replica evaluating
  * visibility.
+ *
+ * Every row here is quoted from the ADR pack. There are deliberately NO derived
+ * rows: an earlier revision carried two (absorbing re-delivered and overlapping
+ * frames) and review rejected them, because a local fork of a load-bearing wire
+ * contract is not a decision this issue gets to make on its own.
  */
 
 import type { HealRung, Posture } from './types'
@@ -98,36 +103,15 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     adr: 'Amendment 1 D14.2 — re-admission needs no new op',
   },
 
-  {
-    id: 'D13-DUPLICATE',
-    from: ['live'],
-    input: 'delta frame',
-    condition: 'feedId/epoch match AND frame.seq <= cursor.seq (wholly re-delivered)',
-    effect:
-      'Ignore. Not a gap and not a heal: our cursor already certifies every seq this frame covers.',
-    to: 'live',
-    rung: 0,
-    adr: 'DERIVED from Amendment 1 D13 (the covered range is what makes this decidable) — see the module note on re-delivery',
-  },
-  {
-    id: 'D13-OVERLAP',
-    from: ['live'],
-    input: 'delta frame',
-    condition: 'feedId/epoch match AND fromSeq < cursor.seq < frame.seq',
-    effect:
-      'Truncate to the uncovered tail (cursor.seq, seq] and apply that. Same rule D6 already uses for a frame straddling the snapshot point.',
-    to: 'live',
-    rung: 0,
-    adr: 'DERIVED from Amendment 1 D13 + ADR 2 D6.3 straddle handling',
-  },
-
   // ─── Rung 1: gap ───────────────────────────────────────────────────────────
   {
     id: 'D7-1-GAP',
     from: ['live'],
     input: 'delta frame',
-    condition: 'feedId/epoch match AND fromSeq !== cursor.seq',
-    effect: 'Do NOT apply. Buffer the frame and call changesSince(cursor).',
+    condition:
+      'feedId/epoch match AND fromSeq !== cursor.seq — INCLUDING a re-delivered or overlapping frame',
+    effect:
+      'Do NOT apply. Buffer the frame and call changesSince(cursor). D13.1 guarantees frames are contiguous and non-overlapping, so anything else is a protocol violation, not a case to absorb.',
     to: 'healing',
     rung: 1,
     adr: 'ADR 2 D7 rung 1, as amended by D13 (explicit lower bound also catches a lost frame)',
@@ -210,14 +194,15 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   // ─── Rungs 3-6 ─────────────────────────────────────────────────────────────
   {
     id: 'D7-3-MALFORMED',
-    from: ['live', 'healing', 'stale'],
+    from: ['live', 'healing', 'stale', 'bootstrapping'],
     input: 'delta frame',
     condition:
-      'known-kind row fails validation: change outside the covered range, decreasing seq, upsert without payload, remove/evict with payload, empty id, fromSeq > seq',
-    effect: 'Do not apply, do not advance. Re-bootstrap.',
+      'frame/range shape fails (change outside the covered range, decreasing seq, upsert without payload, remove/evict with payload, empty id, inverted range), OR the injected known-kind validator rejects a payload or an embedded-id mismatch',
+    effect:
+      'Do not apply, do not advance. Re-bootstrap. Checked on EVERY route into the store — live, and before a frame is buffered during a heal or a walk. Unknown kinds stay lenient per D4 and still advance the cursor.',
     to: 'bootstrapping',
     rung: 3,
-    adr: 'ADR 2 D7 rung 3 — escalates rather than retrying, or the heal loops forever',
+    adr: 'ADR 2 D7 rung 3 + D4 lenient parsing — escalates rather than retrying, or the heal loops forever',
   },
   {
     id: 'D7-3-REPLY-MALFORMED',
@@ -276,24 +261,14 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D6-BUFFER-COVERED',
-    from: ['bootstrapping'],
-    input: 'buffered frame, at install',
-    condition: 'frame.seq <= snapshotSeq',
-    effect: 'Discard it — the snapshot already contains its effect.',
+    from: ['bootstrapping', 'healing'],
+    input: 'buffered frame, at install or at drain',
+    condition: 'frame.seq <= cursor.seq (the snapshot or the heal already covers it)',
+    effect:
+      'DROP it. Not applied and not healed: our own cursor already certifies that range, so there is nothing to learn from it. Nothing from the frame reaches the store, so this is not acceptance of an overlapping frame.',
     to: 'live',
     rung: null,
     adr: 'ADR 2 D6.3',
-  },
-  {
-    id: 'D6-BUFFER-STRADDLE',
-    from: ['bootstrapping'],
-    input: 'buffered frame, at install',
-    condition: 'frame.fromSeq < snapshotSeq < frame.seq',
-    effect:
-      'Truncate to the certified sub-range (snapshotSeq, seq] and keep only changes above the snapshot point.',
-    to: 'live',
-    rung: null,
-    adr: 'ADR 2 D6.3 + Amendment 1 D13 (the covered range is what makes truncation well-defined)',
   },
   {
     id: 'D6-INSTALL',
@@ -310,8 +285,9 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     id: 'D6-INSTALL-GAP',
     from: ['bootstrapping'],
     input: 'buffered frames, at install',
-    condition: 'a buffered frame is not contiguous with the running cursor',
-    effect: 'Apply while contiguous, drop the rest, and heal from the cursor reached.',
+    condition: 'a buffered frame does not chain EXACTLY (fromSeq !== running cursor)',
+    effect:
+      'Apply whole frames while they chain exactly, keep the rest buffered, and heal from the cursor reached. No frame is ever truncated: applying a fragment of a certified range is the acceptance D13 forbids.',
     to: 'healing',
     rung: 1,
     adr: 'ADR 2 D7 rung 1 — resolve downward rather than guess across the hole',

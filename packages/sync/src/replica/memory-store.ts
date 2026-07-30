@@ -122,22 +122,27 @@ class InMemoryCache implements ReplicaCacheStore {
 }
 
 function applyInto(rows: Map<string, EntityRecord>, mutation: CacheMutation): void {
-  for (const upsert of mutation.upserts ?? []) {
-    rows.set(key(upsert.entity, upsert.entityId), {
-      entity: upsert.entity,
-      entityId: upsert.entityId,
-      value: upsert.value,
-      revision: upsert.revision,
-      provenance: upsert.provenance,
-    })
+  // IN ORDER. Never grouped by kind: a frame carrying remove(seq 1) then
+  // upsert(seq 2) for one entity must leave the entity PRESENT, and any adapter
+  // that batches by type gets that backwards (ADR 2 D9/D13 — order is the
+  // correctness property). POD-374/POD-375 inherit this obligation.
+  for (const op of mutation.operations) {
+    if (op.kind === 'upsert') {
+      rows.set(key(op.entity, op.entityId), {
+        entity: op.entity,
+        entityId: op.entityId,
+        value: op.value,
+        revision: op.revision,
+        provenance: op.provenance,
+      })
+      continue
+    }
+    // A tombstone and an eviction both drop the row from the CACHE. They stay
+    // separate op kinds so the layer above can still tell them apart
+    // (Amendment 1 D14.5) — merging them here would make the distinction
+    // unrecoverable exactly where it matters.
+    rows.delete(key(op.entity, op.entityId))
   }
-  // Tombstones and evictions both remove the row from the cache. They are kept
-  // as separate fields all the way down so that the LAYER ABOVE can still tell
-  // them apart (ADR 2 Amendment 1 D14.5) — a store that merged them here would
-  // make the distinction unrecoverable exactly where it matters.
-  for (const removal of mutation.removals ?? []) rows.delete(key(removal.entity, removal.entityId))
-  for (const eviction of mutation.evictions ?? [])
-    rows.delete(key(eviction.entity, eviction.entityId))
 }
 
 /**

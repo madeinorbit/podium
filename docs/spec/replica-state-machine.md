@@ -66,21 +66,35 @@ pipe rather than a second control message.
 | Rung | Detection | Response |
 |---|---|---|
 | 0 | `feedId`/`epoch` match, `fromSeq === cursor` | Apply (including the empty/watermark case). |
-| 1 | **Gap** — `fromSeq > cursor` | Do not apply. Buffer, `changesSince(cursor)`. |
+| 1 | **Gap** — `fromSeq !== cursor` (including a re-delivered or overlapping frame) | Do not apply. Buffer, `changesSince(cursor)`. |
 | 2 | **Compacted**, **`resync-required`** (D9 backpressure), **`rescope`** (D14.4 rights change), cold start | Re-bootstrap, scoped. |
-| 3 | **Malformed** frame or non-contiguous reply | Do not apply, do not advance. Re-bootstrap. |
+| 3 | **Malformed** frame or non-contiguous reply, or a known-kind validation failure | Do not apply, do not advance. Re-bootstrap. Checked on every route in, including before buffering. |
 | 4 | **Feed/epoch mismatch** | Discard entirely. Re-bootstrap. |
 | 5 | **Local corruption** | Clear the cache. Re-bootstrap cold. |
 | 6 | **Replica schema bump** | Discard. Re-bootstrap. |
 
-Two rows are **derived**, not quoted — the ADR does not decide them, and the module resolves
-them the way most consistent with D13 (see the module header for the full argument):
+There are **no derived rows**. An earlier revision of this module carried two — absorbing a
+wholly re-delivered frame, and truncating a partially overlapping one to its uncovered tail —
+and review rejected them. D13.1 normatively guarantees that frames for one connection are
+"strictly ordered, contiguous and non-overlapping", so both cases are protocol violations
+rather than situations to tolerate, and tolerating them made the acceptance rule **weaker**
+than the one the amendment deliberately strengthened. On a wire contract shared with POD-1077
+and POD-308, a locally documented fork is not a decision this module gets to make. The cost of
+strictness is one heal round trip if a transport ever does re-deliver — which resolves and
+terminates, because the heal advances the cursor.
 
-- `frame.seq <= cursor.seq` (wholly re-delivered) → **ignore**. Our cursor already certifies
-  that range. Reading it as a gap would heal-loop forever, the same failure D13 exists to
-  prevent, arriving from the other side.
-- `fromSeq < cursor.seq < frame.seq` (partial overlap) → apply the **uncovered tail** only.
-  This is the truncation D6.3 already requires for a frame straddling the snapshot point.
+**Nothing is ever truncated.** A frame is applied whole, dropped whole (when the cursor already
+certifies its entire range), or healed. Applying a fragment of a certified range is the
+acceptance D13 forbids, and it would need re-validating to be safe — so the strict rule is also
+the cheap one.
+
+**The ladder terminates.** A buffered frame that cannot chain from a freshly installed snapshot
+is DISCARDED, not re-buffered. Re-buffering it was an infinite ladder: install → heal →
+"re-bootstrap" → install → the same frame, forever, with no exit. A bootstrap has just
+delivered authoritative truth, so a frame buffered around the walk is not worth holding the
+ladder open for; one heal catches up, resolved against the authority rather than against a
+stale local buffer. `settled()` fails loudly rather than hanging if this ever regresses,
+because a non-terminating ladder presents as a hang and not as a failing assertion.
 
 ### 4.1 The outbox survives every rung
 
@@ -100,6 +114,31 @@ outbox survives **per rung**, not for one representative rung.
 
 A queued command is a request against an **entity**, not against a feed position. A rescope
 never makes it moot; deciding that it did would be the Replica arbitrating.
+
+### 4.2 Order is the correctness property, including inside one frame
+
+Changes reach the store as **one ordered operation list** (`CacheOperation`), never grouped by
+op kind. Grouping is not a style choice — it is a bug with a concrete failure: an earlier port
+shape partitioned each frame into upserts/removals/evictions, so `remove(seq 1)` followed by
+`upsert(seq 2)` for the same entity applied the upsert first and then deleted it, leaving a
+re-created entity **absent**. The three kinds stay a discriminated union rather than a flag so
+`remove` and `evict` remain distinguishable all the way down (D14.5). Adapters MUST NOT
+regroup or reorder; POD-374 and POD-375 inherit that obligation.
+
+### 4.3 Rung 3 is unavoidable on every route into the store
+
+Frame and range shape is validated **before a frame is buffered**, not only on the live path.
+Validating on apply alone meant a malformed frame arriving during a heal or a bootstrap walk
+was buffered, then applied later without ever passing rung 3 — the cursor advancing over a
+corrupt payload.
+
+The *known-kind* half of rung 3 ("known-kind row fails validation, corrupt payload, id
+mismatch") cannot be done by the kernel: a payload is `unknown` here by design, because knowing
+an entity's schema would mean knowing the domain. It arrives as an injected
+`KnownKindValidatorPort`. The asymmetry is the decision, and it is D4's: **unknown kinds are
+lenient** (accepted opaquely, cursor advances — quarantining them would create the invisible
+permanent gap that heals to the same rows forever), **known kinds are strict**. A validator
+that claims a kind takes on the obligation to reject a corrupt one.
 
 ## 5. Stale-visible posture, and what it means under scoping
 
@@ -161,12 +200,18 @@ what D4's lenient-parsing rule buys.
 | `ReplicaCacheStore` — entities + cursor, atomic batches, atomic install | ADR 6 D3; POD-374 (IndexedDB) / POD-375 (mobile SQLite) supply durable adapters |
 | `AuthorityReadPort` — `changesSince`, chunked `bootstrap` | POD-305 (Authority), POD-1077 (scoping), POD-373 (wiring) |
 | `OptimisticOverlayPort` — `pending` / `reduce` / `retire` | **Declared only.** POD-372 derives overlays from contract reducers; POD-351 ships the first real contract |
+| `KnownKindValidatorPort` — `knows` / `validate` | **Declared only.** POD-308's wire adapter / POD-351's contracts know the schemas; the kernel must not |
 
 The overlay is **derived, never stored twice** (ADR 4 D7): it is a function of (authoritative
 base, pending commands). Nothing persists an overlay row, which is also why a re-bootstrap
 cannot lose one — the outbox survives, so the overlay simply recomputes. Retirement is exact,
 via envelope provenance (`causationId`/`mutationId`, ADR 2 D8), never by value comparison;
-comparing values would be arbitration.
+comparing values would be arbitration. It fires for **every** provenance-carrying op —
+`upsert`, `remove` and `evict` alike — through **one** post-commit emission path shared by
+live, heal and post-install replay. It used to be two paths, and they drifted: only upserts
+retired, and nothing applied through a bootstrap retired at all, so a delete the user authored
+left its overlay entry pending forever. Two emission paths for one concept is how a contract in
+a docstring stops being true.
 
 Not here, on purpose: the wire codec (POD-308 maps the pre-cutover protocol shape onto these
 kernel types), the outbox state machine (POD-370 / ADR 3 D9), durable storage, and any
