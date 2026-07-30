@@ -31,6 +31,11 @@
       "types": "./src/adapters/indexeddb/index.ts",
       "import": "./src/adapters/indexeddb/index.ts"
     },
+    "./adapters/legacy-replica": {
+      "@podium/source": "./src/adapters/legacy-replica/index.ts",
+      "types": "./src/adapters/legacy-replica/index.ts",
+      "import": "./src/adapters/legacy-replica/index.ts"
+    },
     "./adapters/mobile-sqlite": {
       "@podium/source": "./src/adapters/mobile-sqlite/index.ts",
       "types": "./src/adapters/mobile-sqlite/index.ts",
