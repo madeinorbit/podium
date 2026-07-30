@@ -8,6 +8,7 @@ import {
   MaintenanceHandshake,
   MaintenanceHandshakeReply,
   messageExpiryRunKey,
+  sessionAutoArchiveRunKey,
 } from './maintenance'
 
 describe('maintenance protocol [spec:SP-c29e]', () => {
@@ -172,5 +173,88 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     expect(messageExpiryRunKey({ ...observed, expiresAt: '2026-07-20T00:00:00.000Z' })).not.toBe(
       messageExpiryRunKey(observed),
     )
+  })
+})
+
+/**
+ * SessionAutoArchiveObservation is a VALIDATION GATE over an untrusted
+ * cross-process payload, not a projection of the session entity — and until
+ * POD-366 it had no test at all, so that claim was prose nothing enforced.
+ *
+ * The janitor is a separate process; its command arrives as an HTTP body that
+ * `apps/server/src/modules/maintenance/route.ts` runs through
+ * `MaintenanceCommand.safeParse`. These tests go through that same union rather
+ * than the leaf schema, so they exercise the gate the server actually uses.
+ *
+ * Why it matters for the session vocabulary (inventory §2.1 #23): every
+ * divergence from the canonical session fields is load-bearing, so this shape is
+ * a DECLARED-LEGITIMATE divergence that must stay hand-written:
+ *   - `archived: z.literal(false)` is a PRECONDITION about observed state.
+ *     Composed from the aggregate it becomes `boolean`, and the gate whose whole
+ *     purpose is to refuse an auto-archive command for an ALREADY-archived
+ *     session would accept exactly that payload. Fail-open.
+ *   - `.min(1).max(256)` are input bounds on an untrusted id, not field types.
+ *   - `.datetime()` is stricter than the entity's plain string.
+ *
+ * Each test mutates exactly ONE constraint of an otherwise-valid payload, and
+ * the valid payload is asserted FIRST as the counterfactual — without it, a
+ * refusal proves only that the parse rejects something. Per-constraint mutants
+ * are deliberate: POD-367 found that a COMPOUND mutant (two preconditions
+ * composed away at once) can mask a per-constraint kill and read as a survivor,
+ * because a second broken field keeps the payload failing for the wrong reason.
+ */
+describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
+  const valid = {
+    sessionId: 'ses_1',
+    issueId: 'iss_1',
+    stoppedAt: '2026-07-01T00:00:00.000Z',
+    readAt: '2026-07-01T00:00:00.000Z',
+    archived: false as const,
+  }
+  const command = (observed: unknown) => ({
+    protocolVersion: 2,
+    schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+    jobKind: 'session-auto-archive' as const,
+    runKey: sessionAutoArchiveRunKey(valid),
+    fencingToken: 1,
+    observed,
+  })
+
+  it('accepts a well-formed observation — the counterfactual for every refusal below', () => {
+    expect(MaintenanceCommand.parse(command(valid)).jobKind).toBe('session-auto-archive')
+    expect(sessionAutoArchiveRunKey(valid)).toContain('session-auto-archive')
+  })
+
+  it('accepts a null issueId — an unbound session is a legitimate observation', () => {
+    expect(() => MaintenanceCommand.parse(command({ ...valid, issueId: null }))).not.toThrow()
+  })
+
+  it('REFUSES archived: true — the precondition composing would destroy', () => {
+    // This is the one that matters. If `archived` ever widens to boolean, this
+    // test is the only thing standing between the server and an auto-archive
+    // command for a session that is already archived.
+    expect(() => MaintenanceCommand.parse(command({ ...valid, archived: true }))).toThrow()
+  })
+
+  it('refuses an empty sessionId, and one past the 256-char input bound', () => {
+    expect(() => MaintenanceCommand.parse(command({ ...valid, sessionId: '' }))).toThrow()
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, sessionId: 'x'.repeat(257) })),
+    ).toThrow()
+    // 256 exactly is the boundary and must still be accepted, so the bound is
+    // pinned from both sides rather than only from outside.
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, sessionId: 'x'.repeat(256) })),
+    ).not.toThrow()
+  })
+
+  it('refuses an empty issueId even though the field is nullable', () => {
+    // nullable and min(1) are different constraints: absent is fine, blank is not.
+    expect(() => MaintenanceCommand.parse(command({ ...valid, issueId: '' }))).toThrow()
+  })
+
+  it('refuses timestamps that are strings but not datetimes', () => {
+    expect(() => MaintenanceCommand.parse(command({ ...valid, stoppedAt: 'yesterday' }))).toThrow()
+    expect(() => MaintenanceCommand.parse(command({ ...valid, readAt: '2026-07-01' }))).toThrow()
   })
 })
