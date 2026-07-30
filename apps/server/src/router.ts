@@ -1,17 +1,20 @@
-import { presenceCommand } from '@podium/commands'
-import { sessionHandoffInput } from '@podium/commands'
+import { presenceCommand, sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
   ArtifactIdField,
   AutomationScheduleKind,
   AutomationSessionMode,
   IssueIdField,
+  isAgentKind,
   ResumeRef,
   SessionIdField,
   WorkState,
-  isAgentKind,
 } from '@podium/model'
-import { agentSupportsCloud, clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
+import {
+  agentSupportsCloud,
+  clientSwitchTraceSchema,
+  type FileReadResultMessage,
+} from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
@@ -67,9 +70,6 @@ import { searchAll } from './search'
 export { type Context, mods } from './trpc'
 
 import type { AnyCommandContract } from '@podium/commands'
-import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
-import { visibleMachinesFor } from './modules/sessions/command-ctx'
-import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
 /**
  * THE DERIVED SESSION SURFACE (POD-382).
  *
@@ -90,6 +90,9 @@ import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presenc
  * among them by being called a query.
  */
 import { fleetProcedures } from './modules/fleet/trpc'
+import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
+import { visibleMachinesFor } from './modules/sessions/command-ctx'
+import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
 import { presencePrincipal, sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
 import { type Context, mods, t } from './trpc'

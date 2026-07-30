@@ -53,8 +53,14 @@ export interface FleetCommand {
  * member of this table.
  */
 export const FLEET_COMMANDS = {
-  'machines.rename': { contract: FLEET_CONTRACTS['machines.rename'], handler: machineRenameHandler },
-  'machines.revoke': { contract: FLEET_CONTRACTS['machines.revoke'], handler: machineRevokeHandler },
+  'machines.rename': {
+    contract: FLEET_CONTRACTS['machines.rename'],
+    handler: machineRenameHandler,
+  },
+  'machines.revoke': {
+    contract: FLEET_CONTRACTS['machines.revoke'],
+    handler: machineRevokeHandler,
+  },
   'machines.pairingCode': {
     contract: FLEET_CONTRACTS['machines.pairingCode'],
     handler: machinePairingCodeHandler,
@@ -62,7 +68,10 @@ export const FLEET_COMMANDS = {
   'repos.add': { contract: FLEET_CONTRACTS['repos.add'], handler: repoAddHandler },
   'repos.addMany': { contract: FLEET_CONTRACTS['repos.addMany'], handler: repoAddManyHandler },
   'repos.remove': { contract: FLEET_CONTRACTS['repos.remove'], handler: repoRemoveHandler },
-  'repos.setPrefix': { contract: FLEET_CONTRACTS['repos.setPrefix'], handler: repoSetPrefixHandler },
+  'repos.setPrefix': {
+    contract: FLEET_CONTRACTS['repos.setPrefix'],
+    handler: repoSetPrefixHandler,
+  },
   'discovery.refreshRepos': {
     contract: FLEET_CONTRACTS['discovery.refreshRepos'],
     handler: discoveryRefreshReposHandler,

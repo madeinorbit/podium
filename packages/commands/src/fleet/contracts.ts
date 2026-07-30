@@ -709,7 +709,10 @@ export const discoveryScanFolderContract = {
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
-  ownership: { creates: [], note: 'Returns candidates for the selection screen; registers nothing — `repos.addMany` is what persists a selection.' },
+  ownership: {
+    creates: [],
+    note: 'Returns candidates for the selection screen; registers nothing — `repos.addMany` is what persists a selection.',
+  },
   attribution: FLEET_ATTRIBUTION,
   errorConsistency: USE_ERRORS,
   serverRole: 'core',
@@ -736,9 +739,7 @@ export const discoveryScanMachineContract = {
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
-  ownership: REPO_ROW_OWNERSHIP(
-    'Auto-registers origin matches. ' + REPO_ROW_NOTE,
-  ),
+  ownership: REPO_ROW_OWNERSHIP('Auto-registers origin matches. ' + REPO_ROW_NOTE),
   attribution: FLEET_ATTRIBUTION,
   errorConsistency: USE_ERRORS,
   serverRole: 'core',
