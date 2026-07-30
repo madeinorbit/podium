@@ -2318,3 +2318,72 @@ describe('the kernel and the store apply record-level mutations identically', ()
     })
   }
 })
+
+describe('optional precondition: presence, not truthiness', () => {
+  // The coordinator's unaffected clause: an omit-the-key helper must drop UNDEFINED,
+  // not FALSY. `expectedRevision: 0` is a legitimate precondition — revision 0 is a
+  // real revision — and a drop-falsy helper would silently omit it, turning "must be
+  // at revision 0" into "no precondition at all", which the Authority would accept
+  // where it should conflict. So assert OBJECT KEYS, not just values: values agree in
+  // both directions here, and only key presence tells the two idioms apart.
+  it('keeps expectedRevision 0 and omits it only when undefined', async () => {
+    const { outbox } = await harness()
+    const zero = await outbox.enqueue(close('POD-1', { expectedRevision: 0 }))
+    const none = await outbox.enqueue(close('POD-2'))
+
+    expect(Object.keys(zero)).toContain('expectedRevision')
+    expect(zero.expectedRevision).toBe(0)
+    expect(Object.keys(none)).not.toContain('expectedRevision')
+
+    // Same on the wire, where an absent precondition and a zero one mean different
+    // things to the Authority.
+    expect(Object.keys(envelopeFor(zero))).toContain('expectedRevision')
+    expect(Object.keys(envelopeFor(none))).not.toContain('expectedRevision')
+
+    // And after a durability round trip, since JSON drops an undefined VALUE but
+    // keeps a zero one — the asymmetry that makes the distinction observable.
+    const durable = new Map(
+      (
+        await (outbox as unknown as { store: { read(): Promise<OutboxRecord[]> } }).store.read()
+      ).map((r) => [r.mutationId, r]),
+    )
+    expect(Object.keys(durable.get(zero.mutationId) as OutboxRecord)).toContain('expectedRevision')
+    expect(Object.keys(durable.get(none.mutationId) as OutboxRecord)).not.toContain(
+      'expectedRevision',
+    )
+  })
+
+  it('keeps a REBASE to revision 0 on the retry path', async () => {
+    // Found by a surviving mutant: `revisionOfValue` (the retry/rebase path) had no
+    // test separating drop-falsy from drop-undefined, so a rebase to revision 0 would
+    // have been silently dropped — turning "must be at revision 0" into "no
+    // precondition at all", which the Authority would accept where it must conflict.
+    // The dead-letter recovery UX (POD-316) hands exactly this value back.
+    const { outbox, authority } = await harness(() => conflicted)
+    const record = await outbox.enqueue(close('POD-1', { expectedRevision: 5 }))
+    await outbox.drain()
+
+    const requeued = await outbox.retry(record.mutationId, { expectedRevision: 0 })
+
+    expect(Object.keys(requeued)).toContain('expectedRevision')
+    expect(requeued.expectedRevision).toBe(0)
+    await outbox.drain()
+    expect(Object.keys(authority.envelopes.at(-1) ?? {})).toContain('expectedRevision')
+    expect(authority.envelopes.at(-1)?.expectedRevision).toBe(0)
+  })
+
+  it('keeps the same distinction through a dead-letter projection', async () => {
+    const { outbox } = await harness(() => conflicted)
+    await outbox.enqueue(close('POD-1', { expectedRevision: 0 }))
+    await outbox.enqueue(close('POD-2'))
+    await outbox.drain()
+    await outbox.drain()
+
+    const parked = outbox.deadLetters()
+    const withZero = parked.find((r) => (r.input as { issueId: string }).issueId === 'POD-1')
+    const without = parked.find((r) => (r.input as { issueId: string }).issueId === 'POD-2')
+    expect(Object.keys(withZero ?? {})).toContain('expectedRevision')
+    expect(withZero?.expectedRevision).toBe(0)
+    expect(Object.keys(without ?? {})).not.toContain('expectedRevision')
+  })
+})
