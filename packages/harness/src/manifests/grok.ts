@@ -6,7 +6,9 @@ import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
 import {
   accountIdentity,
-  type HarnessAdapter,
+  type AgentManifest,
+  supported,
+  unsupported,
   isSet,
   type TranscriptSourceInput,
   transcriptFileExists,
@@ -61,7 +63,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   return (await transcriptFileExists(path)) ? [path] : []
 }
 
-export const grokAdapter: HarnessAdapter = {
+export const grokManifest: AgentManifest = {
   kind: 'grok',
   capabilities: AGENT_CAPABILITIES.grok,
   resumeKind: 'grok-session',
@@ -111,19 +113,19 @@ export const grokAdapter: HarnessAdapter = {
     }
   },
 
-  exec(opts) {
+  exec: supported((opts) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return { cmd: 'grok', args: ['-p', ...(model ? ['--model', model] : []), prompt] }
-  },
+  }),
 
-  headless: {
+  headless: supported({
     driver: 'resume-exec',
     // -s/--session-id is create-or-resume — the daemon mints the UUID on the
     // first turn, so every turn uses the same pinned invocation.
     resumeIdAllocation: 'daemon-minted-uuid',
-    buildExec(opts) {
+    buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const rules = [opts.systemPrompt, opts.contextPrompt]
         .map((part) => part?.trim())
@@ -142,10 +144,10 @@ export const grokAdapter: HarnessAdapter = {
           opts.prompt,
         ],
       }
-    },
-  },
+    }),
+  }),
 
-  state: grokStateProvider,
+  state: supported(grokStateProvider),
 
   // Grok's native hooks carry lifecycle/state, but the payload names only the
   // session id — not its on-disk transcript — so a polling observer still
@@ -155,7 +157,7 @@ export const grokAdapter: HarnessAdapter = {
   // On reattach it's absent → observeGrokState defaults watermarkMs to 0 (no
   // floor), so the latest-by-activity session is found even if it predates
   // this daemon process start.
-  observer(input, host) {
+  observer: supported((input, host) => {
     let lease = input.observationLease
     let active: ReturnType<typeof observeGrokState> | undefined
     let stopped = false
@@ -305,16 +307,20 @@ export const grokAdapter: HarnessAdapter = {
         })
       },
     }
-  },
+  }),
 
   discovery: createGrokConversationProvider(),
 
-  transcript: {
+  transcript: supported({
     storage: 'file-chain',
-    chainPaths,
+    chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
       return fileChainSource(chain, recordToItemsForKind('grok'))
     },
-  },
+  }),
+
+  classifyBrowserOpen: unsupported(
+    'no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',
+  ),
 }

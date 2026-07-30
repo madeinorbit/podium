@@ -28,7 +28,7 @@ vi.mock('../agent-state/codex.js', async (importOriginal) => {
   }
 })
 
-import { codexAdapter } from './codex.js'
+import { codexManifest } from './codex.js'
 
 function lease(providerSessionId: string | null): HarnessObservationLease {
   return {
@@ -75,8 +75,9 @@ function ack(
 
 function start(initialLease: HarnessObservationLease) {
   const observerHost = host()
-  const observerFactory = codexAdapter.observer
-  if (!observerFactory) throw new Error('codex observer is required')
+  if (!codexManifest.observer.supported)
+    throw new Error(`codex declares observer unsupported: ${codexManifest.observer.reason}`)
+  const observerFactory = codexManifest.observer.value
   const observation = observerFactory(
     {
       cwd: '/repo',

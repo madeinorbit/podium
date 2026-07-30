@@ -1,41 +1,71 @@
-import type { AgentKind, HarnessAgent } from '@podium/protocol'
+import {
+  type AgentKind,
+  type BuiltinHarnessKind,
+  type HarnessAgent,
+  isBuiltinHarnessKind,
+} from '@podium/protocol'
 import type { AgentStateProvider } from './agent-state/types.js'
-import type { HarnessAdapter } from './manifest.js'
-import { claudeCodeAdapter } from './manifests/claude-code.js'
-import { codexAdapter } from './manifests/codex.js'
-import { cursorAdapter } from './manifests/cursor.js'
-import { grokAdapter } from './manifests/grok.js'
-import { opencodeAdapter } from './manifests/opencode.js'
+import { type AgentManifest, declaredValue } from './manifest.js'
+import { claudeCodeManifest } from './manifests/claude-code.js'
+import { codexManifest } from './manifests/codex.js'
+import { cursorManifest } from './manifests/cursor.js'
+import { grokManifest } from './manifests/grok.js'
+import { opencodeManifest } from './manifests/opencode.js'
 
 /**
- * THE harness registry (#158): one adapter per driveable agent kind. The
- * exhaustive Record makes "new harness = one adapter file + one entry here"
- * a type-checked contract — a missing kind fails compilation, and the
- * registry test asserts every adapter declares every capability field.
+ * THE harness registry (#158/POD-303): one manifest per driveable harness kind.
+ *
+ * The exhaustive `Record<BuiltinHarnessKind, AgentManifest>` makes "new harness =
+ * one manifest file + one entry here" a TYPE-CHECKED contract — a missing kind
+ * fails compilation, and registry.test.ts asserts every manifest declares every
+ * capability field (implemented, or explicitly `unsupported`).
+ *
+ * The Record is keyed by the CLOSED `BuiltinHarnessKind` on purpose. Lookups from
+ * the OPEN wire `HarnessId` go through {@link manifestFor}, which returns
+ * `undefined` for a harness this build has never heard of — the caller then
+ * degrades. There is deliberately NO fallback entry: a default manifest would make
+ * an unknown harness silently behave like whichever CLI happened to be the
+ * default, which is the exact failure the open/closed split exists to prevent.
  */
-export const HARNESS_ADAPTERS: Record<HarnessAgent, HarnessAdapter> = {
-  'claude-code': claudeCodeAdapter,
-  codex: codexAdapter,
-  grok: grokAdapter,
-  opencode: opencodeAdapter,
-  cursor: cursorAdapter,
+export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
+  'claude-code': claudeCodeManifest,
+  codex: codexManifest,
+  grok: grokManifest,
+  opencode: opencodeManifest,
+  cursor: cursorManifest,
 }
 
-/** Adapter lookup over the wire kind; 'shell' (and unknown strings from old
- *  wires) have no harness — callers branch on undefined. */
-export function harnessAdapterFor(kind: AgentKind | string): HarnessAdapter | undefined {
-  return (HARNESS_ADAPTERS as Record<string, HarnessAdapter>)[kind]
+/**
+ * Manifest lookup over an OPEN harness id (a wire `HarnessId`, an `AgentKind`, or
+ * any string from an older or newer peer). Returns `undefined` for 'shell' (not a
+ * harness) and for unknown harness names — callers MUST branch on that and
+ * degrade, never substitute another harness's manifest.
+ */
+export function manifestFor(kind: AgentKind | string): AgentManifest | undefined {
+  return isBuiltinHarnessKind(kind) ? AGENT_MANIFESTS[kind] : undefined
 }
 
-/** The provider registry. Uninstrumented kinds return undefined → phase stays 'unknown'. */
+/** @deprecated Renamed to {@link manifestFor}. Kept so POD-398/399 can retire the
+ *  remaining call sites without widening this leaf's diff. */
+export const harnessAdapterFor = manifestFor
+
+/** @deprecated Renamed to {@link AGENT_MANIFESTS}. */
+export const HARNESS_ADAPTERS = AGENT_MANIFESTS
+
+/**
+ * The state-provider registry. Kinds whose manifest declares `state` unsupported —
+ * and unknown kinds — return undefined, so phase stays 'unknown' instead of being
+ * inferred from another harness's output conventions.
+ */
 export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | undefined {
-  return harnessAdapterFor(kind)?.state
+  const manifest = manifestFor(kind)
+  return manifest ? declaredValue(manifest.state) : undefined
 }
 
 /** Resolve a resume.kind ('grok-session', 'codex-thread', …) to its harness. */
 export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | undefined {
-  for (const adapter of Object.values(HARNESS_ADAPTERS)) {
-    if (adapter.resumeKind === resumeKind) return adapter.kind
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    if (manifest.resumeKind === resumeKind) return manifest.kind
   }
   return undefined
 }

@@ -209,7 +209,6 @@
       "dependencies": {
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
-        "@podium/transcript": "workspace:*",
         "node-pty": "^1.0.0",
       },
       "devDependencies": {
@@ -254,6 +253,19 @@
     "packages/domain": {
       "name": "@podium/domain",
       "version": "0.0.0",
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/harness": {
+      "name": "@podium/harness",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
+        "@podium/transcript": "workspace:*",
+      },
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
@@ -1048,6 +1060,8 @@
     "@podium/domain": ["@podium/domain@workspace:packages/domain"],
 
     "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
+
+    "@podium/harness": ["@podium/harness@workspace:packages/harness"],
 
     "@podium/issue-client": ["@podium/issue-client@workspace:packages/issue-client"],
 

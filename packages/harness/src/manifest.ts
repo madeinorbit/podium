@@ -5,7 +5,7 @@ import type {
   AgentObservation,
   AgentObservationAckMessage,
   AgentObservationRebindAckMessage,
-  HarnessAgent,
+  BuiltinHarnessKind,
   ObservationProvider,
   ProviderCursor,
   ResumeRef,
@@ -17,8 +17,60 @@ import type { AgentStateEvent, AgentStateProvider } from './agent-state/types.js
 import type { ConversationProvider } from './discovery/types.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
- *  daemon directly; it has no CLI conventions, transcript, or observers). */
-export type HarnessKind = HarnessAgent
+ *  daemon directly; it has no CLI conventions, transcript, or observers).
+ *  @deprecated Prefer `BuiltinHarnessKind` (@podium/protocol) — same type, and
+ *  the name says WHY it is closed: registry totality. Retained so POD-398/399
+ *  can retire the last call sites without a wide rename in this leaf. */
+export type HarnessKind = BuiltinHarnessKind
+
+// ---------------------------------------------------------------------------
+// Incremental completeness (POD-303).
+// ---------------------------------------------------------------------------
+
+/**
+ * A manifest capability that a harness may not implement YET.
+ *
+ * The registry's totality forces every capability to be DECLARED; this type is
+ * what lets a declaration say "not yet" out loud. That is the whole point of the
+ * scheme: a new `BuiltinHarnessKind` can land with a minimal manifest — launch
+ * and discovery only — and grow state, headless and transcript support in later
+ * PRs, without the compiler ever letting someone forget one.
+ *
+ * Deliberately NOT modelled as `T | undefined` or an optional field. An optional
+ * field cannot distinguish "this CLI genuinely has no headless mode" from
+ * "somebody added a harness and forgot this line", so the two failure modes get
+ * the same silent treatment at every call site. Requiring an explicit `reason`
+ * makes the unsupported case self-documenting and makes forgetting it a type
+ * error.
+ *
+ * Consumers MUST branch on `supported`. Degrade the feature — grey out the
+ * button, skip the observer, report capabilities unknown — never substitute
+ * another harness's behavior as a default.
+ */
+export type Declared<T> =
+  | { readonly supported: true; readonly value: T }
+  | { readonly supported: false; readonly reason: string }
+
+/** Declare a capability this harness implements. */
+export function supported<T>(value: T): Declared<T> {
+  return { supported: true, value }
+}
+
+/**
+ * Declare a capability this harness does NOT implement, and say why — the reason
+ * is surfaced in diagnostics (`podium doctor`, degraded settings UI), so write it
+ * for a reader deciding whether the gap is permanent or just unfinished.
+ */
+export function unsupported(reason: string): Declared<never> {
+  return { supported: false, reason }
+}
+
+/** The declared value, or `undefined` when unsupported — for the many call sites
+ *  whose degraded path is simply "don't do it". Keeps `supported` checks from
+ *  sprawling without ever inventing a substitute default. */
+export function declaredValue<T>(declared: Declared<T>): T | undefined {
+  return declared.supported ? declared.value : undefined
+}
 
 // ---------------------------------------------------------------------------
 // Launch (interactive PTY spawn) — the agentLaunchCommand axis.
@@ -162,13 +214,16 @@ export interface HarnessHeadless {
    *   'create-chat'      — pre-allocated via a CLI call (cursor create-chat).
    */
   resumeIdAllocation: 'sdk-session-uuid' | 'stream-captured' | 'daemon-minted-uuid' | 'create-chat'
-  /** Pure argv builder for the child-process drivers. Absent for 'claude-sdk'
-   *  (the SDK builds its own invocation). `env` (when present) is merged over the
-   *  child's environment — codex passes its MCP bearer token here (POD-1021). */
-  buildExec?: (
-    opts: HeadlessExecOptions,
-    bins: HarnessBins,
-  ) => { cmd: string; args: string[]; env?: Record<string, string> }
+  /** Pure argv builder for the child-process drivers. Unsupported for
+   *  'claude-sdk' (the SDK builds its own invocation). `env` (when present) is
+   *  merged over the child's environment — codex passes its MCP bearer token here
+   *  (POD-1021). */
+  buildExec: Declared<
+    (
+      opts: HeadlessExecOptions,
+      bins: HarnessBins,
+    ) => { cmd: string; args: string[]; env?: Record<string, string> }
+  >
 }
 
 // ---------------------------------------------------------------------------
@@ -296,11 +351,12 @@ export interface TranscriptSourceInput {
 
 export interface HarnessTranscript {
   storage: 'file-chain' | 'sqlite'
-  /** Ordered oldest→newest JSONL files for a session ('file-chain' storage only).
-   *  Every file-based harness resolves the SPECIFIC conversation by its resume
-   *  value — a cwd bucket holds many DISTINCT conversations, so globbing the
-   *  bucket would merge unrelated sessions; no resume value ⇒ []. */
-  chainPaths?(input: TranscriptSourceInput): Promise<string[]>
+  /** Ordered oldest→newest JSONL files for a session ('file-chain' storage only;
+   *  unsupported for 'sqlite', which has no files to chain). Every file-based
+   *  harness resolves the SPECIFIC conversation by its resume value — a cwd
+   *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
+   *  unrelated sessions; no resume value ⇒ []. */
+  chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
   /** Resolve this session's transcript read source (file chain or DB-backed). */
   sourceFor(input: TranscriptSourceInput): Promise<TranscriptSource>
 }
@@ -324,15 +380,32 @@ export interface BrowserOpenClassification {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything Podium needs to drive one coding-agent CLI (#158/#249). A new
- * harness is ONE adapter file + a registry entry (the exhaustive Record makes
- * a missing kind a type error) + its AGENT_CAPABILITIES row in
- * @podium/protocol. The daemon is a generic host over this interface: launch,
- * exec, headless turns, per-session observation and transcript reads all
- * dispatch through the registry — no per-agent tables outside it.
+ * Everything Podium needs to drive one coding-agent CLI (#158/#249) — ONE object
+ * per CLI, and the single home for behavioral variance between them. A new
+ * harness is ONE manifest file + a registry entry (the exhaustive
+ * `Record<BuiltinHarnessKind, AgentManifest>` makes a missing kind a type error)
+ * + its AGENT_CAPABILITIES row in @podium/protocol. The daemon is a generic host
+ * over this interface: launch, exec, headless turns, per-session observation and
+ * transcript reads all dispatch through the registry — no per-agent tables and no
+ * `if (kind === 'codex')` outside it.
+ *
+ * TOTALITY vs IMPLEMENTATION (POD-303). Every field below must be DECLARED — the
+ * compiler enforces that. Fields typed `Declared<T>` need not be IMPLEMENTED: a
+ * harness may land with launch and discovery only and say `unsupported('…')` for
+ * the rest, then grow them in later PRs. The three always-required fields
+ * (`launch`, `discovery`, `inventory`) are the irreducible minimum for a harness
+ * Podium can spawn and find conversations for; anything less is not a harness.
+ *
+ * PRINCIPAL-FREE. A manifest describes SOFTWARE, never a person. It carries no
+ * owner, no user id, no visibility class and no grant check — see `HarnessId` in
+ * @podium/protocol for why that separation is load-bearing, and
+ * docs/multi-user-readiness.md §3.1.1 for where authorization does live. The
+ * per-machine RESOLVED fact ("claude-code is installed here, at this version") is
+ * a different thing entirely: see `MachineHarnessInventory` in
+ * ./inventory/build-inventory.ts.
  */
-export interface HarnessAdapter {
-  kind: HarnessKind
+export interface AgentManifest {
+  kind: BuiltinHarnessKind
   /** This harness's row of the protocol capability table (@podium/protocol). */
   capabilities: AgentCapabilities
   /** The resume.kind stamped on this harness's native conversations. */
@@ -341,21 +414,35 @@ export interface HarnessAdapter {
   inventory: HarnessInventory
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchSpec
-  /** One-shot full-harness turn (`claude -p` / `codex exec` …). */
-  exec(opts: HarnessExecOptions, bins: HarnessBins): HarnessExecSpec
-  headless: HarnessHeadless
-  /** Hook/observer state provider; undefined ⇒ phase stays 'unknown'. */
-  state: AgentStateProvider | undefined
-  /** Per-session native-store observation (state observer + live tail setup). */
-  observer: HarnessObserver
   /** Native-conversation discovery provider. */
   discovery: ConversationProvider
-  transcript: HarnessTranscript
+  /** One-shot full-harness turn (`claude -p` / `codex exec` …). Unsupported ⇒ the
+   *  harness cannot serve superagent/work-LLM turns; callers pick another. */
+  exec: Declared<(opts: HarnessExecOptions, bins: HarnessBins) => HarnessExecSpec>
+  /** Persistent headless sessions. Unsupported ⇒ no headless driver; the session
+   *  must run interactively over a PTY. */
+  headless: Declared<HarnessHeadless>
+  /** Hook/observer state provider. Unsupported ⇒ phase stays 'unknown' rather
+   *  than being guessed from another harness's output conventions. */
+  state: Declared<AgentStateProvider>
+  /** Per-session native-store observation (state observer + live tail setup).
+   *  Unsupported ⇒ no native-store observation; transcript and status stay blind. */
+  observer: Declared<HarnessObserver>
+  /** Transcript reads. Unsupported ⇒ this harness's conversations cannot be read
+   *  back (no chat switcher, no BTW); the session still runs. POD-398 folds the
+   *  per-CLI record→items mappers in behind this field. */
+  transcript: Declared<HarnessTranscript>
   /** Harness-specific browser-open classification (this harness's known login
    *  vs plain-link URLs), consulted BEFORE the daemon's generic redirect_uri
-   *  heuristic. Absent (or returning undefined) ⇒ generic fallback decides. */
-  classifyBrowserOpen?(url: URL): BrowserOpenClassification | undefined
+   *  heuristic. Unsupported (or returning undefined) ⇒ generic fallback decides.
+   *  POD-738 owns making this a fully declared capability. */
+  classifyBrowserOpen: Declared<(url: URL) => BrowserOpenClassification | undefined>
 }
+
+/** @deprecated Renamed to `AgentManifest` (POD-303/POD-325 vocabulary: the object
+ *  is a manifest, not an adapter). Alias kept so POD-398/399 can retire the last
+ *  external call sites without widening this leaf's diff. */
+export type HarnessAdapter = AgentManifest
 
 /** 'auto' (or empty) is the sentinel for "no override" — the CLI decides. */
 export function isSet(value: string | undefined): value is string {

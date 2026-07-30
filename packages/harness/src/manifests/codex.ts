@@ -10,7 +10,9 @@ import {
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
 import {
   accountIdentity,
-  type HarnessAdapter,
+  type AgentManifest,
+  supported,
+  unsupported,
   type HarnessObservationLease,
   isSet,
   type TranscriptSourceInput,
@@ -132,7 +134,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   return path ? [path] : []
 }
 
-export const codexAdapter: HarnessAdapter = {
+export const codexManifest: AgentManifest = {
   kind: 'codex',
   capabilities: AGENT_CAPABILITIES.codex,
   resumeKind: 'codex-thread',
@@ -189,7 +191,7 @@ export const codexAdapter: HarnessAdapter = {
     }
   },
 
-  exec(opts) {
+  exec: supported((opts) => {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     // No native extra-system-prompt flag — prepend it to the prompt.
@@ -216,14 +218,14 @@ export const codexAdapter: HarnessAdapter = {
       ],
       ...(Object.keys(mcp.env).length > 0 ? { env: mcp.env } : {}),
     }
-  },
+  }),
 
-  headless: {
+  headless: supported({
     driver: 'codex-json',
     // First turn: codex mints the thread id, captured from the `--json` event
     // stream (`thread.started`); turns ≥2 thread on via `exec resume <id>`.
     resumeIdAllocation: 'stream-captured',
-    buildExec(opts) {
+    buildExec: supported((opts) => {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const instructions = [opts.systemPrompt, opts.contextPrompt]
         .map((part) => part?.trim())
@@ -251,10 +253,10 @@ export const codexAdapter: HarnessAdapter = {
         ],
         ...(Object.keys(mcp.env).length > 0 ? { env: mcp.env } : {}),
       }
-    },
-  },
+    }),
+  }),
 
-  state: codexStateProvider,
+  state: supported(codexStateProvider),
 
   // Codex state arrives on TWO channels: native hooks (codex ≥0.142, fast +
   // authoritative, the only source for PermissionRequest) via the daemon's
@@ -262,7 +264,7 @@ export const codexAdapter: HarnessAdapter = {
   // for codex builds/sessions without hooks). `bindHookThread` lets the hook
   // path pin the observer to the thread the hook payload names without
   // restarting a correctly-bound observer on every POST.
-  observer(input, host) {
+  observer: supported((input, host) => {
     // Codex creates its rollout lazily (often at the first prompt), so a
     // reattached observer must still be able to discover by cwd — floored at
     // the session's original spawn time so it can't latch onto an older
@@ -437,26 +439,26 @@ export const codexAdapter: HarnessAdapter = {
         }
       },
     }
-  },
+  }),
 
   discovery: createCodexConversationProvider(),
 
-  transcript: {
+  transcript: supported({
     storage: 'file-chain',
-    chainPaths,
+    chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const chain = (await chainPaths(input)).map((p) => ({ path: p, fileId: fileIdFor(p) }))
       return fileChainSource(chain, recordToItemsForKind('codex'))
     },
-  },
+  }),
 
   // Codex login goes through auth.openai.com (loopback redirect to :1455);
   // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts
   // fall to the generic heuristic.
-  classifyBrowserOpen(url) {
+  classifyBrowserOpen: supported((url) => {
     const host = url.hostname.toLowerCase()
     if (host === 'auth.openai.com') return { intent: 'login' }
     if (host === 'chatgpt.com' || host === 'platform.openai.com') return { intent: 'link' }
     return undefined
-  },
+  }),
 }
