@@ -42,6 +42,11 @@ import {
   SessionIdField,
   UserIdField,
 } from '../ids'
+// The shared vocabulary layer (POD-1141). Imported from the LEAF module, never
+// from `../entities/issue`: that import is what made the two files mutually
+// dependent, and because these are zod schema VALUES evaluated at module load it
+// failed at RUNTIME rather than at lint — which is why POD-367 could not compose
+// `IssueWire` from the groups below. See `../entities/issue-vocabulary.ts`.
 import {
   IssueColor,
   IssueGitState,
@@ -49,7 +54,7 @@ import {
   IssueSessionSummary,
   IssueStage,
   IssueType,
-} from '../entities/issue'
+} from '../entities/issue-vocabulary'
 import { Attribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 
