@@ -140,6 +140,39 @@ export function runChecks(input: AuditInput): Finding[] {
     })
   }
 
+  // THE DETECTOR MUST PROVE IT CAN STILL MATCH (POD-309's ZERO_BY_DESIGN move,
+  // applied to the other half of the same rule).
+  //
+  // The allowlist scan below reports a finding when someone adds a call site.
+  // Its silent failure is the mirror of an unearned zero: if either pattern ever
+  // stops matching — a rename, a regex edit, an import style this does not
+  // cover — the loop finds nothing and the gate says OK, which is exactly what
+  // it says when the tree is genuinely clean. Those two must not be spelled the
+  // same way.
+  //
+  // So the patterns are run against sites that are KNOWN to contain what they
+  // look for, and a miss THROWS rather than passing. A throw cannot be mistaken
+  // for a clean tree; a zero can.
+  const controls: { path: string; pattern: RegExp; what: string }[] = [
+    { path: ADAPTER_FILE, pattern: /\bLegacyWireV1Adapter\b/, what: 'the exported class name' },
+    {
+      path: 'apps/server/src/gateway/wire-feed-edge.ts',
+      pattern: /from\s+['"][^'"]*legacy-wire-v1-adapter(?:\.ts)?['"]/,
+      what: 'the one registration import',
+    },
+  ]
+  for (const control of controls) {
+    const source = input.read(control.path)
+    if (source === null || !control.pattern.test(source)) {
+      throw new Error(
+        `wire-adapter audit: the call-site detector no longer matches ${control.what} in ` +
+          `${control.path}. Every "no unexpected call sites" result below would be a zero this ` +
+          'detector has not earned — indistinguishable from a clean tree. Fix the pattern (or the ' +
+          'control, if the code legitimately moved) before trusting any result from this gate.',
+      )
+    }
+  }
+
   // A REFERENCE, not a mention. The first version of this check matched the
   // adapter's path anywhere in a file, and `--probe` immediately caught it
   // flagging `version.ts` for naming the file in a docstring — a prose mention
@@ -234,6 +267,27 @@ const PROBES: { name: string; input: AuditInput; expect: string }[] = (() => {
       ),
     },
     {
+      // The mirror of POD-309's control-string guard: break the thing the
+      // detector keys on and the gate must THROW, never quietly report zero
+      // call sites — which is what it also reports when the tree is clean.
+      name: 'the call-site detector stops matching its control',
+      expect: 'detector-throws',
+      input: overlay({
+        [ADAPTER_FILE]: (adapter ?? '').replace(/LegacyWireV1Adapter/g, 'RenamedAdapter'),
+      }),
+    },
+    {
+      // The SECOND control, broken on its own. Two controls that only ever fail
+      // together would be one control wearing two names — and the registration
+      // import is the half most likely to move (a barrel file, a rename), which
+      // is exactly why it is checked separately.
+      name: 'the registration-import control stops matching',
+      expect: 'detector-throws',
+      input: overlay({
+        'apps/server/src/gateway/wire-feed-edge.ts': '// the registration moved somewhere else\n',
+      }),
+    },
+    {
       name: 'adapter deleted but the floor was not raised',
       expect: 'floor-follows-deletion',
       input: overlay({ [ADAPTER_FILE]: null }),
@@ -247,7 +301,14 @@ if (import.meta.main) {
   if (args.has('--probe')) {
     let bad = 0
     for (const probe of PROBES) {
-      const found = runChecks(probe.input).map((f) => f.check)
+      let found: string[]
+      try {
+        found = runChecks(probe.input).map((f) => f.check)
+      } catch {
+        // A THROW is an outcome, not a crash: the broken-detector fixture below
+        // is only satisfied by one.
+        found = ['detector-throws']
+      }
       const ok = found.includes(probe.expect)
       console.log(`${ok ? 'PASS' : 'FAIL'}  ${probe.name} → expected ${probe.expect}, got [${found}]`)
       if (!ok) bad++
