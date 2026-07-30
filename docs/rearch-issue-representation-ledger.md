@@ -12,16 +12,16 @@ handed forward still open. It does not re-derive POD-364's inventory.
 | # | Representation | Status | Note |
 |---|---|---|---|
 | 1 | `issues` (drizzle DDL) | untouched | Physical DDL — legitimate R3 by inventory verdict |
-| 2 | `IssueRow` | **BLOCKED** | Needs POD-365's field groups (§4) |
-| 3 | `IssueWire` | **BLOCKED** | Needs POD-365's field groups; the mid-shape provenance splice makes this the sharpest one |
+| 2 | `IssueRow` | **not done** | Needs the one `toStorage`/`fromStorage` pair; the aggregate's renames and wrapper make a straight `Pick` a store-wide change (§4) |
+| 3 | `IssueWire` | **BLOCKED — architectural** | A circular import blocks it; proven, measured, and filed as POD-1141 (§4a) |
 | 4 | `IssuePatch` | already compliant | The reference pattern §6 generalizes; unchanged |
 | 5 | `CreateIssueInput` | **composed** | `Pick<IssueRow,…>` + a `CreatableRowFields<K>` mapped type |
-| 6 | `IssueTreeNode` | **BLOCKED** | Needs the groups; also coupled to POD-366's `IssueTreeSession` |
-| 7 | `TreeNode` (CLI) | **BLOCKED** | Retiring it needs #6 in a package the CLI may import |
-| 8 | `ShowWire` (CLI) | **BLOCKED** | As #7 |
+| 6 | `IssueTreeNode` | **not done** | Retirement of the CLI copy needs a shared home; embed stays until POD-308 |
+| 7 | `TreeNode` (CLI) | **not done** | Retiring it needs #6 in a package the CLI may import |
+| 8 | `ShowWire` (CLI) | **not done** | As #7 |
 | 9 | `OrphanIssue` | **composed** | Picks from `IssueWireCore` via `IssueRefHead` |
 | 10 | `IssueGraphNode` | **composed** | Picks from `IssueWireCore`; both edge answers kept open (§3.1) |
-| 11 | `HandoffIssue` | **deferred** | Shares a file with POD-366/POD-643's types; mailed, not edited (§5) |
+| 11 | `HandoffIssue` | **composed** | Cleared by POD-643 and POD-365; existing predicate tests kept intact, not re-derived |
 | 12 | `RefIssueLike` | **composed** | The largest client restatement; 11 fixture sites needed branded ids |
 | 13 | `FocusIssueInfo` | **composed** | `stage` tightens from `string` to `IssueStage` |
 | 14 | `IssueInfo` (workflows) | **composed, verdict corrected** | Not a duplicate of #13 — §2 |
@@ -32,8 +32,8 @@ handed forward still open. It does not re-derive POD-364's inventory.
 Also landed: `EpicStatus` and `LintFinding` composed from the same identity head (read-model
 aggregates, not counted in the 17).
 
-**7 composed, 1 correctly left alone with reasons, 1 deferred on a file-ownership question,
-6 blocked on POD-365, 2 legitimately untouched.**
+**9 composed, 1 correctly left alone with reasons, 1 blocked architecturally (POD-1141),
+4 not done, 2 legitimately untouched.**
 
 ---
 
@@ -310,6 +310,47 @@ add; the policy is POD-290's and is not decided here. The `reason` free-text fin
 
 No `instance_id`, no instance partition, nothing reserved for one. ADR 1 D5 stands: multi-user lives
 *inside* one instance.
+
+---
+
+## 4a. `IssueWire` is blocked by a circular import — proven, measured, and filed
+
+The one representation named first in the acceptance criterion is the one that cannot be composed
+yet, and the reason is architectural rather than sequencing. **Filed as POD-1141** (sub-issue of this
+one) with the measurements below so none of it is redone.
+
+**The cycle, proven not inferred.** `packages/model/src/fields/issue.ts` imports `IssueColor`,
+`IssueGitState`, `IssuePanel`, `IssueSessionSummary`, `IssueStage` and `IssueType` **from**
+`entities/issue.ts` (and re-exports them). So `entities/issue.ts` cannot import the field groups to
+compose `IssueWireCore` from them. Because these are zod schema **values** evaluated at module load,
+it fails at runtime rather than at lint: substituting one key (`id: IssueIdentity.shape.id`) and
+running the model tests gives
+
+    TypeError: undefined is not an object (evaluating 'IssueStage.optional')
+
+— `fields/issue.ts` sees `IssueStage` as `undefined` when `entities/issue.ts` is entered first. The
+probe was reverted; it reproduces in one line.
+
+**Measured before stopping, so POD-1141 starts from data.** Comparing each wire key's zod `_def` JSON
+against the field groups' members: **44 of `IssueWire`'s 78 keys are type-IDENTICAL** to a group
+member and are therefore byte-safe substitutions once the cycle is gone. The **34 that differ fall
+into named classes**, not arbitrary drift: the renames POD-365 deliberately kept off the wire
+(`blockedBy`/`blockedByNotes`, `origin`/`intentOrigin`, `draft`/`isDraftVessel`), the `IssueDocuments`
+wrapper (`description`/`notes` are objects in the aggregate, strings on the wire), the flattened
+needs-human tuple (four independent optionals on the wire, one optional-as-a-whole `asked` object in
+the group), per-user state absent from the aggregate by construction, derived rollups and edge arrays
+whose optionality differs, the deprecated `comments` array, the `sessions` embed, flat provenance, and
+`createdAt`.
+
+**A trap that an automated pass walks straight into, recorded because it nearly caught this one.**
+Type identity is **necessary but not sufficient**. `IssueGitState.updatedAt` is the *last-probe*
+timestamp and `IssueGitState.branch` is *the branch the checkout is actually on* — both are
+type-identical to `IssueWire.updatedAt` (entity mtime) and `IssueWire.branch` (the issue's branch),
+and both are **different facts**. Substituting them would typecheck, would leave the encoded bytes
+identical, and would be **wrong**, with no test able to see it. The mechanical comparison tells you
+which substitutions are byte-*safe*; it never tells you which are *correct*. Ownership must be
+asserted per key by hand — which is how `updatedAt` was excluded here and `branch` was pointed at
+`IssueWorkspace` rather than `IssueGitState`.
 
 ---
 
