@@ -101,9 +101,22 @@ Each was reverted and the gate returned to `exit 0`.
 
 ## Other lanes
 
+> **Verification posture (revised).** The coordinator diagnosed the box as swap-thrashing (16GB of
+> swap in use, run queue over 200) and serialized the memory-heavy lanes behind a `test-lane` lease,
+> stating they would rather have honest targeted-lane evidence than a full-lane run that segfaulted
+> under thrash. So the full suite below is reported as measured *before* that rule, with its three
+> failures individually exonerated, and the primary evidence is the targeted lane plus the cheap
+> gates. I took the lease, found the box still thrashing from processes that never took it (so a
+> "clean" full run was not actually available), released it for the agents queued behind me, and
+> killed the four orphaned workers my stopped run left in this worktree.
+
 | Lane | Result |
 |---|---|
-| `bun run typecheck` | **20/20 successful** |
+| **Targeted lane** (`vitest.unit.config.ts --project node`, the test files covering every changed file: protocol capabilities, composer driver + prompt-extract, issue-context-menu) | **exit 0 — 130 passed** |
+| **Gate's own tests** (`scripts/architecture-manifest.test.ts`, `scripts/check-boundaries.test.ts` — they own the allowlist and manifest I changed) | **exit 0 — 134 passed** |
+| Scoped typechecks: `@podium/protocol`, `@podium/composer`, `@podium/web` | **all PASS, zero `FULL TURBO`** (real work executed, not cache) |
+| `bun scripts/check-no-nul-bytes.ts` | **exit 0** |
+| `bun run typecheck` (whole repo) | **20/20 successful**, `3 cached, 20 total` — 17 packages actually executed, so not a `FULL TURBO` no-op. A `--force` run was NOT made: it is memory-heavy and now requires the lease |
 | `bun scripts/rearch-audit.ts` | **exit 0** — "deletion audit OK — 21 items, 264 sites remaining (baseline exact)" |
 | `bun run --filter '@podium/web' build` | **exit 0** — bundle builds, so the new module and protocol import resolve through vite |
 | `bun run test` | 3 files failed / 410 passed, 5252 tests passed. **All three exonerated below.** |
