@@ -9,9 +9,11 @@
  *
  * Recorded here because the issue brief says "offline queueing is issue-writes
  * only today", and that is not what the code does: the covered set spans eight
- * SESSION writes plus three issue writes. Pins, tab order and sendText are the
- * deliberate exclusions (`createEngineOutbox`'s docstring: pins/tab-orders are
- * low offline value; live chat must fail fast rather than silently queue).
+ * SESSION writes plus three issue writes. Pins, tab order, sendText, and the two
+ * remaining router mutations (`ask`, `uploadImage`) are the deliberate
+ * exclusions (`createEngineOutbox`'s docstring: pins/tab-orders are low offline
+ * value; live chat must fail fast rather than silently queue — and a seance or
+ * an image upload replayed hours later is worse than a failure).
  *
  * Every characterization here is tagged must-not-change: the covered set is a
  * product decision the migration must carry over verbatim, not a
@@ -145,10 +147,14 @@ describe('oracle: the offline-queued write set', () => {
     outbox.dispose()
   })
 
-  it(`${MUST_NOT_CHANGE}: pins, tab order and sendText are NOT offline-capable — an entry for them is poison-dropped, never sent`, async () => {
+  it(`${MUST_NOT_CHANGE}: pins, tab order, sendText, ask and uploadImage are NOT offline-capable — an entry for them is poison-dropped, never sent`, async () => {
     const { outbox, calls, poisoned, errors } = makeOutbox()
 
-    for (const uncovered of ['pinSet', 'tabSetOrder', 'sendText']) {
+    // The full direct-only exclusion set. `ask` and `uploadImage` are here so
+    // that ADDING an executor for either to createEngineOutbox — which would
+    // make a seance or an image upload survive an offline gap, a real behaviour
+    // change — turns this oracle red instead of passing silently.
+    for (const uncovered of ['pinSet', 'tabSetOrder', 'sendText', 'ask', 'uploadImage']) {
       // Deliberately outside OutboxKinds: this is the assertion that the kind
       // has no executor, i.e. that the write stays direct-to-server.
       outbox.enqueue(
@@ -161,9 +167,15 @@ describe('oracle: the offline-queued write set', () => {
     while (outbox.size() > 0) await outbox.drain()
 
     expect(calls).toEqual([])
-    expect(poisoned.map((e) => e.kind)).toEqual(['pinSet', 'tabSetOrder', 'sendText'])
+    expect(poisoned.map((e) => e.kind)).toEqual([
+      'pinSet',
+      'tabSetOrder',
+      'sendText',
+      'ask',
+      'uploadImage',
+    ])
     // The user is TOLD, per kind — a dropped write is never silent.
-    expect(errors).toHaveLength(3)
+    expect(errors).toHaveLength(5)
     outbox.dispose()
   })
 

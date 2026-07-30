@@ -17,12 +17,13 @@
  */
 
 import type { ControlMessage } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
   makeOracle,
   messageOf,
+  waitFor,
   willChange,
 } from './oracle-support'
 
@@ -34,20 +35,24 @@ const AGENT_ONLY = willChange(
   'agent-capability path only — there is no human-vs-human authz today',
 )
 
-/** Answer the daemon's image-upload round-trip with a scripted result. */
+/** Answer the daemon's image-upload round-trip with a scripted result. Returns
+ *  the requests THAT machine received, so routing can be asserted per machine. */
 function answerUploads(
   o: ReturnType<typeof makeOracle>,
   reply: (msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>) => {
     path: string
     error?: string
   },
-): void {
-  const existing = o.reg.modules.sessions
-  o.reg.modules.sessions.attachDaemon('local', (msg) => {
-    o.daemon.push(msg)
+  machineId = 'local',
+): ControlMessage[] {
+  const seen: ControlMessage[] = []
+  const svc = o.reg.modules.sessions
+  svc.attachDaemon(machineId, (msg) => {
+    seen.push(msg)
+    if (machineId === 'local') o.daemon.push(msg)
     if (msg.type === 'imageUploadRequest') {
       const r = reply(msg)
-      existing.onDaemonMessageFrom('local', {
+      svc.onDaemonMessageFrom(machineId, {
         type: 'imageUploadResult',
         requestId: msg.requestId,
         path: r.path,
@@ -55,15 +60,16 @@ function answerUploads(
       })
     }
   })
+  return seen
 }
 
 /** A live idle claude-code session the seance can address. */
-function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string): void {
+function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = '/p'): void {
   o.reg.modules.sessions.onDaemonMessageFrom('local', {
     type: 'bind',
     sessionId,
     cmd: 'claude',
-    cwd: '/p',
+    cwd,
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
@@ -117,11 +123,70 @@ describe('oracle: sessions.ask (the seance)', () => {
     })
   })
 
+  it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
+    const o = makeOracle()
+    const issue = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
+    o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const target = o.reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r/.worktrees/a',
+      issueId: issue.id,
+    })
+    liveSession(o, target.sessionId, '/r/.worktrees/a')
+
+    // Start the seance WITHOUT awaiting: the answer has to arrive DURING the
+    // bounded wait, which is the half a timeoutSeconds:0 test can never reach.
+    const pending = o.call.sessions.ask({
+      sessionId: target.sessionId,
+      question: 'which way?',
+      timeoutSeconds: 5,
+    })
+
+    // Wait on the question ROW appearing (predicate, never a sleep), then answer
+    // it as the target agent would: a relayed messages.reply, which stamps the ack.
+    let questionId = ''
+    await waitFor(() => {
+      const rows = o.store.messages.listLedger({ sessionId: target.sessionId })
+      const q = rows.find((m) => m.kind === 'question')
+      if (q) questionId = q.id
+      return Boolean(q)
+    }, 'the question row to be written')
+
+    const replied = await o.relay({
+      requestId: 'ack-the-question',
+      sessionId: target.sessionId,
+      router: 'messages',
+      proc: 'reply',
+      input: { id: questionId, body: 'left, then straight on' },
+    })
+    expect(replied.ok).toBe(true)
+
+    const result = (await pending) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      answered: true,
+      questionId,
+      answer: 'left, then straight on',
+      snapshot: { sessionId: target.sessionId, status: 'live', phase: 'idle' },
+    })
+    // The ack id is the REPLY's message id — the round trip is traceable in the
+    // ledger, not just reported back as a string.
+    expect(o.store.messages.getMessage(result.ackId as string)).toMatchObject({
+      inReplyTo: questionId,
+      body: 'left, then straight on',
+    })
+    expect(o.store.messages.getMessage(questionId)?.ackedBy).toBe(result.ackId)
+  })
+
   it(`${MUST_NOT_CHANGE}: ask against an unknown session THROWS 'session not found' — the gate resolves the target before sending`, async () => {
     const o = makeOracle()
 
     expect(
-      await messageOf(() => o.call.sessions.ask({ sessionId: GHOST, question: 'anyone?' })),
+      await messageOf(() =>
+        // timeoutSeconds:0 so a REMOVED target gate fails here as a wrong RESULT
+        // shape, not as a 20s vitest timeout that hides what changed.
+        o.call.sessions.ask({ sessionId: GHOST, question: 'anyone?', timeoutSeconds: 0 }),
+      ),
     ).toBe('session not found')
   })
 
@@ -244,11 +309,53 @@ describe('oracle: sessions.uploadImage', () => {
     ).toBe('no daemon answered the image upload request')
   })
 
-  it(`${willChange('POD-1079', "machines become owned compute; an upload writes to someone else's disk")}: an upload for an unknown session is still dispatched — placement is resolved with no ownership check`, async () => {
+  it(`${willChange('POD-1079', 'machines become owned compute; use defaults to the owner only')}: an upload is routed to the SESSION's machine, whichever machine that is, with no ownership check`, async () => {
+    // A second paired machine that is NOT the default, hosting the session. It
+    // must be declared before the registry so its inventory is cached, and it
+    // must report the harness or placement refuses the spawn.
+    const o = makeOracle({ offlineMachines: [{ id: 'other', name: 'other' }] })
+    const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), 'other')
+    const localSeen = answerUploads(o, () => ({ path: '/on/local/x.png' }), 'local')
+    const { sessionId } = await o.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      machineId: 'other',
+    })
+    otherSeen.length = 0
+    localSeen.length = 0
+
+    const result = await o.call.sessions.uploadImage({
+      sessionId,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: Buffer.from('bytes').toString('base64'),
+    })
+
+    // The bytes land on the machine that RUNS the session, so the returned path
+    // is valid in that session's prompt. Dropping the routing argument would send
+    // every upload to the default machine and this assertion is what catches it.
+    expect(result).toEqual({ path: '/on/other/x.png' })
+    expect(otherSeen.filter((m) => m.type === 'imageUploadRequest')).toEqual([
+      expect.objectContaining({
+        type: 'imageUploadRequest',
+        sessionId,
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: Buffer.from('bytes').toString('base64'),
+      }),
+    ])
+    // And the default machine sees NOTHING — the discriminating half.
+    expect(localSeen.filter((m) => m.type === 'imageUploadRequest')).toEqual([])
+  })
+
+  it(`${willChange('POD-1073', 'invisible must later fail identically to nonexistent — §3.1.5')}: an upload for an UNKNOWN session is dispatched anyway, to the default machine`, async () => {
     const o = makeOracle()
     answerUploads(o, () => ({ path: '/home/agent/.podium/uploads/ghost/x.png' }))
 
-    // No existence gate: the write is routed to the default machine and lands.
+    // No existence gate at all: the write is routed to the default machine and
+    // lands. This is the session-existence behaviour §3.1.5 has to close, NOT the
+    // machine-ownership question above — an owner would still be able to dispatch
+    // a ghost upload to their own machine once POD-1079 lands.
     expect(
       await o.call.sessions.uploadImage({
         sessionId: GHOST,
@@ -260,6 +367,39 @@ describe('oracle: sessions.uploadImage', () => {
     expect(o.daemon).toContainEqual(
       expect.objectContaining({ type: 'imageUploadRequest', sessionId: GHOST }),
     )
+  })
+
+  it(`${MUST_NOT_CHANGE}: an upload to a machine that never answers times out after the RPC budget and surfaces as TIMEOUT`, async () => {
+    vi.useFakeTimers()
+    try {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      // The daemon is attached but DEAF: it records the request and never replies,
+      // which is what an unreachable machine looks like from the server's side.
+      o.reg.modules.sessions.attachDaemon('local', (msg) => o.daemon.push(msg))
+
+      const pending = o.call.sessions.uploadImage({
+        sessionId,
+        filename: 'shot.png',
+        mimeType: 'image/png',
+        dataBase64: 'AA==',
+      })
+      const settled = pending.then(
+        () => 'resolved',
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      )
+
+      // Drive the real 30s RPC budget rather than waiting it out or faking the
+      // reply — this is the unreachable path, not the router guard in isolation.
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(await settled).toBe('no daemon answered the image upload request')
+      expect(o.daemon).toContainEqual(
+        expect.objectContaining({ type: 'imageUploadRequest', sessionId }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it(`${AGENT_ONLY}: uploadImage is NOT relay-reachable — an agent writes files with its own tools, never through the server`, async () => {

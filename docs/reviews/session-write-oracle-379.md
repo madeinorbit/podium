@@ -1,6 +1,6 @@
 # The session-write oracle (POD-379)
 
-**What it is:** 155 characterization tests that pin TODAY's observable behaviour of every session
+**What it is:** 159 characterization tests that pin TODAY's observable behaviour of every session
 write, so the 3.2 migration onto command contracts (POD-380 presence class, POD-381 command plane,
 POD-642 handoff, POD-382 the cutover that deletes the hand-written router mutations) can be proven
 behaviour-preserving instead of merely compiling.
@@ -17,7 +17,7 @@ behaviour-preserving instead of merely compiling.
 | `…/oracle-attribution.test.ts` | spawnedBy · nameSource · deletion_source · stopReason · inputOrigin · humanQuestionAskedBy · (handoff: none) |
 | `…/oracle-idempotency.test.ts` | mutationId dedup, ONE test per mutation-bearing route, and the writes with no replay protection |
 | `…/oracle-handoff.test.ts` | two machines: success + ordering, bundle base, mid-transfer crash, duplicate dispatch, worktree reuse |
-| `…/oracle-ask-upload.test.ts` | the remaining hand-written router mutations: `sessions.ask` (the seance) and `sessions.uploadImage` |
+| `…/oracle-ask-upload.test.ts` | the remaining hand-written router mutations: `sessions.ask` (the seance, answered and unanswered) and `sessions.uploadImage` (machine routing, both failure modes, the real RPC timeout) |
 | `…/oracle-tags.test.ts` | the ratchet over EVERY oracle file (including the client-core one): every characterization carries a tag, every will-change tag names a real issue |
 | `packages/client-core/src/engine/outbox-coverage.oracle.test.ts` | which writes are offline-queued, and which deliberately are not |
 
@@ -30,7 +30,7 @@ each test declares which kind of statement it is:
 - **will-change `POD-…`** — a named later issue replaces this. Red here means *read that issue, then
   update the characterization* — never *restore the old behaviour*.
 
-The will-change classes, all four represented and enforced by the ratchet:
+The will-change classes, all five represented and enforced by the ratchet:
 
 | Issue | What it replaces |
 |---|---|
@@ -73,7 +73,7 @@ deliberately.
 
 ## Proof the net catches things
 
-Twenty-four mutants were applied to the product, run, and reverted; every one turned the intended test red:
+Twenty-seven mutants were applied to the product, run, and reverted; every one turned the intended test red:
 
 | Mutant | Test that caught it |
 |---|---|
@@ -101,8 +101,11 @@ Twenty-four mutants were applied to the product, run, and reverted; every one tu
 | `ask` added to the relay allowlist | ask-upload · "ask is NOT relay-reachable" |
 | `ask`'s session-target gate removed | ask-upload · "ask against an unknown session THROWS 'session not found'" |
 | `uploadImage`'s empty-path TIMEOUT guard removed | ask-upload · "an answer with no path is treated as NOBODY ANSWERING" |
+| `uploadImage` routed to the default machine instead of the session's | ask-upload · "an upload is routed to the SESSION's machine" |
+| The ack dropped so `ask` never resolves answered | ask-upload · "an ANSWERED ask returns answered:true …" |
+| An `ask` executor added to `createEngineOutbox` | outbox-coverage · "… ask and uploadImage are NOT offline-capable" |
 
-Twenty-four mutants, twenty-four caught. The one mutation that did NOT red a test — appending a CR in
+Twenty-seven mutants, twenty-seven caught. The one mutation that did NOT red a test — appending a CR in
 `packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
 `SessionsService.typeText`, and mutating THAT is the row above.
 
