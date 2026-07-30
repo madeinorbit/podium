@@ -1137,3 +1137,69 @@ finally used it (after stopping), it worked immediately.
 POD-1159 has been corrected on the issue rather than edited away: the recovery command exists and works,
 and most of my "CLI archaeology" was self-inflicted. What remains genuinely wrong is discoverability —
 and that `stop` + `issue start` still do not compose for a restart.
+
+### A chaos case must prove its fault injector fired
+
+POD-373 nearly shipped an all-green probe **and had already written its conclusion into a filed issue**.
+Its bootstrap-crash case looked right and measured nothing: the confirming frame sat at the same seq as
+the snapshot so it was correctly dropped as covered, the install owed no retirement, `commitRegions` took
+the single-region autocommit arm, and **the injected failure was never consumed** —
+`unitOfWorkTransactions()` moved by 0 and `bootstrap()` ran once, not twice. It agreed with the right
+answer for none of the right reasons.
+
+What caught it was a bootstrap-COUNT assertion disagreeing with the story it had written. What it did
+next is the rule:
+
+> A CHAOS CASE MUST PROVE ITS FAULT INJECTOR FIRED — assert the transaction was OPENED before asserting
+> anything about its outcome. A fault injector is an instrument, and nobody thinks to check it.
+
+It also **stopped and instrumented rather than reasoning further**, because it had a plausible mechanism
+and no evidence it was the real one — then corrected POD-1161's brief to record that its first filing
+had named the buffer drain before earning it, even though the diagnosis turned out right.
+
+Sits beside "prove the instrument can say YES before believing its NO". Three instruments in that one
+issue were passing without measuring: the fault injector, a `transportFor` that minted a NEW transport
+per call (so `transport.offline = true` configured an object the Outbox had never seen), and a manual
+clock that never advanced past D10 backoff (so post-reconnect drains were no-ops).
+
+### In-memory doubles cannot see a distinction the port makes
+
+Mutating the Replica to hand the store `remove` for an EVICTION survived every assertion in
+scoped/revoke-mid-session — exitKind, the evicted event, the absent removed event, the cache contents —
+because the public projection reads the envelope op while the in-memory adapter deletes the row either
+way. A **durable** adapter need not: POD-374/375 may write a tombstone for one and drop the row for the
+other, so a replica handing them the wrong kind would render a revoked share as a **deletion on device**
+with every in-memory assertion green. Fixed by adding `cacheOperations()` to the instantiation seam and
+asserting the kind that CROSSES THE PORT. **D14.5 needed an assertion at the port, not only at the
+projection** — carried to POD-374/375.
+
+### Three clauses, not two: schema, type, and the undefendable case
+
+POD-381 and POD-642 converged on this from opposite sides after each found a local fork of a model type.
+
+- **SCHEMA** — compose the shared instance, assert `toBe`. A same-valued fork parses, encodes and passes
+  every golden case identically. POD-381 measured the invisibility: mutating one back to a same-valued
+  fork reds ONE named test while **32 others in the same file pass**.
+- **TYPE** — derive it, and prove the derivation is not vacuous with a directive whose OWN emptiness is a
+  compile error (TS2578). A derivation that quietly resolved to `string` still compiles and guards
+  nothing.
+- **BUT** — a derivation from a **structurally open** schema is UNDEFENDABLE. POD-642's `ResumeRef` case:
+  `kind` and `value` are both `z.string()`, so a hand-written object of two string fields IS the same
+  type and no compiler could refuse it. Say so instead of shipping a probe that appears to guard it, and
+  **tripwire the premise** — assert `ResumeRef.shape.kind` is still an open string, so the file reds the
+  day someone narrows it to the enum it morally is.
+
+POD-642's framing of the whole class: **a claim sitting where a reviewer reads evidence.** Its tell in
+prose is a comment asserting identity the code never checks; its tell in tests is a directive or
+assertion whose NAME is broader than what it can refuse.
+
+### Waiting was right, and for a better reason than caution
+
+POD-642 declined to land its handoff contract without POD-381's `machineVerb`, because POD-381's new
+`command-facet-rules.test.ts` **scans** every `defineCommands` export: a handoff contract omitting the
+field "would not fail the rule, it would simply not be looked at — the same class as a detector that
+stops matching, at the one command the field exists for."
+
+POD-381 also moved that rule out of a per-file test into the scan for exactly that reason, and made its
+FIRST test the instrument check — asserting the five current tables BY NAME, so "no violations" can only
+be read after "and it looked at these".
