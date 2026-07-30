@@ -4,6 +4,7 @@
 export * from './commands'
 export * from './delegation'
 export * from './features'
+export * from './handshake'
 export * from './ids'
 export * from './maintenance'
 export * from './messages'

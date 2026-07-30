@@ -28,6 +28,7 @@ import type {
   MachineGrant,
   PairedMachine,
   PairingRequest,
+  PeerObservations,
   ResolvedClientSession,
   ResolvedMachine,
   TransportFacts,
@@ -87,18 +88,26 @@ export interface FakeMachines extends MachineDirectory {
   readonly pairRequests: readonly (PairingRequest | undefined)[]
   /** The hints the token branch was given, same reason. */
   readonly tokenHints: readonly (string | undefined)[]
+  /** The host metadata the directory was told about, to prove it is not identity. */
+  readonly observations: readonly (PeerObservations | undefined)[]
 }
 
 export const fakeMachines = (seed: FakeMachinesSeed): FakeMachines => {
   const pairRequests: (PairingRequest | undefined)[] = []
   const tokenHints: (string | undefined)[] = []
+  const observations: (PeerObservations | undefined)[] = []
   const redeemed = new Set<string>()
   return {
     pairRequests,
     tokenHints,
-    verifyDaemonSecret: (secret) => seed.secrets?.[secret] ?? null,
-    verifyMachineToken: (token, hint) => {
+    observations,
+    verifyDaemonSecret: (secret, observed) => {
+      observations.push(observed)
+      return seed.secrets?.[secret] ?? null
+    },
+    verifyMachineToken: (token, hint, observed) => {
       tokenHints.push(hint)
+      observations.push(observed)
       // The hint is IGNORED for resolution on purpose: the fake proves the
       // strategy cannot use it to pick a machine, because nothing here lets it.
       return seed.tokens?.[token] ?? null

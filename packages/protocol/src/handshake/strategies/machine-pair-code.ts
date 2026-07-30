@@ -64,6 +64,9 @@ export const createMachinePairCodeStrategy = (
       ok: true,
       name: paired.name,
       assignedId: paired.machine,
+      ...(paired.directoryContext === undefined
+        ? {}
+        : { directoryContext: paired.directoryContext }),
       // Handed back exactly once; the peer persists it and reconnects with the
       // machine-token strategy from then on.
       issuedToken: paired.issuedToken,

@@ -74,6 +74,8 @@ export type AuthOutcome =
        * the framing never branches on principal shape to find it.
        */
       readonly assignedId?: string
+      /** Passed through from the directory's resolution; see `directoryContext`. */
+      readonly directoryContext?: unknown
       /**
        * A refusal reason IS NOT allowed here, but a diagnostic is: text the
        * server may log. Never sent to the peer.
@@ -144,9 +146,13 @@ export interface ResolvedClientSession {
  */
 export interface MachineDirectory {
   /** ADR 5 D5, machine (local): verify the shared host secret. */
-  verifyDaemonSecret(secret: string): ResolvedMachine | null
+  verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null
   /** ADR 5 D5, machine (remote reconnect): verify a long-lived machine token. */
-  verifyMachineToken(token: string, machineHint?: string): ResolvedMachine | null
+  verifyMachineToken(
+    token: string,
+    machineHint?: string,
+    observed?: PeerObservations,
+  ): ResolvedMachine | null
   /**
    * ADR 5 D5, machine (remote): redeem a one-shot pair code and mint a token.
    *
@@ -166,6 +172,16 @@ export interface MachineDirectory {
  * separately (machine identity is POD-318 / POD-1079's deliverable, not this
  * handshake's).
  */
+/**
+ * Non-identity host metadata a peer reports about itself, passed through so the
+ * directory can record it (today's `touchMachine` stores the hostname). It is
+ * explicitly NOT part of resolving who the peer is — a strategy passes it along
+ * and never branches on it.
+ */
+export interface PeerObservations {
+  readonly hostname?: string
+}
+
 export interface PairingRequest {
   readonly machineId?: string
   readonly name?: string
@@ -179,6 +195,14 @@ export interface ResolvedMachine {
   /** Subjects holding an explicit grant on this machine, per verb (D18.1). */
   readonly grants: readonly MachineGrant[]
   readonly name?: string
+  /**
+   * Opaque data the DIRECTORY attaches to a resolution and the gateway reads back
+   * off the established peer. The handshake never interprets it — it exists so a
+   * deployment-specific concern (today: the pairing grant that provisions agent
+   * credentials onto a freshly paired machine) does not have to become part of
+   * this contract.
+   */
+  readonly directoryContext?: unknown
 }
 
 export interface PairedMachine extends ResolvedMachine {

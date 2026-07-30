@@ -44,14 +44,20 @@ export const createMachineTokenStrategy = (
   role: 'machine',
   credentialKind: 'machineToken',
   name: 'machine-token',
-  authenticate({ credential, transport }: AuthInput<Credential>): AuthOutcome {
-    const machine = deps.machines.verifyMachineToken(credential.token, credential.machineHint)
+  authenticate({ credential, hello, transport }: AuthInput<Credential>): AuthOutcome {
+    const machine = deps.machines.verifyMachineToken(credential.token, credential.machineHint, {
+      // Host metadata the directory records; never identity.
+      ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
+    })
     if (machine === null)
       return { ok: false, reason: 'auth-failed', diagnostic: 'machine token did not verify' }
     return {
       ok: true,
       name: machine.name,
       assignedId: machine.machine,
+      ...(machine.directoryContext === undefined
+        ? {}
+        : { directoryContext: machine.directoryContext }),
       principal: machinePrincipalOf(machine, transport, deps.mint),
     }
   },

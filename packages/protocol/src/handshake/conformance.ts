@@ -26,6 +26,11 @@ export type HandshakeObservation =
   | 'delivered'
   /** The end detected an ordering violation on ITS side (the dialer's half). */
   | 'protocol-error'
+  /**
+   * Dropped on the floor pre-auth: not delivered, no principal, connection still
+   * waiting. A weaker answer than `refused` and still fail-closed on identity.
+   */
+  | 'ignored'
 
 export interface HandshakeEndSession {
   readonly state: 'pending' | 'established' | 'closed'
@@ -85,8 +90,9 @@ const fail = (name: string, probe: HandshakeEndProbe, detail: string): Conforman
   detail,
 })
 
-/** A refusal or a detected ordering violation both count as "did not proceed". */
-const isRefusal = (o: HandshakeObservation): boolean => o === 'refused' || o === 'protocol-error'
+/** Refusal, a detected ordering violation, and a pre-auth drop all mean "did not proceed". */
+const isRefusal = (o: HandshakeObservation): boolean =>
+  o === 'refused' || o === 'protocol-error' || o === 'ignored'
 
 export const HANDSHAKE_CONFORMANCE_CASES: readonly ConformanceCase[] = [
   {

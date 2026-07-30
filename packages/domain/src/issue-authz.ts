@@ -41,6 +41,39 @@ export interface Capability {
    *  Undefined for the operator/web. Threaded onto close/unblock events so the
    *  steward can skip nudging the very session that caused them (#116). */
   actorSessionId?: string
+  /** ATTRIBUTION, HUMAN HALF — ADR 3 Amendment 1 D17: every write records an ACTOR
+   *  and an ON-BEHALF-OF, both stamped from the authenticated transport and never
+   *  read from a payload. `actorSessionId` is the existing actor half for an agent;
+   *  `actorUser` is it for a person, and `onBehalfOf` names the human the call is
+   *  made FOR (the same person for a human caller, the delegating human for an
+   *  agent, and absent — never defaulted — for a machine or a system job).
+   *
+   *  Structural `string` on purpose: domain is a zero-dependency leaf, so the
+   *  branded `UserId` these carry lives in @podium/protocol's principal module
+   *  today and moves to packages/model with POD-1075. The pair is never collapsed
+   *  into one field: "did a person or an agent do this?" and "which person was it
+   *  for?" are two questions ([spec:SP-eb60] nameSource, humanQuestionAskedBy). */
+  actorUser?: string
+  onBehalfOf?: string
+}
+
+/** ADR 3 Amendment 1 D17's pair, read off a capability. `null` is a representable
+ *  "none" for machine and system callers — never defaulted to an operator or to a
+ *  row's owner. */
+export interface AttributionPair {
+  actor: string | null
+  onBehalfOf: string | null
+}
+
+/** Named `capabilityAttribution`, not `attributionOf`: @podium/protocol's
+ *  principal module already exports `attributionOf` for the PRINCIPAL side of the
+ *  same pair, and two same-named exports for the two sides is the redefinition the
+ *  domain-single-home boundary rule exists to stop. */
+export function capabilityAttribution(cap: Capability): AttributionPair {
+  return {
+    actor: cap.actorSessionId ?? cap.actorUser ?? null,
+    onBehalfOf: cap.onBehalfOf ?? null,
+  }
 }
 
 /** The human operator (and, for now, the trusted in-process MCP): unconstrained. */

@@ -61,9 +61,23 @@ export interface EstablishedPeer {
   readonly name?: string
   /** [spec:SP-15aa] — carried through, never a row discriminator (ADR 1 D5). */
   readonly instanceId?: string
+  /**
+   * Whatever the directory attached to its resolution, handed back to the gateway
+   * untouched. The framing never reads it (see `ResolvedMachine.directoryContext`).
+   */
+  readonly directoryContext?: unknown
 }
 
 export type AcceptorStep =
+  | {
+      /**
+       * A pre-auth frame that was not a handshake, dropped on the floor under the
+       * `ignore` policy. NOTHING was delivered and no principal exists; the
+       * connection is still waiting for a hello.
+       */
+      readonly action: 'ignore'
+      readonly raw: string
+    }
   | {
       readonly action: 'establish'
       readonly reply: PeerHelloOk
@@ -88,6 +102,19 @@ export interface AcceptorDeps {
   readonly supportedCaps?: readonly string[]
   readonly support?: { wire: number; min: number }
   readonly transport: TransportFacts
+  /**
+   * What to do with a pre-auth frame that is not a hello at all.
+   *
+   * `reject-and-close` (the default) is the strict reading of fail-closed. The
+   * `/daemon` socket passes `ignore`, which is the behaviour it has shipped with
+   * and which `wsServer.daemon.test.ts` pins: the frame is DROPPED (never
+   * delivered, no principal, nothing reaches the registry) and the connection
+   * keeps waiting for a real handshake. Both are fail-closed with respect to
+   * identity — they differ only in whether a peer that sent junk gets another
+   * chance — so this is a deployment choice, not a security one, and it is a
+   * named option rather than a branch inside the state machine.
+   */
+  readonly preAuthNonHandshake?: 'reject-and-close' | 'ignore'
   /**
    * Pin the role for a non-peer ingress (the agent relay, the operator channel).
    * A peer cannot reach these: `peerRole` is a closed enum of PEER roles only, so
@@ -144,10 +171,14 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
       try {
         hello = PeerHello.parse(JSON.parse(raw))
       } catch (error) {
+        if (looksLikeHello(raw)) {
+          state = 'closed'
+          return reject('malformed-hello', `hello failed to parse: ${String(error)}`)
+        }
+        if ((deps.preAuthNonHandshake ?? 'reject-and-close') === 'ignore')
+          return { action: 'ignore', raw }
         state = 'closed'
-        return looksLikeHello(raw)
-          ? reject('malformed-hello', `hello failed to parse: ${String(error)}`)
-          : reject('unexpected-frame', 'first frame was not a hello (pre-auth)')
+        return reject('unexpected-frame', 'first frame was not a hello (pre-auth)')
       }
 
       // Rule 2: version before credentials. Nothing below this line runs for an
@@ -207,6 +238,9 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
         caps,
         ...(outcome.name === undefined ? {} : { name: outcome.name }),
         ...(hello.instanceId === undefined ? {} : { instanceId: hello.instanceId }),
+        ...(outcome.directoryContext === undefined
+          ? {}
+          : { directoryContext: outcome.directoryContext }),
       }
       state = 'established'
       return {

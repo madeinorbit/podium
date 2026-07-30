@@ -50,16 +50,23 @@ export const createMachineLocalSecretStrategy = (
   role: 'machine',
   credentialKind: 'daemonSecret',
   name: 'machine-local-secret',
-  authenticate({ credential, transport }: AuthInput<Credential>): AuthOutcome {
+  authenticate({ credential, hello, transport }: AuthInput<Credential>): AuthOutcome {
     // Identity comes from the record the directory verified the secret against —
-    // never from `hello.claims.machineId`, which this module does not read.
-    const machine = deps.machines.verifyDaemonSecret(credential.secret)
+    // never from `hello.claims.machineId`, which this module does not read. The
+    // hostname is passed through as host METADATA (the directory records it) and
+    // takes no part in resolving who the peer is.
+    const machine = deps.machines.verifyDaemonSecret(credential.secret, {
+      ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
+    })
     if (machine === null)
       return { ok: false, reason: 'auth-failed', diagnostic: 'daemon secret did not verify' }
     return {
       ok: true,
       name: machine.name,
       assignedId: machine.machine,
+      ...(machine.directoryContext === undefined
+        ? {}
+        : { directoryContext: machine.directoryContext }),
       principal: machinePrincipalOf(machine, transport, deps.mint),
     }
   },
