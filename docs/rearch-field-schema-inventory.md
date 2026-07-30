@@ -59,12 +59,21 @@ representation from a transport frame:
 
 | Bucket | Count | Disposition |
 |---|---|---|
-| **Session entity representations** | **28** | §2 — 1.4's subject |
-| **Issue entity representations** | **17** (+1 compliant `Pick`) | §3 — 1.4's subject |
-| L1 transport frames in `packages/protocol/src/messages/*` | 54 | Stay protocol (ADR 4 D4); their **entity-shaped subsets** must compose (§6.4) |
-| Drizzle tables (`sqliteTable`) | 21 | 2 are ours (`sessions`, `issues`); the rest are adjacent entities or per-user singletons (§7) |
+| **Session entity representations** | **24** | §2.1 — 1.4's subject |
+| **Issue entity representations** | **17** | §3 — 1.4's subject |
+| Field groups (composed BY representations, no entity identity) | 10 session + 11 issue | §2.2, §3 |
+| L1 transport frames in `packages/protocol/src/messages/*` | 54 | §2.3 — stay protocol (ADR 4 D4); their entity-shaped subsets must compose (§6.4) |
+| Sub-predicate structural ports | 2 | §2.3 — below the stated ≥2-key threshold |
+| Composing consumers (restate nothing) | 2 session + 1 issue | §2.4, §3 |
+| Issue read-model aggregates (rollups over the set) | 4 | §3 — all existence-leak surfaces, §10 L-2 |
 | Adjacent entities out of 1.4's scope | ~63 | messages, workflows, approvals, conversations, automations, superagent, locks, machines — §12 |
-| Test/e2e fixtures | 5 | Noted, not counted (3 × `WireIssue` in `tests/e2e/browser/`) |
+| Test/e2e fixtures | 5 | §3 — noted, not counted |
+
+**Cardinality is load-bearing, not cosmetic.** The counted lists in §2.1 and §3 and the measured
+field matrix in §5 cover **exactly the same 24 and 17 shapes**. A map whose canonical list and
+measured matrix disagree lets the consumer (POD-365) omit or double-count a definition with nothing
+failing loudly, and it cannot tell which happened — so every shape the predicate excludes sits in a
+named category above with its own count and its own stated reason.
 
 **4. Two blind spots, stated rather than hidden.**
 - **`Pick`/`Omit`/`Partial` compositions are skipped by construction.** `IssuePatch`
@@ -78,7 +87,15 @@ representation from a transport frame:
   drift sites but have no name to address; §6.5 states the rule that removes them
   (a projection with no name is not a representation — it must call a named mapper).
 
-**5. Sizes drifted since the last refresh**, which is why re-counting was required:
+**5. When an enumeration turned out to be incomplete, the DETECTOR was fixed, not the named
+sites.** The attribution pass in §9 originally searched for field names it already knew and missed
+the event-payload path entirely (issue CRUD stamps `causedBySessionId` on four issue events). The
+repair was to define attribution as a *class* — any key referencing a principal, wherever it can
+appear, including inside `emitEvent(…)` literals — and re-derive: 60 distinct principal-bearing
+keys across 511 sites, with by-name false positives excluded individually and with reasons. §9
+records the method and the exclusion list. Patching the four named lines would have left the fifth.
+
+**6. Sizes drifted since the last refresh**, which is why re-counting was required:
 `apps/server/src/modules/sessions/service.ts` is **5643** lines (the brief's 2026-07-16 figure
 was 3046 — **+85%**); `apps/server/src/modules/sessions/session.ts` 1217; `IssueWire` 78 keys
 (ADR 4 counted 71); `SessionMeta` **55** keys (ADR 4 counted 44); `sessions` DDL 48 columns;
@@ -87,91 +104,147 @@ now happens in `packages/client-core/src/viewmodels/derive.ts` and `apps/web/src
 
 ---
 
-## 2. Session representations — 28, not 8
+## 2. Session representations — 24 counted, with everything else in a named category
 
-Role column is ADR 4 D2 (**R1** canonical durable aggregate · **R2** live state · **R3** storage
-· **R4** wire/read projection · **R5** narrow port · **R6** portable export). Visibility class is
-ADR 9 D3; per ADR 1 Amendment 1 §3 §2 every session row is **`personal`**, and a fact *about a
-machine* embedded in a session shape is **inherited** (ADR 9 D3 rule 3), never classified here.
+**Cardinality is stated first, and the canonical list below and the measured field matrix in §5
+cover EXACTLY the same 24 shapes.** An earlier draft of this document headlined 28 while the matrix
+measured 24; that gap is a real defect in a map — it lets POD-365 silently omit or double-count a
+definition with nothing failing loudly — and it is fixed here by applying §1's predicate
+consistently and putting everything it excludes into a named category with its own count.
 
-**There is no R1 today.** That is the finding, not an omission: no representation is the
-canonical durable aggregate. The nearest thing to truth is spread across `sessions` (48 columns),
-`SessionDurableState` (44 live fields, 6 of which have **no column at all**), and
-`SessionMeta` (55 wire keys). POD-365 creates the R1.
+| Category | Count | Counted as a representation? |
+|---|---|---|
+| **Session representations** (entity-shaped, ≥2 top-level session-concept keys, exactly one ADR 4 R1–R6 role) | **24** | **yes — §2.1** |
+| Field groups (no session identity of their own; composed BY representations) | 10 | no — §2.2 |
+| L1 transport frames restating session keys | 54 (all frames in `packages/protocol/src/messages/*`) | no — §2.3 |
+| Sub-predicate structural ports (1 key, so below §1's ≥2 threshold) | 2 | no — §2.3 |
+| Composing consumers (hold a representation, restate nothing) | 2 | no — §2.4 |
+| Test/e2e fixtures | 5 (issue-shaped) | no — §3 |
+
+**There is no R1 today.** That is the finding, not an omission: none of the 24 is the canonical
+durable aggregate. Truth is split across `sessions` (48 columns), `SessionDurableState` (44 live
+fields, **5 with no column in any migration**), and `SessionMeta` (55 wire keys). POD-365 creates
+the R1.
+
+Visibility is ADR 9 D3; per ADR 1 Amendment 1 §3 §2 every session row is **`personal`**, and a fact
+*about a machine* embedded in a session shape is **`inherited`** (ADR 9 D3 rule 3), never
+classified here.
+
+### 2.1 The 24 counted representations
 
 | # | Symbol / table | Path | Keys | Role | Verdict | Visibility |
 |---|---|---|---|---|---|---|
-| 1 | `sessions` (drizzle) | `apps/server/src/migrations/schema.ts:21` | 48 | R3 | **legitimate** (physical DDL, ADR 4 D6) | personal |
-| 2 | `SessionRow` | `apps/server/src/store/types.ts:101` | 45 | R3 | **legitimate role, hand-restated** — must become the composed mirror of #1 | personal |
-| 3 | `Session` (class) | `apps/server/src/modules/sessions/session.ts` | 41 | R2 | **legitimate** (PTY + controller ownership) | personal |
-| 4 | `SessionInit` | same file | 42 | R2 | **drifted duplicate** — a third hand-written copy of the row field list plus 2 live wiring fields (`toDaemon`, `onActivity`) | personal |
-| 5 | `SessionDurableState` | same file | 44 | R2 | **legitimate role, hand-restated** — the class's own mutable-field contract | personal |
-| 6 | `SessionMeta` | `packages/protocol/src/messages/runtime-state.ts:329` | 55 | R4 | **legitimate role, hand-restated**; carries 3 provenance + 2 per-user + 3 derived keys it must shed | personal |
-| 7 | `AgentRuntimeState` | same file:50 | 9 | R4 field group | **legitimate** — but `workingMsTotal` has two homes (§5 D-11) | personal |
-| 8 | `HandoffManifest` | `packages/protocol/src/messages/handoff.ts:5` | 19 | **R6** | **legitimate** (ADR 4 D4); ids unbranded, `sourceMachineId` is device attribution | personal |
-| 9 | `HandoffExportRequestMessage` | same file:44 | 13 | L1 frame | frame stays; its 9-key session subset is **hand-restated** | personal |
-| 10 | `SpawnMessage` | `packages/protocol/src/messages/terminal.ts` | 19 | L1 frame | frame stays; the **spawn tuple** subset is hand-restated (and restated again at §3 row 17 and §12) | personal |
-| 11 | `HostSessionView` | `apps/server/src/modules/hosts/service.ts` | 9 | R5 | **legitimate** (hibernate scan) — but epoch-ms twins of ISO fields (§5 D-6) | personal |
-| 12 | `SessionNoticeInfo` | `apps/server/src/modules/notify/service.ts` | 5 | R5 | **legitimate** (attention/notify) | personal |
-| 13 | `RpcSessionView` | `apps/server/src/modules/machines/rpc.ts` | 4 (+1 method) | R5 | **legitimate** — structural port over the *live object* (`transcriptItems()`), not a data shape | personal |
-| 14 | `ResumableSession` + `HeadlessFields` | `packages/domain/src/session-identity.ts` | 4 + 1 | R5 | **legitimate** (dedupe predicate; zero-dep domain leaf) | personal |
-| 15 | `HandoffSession` | `packages/domain/src/machine-selection.ts` | 3 | R5 | **legitimate** (target pick) | personal (`machineId` **inherited**) |
-| 16 | `ConciergeSessionInfo` | `apps/server/src/modules/superagent/concierge.ts` | 7 | R5 | **legitimate** | personal |
-| 17 | `BtwSessionInfo` | `apps/server/src/modules/superagent/btw.ts` | 4 | R5 | **drifted duplicate** — a strict subset of #16, re-declared | personal |
-| 18 | `FocusSessionInfo` | `apps/server/src/modules/superagent/global.ts` | 1 + extends #16 | R5 | **legitimate — and the one good example in the codebase**: `extends ConciergeSessionInfo` | personal |
-| 19 | `AnswerTargetSession` | `apps/server/src/modules/superagent/answer-delivery.ts` | 1 nested | R5 | **legitimate** (reads `agentState.phase`/`need` only) | personal |
-| 20 | `CloudAgentSourceSession` | `apps/server/src/cloud-runtime.ts` | 5 | R5 | **drifted duplicate** — renames two facts: `agent` for `agentKind`, `resumeRef: string` for `resume: ResumeRef` (§5 D-1, D-3) | personal |
-| 21 | `LakeReadSession` | `apps/server/src/modules/conversations/service.ts` | 3 | R5 | **legitimate**, but narrows `resume` to `{value}` — a third `resume` shape | personal |
-| 22 | `IssueTreeSession` | `apps/server/src/modules/issues/service/types.ts` | 8 | R4 | **legitimate role** (issue-tree read projection) — flattens `agentState.phase` to `phase`, renames name/title to `label` | personal |
-| 23 | `ShowSession` (CLI) | `packages/issue-client/src/commands.ts` | 10 | R4 (CLI) | **drifted duplicate of #22** — hand-copy plus `agentState:{phase?}`, i.e. *both* the flattened and the nested form in one shape | personal |
-| 24 | `SessionStatusResult` | `apps/server/src/modules/sessions/read-toolkit.ts` | 15 | R4 | **legitimate role** (tier-1 status read model) | personal |
-| 25 | `StatusWire` (CLI) | `apps/cli/src/session-cli.ts` | 15 | R4 (CLI) | **drifted duplicate of #24** — a key-for-key hand copy, comment admits it ("Tier-1 status wire shape (modules/sessions/read-toolkit)") | personal |
-| 26 | `RefSessionLike` | `apps/web/src/lib/ref-miniview.ts` | 6 | R5 | **legitimate** (documented structural subset of `SessionMeta`) | personal |
-| 27 | `SessionCardModel` | `packages/client-core/src/viewmodels/session-card.ts` | 8 | viewmodel | **legitimate** — presentation-only; restates just `sessionId`/`title` | personal |
-| 28 | `SessionAutoArchiveObservation` | `packages/protocol/src/maintenance.ts` | 5 | R4 | **legitimate** (steward observation payload) | personal |
-| — | `EngineState.sessions` | `packages/client-core/src/engine/engine.ts:165` | composes | client state | **legitimate** — `SessionMeta[]`, no restatement. **Grep-invisible (NUL byte)**; verified by reading | personal + per-user UI keys (§7) |
-| — | replica collection `sessions` | `packages/protocol/src/messages/sync.ts:53` (`MetadataEntityKind`) | — | R4 carrier | **legitimate** — transports `SessionMeta` verbatim | personal |
+| 1 | `sessions` (drizzle) | `apps/server/src/migrations/schema.ts:21` | 48 | **R3** | legitimate (physical DDL, ADR 4 D6) | personal |
+| 2 | `SessionRow` | `apps/server/src/store/types.ts:101` | 45 | **R3** | legitimate role, **hand-restated** — must become the composed mirror of #1 | personal |
+| 3 | `Session` (class) | `apps/server/src/modules/sessions/session.ts` | 41 | **R2** | legitimate (PTY + controller ownership) | personal |
+| 4 | `SessionInit` | same file | 42 | **R2** | **drifted duplicate** — a third hand-written copy of the row field list plus 2 live wiring fields (`toDaemon`, `onActivity`) | personal |
+| 5 | `SessionDurableState` | same file | 44 | **R2** | legitimate role, **hand-restated** — the class's own mutable-field contract | personal |
+| 6 | `SessionMeta` | `packages/protocol/src/messages/runtime-state.ts:329` | 55 | **R4** | legitimate role, **hand-restated**; carries 3 provenance + 2 per-user + 3 derived keys it must shed | personal |
+| 7 | `HandoffManifest` | `packages/protocol/src/messages/handoff.ts:5` | 19 | **R6** | legitimate (ADR 4 D4); ids unbranded; `sourceMachineId`/`exportedAt` are device attribution (§9) | personal |
+| 8 | `HostSessionView` | `apps/server/src/modules/hosts/service.ts` | 9 | **R5** | legitimate (hibernate scan) — but epoch-ms twins of ISO fields (**D-6**) | personal |
+| 9 | `SessionNoticeInfo` | `apps/server/src/modules/notify/service.ts` | 5 | **R5** | legitimate (attention/notify) | personal |
+| 10 | `RpcSessionView` | `apps/server/src/modules/machines/rpc.ts` | 4 (+1 method) | **R5** | legitimate — structural port over the *live object* (`transcriptItems()`) | personal |
+| 11 | `ResumableSession` | `packages/domain/src/session-identity.ts` | 4 | **R5** | legitimate (dedupe predicate; zero-dep domain leaf) | personal |
+| 12 | `HandoffSession` | `packages/domain/src/machine-selection.ts` | 3 | **R5** | legitimate (target pick) | personal; `machineId` **inherited** |
+| 13 | `ConciergeSessionInfo` | `apps/server/src/modules/superagent/concierge.ts` | 7 | **R5** | legitimate | personal |
+| 14 | `BtwSessionInfo` | `apps/server/src/modules/superagent/btw.ts` | 4 | **R5** | **drifted duplicate** — a strict subset of #13, re-declared | personal |
+| 15 | `FocusSessionInfo` | `apps/server/src/modules/superagent/global.ts` | 1 + extends #13 | **R5** | legitimate — **and the one good composition example in the codebase**: `extends ConciergeSessionInfo` | personal |
+| 16 | `CloudAgentSourceSession` | `apps/server/src/cloud-runtime.ts` | 5 | **R5** | **drifted duplicate** — renames two facts: `agent` for `agentKind`, `resumeRef: string` for `resume: ResumeRef` (**D-1**, **D-3**) | personal |
+| 17 | `LakeReadSession` | `apps/server/src/modules/conversations/service.ts` | 3 | **R5** | legitimate, but narrows `resume` to `{value}` — a third `resume` shape | personal |
+| 18 | `RefSessionLike` | `apps/web/src/lib/ref-miniview.ts` | 6 | **R5** | legitimate (documented structural subset of `SessionMeta`) | personal |
+| 19 | `IssueTreeSession` | `apps/server/src/modules/issues/service/types.ts` | 8 | **R4** | legitimate role (issue-tree read projection) — flattens `agentState.phase` to `phase`, renames name/title to `label` | personal |
+| 20 | `ShowSession` (CLI) | `packages/issue-client/src/commands.ts` | 10 | **R4** | **drifted duplicate of #19** — hand copy carrying *both* the flattened `phase` and a nested `agentState:{phase?}` | personal |
+| 21 | `SessionStatusResult` | `apps/server/src/modules/sessions/read-toolkit.ts` | 15 | **R4** | legitimate role (tier-1 status read model) | personal |
+| 22 | `StatusWire` (CLI) | `apps/cli/src/session-cli.ts` | 15 | **R4** | **drifted duplicate of #21** — key-for-key hand copy; its own comment names the source | personal |
+| 23 | `SessionAutoArchiveObservation` | `packages/protocol/src/maintenance.ts` | 5 | **R4** | legitimate (steward observation payload) | personal |
+| 24 | `SessionCardModel` | `packages/client-core/src/viewmodels/session-card.ts` | 8 | **R4** (client read projection) | legitimate — presentation-only; restates just `sessionId`/`title` | personal |
 
-**Count.** **28 named session representations** (rows 1–28), of which **6 are drifted
-duplicates** (#4, #17, #20, #23, #25 and — as a class — the hand-restated row/wire mirrors #2/#5/#6
-that ADR 4 D3.2 forbids once `packages/model` exists). ADR 4 §1.2's "≥9 core" is confirmed and
-extended: the three parallel field lists inside `session.ts` alone (#3/#4/#5) were not in that
-list, and they are the largest single source of restatement.
+**24 representations, 121 distinct session keys** (measured, §5). **6 are drifted duplicates**
+(#4, #14, #16, #20, #22, plus the hand-restated mirrors #2/#5/#6 as a class once `packages/model`
+exists). ADR 4 §1.2's "≥9 core" is confirmed and extended — the three parallel field lists inside
+`session.ts` (#3/#4/#5) were not in that list and are the largest single restatement site.
+
+### 2.2 Field groups — composed BY representations, not representations
+
+These carry no session identity, so they cannot be a representation *of* a session. They are the
+model for what §6 asks POD-365 to do at the entity level. **10:** `AgentRuntimeState`
+(9 keys — the group that previously inflated the session count), `HeadlessFields`, `SessionOrigin`,
+`ResumeRef`, `Geometry`, `SessionOffer`, `IdleVerdict`, `AgentNeed`, `AgentError`, `NativeSubagent`.
+
+### 2.3 L1 frames and sub-predicate ports — outside the count by rule
+
+**L1 frames (54).** ADR 4 D4 keeps frames in `packages/protocol`; a frame is a transport envelope,
+not a representation of an entity. Two were previously mis-counted as session representations and
+are moved here: **`SpawnMessage`** (19 keys — the spawn tuple) and
+**`HandoffExportRequestMessage`** (13 keys, 9 of them the session subset). The rule they must obey
+is in §6.4: *a frame's entity-shaped subset is a `Pick` from model, and the frame adds only
+transport keys* (`type`, `requestId`, `confidence`, `ackRequested`, chunk offsets). Other members
+of the class: `ReattachMessage`, `BindMessage`, `AttachedMessage`, `HeadlessTurnRequestMessage`,
+`SessionCwdMessage`, `ControllerChangedMessage`, `TitleMessage`, `AgentModelMessage`,
+`OutputFrameMessage`, `SessionResumeRefMessage`, the `AgentObservation*` family,
+`TranscriptReadRequestMessage`, `WorkspaceExportRequestMessage`.
+
+**Sub-predicate structural ports (2).** Below §1's ≥2-key threshold, so excluded by the predicate
+this document states rather than by judgement: **`AnswerTargetSession`**
+(`apps/server/src/modules/superagent/answer-delivery.ts`, one nested member — it reads
+`agentState.phase`/`need` only) and **`HeadlessFields`** (1 key; also a field group, §2.2). Both
+are legitimate and neither is drift; they are recorded so POD-368's audit does not rediscover them
+as unclassified.
+
+### 2.4 Composing consumers — hold a representation, restate nothing
+
+**2**, both legitimate and both worth naming because one of them is invisible to `grep`:
+
+- **`EngineState`** (`packages/client-core/src/engine/engine.ts:160`) — holds
+  `sessions: SessionMeta[]` and `issues: IssueWire[]`. **This is the NUL-byte file** (§1, §11):
+  verified by reading all 78,027 bytes, not by searching. It also carries the client's per-user UI
+  keys (`paneA`, `paneB`, `split`, `focusedPane`, `dockVisibleSession`, `openIssueId`,
+  `selectedIssueId`, `peekIssueId`) — per-user-state candidates, §7.1.
+- **Replica collection `sessions`** (`MetadataEntityKind`, `packages/protocol/src/messages/sync.ts:53`)
+  — transports `SessionMeta` verbatim.
 
 ---
 
-## 3. Issue representations — 17, not 6
+## 3. Issue representations — 17 counted
+
+Same discipline: **the 17 numbered below are exactly the 17 measured in §5.** An earlier draft said
+"17 plus one compliant `Pick`" over a table that already contained that `Pick` — arithmetic that
+does not close. `IssuePatch` **is** counted, as a command-input representation, and its role is
+recorded as the compliant reference pattern.
 
 | # | Symbol / table | Path | Keys | Role | Verdict | Visibility |
 |---|---|---|---|---|---|---|
-| 1 | `issues` (drizzle) | `apps/server/src/migrations/schema.ts:404` | 59 | R3 | **legitimate** (physical DDL) | personal |
-| 2 | `IssueRow` | `apps/server/src/store/types.ts:201` | 59 | R3 | **legitimate role, hand-restated** | personal |
-| 3 | `IssueWire` | `packages/protocol/src/messages/issues.ts:155` | 78 | R4 | **legitimate role, hand-restated**, and **the one D7.1 non-compliance**: `sessions: z.array(SessionMeta)` (line 284) | personal |
-| 4 | `IssuePatch` | `apps/server/src/modules/issues/service/types.ts:302` | 35 (picked) | command input | **COMPLIANT REFERENCE** — `Partial<Pick<IssueRow, …>>`. The pattern §6 generalizes | personal |
-| 5 | `CreateIssueInput` | same file | 23 | command input | **drifted duplicate** — hand-restates create fields instead of picking | personal |
-| 6 | `IssueTreeNode` | same file | 18 | R4 | **legitimate role**; embeds `IssueTreeSession[]` (a second D7.1-shaped embed, server-side) | personal |
-| 7 | `TreeNode` (CLI) | `packages/issue-client/src/commands.ts` | 16 | R4 (CLI) | **drifted duplicate of #6** — hand copy; drops `id`/`type`, keeps everything else | personal |
-| 8 | `ShowWire` (CLI) | same file | 22 | R4 (CLI) | **legitimate role, hand-restated** ("the slice of an issue wire the show renderer reads"); embeds `ShowSession[]` — a third session embed | personal |
-| 9 | `OrphanIssue` | `packages/protocol/src/messages/issues.ts:374` | 4 | R4 | **legitimate** (narrow wire projection) | personal |
-| 10 | `IssueGraphNode` | same file:333 | 8 | R4 | **legitimate** (graph projection) | personal; **edge display is open — O2** |
-| 11 | `HandoffIssue` | `packages/domain/src/machine-selection.ts` | 2 | R5 | **legitimate** (branch + worktree for target pick) | personal (worktree fact **inherited** from machine) |
-| 12 | `RefIssueLike` | `apps/web/src/lib/ref-miniview.ts` | 22 | R5 | **legitimate role, hand-restated** — the largest client-side restatement in the repo (22 keys) | personal |
-| 13 | `FocusIssueInfo` | `apps/server/src/modules/superagent/global.ts` | 4 | R5 | **legitimate** | personal |
-| 14 | `IssueInfo` | `apps/server/src/modules/workflows/service.ts` | 4 | R5 | **drifted duplicate** — same job as #13 with a different key set | personal |
-| 15 | `StartableIssueLike` | `apps/web/src/features/issues/issue-startable.ts` | 4 | R5 | **legitimate** (structural predicate port) | personal |
-| 16 | `IssueAutoArchiveObservation` | `packages/protocol/src/maintenance.ts` | 6 | R4 | **legitimate** (steward observation payload) | personal |
-| 17 | `GitProbeTarget` | `apps/server/src/modules/issues/git-state.ts` | 8 | R5 | **legitimate** — but it is a **machine fact** port (`cwd`, `branch`, `refsPattern`, `commits`, `touched`, `shared`): visibility **inherited** from the machine, not classified per field | inherited (owned-compute) |
-| — | `IssueRow` (web) | `apps/web/src/features/issues/issue-hierarchy.ts` | wraps | UI chrome | **not counted** — wraps `issue: IssueWire` + depth/expanded, redeclares nothing. ADR 4 §1.2's judgement holds at this tip | personal |
-| — | `WireIssue` ×3 | `tests/e2e/browser/*.browser.e2e.ts` | 4–6 | test fixture | **not counted**; recorded so POD-368's audit does not rediscover them | n/a |
-| — | `LinearIssue` | `apps/server/src/linear.ts` | 5 | foreign | **legitimate** — an external system's shape, deliberately not ours | n/a |
+| 1 | `issues` (drizzle) | `apps/server/src/migrations/schema.ts:404` | 59 | **R3** | legitimate (physical DDL) | personal |
+| 2 | `IssueRow` | `apps/server/src/store/types.ts:201` | 59 | **R3** | legitimate role, **hand-restated** | personal |
+| 3 | `IssueWire` | `packages/protocol/src/messages/issues.ts:155` | 78 | **R4** | legitimate role, **hand-restated**, and the one D7.1 non-compliance on the feed: `sessions: z.array(SessionMeta)` (line 284) | personal |
+| 4 | `IssuePatch` | `apps/server/src/modules/issues/service/types.ts:302` | 35 picked | **command input** | **COMPLIANT REFERENCE** — `Partial<Pick<IssueRow, …>>`. The pattern §6 generalizes | personal |
+| 5 | `CreateIssueInput` | same file | 23 | **command input** | **drifted duplicate** — hand-restates create fields instead of picking | personal |
+| 6 | `IssueTreeNode` | same file | 18 | **R4** | legitimate role; embeds `IssueTreeSession[]` — a second D7.1-shaped embed, server-side | personal |
+| 7 | `TreeNode` (CLI) | `packages/issue-client/src/commands.ts` | 16 | **R4** | **drifted duplicate of #6** — hand copy; drops `id`/`type`, keeps the rest | personal |
+| 8 | `ShowWire` (CLI) | same file | 22 | **R4** | legitimate role, **hand-restated**; embeds `ShowSession[]` — a third session embed | personal |
+| 9 | `OrphanIssue` | `packages/protocol/src/messages/issues.ts:374` | 4 | **R4** | legitimate (narrow wire projection) | personal |
+| 10 | `IssueGraphNode` | same file:333 | 8 | **R4** | legitimate (graph projection) | personal; **edge display is open — O2** |
+| 11 | `HandoffIssue` | `packages/domain/src/machine-selection.ts` | 2 | **R5** | legitimate (branch + worktree for target pick) | personal; worktree fact **inherited** |
+| 12 | `RefIssueLike` | `apps/web/src/lib/ref-miniview.ts` | 22 | **R5** | legitimate role, **hand-restated** — the largest client-side restatement in the repo | personal |
+| 13 | `FocusIssueInfo` | `apps/server/src/modules/superagent/global.ts` | 4 | **R5** | legitimate | personal |
+| 14 | `IssueInfo` | `apps/server/src/modules/workflows/service.ts` | 4 | **R5** | **drifted duplicate** — same job as #13 with a different key set | personal |
+| 15 | `StartableIssueLike` | `apps/web/src/features/issues/issue-startable.ts` | 4 | **R5** | legitimate (structural predicate port) | personal |
+| 16 | `IssueAutoArchiveObservation` | `packages/protocol/src/maintenance.ts` | 6 | **R4** | legitimate (steward observation payload) | personal |
+| 17 | `GitProbeTarget` | `apps/server/src/modules/issues/git-state.ts` | 8 | **R5** | legitimate — but every member is a **machine fact** (`cwd`, `branch`, `refsPattern`, `commits`, `touched`, `shared`) | **inherited** (owned-compute) |
 
-**Field groups (sub-objects), legitimately shared and already composed:** `IssuePanel` /
-`IssuePanelTodo` / `IssuePanelArtifact` / `IssuePanelDeferred`, `IssueDepWire`, `IssueComment`,
-`IssueSessionSummary`, `IssueGitState`, `IssueColor`, `IssueStage`, `IssueType`. These are the
-model for what §6 asks POD-365 to do at the *entity* level.
+**17 representations, 91 distinct issue keys** (measured, §5). **3 are drifted duplicates** (#5, #7,
+#14) plus the hand-restated mirrors (#2, #3, #8, #12).
 
-**Count.** **17 named issue representations**, of which **3 are drifted duplicates** (#5, #7,
-#14) plus the hand-restated mirrors (#2, #3, #8, #12). ADR 4 §1.2's "≥7" is confirmed and extended.
+**Excluded, with the reason:**
+
+| Excluded | Why |
+|---|---|
+| **Field groups (11)** — `IssuePanel`, `IssuePanelTodo`, `IssuePanelArtifact`, `IssuePanelDeferred`, `IssueDepWire`, `IssueComment`, `IssueSessionSummary`, `IssueGitState`, `IssueColor`, `IssueStage`, `IssueType` | No issue identity; composed BY representations. Already correctly composed today — the model for §6 |
+| **Read-model aggregates (4)** — `IssueCount`, `IssueStats`, `EpicStatus`, `DoctorReport` | Rollups over the set, not projections of one issue. All are **existence-leak surfaces** — §10 L-2 |
+| `IssueRow` (web, `apps/web/src/features/issues/issue-hierarchy.ts`) | Wraps `issue: IssueWire` + depth/expanded chrome; redeclares nothing. ADR 4 §1.2's judgement holds at this tip |
+| `WireIssue` ×3 (`tests/e2e/browser/*.browser.e2e.ts`) | Test fixtures. Recorded so POD-368's audit does not rediscover them |
+| `LinearIssue` (`apps/server/src/linear.ts`) | An external system's shape, deliberately not ours |
+| Replica collection `issues` | Composing carrier; transports `IssueWire` verbatim |
 
 ---
 
@@ -182,7 +255,7 @@ The map in §5 has one row per **fact**, not per key spelling. Columns:
 | Column | Meaning |
 |---|---|
 | **Fact** | The authoritative meaning, in one sentence. |
-| **Carried by** | Which representations declare it (counts from the generated matrix: 135 distinct session keys across 24 measured shapes; 91 distinct issue keys across 16). |
+| **Carried by** | Which representations declare it. Counts come from the generated matrix over **exactly** §2.1's and §3's sets: **121 distinct session keys across all 24** session representations, **91 distinct issue keys across all 17** issue representations. No shape is measured that is not counted, and none counted that is not measured. |
 | **Writer** | ADR 1's role class: `operator` (human), `agent-session`, `daemon`, `system`, or `derived` (no writer — computed). |
 | **Class** | ADR 4 disposition: **shared** (belongs in a common field schema) · **projection-local** (legitimately one representation) · **derived** (computed, never stored twice — D7.2/D7.4) · **per-user state** (`(userId, entityId)`, D10) · **reserved `op-stream`** (ADR 1 Am1 D12 — not built) · **envelope** (provenance, D3.8) · **live-only** (R2, not durable). |
 | **Visibility** | ADR 9 D3 class. Blank is not permitted: unclassifiable ⇒ `personal`/private (D4). `inherited` = a machine fact (D3 rule 3). |
@@ -320,7 +393,7 @@ Every entry is a concrete, addressable defect. This is the list POD-365/366/367 
 | **D-12** | **The spawn tuple is restated in four places.** `SpawnMessage`, `SessionInit`, `HandoffExportRequestMessage`, and `ApprovalOp`'s `automation-schedule` → `target: {kind:'fresh', repoPath, agentKind, model?, effort?}` (`packages/protocol/src/messages/approvals.ts`) | hand restatement | The approval-op member is the 1.4 candidate the brief flagged; confirmed present |
 | **D-13** | **Provenance carried as entity payload.** `viaHub`, `upstreamStale` on `SessionMeta`; `viaHub`, `upstreamStale`, `pendingSync` on `IssueWire` | envelope violation (D3.8) | → `ReplicatedEnvelope<T>` (POD-304) |
 | **D-14** | **Unbranded ids everywhere.** `sessionId`, `issueId`, `machineId`, `repoId`, `refIssueId`, `coordinatorSessionId`, `startedBySession`, `humanQuestionAskedBy`, `spawnedBy`, `targetSessionId`, `sourceMachineId` are all raw `z.string()` / `string` in model-adjacent schemas | brand gap (D3.5) | POD-301/POD-360 own the sweep; recorded here because the *meaning* map is where the brand belongs |
-| **D-15** | **Attribution stamped from a role, a device, or a path label — never a person.** `nameSource`, `deletionSource`, `spawnedBy`, `humanQuestionAskedBy`, `startedBySession`, `coordinatorSessionId`, `controllerId`, `sourceMachineId`/`exportedAt`, `assignee` (free text), and the close/unblock actor (**not recorded at all**) | attribution gap | → §9 |
+| **D-15** | **Attribution stamped from a role, a device, or a path label — never a person**, and split across two carriers. `nameSource`, `deletionSource`, `spawnedBy`, `humanQuestionAskedBy`, `startedBySession`, `coordinatorSessionId`, `controllerId`, `sourceMachineId`/`exportedAt`, `assignee` (free text). **The issue lifecycle actor lives only on the EVENT payload** (`causedBySessionId` on `issue.closed`/`reopened`/`stage_changed`/`ready`), never on the row, and it is **conditional** — so "no actor" and "a human did it" are indistinguishable | attribution gap | → §9, re-derived with a class detector after the name-based pass missed the event path |
 | **D-16** | **Anonymous projections.** 29 inline object literals in `router.ts` alone carry `sessionId:` in a return position | unnamed restatement | → §6.5 |
 
 ---
@@ -501,17 +574,38 @@ auditable). **PTY input is explicitly excluded** — two people typing into one 
 
 ADR 9 D5 A3 / ADR 4 Am1 D9.3: attribution is a **pair** — `actor` (which agent) and
 `onBehalfOf` (which human) — **two differently branded fields**, both stamped from the transport
-principal (ADR 3 D7), **never** from payload. Every attributing field in the system today carries
-**at most the actor half**, and several carry neither.
+principal (ADR 3 D7), **never** from payload. Every attributing site in the system today carries
+**at most the actor half**.
+
+> **How this section was re-derived, after it was wrong.** The first pass searched for field names
+> it already knew (`humanQuestionAskedBy`, `deletion_source`, `nameSource`, …) plus the absence of
+> an actor **column** on `issues`, and concluded that the issue close/unblock path records no
+> actor. **That was a factual error**: the actor is recorded on the **event payload**, not on the
+> row, and searching for known names cannot find an unknown name.
+>
+> The fix was to the **detector**, not to the named sites. Attribution is now defined as a *class*
+> — any key that references a principal (a person, an agent session, a machine, or a role class) —
+> and enumerated wherever such a key can appear: a durable column, a representation field, **or an
+> event-payload literal inside an `emitEvent(…)` call**. Over the `git ls-files` set, read whole
+> and NUL-stripped, that yields **60 distinct principal-bearing keys across 511 sites**, and it
+> surfaces the four event-payload keys the name-based pass could not:
+> `causedBySessionId` (on `issue.ready`, `issue.stage_changed`, `issue.reopened`, `issue.closed`),
+> `askedBy` (on `issue.needs_human`), `podiumSessionId` (on `superagent.turnEnded`), and
+> `unblockedBy` (on `issue.ready` — a *seq*, excluded as a false positive by name, see below).
+> Keys matching the shape but excluded with a stated reason: `dataSource`, `eventSource`,
+> `sourceKind`, `sourceRef`, `sourceEventKind`, `predecessorSegmentId`, `from`, `toId`,
+> `inputOrigin`, `unblockedBy`, `supersededBy`, `blockedBy` — none names a principal.
 
 | Field | What it carries today | Verified | Needs |
 |---|---|---|---|
 | `humanQuestionAskedBy` | **actor** — "sessionId of the agent session that asked", raw `z.string()`. **Server-authoritative**: an agent may only attribute to its own session (`registry.ts:1198–1215` rejects a mismatch against `actorSessionId`) | ✅ | **+ `onBehalfOf`**, so "did a *person* or an agent ask this?" survives multi-user. Also brand the actor half |
 | `nameSource: 'user' \| 'agent'` | **role class only** — not a person, not a session | ✅ | **+ both halves.** The human-outranks-agent rule ([spec:SP-eb60]) is an *authorization* rule that currently rides a two-value enum |
 | `deletion_source: 'issue' \| 'standalone'` | **neither** — it is a *code path* label, typed as bare `text` | ✅ | **+ both halves.** The path label may stay as a separate reason field |
-| `spawnedBy: string` | **actor**, as freeform prose (`'user'`, `'superagent:<id>'`, `'issue:<id>'`, `'session:<id>'`) | ✅ | **+ both halves**, branded and typed. This is the least structured attribution site in the entity vocabulary |
+| `spawnedBy: string` | **actor**, as freeform prose. **Complete member set, derived from the producers rather than guessed** — `'user'` (`router.ts:388,407`), `'agent'` and `'system'` and `'superagent'` bare (`spawnedByForMessage`, `messages/spawn.ts:38-46`), `session:<sessionId>` (same, and `spawnProvenance()` at `issues/registry.ts:278`), `issue:<issueId>` (`issues/service/workflow.ts:166,788`; also `spawnProvenance()` for a subtree caller), `superagent:<threadId>` (`superagent/service.ts:462,704`), **`automation:<automationId>`** (`automations/service.ts:587`). Only `session:` is machine-parsed (`sessionSpawnerParentId`, `steward.ts:226`) — every other arm is prose | ✅ | **both halves**, branded and typed as a closed union. This is the least structured attribution site in the entity vocabulary |
 | `startedBySession`, `coordinatorSessionId` | **actor** (bare session id, dangling-tolerant, unbranded) | ✅ | **+ `onBehalfOf`**; brand as `SessionId` |
-| Issue **close / unblock actor** | **nothing is recorded.** `closedReason` + `closedAt` exist; no actor, no on-behalf-of | ✅ (no such column on `issues`) | **both halves.** This is the clearest missing-attribution site in the tracker |
+| Issue **close / unblock / stage / reopen actor** | **actor — on the EVENT, not the row.** `IssueCrud` stamps `causedBySessionId` into the payload of `issue.closed`, `issue.reopened`, `issue.stage_changed` and `issue.ready` (`crud.ts:204, 434, 446, 456`), threaded from `opts.actorSessionId` / the `actorSessionId` argument to `emitReadyAfterClose`. It is **conditional** (`...(actorSessionId ? … : {})`), so an operator-originated close carries **no** attribution at all, and the `issues` row itself has no actor column | ✅ | **both halves, and unconditionally.** The actor must stop being optional — an absent `causedBySessionId` currently means *either* "a human did it" *or* "nobody threaded the id", which are different facts. On-behalf-of is new. Note the steward already **consumes** this key to skip the causing session (`steward.ts:688, 771, 938`), so it is load-bearing, not decorative |
+| Issue `needs_human` **event** `askedBy` | **actor**, mirroring the row's `humanQuestionAskedBy` onto the event payload | ✅ | + `onBehalfOf`; keep row and event in one shape so they cannot drift apart |
+| `superagent.turnEnded` event `podiumSessionId` | **actor** (the headless session) | ✅ | + `onBehalfOf` = the superagent's human (ADR 9 D8 S1/S2) |
 | Issue `assignee` | free-text string | ✅ | becomes a **`UserId`** (POD-1075) — it is an ownership-adjacent field, not attribution, but the same brand |
 | `HandoffManifest.sourceMachineId` + `exportedAt` | **device-level only** (which machine, when) | ✅ | **+ both halves.** ADR 1 Am1 §9: accept is denied (not retargeted) without `use` on the target machine |
 | `Session.controllerId` | a **connection id** — not a person | ✅ | identity on control is **Phase 5** work (ADR 1 Am1 D12 note); recorded here so the field is not mistaken for attribution |
@@ -621,35 +715,42 @@ source, no schema, no migration, and no test.
 ## 13. LEDGER-ENTRY (for `docs/rearchitecture-v3.md` §8, Phase 1)
 
 > **POD-364 (1.4a) — field-schema inventory, counted at `0e583f44`.** The epic's "roughly eight
-> definitions of a session" is wrong by ~3×: **28 named session representations** and **17 issue
-> representations** exist, enumerated mechanically from `git ls-files` (1576 TS files, NUL-stripped
-> before parsing — the guardrail `check-no-nul-bytes` was RED on the counting base for
-> `packages/client-core/src/engine/engine.ts`, a file a grep sweep cannot see at all; fixed
-> independently at `3d31eee7` while this was written). 6 session and 3
-> issue representations are **drifted duplicates** with named deletions; the rest are legitimate
-> R1–R6 roles, and **no R1 exists today** — truth is split across `sessions` (48 cols),
-> `SessionDurableState` (44 live fields, 5 with no column at all) and `SessionMeta` (55 keys).
-> 16 disagreement classes (**D-1…D-16**) are catalogued, including four `IssueWire.sessions`-shaped
-> embed sites rather than one, four encodings of `resume`, three spellings of one clock, and the
-> spawn tuple restated in four places. The composition plan names 14 session and 13 issue shared
-> field schemas plus four cross-entity schemas (`Ownership`, `GrantEdge`, `Attribution`,
-> `PerUserKey`) placed **once**, agreed with POD-1075 on four assertions. 11 per-user-state
-> candidates are marked for POD-1076 with three open questions recorded not answered; the reserved
-> `op-stream` set (composer draft, issue `description`/`notes`) is marked reserved-not-built with
-> ADR 2 D5's materialized-value-plus-bounded-tail constraint attached; 12 attribution sites are
-> mapped half-by-half with the automation-creator gap recorded; and a 13-item **existence-leak
-> list (L-1…L-13)** is handed to Phase 3 (POD-290) against ADR 9 §3 O1/O2.
+> definitions of a session" is wrong by **3×**: **24 session representations** and **17 issue
+> representations**, each carrying exactly one ADR 4 R1–R6 role, with everything the stated
+> predicate excludes placed in a named category with its own count (10+11 field groups, 54 L1
+> frames, 2 sub-predicate ports, 3 composing consumers, 4 issue read-model aggregates, 5 test
+> fixtures). **The counted lists and the measured field matrix cover the same sets** — 121 distinct
+> session keys across all 24, 91 issue keys across all 17 — so the map cannot silently omit or
+> double-count a definition for POD-365. Enumerated from `git ls-files` (1576 TS files) with every
+> file read whole and NUL-stripped before parsing; the guardrail `check-no-nul-bytes` was RED on the
+> counting base for `packages/client-core/src/engine/engine.ts`, a file `grep` reports as "no
+> matches, exit 0", fixed independently at `3d31eee7`. **No R1 exists today** — truth is split
+> across `sessions` (48 cols), `SessionDurableState` (44 live fields, 5 with no column at all) and
+> `SessionMeta` (55 keys); 6 session and 3 issue representations are drifted duplicates with named
+> deletions. 16 disagreement classes (**D-1…D-16**) are catalogued, including four
+> `IssueWire.sessions`-shaped embed sites rather than one, four encodings of `resume`, three
+> spellings of one clock, and the spawn tuple restated four times. The composition plan names 14
+> session and 13 issue shared field schemas plus four cross-entity schemas (`Ownership`,
+> `GrantEdge`, `Attribution`, `PerUserKey`) placed **once**, agreed with POD-1075 on four
+> assertions. 11 per-user-state candidates go to POD-1076 with three open questions recorded not
+> answered; the reserved `op-stream` set (composer draft, issue `description`/`notes`) is marked
+> reserved-not-built with ADR 2 D5's materialized-value-plus-bounded-tail constraint attached; and a
+> 13-item **existence-leak list (L-1…L-13)** goes to Phase 3 (POD-290) against ADR 9 §3 O1/O2.
+> **Attribution was re-derived with a class detector** after a name-based pass wrongly reported that
+> the issue close/unblock path records no actor: it records `causedBySessionId` on the event payload
+> (not the row) for `issue.closed`/`reopened`/`stage_changed`/`ready`, conditionally — so "no actor"
+> and "a human did it" are today indistinguishable. 60 principal-bearing keys / 511 sites;
+> automation creator recorded as a gap. Reconciled with POD-360 on three adjudicated points (§15).
 > Document: `docs/rearch-field-schema-inventory.md`. Reviewed against ADR 4 + Amendment 1 and
 > ADR 9 D3/D4 (§14).
-
----
 
 ## 14. Review against the representation policy and ADR 9 D3/D4
 
 | Requirement | Where satisfied |
 |---|---|
 | ADR 4 D1 — one vocabulary, **not** one universal record | §6: 14 + 13 field schemas, six distinct roles preserved, R5 ports retained |
-| ADR 4 D2 — every representation declares exactly one role | §2, §3: role column filled for all 45 |
+| ADR 4 D2 — every representation declares exactly one role | §2.1, §3: exactly one R1–R6 role for each of the 41 counted representations (24 session + 17 issue). Everything the predicate excludes is in a named category with its own count and reason (§2.2–§2.4, §3), so nothing is silently role-less |
+| ADR 4 D2 — the counted set and the measured set are the same set | §1 bucket table, §2.1, §3, §4: 121 session keys across all 24; 91 issue keys across all 17 |
 | ADR 4 D3.1/D3.2 — field groups; compose, never copy key lists | §6.2/§6.3 define the groups; §6.4 states each `Pick` |
 | ADR 4 D3.3 — propagate or fail compilation | §6.5 rule 1 (no anonymous projections) is what makes this checkable |
 | ADR 4 D3.4 — one store↔wire mapping pair per entity | §6.5 rule 2 |
@@ -667,6 +768,24 @@ source, no schema, no migration, and no test.
 | ADR 4 Am1 D10 — per-user state is a keyed shape, not a field | §7, `PerUserKey` |
 | ADR 9 D3 — five visibility classes, machine facts inherit | Visibility column in §2/§3/§5; `inherited` used for every machine fact; `FeatureState` placed as substrate (§9.2) |
 | ADR 9 D4 — **default-closed**; unclassifiable ⇒ personal/private | No cell in §2/§3/§5 is blank. Everything not demonstrably substrate, secret, per-user or machine-inherited is recorded **`personal`** |
-| ADR 9 D5 A3 — both halves stamped from the transport principal | §9; the `askedBy` server-authoritative check is the one site already close to compliant |
+| ADR 9 D5 A3 — both halves stamped from the transport principal | §9, re-derived with a class detector (60 principal-bearing keys / 511 sites) after a name-based pass missed the event-payload path. `humanQuestionAskedBy` is the one site already close to compliant; the issue lifecycle actor is on the event and conditional |
+| Cross-document agreement with POD-360 | §15 — three adjudicated divergences, two of which required a change here |
 | ADR 1 Am1 D10 — per-user family; `archived`/`workState` shared | §7.1, §7.2 (recorded, not reopened) |
 | ADR 1 Am1 D12 — `op-stream` reserved, not built | §8, with the ADR 2 D5 constraint attached |
+
+---
+
+## 15. Cross-document reconciliation with POD-360 (entity-id inventory)
+
+POD-364 and POD-360 are two halves of one question — what exists today, and where the definitions
+disagree — so a disagreement **between the two documents** is itself a defect: POD-365 builds
+aggregates from this map while POD-361/362/363 flip branded ids from POD-360's, and two different
+models of one system produce a half-migration that fails silently. A joint review found three
+divergences. All three were **adjudicated by the reviewer and confirmed by the coordinator**; they
+are recorded here as facts, not renegotiated.
+
+| # | Divergence | Adjudicated answer | Action taken in THIS document |
+|---|---|---|---|
+| 1 | `deletion_source` — typed label vs freeform string | **POD-364 was right**: it is a typed `SessionDeletionSource = 'issue' \| 'standalone'` (`apps/server/src/store/types.ts:36`), stored in a bare `text` column. POD-360 fixes its side | No change needed. §5.2 and §9 already record it as a **path label, not a principal** — which is the separate defect: it answers *which code path*, never *who* |
+| 2 | `causedBySessionId` / `actorSessionId` on issue lifecycle events | **POD-360 was right**: issue CRUD emits `causedBySessionId` for `issue.ready`, `issue.stage_changed`, `issue.reopened` and `issue.closed`, and threads `actorSessionId` through `close` | **Corrected.** §9 now carries the row with call sites (`crud.ts:204, 434, 446, 456`), records that it lives on the **event payload and not the row**, and flags that it is **conditional** so an operator-originated close carries no attribution. The detector was fixed first, then re-derived (§1 item 5) |
+| 3 | `spawnedBy` member set | Both must carry the complete set; POD-360 omitted the production `automation:<automationId>` arm | **Completed and derived from the producers rather than listed from memory**: `'user'`, `'agent'`, `'system'`, `'superagent'`, `session:<id>`, `issue:<id>`, `superagent:<threadId>`, `automation:<automationId>`, with the call site for each in §9. Only `session:` is machine-parsed (`steward.ts:226`); every other arm is prose — which is why §6.2 makes it a closed branded union |
