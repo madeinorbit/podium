@@ -200,13 +200,40 @@ and start punishing hand-restated field lists.
 
 ### Decision D4 — HandoffManifest is R6 (portable export)
 
-**Decision:** `HandoffManifest` (`packages/protocol/src/messages/handoff.ts`) is an
-R6 projection **composed** from shared session (and related) field schemas in model.
-The eight handoff request/result message types remain **protocol frames** (plane
-classification is ADR 7; count verified: 4 request/result pairs in
-`packages/protocol/src/messages/handoff.ts`). Bundle minting, source→target direction, and
-`exportedAt` / `sourceMachineId` provenance are **ownership-matrix rows** (ADR 1 /
-POD-304 / POD-643), not comments-only on the zod object.
+**Decision:** `HandoffManifest` is an R6 projection **composed** from shared session
+(and related) field schemas in model. The eight handoff request/result message types
+remain **protocol frames** (plane classification is ADR 7; count verified: 4
+request/result pairs in `packages/protocol/src/messages/handoff.ts`). Bundle minting,
+source→target direction, and `exportedAt` / `sourceMachineId` provenance are
+**ownership-matrix rows** (ADR 1 / POD-304 / POD-643), not comments-only on the zod
+object.
+
+**Status of the placement, as executed (POD-643, recorded against this decision):**
+
+| Part of D4 | State |
+|---|---|
+| Manifest lives in model, not protocol | **Done** at POD-300 — `packages/model/src/entities/handoff.ts`. This decision's original site reference (`packages/protocol/src/messages/handoff.ts`) is superseded. |
+| Ids branded | **Done** at POD-361 — `SessionIdField`, `RepoIdField`, `IssueIdField`; `sourceMachineId` stays the `machineIdBlockedOnPOD318` carve-out on purpose, because a length-only brand would launder the `'local'` sentinel (ADR 1 Am2 D16.2). |
+| The eight frames stay protocol frames | **Held.** They import the manifest; only the entity-shaped member moved. |
+| Documented in model with its purpose | **Done** at POD-643, per POD-368's convention. |
+| Composed from shared field schemas | **Pending POD-365**, which owns the session field groups and the single `Attribution` schema. POD-643 recorded the `Pick` set as the file's contract and LOCKED the key list by test rather than forking a second definition of POD-365's half — a fork would be the drift this ADR exists to prevent, wearing composition's clothes. |
+
+Two constraints POD-643 adds to this decision, because a portable export is where
+they are most likely to be broken:
+
+1. **The manifest carries identity and provenance only.** No serialized capability,
+   effective-rights or scope snapshot may ride a bundle: rights are its scope
+   intersected with its human's *current* rights, resolved live at every apply
+   (ADR 9 D5 A1, ADR 3 D8), and a snapshot leaves an unattended agent holding
+   rights its human no longer has, with no cleanup trigger. Nothing is lost by
+   refusing to copy them — the agent principal's lifecycle *is* `SessionBinding`
+   (ADR 9 D5 A5), so delegation survives cross-machine handoff for free. Enforced
+   over the schema by `findCapabilitySnapshotKeys`
+   (`packages/model/src/annotations/capability-snapshot.ts`).
+2. **A manifest `owner` is provenance, never an authorization input.** A bundle is
+   payload, so ADR 3 D7 applies with full force: the import path decides ownership
+   from its own transport principal, and an imported bundle naming an owner confers
+   no ownership or visibility on the importing side.
 
 **Rationale:** Manifest keys today include `sessionId`, `agentKind`, `resume`,
 `repoId`, `issueId`, `sourceMachineId`, worktree fields — the same drift class as
