@@ -57,6 +57,31 @@ bun scripts/rearch-audit.ts
 `bun scripts/check-boundaries.ts` **directly** as shown. If your change touches migrations, also run
 `bun run migration:check` and `bun run migration:manifest`.
 
+### The typecheck rule, corrected (POD-279, measured)
+
+**Run it so the program actually covers your package** — `bunx tsgo --noEmit` from *inside* the
+package, or `bun run --filter @podium/<pkg> typecheck`. This is the rule that matters, and it is not
+about caching. Two agents reported `exit 0` from the repo root where **no program covered the package
+they were changing**, so it would have returned 0 for any input; running it in-package immediately
+surfaced a real error one of them had already shipped. Before believing an absence, probe the
+instrument: a `@ts-expect-error` with nothing to suppress must report TS2578.
+
+**A turbo cache HIT is valid evidence, and you do not need `--force`.** Earlier guidance in this run
+said otherwise and it was wrong — I over-read ADR 8 D3. What D3 actually says is that a cache hit
+does not prove `@podium/*` resolved *inside this checkout*; it says nothing against the typecheck's
+validity. Turbo content-hashes inputs and `typecheck` declares `dependsOn: ["^typecheck"]`, so a
+change in an upstream package invalidates its dependents. Measured cost of the wrong rule:
+**~36–65s per run versus ~0.5s cached**, paid many times per agent.
+
+Use `--force` only when you have a reason to distrust the hash — you changed something outside the
+task's declared inputs, or you are specifically testing worktree isolation. **Say which you ran
+either way**; that is the part that was ever load-bearing.
+
+Worktree caveat, so you can judge for yourself: these worktrees carry a `node_modules` with no
+`@podium` scope, so cross-package resolution runs through source conditions rather than a local
+install. In-package `tsgo` does read your worktree's sources — that is how the error above was found —
+but if you ever see a result that only makes sense against another checkout, that is the mechanism.
+
 Never claim a lane is green without pasting its output. If a lane was **already red on your base**,
 prove that (`git stash` is repo-wide and forbidden — instead check the same lane on a clean checkout
 of `issue/279-integration`) and say so explicitly rather than letting it read as your regression.
