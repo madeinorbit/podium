@@ -1569,7 +1569,7 @@ describe('memory breakdown relay', () => {
       sampledAt: '2026-06-11T00:00:00.000Z',
       supported: true,
       memory,
-      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }], // // POD-361-EDGE-CAST
+      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }],
       projects: [],
       otherBytes: 12,
     })
