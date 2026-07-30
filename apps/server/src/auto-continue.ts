@@ -1,5 +1,5 @@
 import { AUTO_CONTINUE_BASE_DELAY_MS, AUTO_CONTINUE_MAX_DELAY_MS } from '@podium/runtime'
-import type { AgentRuntimeState } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 
 /** Everything the controller needs from the relay, injected so the loop is
  *  unit-testable with spies + fake timers and carries no relay knowledge. */
@@ -7,10 +7,10 @@ export interface AutoContinueDeps {
   /** The global master switch, read fresh on every decision. */
   isEnabled: () => boolean
   /** Type one `continue⏎` into the session (relay.continueSession, phase-gated). */
-  sendContinue: (sessionId: string) => void
+  sendContinue: (sessionId: SessionId) => void
   /** Liveness + latest agent state, or undefined if the session is gone. */
   getSession: (
-    sessionId: string,
+    sessionId: SessionId,
   ) => { live: boolean; state: AgentRuntimeState | undefined } | undefined
 }
 
@@ -41,20 +41,20 @@ export class AutoContinueController {
 
   /** Relay calls this on every agent-state transition. Arms on a retryable error,
    *  stops (resetting backoff) the instant the agent is no longer in one. */
-  onStateChange(sessionId: string, next: AgentRuntimeState): void {
+  onStateChange(sessionId: SessionId, next: AgentRuntimeState): void {
     if (this.deps.isEnabled() && isRetryableErrored(next)) this.arm(sessionId)
     else this.stop(sessionId)
   }
 
   /** Restore a durable retryable-error loop without sending into a session that
    *  has not rebound its PTY yet. `onSessionLive` releases the first tick. */
-  onSessionRestored(sessionId: string, next: AgentRuntimeState): void {
+  onSessionRestored(sessionId: SessionId, next: AgentRuntimeState): void {
     if (!isRetryableErrored(next) || this.loops.has(sessionId)) return
     this.loops.set(sessionId, { attempt: 0, timer: undefined })
   }
 
   /** First real bind after boot releases a restored loop exactly once. */
-  onSessionLive(sessionId: string): void {
+  onSessionLive(sessionId: SessionId): void {
     const loop = this.loops.get(sessionId)
     if (!loop || loop.timer !== undefined) return
     this.tick(sessionId)
@@ -71,12 +71,12 @@ export class AutoContinueController {
   }
 
   /** Session hibernated/exited/killed — drop its loop promptly. */
-  onSessionGone(sessionId: string): void {
+  onSessionGone(sessionId: SessionId): void {
     this.stop(sessionId)
   }
 
   /** True while a loop is active for the session (introspection/test helper). */
-  isActive(sessionId: string): boolean {
+  isActive(sessionId: SessionId): boolean {
     return this.loops.has(sessionId)
   }
 
@@ -84,14 +84,14 @@ export class AutoContinueController {
     this.stopAll()
   }
 
-  private arm(sessionId: string): void {
+  private arm(sessionId: SessionId): void {
     if (this.loops.has(sessionId)) return // one loop per session
     this.loops.set(sessionId, { attempt: 0, timer: undefined })
     this.tick(sessionId)
   }
 
   /** Send one nudge if still warranted, then schedule the next with backoff. */
-  private tick(sessionId: string): void {
+  private tick(sessionId: SessionId): void {
     const loop = this.loops.get(sessionId)
     if (!loop) return
     const snap = this.deps.getSession(sessionId)
@@ -105,7 +105,7 @@ export class AutoContinueController {
     loop.timer = setTimeout(() => this.tick(sessionId), ms)
   }
 
-  private stop(sessionId: string): void {
+  private stop(sessionId: SessionId): void {
     const loop = this.loops.get(sessionId)
     if (!loop) return
     if (loop.timer) clearTimeout(loop.timer)

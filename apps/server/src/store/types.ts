@@ -46,7 +46,7 @@ export type SessionDeletionSource = 'issue' | 'standalone'
 
 /** Durable observer lease plus the last accepted causal checkpoint. */
 export interface ObservationLeaseRecord {
-  sessionId: string
+  sessionId: SessionId
   provider: ObservationProvider
   providerSessionId: string | null
   bindingVersion: number
@@ -57,7 +57,7 @@ export interface ObservationLeaseRecord {
 
 export interface TerminalCandidateFacts {
   schemaVersion: 1
-  sessionId: string
+  sessionId: SessionId
   terminalTransitionId: string
   terminalTurnEpoch: number
   provider: ObservationProvider
@@ -87,7 +87,7 @@ export interface TerminalCandidateFacts {
     nativeSubagentCount: number
     nativeSubagentIds: string[]
     awaitingSubagents: boolean
-    childSessions: Array<{ sessionId: string; status: string; activityCount: number }>
+    childSessions: Array<{ sessionId: SessionId; status: string; activityCount: number }>
     queueDrainActive: boolean
     draftPending: boolean
     draftVersion: string | null

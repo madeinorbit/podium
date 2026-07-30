@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { HarnessAgent, type IssueWire } from '@podium/model'
+import { HarnessAgent, type IssueWire, type SessionId } from '@podium/model'
 import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
@@ -450,7 +450,7 @@ export class SuperagentService {
     const existingSession = boundSessionId
       ? this.listSessions().find((session) => session.sessionId === boundSessionId)
       : undefined
-    let sessionId: string
+    let sessionId: SessionId
     if (existingSession) {
       sessionId = existingSession.sessionId
     } else {
@@ -682,7 +682,7 @@ export class SuperagentService {
    * one writer at a time. sendTurn rejects while the terminal session is live;
    * the lock clears lazily once that session exits.
    */
-  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: string }> {
+  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -739,7 +739,7 @@ export class SuperagentService {
    * thread) or origin-transcript delta (re-open) is prepended to the user's
    * next sendTurn by composeContext, so the harness gets it exactly once.
    */
-  startBtwTurn({ sessionId }: { sessionId: string }): { threadId: string; isNew: boolean } {
+  startBtwTurn({ sessionId }: { sessionId: SessionId }): { threadId: string; isNew: boolean } {
     const threadId = `btw_${sessionId}`
     const existing = this.store.superagent.getSuperagentThread(threadId)
     if (existing?.kind === 'btw') return { threadId, isNew: false }
@@ -953,7 +953,7 @@ export class SuperagentService {
   }
 
   /** One live session, digested for a seed / focus block. */
-  private sessionInfo(sessionId: string): FocusSessionInfo | undefined {
+  private sessionInfo(sessionId: SessionId): FocusSessionInfo | undefined {
     const s = this.listSessions().find((x) => x.sessionId === sessionId)
     if (!s) return undefined
     const issue = s.issueId ? this.issueById(s.issueId) : undefined

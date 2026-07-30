@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { AgentKind } from '@podium/model'
+import { AgentKind, type SessionId } from '@podium/model'
 import {
   type ExecutionProfileWire,
   WorkflowBindingTarget,
@@ -117,7 +117,7 @@ export interface WorkflowCaller {
 }
 
 interface SessionInfo {
-  sessionId: string
+  sessionId: SessionId
   cwd: string
   issueId?: string
   agentKind: string
@@ -145,10 +145,10 @@ type IssueInfo = Pick<IssueRow, 'worktreePath'>
 export interface WorkflowServiceDeps {
   store: WorkflowsRepository
   now(): string
-  session(sessionId: string): SessionInfo | undefined
+  session(sessionId: SessionId): SessionInfo | undefined
   issue(issueId: string): IssueInfo | undefined
   repoIdForPath(path: string): string | null
-  notifyCoordinator?(sessionId: string, text: string): void
+  notifyCoordinator?(sessionId: SessionId, text: string): void
 }
 
 function globalTargetId(): string {
@@ -462,7 +462,7 @@ export class WorkflowService {
     return { ...profile, harness: harness.data }
   }
 
-  private liveRunForSession(sessionId: string): WorkflowRunRow | null {
+  private liveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
     const direct = this.deps.store.findLiveRunForSession(sessionId)
     if (direct) return direct
     const issueId = this.deps.session(sessionId)?.issueId
@@ -480,7 +480,7 @@ export class WorkflowService {
 
   private assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
-    input: { sessionId: string; cwd: string; issueId?: string },
+    input: { sessionId: SessionId; cwd: string; issueId?: string },
   ): void {
     const workflow = this.deps.store.getWorkflow(revision.workflowId)
     if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
@@ -496,7 +496,7 @@ export class WorkflowService {
   }
 
   resolveRevision(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     issueId?: string
     explicitRevisionId?: string
@@ -519,7 +519,7 @@ export class WorkflowService {
   }
 
   prepareStart(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     issueId?: string
     explicitRevisionId?: string
@@ -538,7 +538,7 @@ export class WorkflowService {
   }
 
   prepareExistingSession(input: {
-    sessionId: string
+    sessionId: SessionId
     issueId?: string
   }): { revision: WorkflowRevisionWire; prompt: string } | null {
     const existing =
@@ -551,7 +551,7 @@ export class WorkflowService {
   }
 
   startRun(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     issueId?: string
     revisionId: string
@@ -970,7 +970,7 @@ export class WorkflowService {
       .join('\n\n')
   }
 
-  renderRunPrime(run: WorkflowRunWire, sessionId: string): string {
+  renderRunPrime(run: WorkflowRunWire, sessionId: SessionId): string {
     const workflow = this.deps.store.getWorkflow(run.revision.workflowId)
     const current = this.currentStep(run)
     const role =

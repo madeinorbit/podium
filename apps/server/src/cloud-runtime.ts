@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 export type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent'
 export type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed'
 
@@ -47,7 +48,7 @@ export type CloudAgentKind = 'claude-code' | 'codex'
  * it is the one place the two external spellings are written.
  */
 export interface CloudAgentSourceSession {
-  sessionId: string
+  sessionId: SessionId
   agent: CloudAgentKind
   resumeRef?: string | undefined
   cwd?: string | undefined
@@ -64,7 +65,7 @@ export interface CloudAgentSourceSession {
  * rebuild this object literal.
  */
 export function toCloudAgentSourceSession(source: {
-  sessionId: string
+  sessionId: SessionId
   agent: CloudAgentKind
   resume?: { value?: string | undefined } | undefined
   cwd?: string | undefined

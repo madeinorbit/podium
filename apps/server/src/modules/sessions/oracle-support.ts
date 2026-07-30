@@ -32,6 +32,7 @@
  * as a later comparison baseline.
  */
 
+import type { SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
@@ -90,7 +91,7 @@ export interface Oracle {
   call: ReturnType<typeof appRouter.createCaller>
   /** Session metadata as the wire sees it. */
   meta(
-    sessionId: string,
+    sessionId: SessionId,
   ): ReturnType<SessionRegistry['modules']['sessions']['listSessions']>[number]
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
@@ -107,7 +108,7 @@ export type RelayReply = Extract<ControlMessage, { type: 'agentRelayResult' }>
 export interface RelayRequest {
   requestId: string
   /** The CALLING session — the relay context the capability is minted from. */
-  sessionId: string
+  sessionId: SessionId
   router: string
   proc: string
   input?: unknown

@@ -1,4 +1,4 @@
-import type { IssueComment, IssueWire, SessionMeta } from '@podium/model'
+import type { IssueComment, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
@@ -291,14 +291,14 @@ export interface StewardDeps {
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
    *  filters to live/starting; session-parent wake does not — a parked parent
    *  must be woken (POD-904 / POD-279). */
-  sendTextWhenReady: (sessionId: string, text: string, mutationId?: string) => void
+  sendTextWhenReady: (sessionId: SessionId, text: string, mutationId?: string) => void
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
    *  the composition root; suppression = the acked_by null-check at query time. */
   messaging?: {
     ackFallback(
-      sessionId: string,
+      sessionId: SessionId,
       outcome: 'finished' | 'errored',
       notificationFact: { factKey: string; target: string },
     ): void
@@ -561,7 +561,7 @@ export class StewardService {
   }
 
   /** Session left idle/errored — free ackfallback settle; NOT the parent-wake sticky. */
-  private retireSessionSettledFacts(sessionId: string): void {
+  private retireSessionSettledFacts(sessionId: SessionId): void {
     const at = this.now()
     // Ack-fallback / settle fact (target is usually the session itself).
     this.arbiter.retireFactKey(`settle:${sessionId}`, at)
@@ -1013,7 +1013,7 @@ export class StewardService {
    *  itself queries delivered+unacked at call time, so an agent ack that landed
    *  first suppresses the notice (acked_by null-check), and a crash-replayed
    *  batch re-queries an empty set. */
-  private handleAckFallback(sessionId: string, batch: StewardEvent[]): void {
+  private handleAckFallback(sessionId: SessionId, batch: StewardEvent[]): void {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null

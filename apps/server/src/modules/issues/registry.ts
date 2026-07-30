@@ -111,7 +111,7 @@ export interface IssueCommandDeps {
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
-    sessionId: string,
+    sessionId: SessionId,
     answer: string,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
   /** Stop every session on an issue and free its worktree (keep branch)

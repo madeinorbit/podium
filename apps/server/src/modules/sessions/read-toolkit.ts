@@ -12,13 +12,7 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import type {
-  SessionMeta,
-  SessionReadResult,
-  SessionRecapResult,
-  SessionStatusResult,
-  TranscriptItem,
-} from '@podium/model'
+import type { SessionId, SessionMeta, SessionReadResult, SessionRecapResult, SessionStatusResult, TranscriptItem } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
@@ -55,7 +49,7 @@ export interface SessionReadToolkitDeps {
   ): Promise<{ ok: boolean; output: string }>
   /** The uuid-cursor transcript window read (modules/machines/rpc.readTranscript). */
   readTranscript(input: {
-    sessionId: string
+    sessionId: SessionId
     anchor?: string
     direction: 'before' | 'after'
     limit: number
@@ -139,7 +133,7 @@ export class SessionReadToolkit {
   }
 
   async read(
-    input: { sessionId: string; turns?: number; cursor?: string },
+    input: { sessionId: SessionId; turns?: number; cursor?: string },
     reader: string,
   ): Promise<SessionReadResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
@@ -194,7 +188,7 @@ export class SessionReadToolkit {
    * a goal — the persisted mark still advances).
    */
   async recap(
-    input: { sessionId: string; since?: string },
+    input: { sessionId: SessionId; since?: string },
     reader: string,
   ): Promise<SessionRecapResult> {
     const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
@@ -251,7 +245,7 @@ export class SessionReadToolkit {
   }
 
   /** Event-log every cross-session read [spec:SP-34d7 read-toolkit authz]. */
-  private logRead(kind: string, sessionId: string, reader: string): void {
+  private logRead(kind: string, sessionId: SessionId, reader: string): void {
     try {
       this.deps.events.appendEvent({
         ts: this.deps.now(),

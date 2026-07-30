@@ -35,7 +35,7 @@ export interface SuperagentTurnPort {
   }): Promise<{ threadId: string; podiumSessionId: string }>
   interruptTurn(input: { threadId: string }): void
   restartThread(input: { threadId: string }): void
-  startBtwTurn(input: { sessionId: string }): { threadId: string; isNew: boolean }
+  startBtwTurn(input: { sessionId: SessionId }): { threadId: string; isNew: boolean }
   ensureConciergeThread(input: { repoPath: string }): { threadId: string; isNew: boolean }
 }
 
@@ -54,7 +54,7 @@ export interface TopicRecapPort {
     originSessionId?: string | null
   } | undefined
   readTranscript(input: {
-    sessionId: string
+    sessionId: SessionId
     direction: 'before' | 'after'
     limit: number
   }): Promise<{ items: TranscriptItem[] }>
@@ -423,12 +423,12 @@ export class MessagingService implements TelegramNoticePort {
 
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
-  private onSessionStateChanged(sessionId: string, next: AgentRuntimeState): void {
+  private onSessionStateChanged(sessionId: SessionId, next: AgentRuntimeState): void {
     if (next.phase === 'working') this.startAmbientTyping(sessionId)
     else this.stopAmbientTyping(sessionId)
   }
 
-  private startAmbientTyping(sessionId: string): void {
+  private startAmbientTyping(sessionId: SessionId): void {
     if (this.ambientTypingBySession.has(sessionId)) return
     if (!this.adapter) return
     const chatId = this.deps.getSettings().notifications.telegramChatId.trim()
@@ -446,7 +446,7 @@ export class MessagingService implements TelegramNoticePort {
     this.ambientTypingBySession.set(sessionId, conversationKey(source))
   }
 
-  private stopAmbientTyping(sessionId: string): void {
+  private stopAmbientTyping(sessionId: SessionId): void {
     const key = this.ambientTypingBySession.get(sessionId)
     if (!key) return
     this.ambientTypingBySession.delete(sessionId)
@@ -669,6 +669,6 @@ function turnTypingOwner(threadId: string): string {
   return `turn:${threadId}`
 }
 
-function ambientTypingOwner(sessionId: string): string {
+function ambientTypingOwner(sessionId: SessionId): string {
   return `session:${sessionId}`
 }

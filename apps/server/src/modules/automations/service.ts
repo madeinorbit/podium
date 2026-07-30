@@ -53,7 +53,7 @@ export interface AutomationsDeps {
   /** SessionsService.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
   queueText(input: {
-    sessionId: string
+    sessionId: SessionId
     text: string
     mutationId?: string
     inputOrigin?: 'system'
@@ -103,7 +103,7 @@ export interface AutomationInput {
 class AutomationSpawnError extends Error {
   constructor(
     message: string,
-    readonly sessionId: string | null,
+    readonly sessionId: SessionId | null,
   ) {
     super(message)
   }
@@ -442,7 +442,7 @@ export class AutomationsService {
     }
 
     let outcome: AutomationRunOutcome = 'error'
-    let sessionId: string | null = null
+    let sessionId: SessionId | null = null
     let detail: string | null = 'reserved'
     try {
       sessionId = this.spawn(automation, runId)

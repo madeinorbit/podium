@@ -51,7 +51,7 @@
  * cached decision.
  */
 
-import type { Capability } from '@podium/model'
+import type { Capability, SessionId } from '@podium/model'
 import { asUserId, type UserId } from '@podium/model'
 
 /**
@@ -150,10 +150,10 @@ export function attributionOf(principal: CommandPrincipal): CommandAttribution {
 export interface DelegationIndex {
   /** The session that spawned this one, if it was spawned by another session.
    *  Today's provenance vocabulary is `spawnedBy: 'session:<id>'`. */
-  parentSessionOf(sessionId: string): string | undefined
+  parentSessionOf(sessionId: SessionId): string | undefined
   /** The human a root agent session was spawned for. Absent ⇒ the instance's
    *  one account, which is the only answer available before POD-1075. */
-  onBehalfOfFor?(sessionId: string): UserId | undefined
+  onBehalfOfFor?(sessionId: SessionId): UserId | undefined
 }
 
 /** Chain depth ceiling. A cycle in `spawnedBy` would otherwise hang the resolve;

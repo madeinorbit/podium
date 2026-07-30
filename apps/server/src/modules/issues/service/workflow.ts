@@ -1,11 +1,4 @@
-import {
-  asUserId,
-  DEFER_NEXT_MESSAGE,
-  type IssueId,
-  type IssueWire,
-  type OrphanIssue,
-  type SessionMeta,
-} from '@podium/model'
+import { DEFER_NEXT_MESSAGE, asUserId, type IssueId, type IssueWire, type OrphanIssue, type SessionId, type SessionMeta } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { sessionsForIssue } from '../../../issue-util'
@@ -811,7 +804,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
    *  user. End any "until next message" defer on the issue(s) owning the session
    *  so they resurface exactly when there's something new (the issue mirror of a
    *  session's `snoozedUntil: null` snooze). */
-  onSessionAttention(sessionId: string): void {
+  onSessionAttention(sessionId: SessionId): void {
     const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return
     for (const row of [...this.rows.values()]) {
@@ -822,7 +815,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
 
   private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  onSessionActivity(sessionId: string): void {
+  onSessionActivity(sessionId: SessionId): void {
     if (!this.d.getSettings().issues?.assistantEnabled) return
     const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return
@@ -862,7 +855,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
    *  tools touched. Registers the session as attribution-capable even when
    *  both lists are empty (SessionStart baseline). */
   recordSessionGitActivity(
-    sessionId: string,
+    sessionId: SessionId,
     activity: { commits?: string[]; touched?: string[] },
   ): void {
     const commits = this.gitCommitsBySession.get(sessionId) ?? []
@@ -885,7 +878,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
 
   /** Working→idle edge from the sessions service: refresh the git state of the
    *  issue this session works. Fire-and-forget; never throws into the caller. */
-  onSessionTurnEnd(sessionId: string): void {
+  onSessionTurnEnd(sessionId: SessionId): void {
     const resolved = this.issueForSession(sessionId)
     if (!resolved) return
     void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
@@ -894,7 +887,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   /** A session was archived or permanently removed. Drop its ephemeral
    * attribution ledger immediately; if its issue remains visible, queue a fresh
    * derived state so commits/files from the departed session do not linger. */
-  onSessionRemovedOrArchived(sessionId: string): void {
+  onSessionRemovedOrArchived(sessionId: SessionId): void {
     const resolved = this.issueForSession(sessionId)
     const removedCommits = this.gitCommitsBySession.delete(sessionId)
     const removedTouched = this.gitTouchedBySession.delete(sessionId)
@@ -910,7 +903,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   }
 
   /** The issue a session works: explicit attachment or worktree membership. */
-  private issueForSession(sessionId: string): { row: IssueRow; sess: SessionMeta } | null {
+  private issueForSession(sessionId: SessionId): { row: IssueRow; sess: SessionMeta } | null {
     const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return null
     const row = [...this.rows.values()].find(

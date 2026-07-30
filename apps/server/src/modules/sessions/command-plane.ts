@@ -31,7 +31,7 @@
  * answer by the same path instead of by two coincidences.
  */
 
-import type { AgentKind, IssueId } from '@podium/model'
+import type { AgentKind, IssueId, SessionId } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
 import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
 import type { z } from 'zod'
@@ -143,7 +143,7 @@ export class SessionCommandCtx {
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
    */
-  target(sessionId: string, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
+  target(sessionId: SessionId, proc: string): (SessionTargetRow & { machineId?: string }) | undefined {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
     assertMayCommandSession(
@@ -242,9 +242,9 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
-type SendInput = { sessionId: string; text: string; mutationId?: string }
-type TargetInput = { sessionId: string }
-type AnswerInput = { sessionId: string; choices: { optionIndices: number[] }[] }
+type SendInput = { sessionId: SessionId; text: string; mutationId?: string }
+type TargetInput = { sessionId: SessionId }
+type AnswerInput = { sessionId: SessionId; choices: { optionIndices: number[] }[] }
 
 /**
  * The substrate send both chat paths ride. The sender is stamped from the

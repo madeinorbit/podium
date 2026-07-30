@@ -1,9 +1,10 @@
 // apps/server/src/file-asset-route.ts
+import type { SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 
 export interface AssetReader {
   readAsset(
-    a: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
+    a: { sessionId: SessionId; path: string } | { machineId?: string; root: string; path: string },
   ): Promise<{
     ok: boolean
     dataBase64?: string

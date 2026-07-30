@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
@@ -12,7 +13,7 @@ export interface HandoffTransferRpc {
     machineId: string,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
   handoffWriteChunk(
-    sessionId: string,
+    sessionId: SessionId,
     offset: number,
     data: Buffer,
     machineId: string,
@@ -42,7 +43,7 @@ export function verifiedCommonBundleBases(
 
 export async function transferHandoffPackage(input: {
   rpc: HandoffTransferRpc
-  sessionId: string
+  sessionId: SessionId
   sourceMachineId: string
   targetMachineId: string
   sourceStagePath: string

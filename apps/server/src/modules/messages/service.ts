@@ -32,7 +32,7 @@ import {
   type MailSenderPrincipal,
   senderBrakeKey,
 } from '@podium/commands'
-import { asIssueId, type AgentPhase, type SessionMeta } from '@podium/model'
+import { asIssueId, type AgentPhase, type SessionId, type SessionMeta } from '@podium/model'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -215,18 +215,18 @@ export interface MessageDeliveryDeps {
   issues(): IssueService
   sessions(): {
     listSessions(): SessionMeta[]
-    sendText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    sendText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
-    queueText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    queueText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    interruptText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
+    interruptText(input: { sessionId: SessionId; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
@@ -457,7 +457,7 @@ export class MessageDeliveryService {
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
-    sessionId: string,
+    sessionId: SessionId,
     changed?: SessionMeta,
     opts?: {
       preferThisIdleSession?: boolean
@@ -1147,7 +1147,7 @@ export class MessageDeliveryService {
   private injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
-    sessionId: string,
+    sessionId: SessionId,
     okDisposition: SendDisposition,
   ): DeliveryOutcome {
     const sessions = this.deps.sessions()
@@ -1484,7 +1484,7 @@ export class MessageDeliveryService {
    *  unwrapped operator body can never echo and a best-effort ack/notification is
    *  never chased, so both are confirmed now; everything else is injected and
    *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
-  private recordPush(message: MessageRow, sessionId: string): void {
+  private recordPush(message: MessageRow, sessionId: SessionId): void {
     if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
   }
@@ -1573,14 +1573,14 @@ export class MessageDeliveryService {
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
-  deliveredUnacked(sessionId: string): MessageRow[] {
+  deliveredUnacked(sessionId: SessionId): MessageRow[] {
     return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
   }
 
   /** The messages that would produce a settle notice for `sessionId` right now
    *  (#468): asked-for-something + not-already-notified. The relay guard uses it
    *  to skip the git-log stitch work when nothing is notifiable. */
-  settleNotifiable(sessionId: string): MessageRow[] {
+  settleNotifiable(sessionId: SessionId): MessageRow[] {
     return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
   }
 
@@ -1592,7 +1592,7 @@ export class MessageDeliveryService {
    * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
    * render-ready rows for the daemon's block reason.
    */
-  pendingReminders(sessionId: string): { id: string; from: string; body: string }[] {
+  pendingReminders(sessionId: SessionId): { id: string; from: string; body: string }[] {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
     for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
@@ -1614,7 +1614,7 @@ export class MessageDeliveryService {
    * target's unanswered state. System clamps (next-turn/wait) apply.
    */
   systemAckFallback(
-    sessionId: string,
+    sessionId: SessionId,
     context: {
       outcome: string
       issueSeq?: number
@@ -2190,7 +2190,7 @@ export class MessageDeliveryService {
    *  injected_at + delivered_to, keeps status `queued` [POD-834]. The transcript
    *  echo (`markDelivered`) or an inbox read (`markRead`) makes the honest claim
    *  later; the sweep re-pushes an echo-mode row whose echo never came. */
-  private markInjected(message: MessageRow, sessionId: string): void {
+  private markInjected(message: MessageRow, sessionId: SessionId): void {
     const at = this.deps.now()
     if (this.deps.messages.markInjected(message.id, sessionId, at)) {
       // The injected message triggers the receiver's next turn — anything it
@@ -2211,7 +2211,7 @@ export class MessageDeliveryService {
    *  original was received). */
   private markDelivered(
     message: MessageRow,
-    sessionId: string,
+    sessionId: SessionId,
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): void {
     const at = this.deps.now()
@@ -2265,7 +2265,7 @@ export class MessageDeliveryService {
    * Best-effort and idempotent: a late/duplicate echo is a no-op (markDelivered
    * is guarded on status='queued').
    */
-  onTranscriptDelta(sessionId: string, items: { role?: string; text?: string }[]): void {
+  onTranscriptDelta(sessionId: SessionId, items: { role?: string; text?: string }[]): void {
     for (const item of items) {
       // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
       // id must never self-confirm a message the agent merely referenced.

@@ -21,6 +21,7 @@
  *    delegation — and neither half is reachable from payload.
  */
 
+import type { SessionId } from '@podium/model'
 import {
   type AddressResolution,
   type HumanCeiling,
@@ -155,7 +156,7 @@ export class MailAccess {
    *  slice (#237 authz): issue-bound targets need write access to that issue;
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
-  assertSessionTargetAccess(caller: MailCaller, sessionId: string, proc: string): void {
+  assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): void {
     const target = this.deps.listSessions().find((s) => s.sessionId === sessionId)
     if (!target) throw new Error('session not found')
     const issues = this.deps.issues()
@@ -208,7 +209,7 @@ export class MailAccess {
 
   wire(m: MessageRow): MessageWire {
     const issues = this.deps.issues()
-    const label = (kind: string, issueId: string | null, sessionId: string | null): string => {
+    const label = (kind: string, issueId: string | null, sessionId: SessionId | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = issues.getMeta(issueId)

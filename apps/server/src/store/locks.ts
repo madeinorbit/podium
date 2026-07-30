@@ -5,6 +5,7 @@
  * modules/lock/service.ts.
  */
 
+import type { SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
@@ -27,7 +28,7 @@ export interface LockWaiterRow {
   id: number
   repoId: string
   name: string
-  sessionId: string
+  sessionId: SessionId
   issueId: string | null
   label: string
   enqueuedAt: string
@@ -84,7 +85,7 @@ export class LocksRepository {
   }
 
   /** Every lock a session currently holds (session-bound auto-release). */
-  listLocksHeldBySession(sessionId: string): LockRow[] {
+  listLocksHeldBySession(sessionId: SessionId): LockRow[] {
     const rows = this.db
       .prepare('SELECT * FROM locks WHERE holder_session_id = ?')
       .all(sessionId) as Record<string, unknown>[]
@@ -162,14 +163,14 @@ export class LocksRepository {
     this.db.prepare('DELETE FROM lock_waiters WHERE id = ?').run(id)
   }
 
-  removeWaiterBySession(repoId: string, name: string, sessionId: string): void {
+  removeWaiterBySession(repoId: string, name: string, sessionId: SessionId): void {
     this.db
       .prepare('DELETE FROM lock_waiters WHERE repo_id = ? AND name = ? AND session_id = ?')
       .run(repoId, name, sessionId)
   }
 
   /** Locks a session is queued on (session-exit queue pruning). */
-  listWaitsBySession(sessionId: string): LockWaiterRow[] {
+  listWaitsBySession(sessionId: SessionId): LockWaiterRow[] {
     const rows = this.db
       .prepare('SELECT * FROM lock_waiters WHERE session_id = ? ORDER BY id')
       .all(sessionId) as Record<string, unknown>[]

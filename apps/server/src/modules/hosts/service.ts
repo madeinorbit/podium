@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, HostMetricsWire } from '@podium/model'
+import type { AgentRuntimeState, HostMetricsWire, SessionId } from '@podium/model'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -31,7 +31,7 @@ interface CountHibernateBudget {
 /** The session fields the auto-hibernate candidate scan reads — a structural
  *  projection of Session so the service never touches the registry's map. */
 export interface HostSessionView {
-  sessionId: string
+  sessionId: SessionId
   machineId: string
   status: string
   resume?: { kind: string; value: string } | undefined
@@ -50,14 +50,14 @@ export interface HostsDeps {
   machineName(id: string): string
   /** Live sessions, projected — the auto-hibernate candidate pool. */
   sessions(): Iterable<HostSessionView>
-  hibernateSession(input: { sessionId: string; requireTerminalProof?: boolean }): {
+  hibernateSession(input: { sessionId: SessionId; requireTerminalProof?: boolean }): {
     ok: boolean
     reason?: string
   }
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
-  hasValidTerminalProof(sessionId: string): boolean
+  hasValidTerminalProof(sessionId: SessionId): boolean
   /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
-  terminalProofMissing(sessionId: string): boolean
+  terminalProofMissing(sessionId: SessionId): boolean
   /** The registry's shared daemon request/response plumbing (timeout + resolver
    *  registration + control-message routing). `machineId` undefined = default machine. */
   daemonRequest<T>(

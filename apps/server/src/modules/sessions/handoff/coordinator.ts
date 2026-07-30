@@ -63,7 +63,7 @@ import { transferHandoffPackage, verifiedBundleBases, verifiedCommonBundleBases 
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './ports'
 
 export interface HandoffInput {
-  sessionId: string
+  sessionId: SessionId
   machineId: string
 }
 
@@ -149,7 +149,7 @@ export class HandoffCoordinator {
   }
 
   /** True while a transfer for this session is in flight (diagnostics/tests). */
-  isTransferring(sessionId: string): boolean {
+  isTransferring(sessionId: SessionId): boolean {
     return this.inFlight.has(sessionId)
   }
 

@@ -158,7 +158,7 @@ export class AutomationsRepository {
   /** Finalize a reserved occurrence after side effects [POD-925]. */
   updateRun(
     id: string,
-    patch: { sessionId: string | null; outcome: AutomationRunOutcome; detail: string | null },
+    patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
   ): void {
     this.db
       .prepare(

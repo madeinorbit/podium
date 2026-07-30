@@ -4,6 +4,7 @@
  * message, with the delivery ledger as columns on the row.
  */
 
+import type { SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -134,7 +135,7 @@ export class MessagesRepository {
   }
 
   /** Exact, unbounded safety projection of work still pending for one session. */
-  pendingForSessionProof(sessionId: string, now: string): MessageRow[] {
+  pendingForSessionProof(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages
@@ -421,7 +422,7 @@ export class MessagesRepository {
    *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
    *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
    *  both read this set (#237) [spec:SP-34d7 acks]. */
-  listDeliveredUnacked(sessionId: string, now: string): MessageRow[] {
+  listDeliveredUnacked(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         // The agent has it either way — pushed (delivered) or pulled (read).
@@ -445,7 +446,7 @@ export class MessagesRepository {
    *  settle notice is a `notification` row whose `in_reply_to` is the original, so
    *  "already notified" == such a row exists. No column needed; the notice itself is
    *  the marker. This is why the notice fires at most ONCE per requested response. */
-  listSettleNotifiable(sessionId: string, now: string): MessageRow[] {
+  listSettleNotifiable(sessionId: SessionId, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages m

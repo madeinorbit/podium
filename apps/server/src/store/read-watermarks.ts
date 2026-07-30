@@ -5,19 +5,20 @@
  * only for the delta, across restarts, without the caller threading --since.
  */
 
+import type { SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export class ReadWatermarksRepository {
   constructor(private readonly db: SqlDatabase) {}
 
-  getRecapWatermark(reader: string, sessionId: string): string | null {
+  getRecapWatermark(reader: string, sessionId: SessionId): string | null {
     const r = this.db
       .prepare('SELECT watermark FROM recap_watermarks WHERE reader = ? AND session_id = ?')
       .get(reader, sessionId) as { watermark: string } | undefined
     return r?.watermark ?? null
   }
 
-  setRecapWatermark(reader: string, sessionId: string, watermark: string, at: string): void {
+  setRecapWatermark(reader: string, sessionId: SessionId, watermark: string, at: string): void {
     this.db
       .prepare(
         `INSERT INTO recap_watermarks (reader, session_id, watermark, updated_at)

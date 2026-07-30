@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import type { LockRow, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { OPERATOR_LOCK_SESSION } from '../../store/locks'
 import type { WriteFunnel } from '../funnel'
@@ -23,13 +24,13 @@ export const DEFAULT_LOCK_TTL_SECONDS = 120
 /** Who is acquiring/holding: the relayed agent's session + bound issue, or the
  *  direct-HTTP operator (both null session and issue). */
 export interface LockCallerIdentity {
-  sessionId: string | null
+  sessionId: SessionId | null
   issueId: string | null
   label: string
 }
 
 export interface LockHolderWire {
-  sessionId: string | null
+  sessionId: SessionId | null
   issueId: string | null
   label: string
 }
@@ -63,7 +64,7 @@ export interface LockServiceDeps {
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
   resolveRepoId(repoPath: string): string
   /** Is the session still around (waiter pruning)? Unknown/exited → false. */
-  sessionAlive(sessionId: string): boolean
+  sessionAlive(sessionId: SessionId): boolean
   /** Best-effort agent mail to an issue (IssueService.sendMail); never throws. */
   sendMail(issueId: string, from: string, body: string): void
   /** Durable event log append (steal audit trail). Best-effort. */
@@ -123,7 +124,7 @@ export class LockService {
   private grantTo(
     repoId: string,
     name: string,
-    holder: { sessionId: string | null; issueId: string | null; label: string },
+    holder: { sessionId: SessionId | null; issueId: string | null; label: string },
     ttlSeconds: number,
     note: string | null,
     opts?: { notify?: boolean },
@@ -387,7 +388,7 @@ export class LockService {
   /** Session-bound auto-release: on session exit, release every lock it holds
    *  (advancing each queue with grant-notification mail) and prune its queue
    *  entries. Fired from the session-lifecycle bus wiring. */
-  releaseForSession(sessionId: string): void {
+  releaseForSession(sessionId: SessionId): void {
     this.deps.funnel.run({
       write: () =>
         this.deps.transact(() => {

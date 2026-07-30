@@ -50,7 +50,7 @@ export interface HandoffRpcPort {
   ): Promise<{ ok: boolean; output: string }>
   handoffExport(
     input: {
-      sessionId: string
+      sessionId: SessionId
       cwd: string
       fallbackCwd?: string
       agentKind: ExportableAgentKind
@@ -77,13 +77,13 @@ export interface HandoffRpcPort {
     machineId: string,
   ): Promise<{ ok: boolean; data?: string; error?: string }>
   handoffWriteChunk(
-    sessionId: string,
+    sessionId: SessionId,
     offset: number,
     data: Buffer,
     machineId: string,
   ): Promise<{ ok: boolean; sizeBytes?: number; error?: string }>
   handoffImport(
-    sessionId: string,
+    sessionId: SessionId,
     repoPath: string,
     worktreeName: string,
     machineId: string,
@@ -143,9 +143,9 @@ export type AssertMachineUse = (machineId: string) => void
 export interface HandoffPorts {
   readonly rpc: HandoffRpcPort
   /** The live row, or undefined. Absence maps to this command's pinned throw. */
-  getSession(sessionId: string): Session | undefined
+  getSession(sessionId: SessionId): Session | undefined
   /** Every session, for the target worktree-occupancy guard. */
-  listSessions(): { sessionId: string; machineId: string; cwd: string; status: string }[]
+  listSessions(): { sessionId: SessionId; machineId: string; cwd: string; status: string }[]
   listRepos(): HandoffRepo[]
   listMachines(): HandoffMachine[]
   issueMeta(issueId: string): HandoffIssue | undefined
@@ -155,10 +155,10 @@ export interface HandoffPorts {
   ): void
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: string): Promise<{ path: string }>
   persist(session: Session): void
-  mutateSessionView(sessionId: string, mutate: (session: Session) => void): void
+  mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): void
   broadcastSessions(): void
   /** Cancel any armed auto-continue for a session that is about to stop. */
-  onSessionGone(sessionId: string): void
+  onSessionGone(sessionId: SessionId): void
   toMachine(machineId: string, message: ControlMessage): void
   onWorktreesChanged(repoPath: string, machineId: string): void
   resumeSession(input: {
@@ -168,8 +168,8 @@ export interface HandoffPorts {
     conversationId: string
     title?: string
     machineId: string
-  }): Promise<{ sessionId: string }>
-  resurrectSession(input: { sessionId: string }): Promise<{ ok: boolean; reason?: string }>
+  }): Promise<{ sessionId: SessionId }>
+  resurrectSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
   /** Durable attribution record (ADR 3 D17 / ADR 9 D5 A3) — see the coordinator. */
   recordEvent(event: { ts: string; kind: string; subject: string; payload: unknown }): void
   /** Injected so a transfer that takes real time is testable without one. */

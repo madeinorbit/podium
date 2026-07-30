@@ -38,7 +38,7 @@ import { makeSpawnOnWake } from './spawn'
  *  byte-fidelity assertions read it with no normalisation whatsoever. */
 export interface Push {
   fn: 'sendText' | 'queueText' | 'interruptText'
-  sessionId: string
+  sessionId: SessionId
   text: string
   inputOrigin?: string
 }
@@ -203,7 +203,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
   const issues = new IssueService(issueDeps)
 
   const record =
-    (fn: Push['fn']) => (i: { sessionId: string; text: string; inputOrigin?: string }) => {
+    (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
       pushes.push({ fn, ...i })
       const fails =
         transport.ok === false &&

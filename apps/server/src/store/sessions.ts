@@ -40,7 +40,7 @@ function requireUserId(userId: string): void {
 export class SessionsRepository {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly purgeObservationCheckpoint: (sessionId: string) => void = () => {},
+    private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
   ) {}
 
   // ---- sessions ----
@@ -389,7 +389,7 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  setSnooze(userId: string, sessionId: string, until: string | null): void {
+  setSnooze(userId: string, sessionId: SessionId, until: string | null): void {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -402,7 +402,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  clearSnooze(userId: string, sessionId: string): void {
+  clearSnooze(userId: string, sessionId: SessionId): void {
     this.db
       .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
       .run(userId, sessionId.trim())
@@ -450,7 +450,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  setOffer(sessionId: string, offer: OfferRecord): void {
+  setOffer(sessionId: SessionId, offer: OfferRecord): void {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     this.db
@@ -472,7 +472,7 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  clearOffer(sessionId: string): void {
+  clearOffer(sessionId: SessionId): void {
     this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(sessionId.trim())
   }
 
@@ -522,7 +522,7 @@ export class SessionsRepository {
    * it names. This is §3.1.6 S5's system-writer rule — a system job may act
    * across owners, and it lands in the scope of what it acted on.
    */
-  private scrubTabOrders(sessionId: string): void {
+  private scrubTabOrders(sessionId: SessionId): void {
     const rows = this.db.prepare('SELECT user_id, worktree, ids FROM tab_order').all() as {
       user_id: string
       worktree: string
@@ -579,7 +579,7 @@ export class SessionsRepository {
   /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
    *  session's draft. Returns the new updated_at when set, or undefined when cleared
    *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
-  setDraft(sessionId: string, text: string): string | undefined {
+  setDraft(sessionId: SessionId, text: string): string | undefined {
     const id = sessionId.trim()
     if (!id) return undefined
     if (text) {
@@ -663,7 +663,7 @@ export class SessionsRepository {
   /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
    *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
    *  On a DB without the versioning columns, degrades to a legacy text-only write. */
-  setDraftDoc(sessionId: string, doc: StoredDraftDoc): void {
+  setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): void {
     const id = sessionId.trim()
     if (!id) return
     if (!doc.text) {
