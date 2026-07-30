@@ -89,8 +89,8 @@ export interface SessionCommandDeps {
   createDraftIssue(
     repoPath: string,
     agentKind: AgentKind | undefined,
-    issueId?: string,
-  ): { id: string }
+    issueId?: IssueId,
+  ): { id: IssueId }
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
 }

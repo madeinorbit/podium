@@ -3,7 +3,7 @@ import {
   asIssueId,
   asSessionId,
 } from '@podium/model'
-import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueId, IssueWire, ResumeRef, SessionId, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import type { AccountId, ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueId, IssueWire, ResumeRef, SessionId, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -276,10 +276,10 @@ interface SessionsServiceDeps {
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {
-    sessionId: string
+    sessionId: SessionId
     cwd: string
     agentKind: AgentKind
-    issueId?: string
+    issueId?: IssueId
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
@@ -2642,7 +2642,7 @@ export class SessionsService {
   }
 
   /** The session's explicit issue attachment (issue-as-workspace), if any. */
-  getSessionIssueId(sessionId: string): string | null {
+  getSessionIssueId(sessionId: SessionId): IssueId | null {
     return this.sessions.get(sessionId)?.issueId ?? null
   }
 
@@ -3784,7 +3784,7 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
-    accountId?: string
+    accountId?: AccountId
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string

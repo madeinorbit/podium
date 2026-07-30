@@ -45,10 +45,14 @@
 
 import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
 import {
+  asIssueId,
+  asSessionId,
   type AuthTarget,
   authorize,
   type Capability,
   capabilityAttribution,
+  type IssueId,
+  type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
 import type { SessionStore } from '../../store'
@@ -206,6 +210,20 @@ const ownPerUserRow: TargetResolver = (_input, principal) => ({
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
+/**
+ * DECODE EDGE for a contract-parsed payload (POD-362) — the one place a branded
+ * id is recovered from this registry's `Record<string, unknown>` input.
+ *
+ * Not a POD-361 adapter cast, and not a trust-the-caller cast either:
+ * `PresenceRegistry.execute` has ALREADY run the contract's zod schema over
+ * `input` before a handler sees it (see the file header). The `Record<string,
+ * unknown>` erasure is the registry's deliberate design — one parse for every
+ * contract — so the brand cannot be carried in through the parameter type and is
+ * re-applied here instead.
+ */
+const sessionIdOf = (v: unknown): SessionId => asSessionId(str(v))
+const issueIdOrNull = (v: unknown): IssueId | null => (typeof v === 'string' ? asIssueId(v) : null)
+
 const REGISTRATIONS: Record<string, Registration> = {
   'sessions.rename': {
     target: ownedSession,
@@ -217,19 +235,19 @@ const REGISTRATIONS: Record<string, Registration> = {
       // precedence rule protects the HUMAN's choice, and an agent's pick is not
       // the human's just because it was delegated.
       if (principal.humanDirect) {
-        deps.sessions.renameSession({ sessionId: str(input.sessionId), name })
+        deps.sessions.renameSession({ sessionId: sessionIdOf(input.sessionId), name })
         return undefined
       }
       // Non-human actor: route through the agent-naming path, which enforces the
       // precedence rule and REFUSES a user-set name instead of overwriting it.
-      return deps.sessions.setAgentName({ sessionId: str(input.sessionId), name })
+      return deps.sessions.setAgentName({ sessionId: sessionIdOf(input.sessionId), name })
     },
   },
   'sessions.setArchived': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
       deps.sessions.setArchived({
-        sessionId: str(input.sessionId),
+        sessionId: sessionIdOf(input.sessionId),
         archived: input.archived === true,
       })
     },
@@ -238,7 +256,7 @@ const REGISTRATIONS: Record<string, Registration> = {
     target: ownedSession,
     handler: (input, _principal, deps) => {
       deps.sessions.setWorkState({
-        sessionId: str(input.sessionId),
+        sessionId: sessionIdOf(input.sessionId),
         // Parsed by the contract, so this is a narrowing not a validation.
         workState: (input.workState ?? null) as never,
       })
@@ -247,10 +265,7 @@ const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setIssueId': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      deps.sessions.setSessionIssueId(
-        str(input.sessionId),
-        typeof input.issueId === 'string' ? input.issueId : null,
-      )
+      deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
     },
   },
   'sessions.markRead': {
@@ -275,7 +290,7 @@ const REGISTRATIONS: Record<string, Registration> = {
     handler: (input, principal, deps) => {
       deps.sessions.setSnooze({
         userId: principal.userId,
-        sessionId: str(input.sessionId),
+        sessionId: sessionIdOf(input.sessionId),
         until: typeof input.until === 'string' ? input.until : null,
       })
       return deps.store.sessions.listSnoozes(principal.userId)
@@ -328,7 +343,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       }
       // `clientId` is what suppresses the echo to the author (see PresencePrincipal).
       deps.sessions.setSessionDraft(
-        { sessionId: str(input.sessionId), text: edit.text },
+        { sessionId: sessionIdOf(input.sessionId), text: edit.text },
         principal.clientId,
       )
       return undefined
