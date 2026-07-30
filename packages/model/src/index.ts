@@ -45,6 +45,11 @@ export * from './exhaustive'
 // `fields/README.md` for the four rules that keep them useful, in particular
 // rule 2: leave room for principal-dependent projection, do not build it.
 export * from './fields/attribution'
+// The change-lifecycle vocabulary (POD-305, 2.1). A change exists in three
+// distinct phases — staged spec, stored row, sequenced wire delta — and they stay
+// distinct TYPES composing one field vocabulary, rather than three restatements
+// of one field list. See the file header for why collapsing them is the wrong fix.
+export * from './fields/change'
 export * from './fields/issue'
 export * from './fields/op-stream'
 export * from './fields/ownership'
