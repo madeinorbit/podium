@@ -123,28 +123,41 @@ the failure mode M5 exists to prevent.
 
 - **The brief says seven handoff frames; there are eight** — four request/result pairs (export,
   chunkRead, importChunk, import), matching ADR 4 D4's own count. Documented as eight.
-- **The brief's first acceptance criterion is not met, deliberately.** "Derived from the shared
-  session field schemas — zero hand-restated session fields" depends on POD-365. Forking its field
-  groups to make this file *look* composed would be the drift POD-302 exists to kill, and the
-  fan-out protocol forbids duplicating a predecessor's half. The `Pick` set is instead recorded as
-  the file's contract, the key list is locked so it cannot drift while it waits, and POD-365 has the
-  consumer contract in writing. The remaining change is mechanical.
+- **The brief's first acceptance criterion is now MET — it was blocked, not skipped.** "Derived from
+  the shared session field schemas, zero hand-restated session fields" depended on POD-365. Rather
+  than fork its field groups to make this file *look* composed — the drift POD-302 exists to kill —
+  the `Pick` set was recorded as a contract with the key list locked, and POD-365 was sent the
+  consumer contract. The coordinator then merged POD-365 to integration (`e62e5f23`) and ruled that
+  merging integration here was the resolution; the composition landed against real schemas in
+  `41d5ab0d`. Recorded because the intermediate state is the interesting part: a criterion blocked on
+  a contradictory instruction is not the same thing as one skipped, and two siblings resolved that
+  contradiction opposite ways before the coordinator fixed it at the root.
 
-  **Update — the target schemas now exist.** POD-365 landed its groups (`69d1cfc6`, `ce014033`) and
-  answered all three interface questions: `agentKind`'s narrowing is expressible via
-  `omit`/`extend`; `SessionResume` carries the same `ResumeRef` this file already imports, so no
-  carve-out is needed and the "fourth encoding" was never real; and `Attribution` is one schema
-  carrying `{actor: ActorRef, onBehalfOf: UserIdField.nullable()}` with no bespoke `createdBy`.
-  Two corrections to the Pick set came out of it and are now recorded in the model entry: `repoId`
-  lives on `IssueIdentity` rather than `IssueWorkspace`, and `worktreeName` /
-  `worktreeRelativePath` / `cwdSubpath` are **not** `IssueWorkspace` members — they join the
-  bundle-local path facts.
+### What composes, and the three tightenings
 
-  What still blocks the code is a **merge ruling, not a dependency**: the coordinator instructed the
-  three 1.4 siblings not to merge or rebase onto each other and reserved integration for itself,
-  while POD-365 advises pulling. POD-365 has asked the coordinator to rule for all three; POD-367 is
-  holding on the same tie. Reaching into a sibling's worktree is exactly what the one-owner rule
-  forbids, so this waits on the ruling rather than routing around it.
+| Manifest field | Source |
+|---|---|
+| `sessionId` | `SessionIdentity.shape.sessionId` |
+| `resume` | `SessionResume.shape.resume` — **unwrapped** |
+| `repoId` | `IssueIdentity.shape.repoId` — **unwrapped** |
+| `branch` | `IssueWorkspace.shape.branch` — **unwrapped** |
+| `title` | `SessionNaming.shape.title` — re-`.optional()`ed |
+| `issueId` | `SessionPlacement.shape.issueId` |
+| `agentKind` | Declared narrower, deliberately |
+
+A bare `Pick` would have been **wrong**. The manifest is not a subset of the session aggregate; it
+is a subset with **stricter obligations**, because an export is a checkpoint. `resume`, `repoId` and
+`branch` are optional or nullable in the shared groups precisely because a *live* session may lack
+them — and a bundle that lacked them is unusable on arrival: no resume ref means the agent cannot be
+resumed, no `repoId` means the import has no target, and `headSha`/`bundleBase` are relative to the
+branch. Each therefore composes the shared schema and then `.unwrap()`s it, keeping the brand, the
+meaning and the drift-following property while stating the stricter obligation once, where it is
+true. `title` goes the other way: required on a live session, optional in a bundle.
+
+Two corrections from POD-365 shaped this table: `repoId` lives on `IssueIdentity`, not
+`IssueWorkspace`; and `worktreeName` / `worktreeRelativePath` / `cwdSubpath` are not `IssueWorkspace`
+members at all — they are bundle-local path facts. POD-364 §6.4's sketch grouped by *where the work
+happens*, which put two different questions in one row.
 
 ## 5a. Attribution needs a format bump — and the audit cannot grade this issue
 
@@ -220,8 +233,32 @@ placed at its "logical" position would change encoded bytes with an identical fi
 | Manifest gains `effectiveRights: z.array(z.string())` | The capability audit, the key-set lock, and the round-trip — 3 failures |
 | Containment refinement stops rejecting `..` | The model negative test **and** the golden suite's own refinement assertion — 2 failures |
 | `unknown-target` dropped from the enum | The refusal test and the export-result test — 2 failures |
+| A composed field replaced by a fresh `z.string()` (**E** — the real POD-302 drift class) | The reference-identity test **only** — 1 failure out of 185, golden corpora included |
+| A frozen grant set under an innocent key, `ctx.allowedVerbs` (**C**) | The key-set lock. The name-matching audit does **not** fire — the two instruments fail on different mistakes |
+| `sessionId: SessionIdField`, reaching past the group to the same brand (**D**) | **SURVIVED** — see below |
 
-The third mutant exposed a real gap and it was closed: the golden corpus originally covered only two
+**Mutant D survived, and it is reported rather than hidden.** Importing the underlying brand
+directly instead of reaching through POD-365's group is *observationally identical* — the group holds
+that same instance — so reference equality cannot distinguish it. It is an equivalent composition
+rather than a defect: it still follows the shared brand. It is nonetheless weaker, because it would
+not follow if POD-365 re-typed the group's field. The consequence was a **test rename, not an added
+test**: the original name claimed "composes … from the shared schema", which is more than the
+assertion can see, so it now reads "takes every session and issue field as the shared schema
+instance, never a restatement". Adding a second test would have left the old name still making the
+false claim.
+
+**Mutant E is the one that justifies the whole approach.** A fresh `z.string()` restatement is
+byte-identical on the wire — branding is compile-time — so it passes all 177 golden cases and 184
+tests in total. Exactly one thing sees it: the reference-identity assertion. The wire gate is
+structurally blind to the drift class this issue exists to close.
+
+**Mutant C** was run after POD-365 corrected a claim of mine — I had credited its inline checks with
+catching the innocent-name case, when they were substring matchers with the same blind spot as mine,
+so the two were corroborating rather than complementing. It built an exact key-set pin in response;
+mutant C confirms the same split holds here, since the manifest's key-set lock reds while the
+name-matching audit stays silent.
+
+The refusal mutant exposed a real gap and it was closed: the golden corpus originally covered only two
 of the three arms, so dropping `unknown-target` was invisible to it. The arm whose absence causes an
 existence leak was the one an incomplete fixture set would have let through. A third fixture now
 pins it, and the mutant reds the golden suite too.
