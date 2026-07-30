@@ -33,7 +33,7 @@ methods were used and cross-checked.
 
 | Method | What it establishes | Evidence |
 |---|---|---|
-| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1572** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison, composite-key and tagged-identity sites, each with its **per-site owner**. | 11 370 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv` (2 116 rows). |
+| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1572** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison, composite-key and tagged-identity sites, each with its **per-site owner**. | 11 399 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv` (2 145 rows). |
 | **NUL-byte guard** — `bun run lint:no-nul` | That the grep blind spot is *real on this branch*, and that the AST walk is not subject to it. | See §0.1 — one file on this base is binary to `grep`, and the AST walk swept it anyway. |
 | **Type checker** — `bun run typecheck` (tsgo, per-package) | That the sweep's file set is the file set the build actually compiles, and that nothing in this issue's additions is type-invisible. | Green; output in the handoff. |
 
@@ -92,8 +92,8 @@ the one package this document had claimed to cover completely.
 **Fixed at the detector, then re-derived** — not by patching the named lines, because patching the
 seven named lines leaves the eighth. Four forms added: `.join(sep)` on an array literal, `.join(sep)`
 on a mapped array, single-substitution templates with a literal prefix (`automation:${id}`), and
-`+` concatenation, then NARROWED twice (§0.3). Net result: **90** composite-key sites and **25**
-tagged-identity sites, **69** of them owner B. All seven reviewer-named sites are found *by the
+`+` concatenation, then NARROWED (§0.3) and WIDENED again (§0.4). Net result: **90** composite-key
+sites and **54** tagged-identity sites, **95** of them owner B. All seven reviewer-named sites are found *by the
 detector*:
 
 | Site | Form |
@@ -154,7 +154,7 @@ where the quote came from the flag name. Now: no numeric-literal operand, no
 **Verified, not assumed.** After all three narrowings: all five reviewer-named false positives are
 gone, and all sixteen canonical sites — the brief's `mirror.ts` ×3 and `session-identity.ts` ×2, the
 reviewer's seven, plus `ledger.ts:66`, `transcript-indexer.ts:79`, `search.ts:173` and
-`engine.ts:1183` — are present **on owner B**. Every one of the 69 surviving B rows was then read
+`engine.ts:1183` — are present **on owner B**. Every one of the surviving B rows was then read
 individually.
 
 Two of those narrowings needed a counter-fix, which is worth recording because both were
@@ -166,6 +166,51 @@ Two of those narrowings needed a counter-fix, which is worth recording because b
   identity, and `ids.ts` already ships `resumeKey()` for exactly it.
 - `engine.ts:1183` — `${e.artifact?.artifactId ?? ''}`'s span is a `??` expression, so a *top-level*
   part-name check saw `''`. Fixed by walking the expression tree instead.
+
+### 0.4 Widening pass — the ledger was MISSING the spawnedBy producer sites
+
+A third review found the sharpest defect of the three rounds, and it was invisible from inside the
+document: **§3.6.2 described the `spawnedBy` construction and consumer sites in prose while the
+committed ledger contained no row for them.** Prose is not an executable map. POD-365 works from the
+`owner` column, and for the field this document calls its most important finding, the column was
+empty.
+
+Cause: the tagged-identity detector recognised only two contexts — directly `usedAsKey`, or a
+`PropertyAssignment`. Four more were needed, and each traces to a real missed site rather than being
+added speculatively:
+
+| Context | Missed site | Why it matters |
+|---|---|---|
+| **RETURNED** from a factory not named `*Key` | `messages/spawn.ts:40`, `:41`; `issues/registry.ts:280`, `:284` | These **construct** current `spawnedBy` arms |
+| **COMPARED** in `===` | `relay.ts:783`; `messages/gate.ts:577` | These **re-construct** the tag; five such sites gate authz, so a format change fails **silently** |
+| Behind `??` / `?:` | `issues/service/workflow.ts:166`, `:788` | `spawnedBy: opts?.spawnedBy ?? \`issue:${row.id}\`` — a `BinaryExpression` sat between template and property |
+| Bound to a named local | `superagent/tools.ts:94` | `const spawnedBy = threadId ? \`superagent:${threadId}\` : …` |
+
+The **construct vs reconstruct** role is now carried in `ownerReason`, because the two need
+different fixes: a shared **constructor** for the producers, a shared **parser** for the comparators.
+A brand alone leaves seven hand-built strings intact — which is why POD-364's composition plan and
+this document agree that `SessionProvenance` must ship both.
+
+**The identity test also had to widen.** `session:${m.fromSession}` is a producer site whose value is
+not `*Id`-named, so requiring an id-shaped value dropped it. **The tag itself is the type
+declaration** — `session:` says what the value is more reliably than the variable name does. Fixed
+with an enumerated `ENTITY_TAGS` set rather than by dropping the test, and that choice was
+**measured**: dropping it admitted 31 sites that are not entity keys at all — `native:${kind}`,
+`repo:${repoPath}`, `stage:${s}`, `bootstrap:${offset}`, `ASSET:${s}`, `w:${root}` — whose tags name
+a *category*, not an entity.
+
+**And the document had contradicted its own ledger.** §0.3 named `${botToken}\n${chatId}` as the
+owner-C example while `mentionsIdentity` was simultaneously marking those rows B off the `chatId`
+suffix. The reviewer put the principle better than the code did: **name shape alone cannot
+distinguish a Podium entity id from an external routing id.** `EXTERNAL_IDS` now enumerates the
+Telegram routing names, so `messaging/service.ts:114`/`:210`/`:254` and `notify/service.ts:44` are C.
+`threadId` is excluded from that set (a superagent thread **is** a Podium entity) and so is
+`providerId` — `(providerId, path)` at `discovery/scanner.ts:335` is the native conversation
+identity, so demoting it would drop a real key. **A name is only safe to exclude when it is external
+in every key it appears in.**
+
+**Verified in both directions**, since widening admits junk as easily as narrowing deletes truth: all
+**9** reviewer-named sites are now in the ledger, and all **17** canonical sites are still owner B.
 
 **Remaining stated limits.** A key assembled across statements (build a string, mutate it, use it) is
 not detected. And **owner-D detection is narrower than the D set**: the sweep flags `'__local__'`
@@ -261,9 +306,9 @@ because "is this attribution?" and "is this a placeholder?" are semantic questio
 answer plausibly and wrongly. The rules live in `ownerFor()` in the sweep, so the classification is
 re-derivable and auditable rather than hand-typed.
 
-Distribution over all 11 370 sites: `A-consequence` 8 755 · `A-schema-flip` 1 689 ·
-`C-stringly-on-purpose` 762 · `E-attribution` 83 · `B-helper-adoption` 69 · `D-delete-not-brand` 12.
-The committed ledger snapshots the 2 116 decision-bearing rows (the declaration classes, every
+Distribution over all 11 399 sites: `A-consequence` 8 754 · `A-schema-flip` 1 689 ·
+`C-stringly-on-purpose` 766 · `B-helper-adoption` 95 · `E-attribution` 83 · `D-delete-not-brand` 12.
+The committed ledger snapshots the 2 145 decision-bearing rows (the declaration classes, every
 composite key and tagged identity, and **every** D and E row regardless of syntax class); the
 `A-consequence` bulk is reproducible from the script and is what the flip's own type errors
 enumerate for free.
@@ -352,7 +397,7 @@ a manifest is read by a *different build* than wrote it.
 
 ### 3.3 Owner B — helper adoption (composite keys)
 
-**90 detected composite-key sites plus 25 tagged-identity sites — 69 of them owner B**, every one in
+**90 detected composite-key sites plus 54 tagged-identity sites — 95 of them owner B**, every one in
 the committed ledger with its owner and reason. §0.2 covers the detector and the syntax forms it
 gained. The named ones first.
 
@@ -565,7 +610,7 @@ actor recorded anywhere**. `deleted_by_issue_id` (`schema.ts:54`) names the issu
 cascaded, never the person or agent, so POD-1075 adds a new attribution pair here rather than
 re-typing an existing field.
 
-#### 3.6.2 CORRECTION — `spawnedBy` has SIX arms, and production writes one this doc omitted
+#### 3.6.2 CORRECTION — `spawnedBy`: the DOCUMENTED set never matched the PRODUCED set
 
 An earlier revision listed five arms, taken from the schema's own comment. **Production writes a
 sixth.** Repeating a code comment as fact is the same error class as trusting a grep, so the
@@ -811,6 +856,6 @@ bun run test:unit                  # the fixtures, in the lane CI runs
 
 `docs/rearch-id-inventory.sites.tsv` is the committed snapshot of the decision-bearing rows: the
 declaration classes, every composite key and tagged identity, and EVERY owner-D and owner-E row
-whatever its syntax class (2 116 rows). Each carries its own `owner` and `ownerReason`. The
+whatever its syntax class (2 145 rows). Each carries its own `owner` and `ownerReason`. The
 `A-consequence` bulk (8 145 object-literal fields, 1 183 comparisons) is reproducible from the
 script and is not snapshotted: it is what the flip's own type errors enumerate for free.
