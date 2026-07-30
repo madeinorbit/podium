@@ -1,4 +1,4 @@
-import type { IssueColorSlot, IssueWire, SessionMeta } from '@podium/model'
+import type { IssueColorSlot, IssueTreeSession, IssueWire, SessionMeta } from '@podium/model'
 import type { MetadataChange, RepoOp, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -110,21 +110,12 @@ export interface DepReportEntry {
  * Compact session row on an issue-tree node [spec:SP-99d3]. Enough for an agent
  * to see sibling sessions before spawn — not a full SessionMeta.
  */
-export interface IssueTreeSession {
-  sessionId: string
-  /** Human-facing session ref when known (e.g. POD-966-A). */
-  displayRef?: string
-  /** Curated name, else live terminal title. */
-  label?: string
-  agentKind: string
-  model?: string
-  /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
-  status: string
-  /** Agent phase when known (working | idle | needs_user | …). */
-  phase?: string
-  /** True when this session is the issue's designated coordinator. */
-  coordinator?: boolean
-}
+/** Inventory §2.1 #19: the definition moved to `@podium/model`
+ *  (`projections/session-read.ts`) so `@podium/issue-client` can import it
+ *  instead of hand-copying it as `ShowSession` (#20). Re-exported here because
+ *  `IssueTreeNode` and this module's consumers name it from here — the
+ *  definition moved, the import surface did not (POD-366). */
+export type { IssueTreeSession }
 
 /** One node of an epic subtree payload — see tree() (issue #82). */
 export interface IssueTreeNode {

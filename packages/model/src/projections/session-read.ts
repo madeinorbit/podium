@@ -74,6 +74,43 @@ export interface SessionStatusResult {
   unackedMessages: number
 }
 
+/**
+ * The compact session line an issue tree / `issue show` carries (inventory §2.1
+ * #19, ADR 4 R4) — moved here from `apps/server/src/modules/issues/service/types.ts`
+ * so `@podium/issue-client` can name it instead of hand-copying it as
+ * `ShowSession` (§2.1 #20). Same structural reason as the read models above:
+ * `packages/issue-client` cannot import `apps/server`, and it already declares
+ * `@podium/model`.
+ *
+ * DELIBERATELY FLATTENED, and it is the flattening that made the copy drift.
+ * The producer (`modules/issues/service/reads.ts`) collapses `name`/`title` into
+ * one `label` and `agentState.phase` into one `phase` before it ever reaches the
+ * wire. The retired `ShowSession` also declared `name`, `title` and a nested
+ * `agentState: { phase?: string }` — keys the current server cannot send. They
+ * survive in the client as documented version-skew tolerance, NOT as part of
+ * this shape.
+ *
+ * SCHEMA: `sessionId`/`agentKind` are SessionIdentity, `status` is
+ * SessionLifecycle, `phase` is AgentRuntimeState, `label` is SessionNaming and
+ * `displayRef` is SessionDerived (derived from SessionRef + repo prefix, never
+ * stored — inventory D-5). Those become `Pick`s once POD-365 lands §6.2.
+ */
+export interface IssueTreeSession {
+  sessionId: string
+  /** Human-facing session ref when known (e.g. POD-966-A). */
+  displayRef?: string
+  /** Curated name, else live terminal title. */
+  label?: string
+  agentKind: string
+  model?: string
+  /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
+  status: string
+  /** Agent phase when known (working | idle | needs_user | …). */
+  phase?: string
+  /** True when this session is the issue's designated coordinator. */
+  coordinator?: boolean
+}
+
 /** Tier-2 transcript read model: a page of transcript items plus its cursor. */
 export interface SessionReadResult {
   sessionId: string

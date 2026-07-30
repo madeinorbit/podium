@@ -1,4 +1,4 @@
-import { IssueColor } from '@podium/model'
+import { IssueColor, type IssueTreeSession } from '@podium/model'
 import { TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
@@ -92,18 +92,28 @@ interface ShowWire {
 }
 
 /** Compact session fields the show/tree renderers need [spec:SP-99d3]. */
-interface ShowSession {
-  sessionId: string
-  displayRef?: string
+/**
+ * The tree/show session line as this client reads it: the shared
+ * {@link IssueTreeSession} definition plus three VERSION-SKEW keys.
+ *
+ * Inventory §2.1 #20 marks the old hand copy a drifted duplicate of #19, and it
+ * was — it restated all eight shared keys. Those eight now come from
+ * `@podium/model` and are not repeated here (POD-366).
+ *
+ * The three extra keys are kept deliberately rather than deleted with the copy.
+ * The current server collapses `name`/`title` into `label` and `agentState.phase`
+ * into `phase` before sending (modules/issues/service/reads.ts), so a
+ * same-version server never populates them. But this client also runs against a
+ * REMOTE relay, so it can meet an older server that still sends the unflattened
+ * shape. Tightening the read here would be a behaviour change dressed as a
+ * refactor, so the tolerance stays and is now documented as tolerance instead of
+ * looking like part of the contract. Retiring it needs a version floor — out of
+ * scope for POD-366.
+ */
+type ShowSession = IssueTreeSession & {
   name?: string
   title?: string
-  label?: string
-  agentKind: string
-  model?: string
-  status: string
-  phase?: string
   agentState?: { phase?: string }
-  coordinator?: boolean
 }
 
 /** One comment as the show renderer prints it (issues.comments payload, #175). */
