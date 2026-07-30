@@ -2,7 +2,7 @@
   "name": "@podium/sync",
   "version": "0.0.0",
   "private": true,
-  "description": "The node\u21c4hub sync layer: the metadata oplog (durable changes feed + outbox drain), the node\u2192hub dialer (UpstreamSync) and issue write forwarder (UpstreamForwarder), and the transcript-lake mirror (MirrorService). Depends only on @podium/protocol and @podium/runtime \u2014 never apps/*.",
+  "description": "The node⇄hub sync layer: the metadata oplog (durable changes feed + outbox drain), the node→hub dialer (UpstreamSync) and issue write forwarder (UpstreamForwarder), and the transcript-lake mirror (MirrorService). Depends only on @podium/protocol and @podium/runtime — never apps/*.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -26,8 +26,9 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
     "@types/ws": "^8.5.13",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   }
 }
