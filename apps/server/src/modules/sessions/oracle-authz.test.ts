@@ -190,8 +190,18 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     )
   })
 
-  it(`${AGENT_ONLY}: stop with NO sessionId is a self-stop and is always allowed`, async () => {
+  it(`${AGENT_ONLY}: a self-stop is allowed, reports deferredKill, and the kill reaches the daemon strictly AFTER the reply`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
+    // The session must be RUNNING for a kill to be deferred at all.
+    o.reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'bind',
+      sessionId: agentSessionId,
+      cmd: 'bash',
+      cwd: '/r/.worktrees/a',
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    o.daemon.length = 0
 
     const reply = await o.relay({
       requestId: 'stop-self',
@@ -202,8 +212,23 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     })
 
     expect(reply.ok).toBe(true)
-    // The caller's own session is parked; the kill is DEFERRED until after this
-    // reply is on the wire, so the agent sees its own stop succeed.
+    // The contract the CLI depends on [spec:SP-9904]: the agent is TOLD its own
+    // stop succeeded, and told that the process kill is deferred.
+    expect(reply.result).toMatchObject({ ok: true, deferredKill: true })
+
+    // ORDER, on the ONE stream both messages travel: the reply is on the wire
+    // before the kill. Two separate arrays could not express this, and asserting
+    // only the final status would pass against a kill-then-reply implementation.
+    const replyIndex = o.daemon.findIndex(
+      (m) => m.type === 'agentRelayResult' && m.requestId === 'stop-self',
+    )
+    const killIndex = o.daemon.findIndex((m) => m.type === 'kill' && m.sessionId === agentSessionId)
+    expect(replyIndex).toBeGreaterThanOrEqual(0)
+    expect(killIndex).toBeGreaterThanOrEqual(0)
+    expect(replyIndex).toBeLessThan(killIndex)
+
+    // A shell parks as 'hibernated' (a fresh spawn IS its recovery, so stop keeps
+    // it resumable) — the row survives the self-stop.
     expect(
       o.reg.modules.sessions.listSessions().find((s) => s.sessionId === agentSessionId)?.status,
     ).toBe('hibernated')

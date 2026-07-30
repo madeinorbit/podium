@@ -57,6 +57,9 @@ export const SUPERSEDING_ISSUES = [
   'POD-1073',
   // Machines as owned compute: see / use / manage (ambient placement today).
   'POD-1079',
+  // Handoff onto the command plane, WITH idempotency across duplicate dispatch:
+  // a retry must not fork or duplicate the session (today it runs twice).
+  'POD-642',
 ] as const
 
 export type SupersedingIssue = (typeof SUPERSEDING_ISSUES)[number]

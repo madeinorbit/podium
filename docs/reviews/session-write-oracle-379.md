@@ -1,6 +1,6 @@
 # The session-write oracle (POD-379)
 
-**What it is:** 143 characterization tests that pin TODAY's observable behaviour of every session
+**What it is:** 155 characterization tests that pin TODAY's observable behaviour of every session
 write, so the 3.2 migration onto command contracts (POD-380 presence class, POD-381 command plane,
 POD-642 handoff, POD-382 the cutover that deletes the hand-written router mutations) can be proven
 behaviour-preserving instead of merely compiling.
@@ -17,6 +17,7 @@ behaviour-preserving instead of merely compiling.
 | `…/oracle-attribution.test.ts` | spawnedBy · nameSource · deletion_source · stopReason · inputOrigin · humanQuestionAskedBy · (handoff: none) |
 | `…/oracle-idempotency.test.ts` | mutationId dedup, ONE test per mutation-bearing route, and the writes with no replay protection |
 | `…/oracle-handoff.test.ts` | two machines: success + ordering, bundle base, mid-transfer crash, duplicate dispatch, worktree reuse |
+| `…/oracle-ask-upload.test.ts` | the remaining hand-written router mutations: `sessions.ask` (the seance) and `sessions.uploadImage` |
 | `…/oracle-tags.test.ts` | the ratchet over EVERY oracle file (including the client-core one): every characterization carries a tag, every will-change tag names a real issue |
 | `packages/client-core/src/engine/outbox-coverage.oracle.test.ts` | which writes are offline-queued, and which deliberately are not |
 
@@ -37,8 +38,9 @@ The will-change classes, all four represented and enforced by the ratchet:
 | POD-1075 | one shared password ⇒ `OPERATOR` admin/all; attribution becomes (actor, on-behalf-of) |
 | POD-1073 | human-vs-human authorization; consistent-error rule (§3.1.5) |
 | POD-1079 | machines become owned compute — `use` defaults to the owner only |
+| POD-642 | handoff gains idempotency across duplicate dispatch — a retry must not fork the session |
 
-## Five things the oracle found that the brief did not predict
+## Six things the oracle found that the brief did not predict
 
 1. **Offline queueing is NOT issue-writes-only.** `createEngineOutbox` covers eight SESSION writes
    (rename, setArchived, setWorkState, snoozeSet, snoozeClear, markRead, markUnread, resumeAndSend)
@@ -56,7 +58,14 @@ The will-change classes, all four represented and enforced by the ratchet:
    even distinguishable from *reachable*, and unauthorized has no shape at all.
 5. **Concurrent handoff is not serialized.** Two simultaneous `handoffSession` calls both run end to
    end — two exports, two imports, two spawns on the target, one kill on the source — and still
-   converge on a single row. POD-642 inherits that, pinned as exact counts.
+   converge on a single row. Pinned as exact counts and tagged **will-change POD-642**, which
+   requires idempotency across duplicate dispatch: this test exists to make that change visible, not
+   to forbid it.
+6. **`sessions.ask` is unreachable via the relay.** `relay.ts`'s sessions arm has an explicit
+   `if (proc === 'ask')` branch routing to the MessageGate, but `RELAY_ALLOWED.sessions` does not
+   list `ask` (nor `recap`), and the allowlist runs first — so the branch is dead code today. A
+   cutover that merges the two lists would silently GRANT agents the seance. That is a policy
+   change, not a refactor, and it is pinned as such.
 
 Also worth stating plainly: **the presence writes have no agent path at all.** They are operator-only
 by ABSENCE from `RELAY_ALLOWED`, not by a check. A uniform command plane must reproduce that absence
@@ -64,7 +73,7 @@ deliberately.
 
 ## Proof the net catches things
 
-Nineteen mutants were applied to the product, run, and reverted; every one turned the intended test red:
+Twenty-four mutants were applied to the product, run, and reverted; every one turned the intended test red:
 
 | Mutant | Test that caught it |
 |---|---|
@@ -87,8 +96,13 @@ Nineteen mutants were applied to the product, run, and reverted; every one turne
 | An untagged `test(` added in packages/client-core | tags · same, for the client-core oracle |
 | The client-core tag literal drifted | tags · "a file that re-declares the tag locally must use the canonical literal" |
 | A will-change tag naming an unknown issue | tags · "every will-change tag names a superseding issue" |
+| `POD-642` dropped from the declared superseding set | tags · same |
+| Self-stop kill armed BEFORE the relay reply | authz · "a self-stop … kill reaches the daemon strictly AFTER the reply" |
+| `ask` added to the relay allowlist | ask-upload · "ask is NOT relay-reachable" |
+| `ask`'s session-target gate removed | ask-upload · "ask against an unknown session THROWS 'session not found'" |
+| `uploadImage`'s empty-path TIMEOUT guard removed | ask-upload · "an answer with no path is treated as NOBODY ANSWERING" |
 
-Nineteen mutants, nineteen caught. The one mutation that did NOT red a test — appending a CR in
+Twenty-four mutants, twenty-four caught. The one mutation that did NOT red a test — appending a CR in
 `packages/composer/src/driver.ts` — turned out to be the wrong site: the server's paste wrapper is
 `SessionsService.typeText`, and mutating THAT is the row above.
 

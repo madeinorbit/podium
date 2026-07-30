@@ -363,7 +363,7 @@ describe('oracle: duplicate dispatch', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: CONCURRENT duplicate dispatch is NOT serialized — today BOTH orchestrations run end to end`, async () => {
+  it(`${willChange('POD-642', 'handoff gains idempotency across duplicate dispatch — a retry must not fork the session')}: CONCURRENT duplicate dispatch is NOT serialized today — BOTH orchestrations run end to end`, async () => {
     const f = await handoffFixture()
 
     const settled = await Promise.allSettled([
@@ -372,9 +372,13 @@ describe('oracle: duplicate dispatch', () => {
     ])
 
     // There is NO in-flight lock and no dedup: both calls resolve ok, the package
-    // is exported twice, imported twice and spawned twice on the target. Pinned
-    // as exact counts precisely so POD-642 cannot quietly serialize (or quietly
-    // duplicate harder) without this failing.
+    // is exported twice, imported twice and spawned twice on the target.
+    //
+    // TAGGED will-change ON PURPOSE. POD-642 REQUIRES idempotency here — a retry
+    // must not fork or duplicate the session — so this test exists to make the
+    // change VISIBLE, not to forbid it. When POD-642 lands, these counts SHOULD
+    // fall to one and this characterization should be rewritten against the new
+    // contract, never "fixed" by restoring the duplication.
     expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled'])
     expect(
       settled.map((s) => (s.status === 'fulfilled' ? s.value : (s.reason as Error).message)),

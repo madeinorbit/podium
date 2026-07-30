@@ -135,7 +135,8 @@ describe('oracle tag ratchet', () => {
     )
 
     // POD-1076 per-user state, POD-1073 human-vs-human authz, POD-1075 user
-    // principal + attribution, POD-1079 machines as owned compute.
-    expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1076', 'POD-1079'])
+    // principal + attribution, POD-1079 machines as owned compute, POD-642
+    // handoff idempotency across duplicate dispatch.
+    expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1076', 'POD-1079', 'POD-642'])
   })
 })
