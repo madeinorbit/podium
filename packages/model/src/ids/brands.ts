@@ -1,0 +1,249 @@
+/**
+ * Branded entity ids [spec:SP-3fe2] — RE-HOMED here from
+ * `@podium/protocol`'s `ids.ts` (and, for {@link UserId}, from
+ * `@podium/protocol`'s `planes/principal.ts`) at POD-361. Both of those files
+ * said in their own headers that this was their destination: *"Phase 1
+ * (POD-299/POD-300) re-homes these brands to `packages/model`; this module is
+ * their transitional home"*. `packages/model` is L0 and zod-only, so a brand
+ * defined here is reachable from every layer — which is what makes ONE
+ * definition site possible (ADR 4 Amendment 1 D9.1).
+ *
+ * A brand belongs here and nowhere else. `@podium/protocol` keeps re-export
+ * shims at both old paths so no consumer had to change in POD-361; POD-362 /
+ * POD-363 delete the shims as they sweep.
+ *
+ * ---------------------------------------------------------------------------
+ * TWO SCHEMAS PER BRAND, AND WHY (read before adding a third)
+ * ---------------------------------------------------------------------------
+ *
+ * Each brand ships:
+ *
+ *   1. the VALIDATING BOUNDARY schema — `SessionId` — `z.string().min(1)` plus
+ *      the brand. Use it where a string arrives from outside and must be
+ *      checked (wire/db/argv). This is the declaration ADR 1 Amendment 2 D16.2
+ *      quotes normatively, so its shape is fixed.
+ *   2. the FIELD schema — `SessionIdField` — the brand with **no added
+ *      validation**, i.e. exactly the `z.string()` the entity field already
+ *      was. Use it INSIDE an entity schema.
+ *
+ * The split exists because branding is a **compile-time construct that must not
+ * change what parses** (POD-361's contract, and ADR 4's wire-transparency rule).
+ * Every id field in `entities/` was a bare `z.string()`, so it accepts the empty
+ * string today — and at least one producer relies on it:
+ * `apps/server/src/modules/sessions/service.ts` builds
+ * `{ kind: 'resume', conversationId: r.conversationId ?? '' }`. Flipping that
+ * field to the `.min(1)` schema would make a payload that parses today FAIL to
+ * parse, which is a behaviour change wearing a type change's clothes.
+ * `ids.empty-string.test.ts` pins it per field, so the trap cannot be re-set by
+ * a later "tighten the ids" cleanup that has forgotten why.
+ *
+ * `as<Brand>(s)` stays the plain cast for boundaries where the string is already
+ * trusted (it came out of our own store, or out of an already-parsed envelope).
+ *
+ * ---------------------------------------------------------------------------
+ * THE SET, AND WHAT IS DELIBERATELY NOT IN IT
+ * ---------------------------------------------------------------------------
+ *
+ * TIER 1 — the ratified set ([spec:SP-3fe2]; ADR 1 Amendment 2 §1 quotes it;
+ * ADR 4 Amendment 1 D9.1 adds `UserId`): `SessionId`, `IssueId`, `MachineId`,
+ * `RepoId`, `ConversationId`, `MutationId`, `ThreadId`, `UserId`.
+ *
+ * TIER 2 — added by POD-361 because a `packages/model` entity field names one
+ * and leaving it raw is what ADR 4 D3.5 calls an audit failure; recorded for
+ * ratification rather than assumed: `AutomationId`, `AutomationRunId`,
+ * `ArtifactId`, `AccountId`. Each names an id the SERVER mints for a durable
+ * Podium row, and the first two are members of the codebase's own replicated
+ * entity taxonomy (`MetadataEntityKind` = session | issue | conversation |
+ * automation | automationRun). Adding them here rather than in POD-362/POD-363
+ * is what keeps those sweeps from re-opening these schemas.
+ *
+ * NOT BRANDED, deliberately — each id field in `entities/` that stays a raw
+ * string, and the reason. `docs/rearch-branded-id-flip.md` §3 carries the same
+ * table per field; this list is the vocabulary half:
+ *
+ *   - a HARNESS-NATIVE id (`ConversationSummaryWire.id` / `parentConversationId`,
+ *     `TranscriptItem.id` / `cursor` / `toolUseId`, `NativeSubagent.id`,
+ *     `ResumeRef.value`): minted by Claude Code / Codex / the harness, not by
+ *     us. POD-360 named `nativeId` as having no brand for exactly this reason:
+ *     it is evidence, not identity — the conversation registry exists because a
+ *     resume roll changes it.
+ *   - an EXTERNAL CORRELATION id (`SessionMeta.workflowRunId` /
+ *     `workflowStepId` / `executionProfileId`, `IssueWire.linearId` /
+ *     `linearIdentifier`): the schema's own comment says *"stamped at
+ *     spawn/assignment by an external coordinator; the substrate never
+ *     interprets them"*. A brand asserts a namespace we do not own.
+ *   - a TRANSPORT-CONNECTION id (`SessionMeta.controllerId`): it holds
+ *     `client.id`, a websocket client id (`apps/server/src/modules/sessions/
+ *     session.ts` — `if (this.controllerId === null) this.controllerId =
+ *     client.id`), NOT a session id. Branding it `SessionId` would have been a
+ *     well-typed lie; its brand is ADR 9's `DeviceId` family, which POD-1075
+ *     owns.
+ *   - an ATTRIBUTION TAG that is not an id at all (`SessionMeta.spawnedBy`,
+ *     `IssueWire.assignee`, `IssueWire.origin`): see
+ *     `docs/rearch-branded-id-flip.md` §4. `spawnedBy` is a six-arm tagged
+ *     union living unparsed in a freeform string; POD-360 found ONE consumer
+ *     parses it and SEVEN rebuild the template literal to compare, FIVE of them
+ *     gating parent-session authorization. A brand does not fix that — it still
+ *     permits seven hand-built strings — so it needs a shared constructor AND
+ *     parser (POD-1128), not a type.
+ *   - `MachineId`, at every field: see {@link machineIdBlockedOnPOD318}. The
+ *     brand exists; POD-361 adopts it at ZERO fields, by ADR 1 Amendment 2
+ *     D16.2's ordering constraint.
+ */
+
+import { z } from 'zod'
+
+/**
+ * The field-position brand: the brand ONLY, no added validation, so the schema
+ * accepts exactly what the bare `z.string()` it replaces accepted. See this
+ * file's header for why this is not the same schema as the validating boundary.
+ */
+const idField = <B extends string>() => z.string().brand<B>()
+
+// ---------------------------------------------------------------------------
+// Tier 1 — the ratified set
+// ---------------------------------------------------------------------------
+
+/**
+ * A machine (daemon) identity.
+ *
+ * ADOPTED AT ZERO SCHEMA FIELDS BY DECISION — see
+ * {@link machineIdBlockedOnPOD318}. The brand is here so POD-318 has something
+ * to brand *towards*; it is not a to-do that POD-361 skipped.
+ */
+export const MachineId = z.string().min(1).brand<'MachineId'>()
+export type MachineId = z.infer<typeof MachineId>
+export const MachineIdField = idField<'MachineId'>()
+export const asMachineId = (s: string): MachineId => s as MachineId
+
+export const SessionId = z.string().min(1).brand<'SessionId'>()
+export type SessionId = z.infer<typeof SessionId>
+export const SessionIdField = idField<'SessionId'>()
+export const asSessionId = (s: string): SessionId => s as SessionId
+
+export const IssueId = z.string().min(1).brand<'IssueId'>()
+export type IssueId = z.infer<typeof IssueId>
+export const IssueIdField = idField<'IssueId'>()
+export const asIssueId = (s: string): IssueId => s as IssueId
+
+export const RepoId = z.string().min(1).brand<'RepoId'>()
+export type RepoId = z.infer<typeof RepoId>
+export const RepoIdField = idField<'RepoId'>()
+export const asRepoId = (s: string): RepoId => s as RepoId
+
+/**
+ * The Podium-stable conversation identity (`docs/spec/conversation-registry.md`)
+ * — the `podiumId`, NOT the harness-native transcript id. The native id is
+ * evidence: a resume that rolls into a new file gets a new one and keeps this.
+ */
+export const ConversationId = z.string().min(1).brand<'ConversationId'>()
+export type ConversationId = z.infer<typeof ConversationId>
+export const ConversationIdField = idField<'ConversationId'>()
+export const asConversationId = (s: string): ConversationId => s as ConversationId
+
+export const MutationId = z.string().min(1).brand<'MutationId'>()
+export type MutationId = z.infer<typeof MutationId>
+export const MutationIdField = idField<'MutationId'>()
+export const asMutationId = (s: string): MutationId => s as MutationId
+
+export const ThreadId = z.string().min(1).brand<'ThreadId'>()
+export type ThreadId = z.infer<typeof ThreadId>
+export const ThreadIdField = idField<'ThreadId'>()
+export const asThreadId = (s: string): ThreadId => s as ThreadId
+
+/**
+ * A PERSON. Re-homed from `@podium/protocol`'s `planes/principal.ts`, whose
+ * header named this file as its destination; that module now re-exports from
+ * here so `Principal`, the delegation chain and the plane ports are untouched.
+ *
+ * ADR 4 Amendment 1 D9.1: *"`UserId` is a branded id in the POD-301 family,
+ * alongside `SessionId` / `IssueId` / `MachineId`. Raw `z.string()` for a person
+ * is an audit failure after the flip."* It is defined at the same moment as the
+ * other brands ON PURPOSE (`docs/multi-user-readiness.md` §3.2): POD-1075 adds
+ * the `User` aggregate to an existing brand instead of introducing a brand
+ * mid-phase, and no schema is swept twice. Sequencing is recorded in
+ * `docs/rearch-branded-id-flip.md` §5.
+ *
+ * NO model schema field carries it yet, and that is correct: the on-behalf-of
+ * half of every attribution pair is POD-1075's to add (§3.1.3 A3). What POD-361
+ * owes POD-1075 is the brand, the `(userId, entityId)` key shape, and the list
+ * of sites — all three are here or in that doc.
+ *
+ * Server-minted and authoritative INSIDE ONE INSTANCE ONLY (ADR 1 Amendment 2
+ * D21.3): equal `UserId` values in two instances are unrelated strings. Nothing
+ * here carries an instance partition — multi-user is not multi-tenancy.
+ */
+export const UserId = z.string().min(1).brand<'UserId'>()
+export type UserId = z.infer<typeof UserId>
+export const UserIdField = idField<'UserId'>()
+export const asUserId = (s: string): UserId => s as UserId
+
+// ---------------------------------------------------------------------------
+// Tier 2 — added by POD-361, recorded for ratification (see the header)
+// ---------------------------------------------------------------------------
+
+/** A scheduled automation [spec:SP-17db] — a `MetadataEntityKind` member. */
+export const AutomationId = z.string().min(1).brand<'AutomationId'>()
+export type AutomationId = z.infer<typeof AutomationId>
+export const AutomationIdField = idField<'AutomationId'>()
+export const asAutomationId = (s: string): AutomationId => s as AutomationId
+
+/** One recorded occurrence of an automation firing — a `MetadataEntityKind`
+ *  member, and a DISTINCT id space from {@link AutomationId}: `AutomationRunWire`
+ *  carries both `id` and `automationId`, which is exactly the confusion a brand
+ *  is for. */
+export const AutomationRunId = z.string().min(1).brand<'AutomationRunId'>()
+export type AutomationRunId = z.infer<typeof AutomationRunId>
+export const AutomationRunIdField = idField<'AutomationRunId'>()
+export const asAutomationRunId = (s: string): AutomationRunId => s as AutomationRunId
+
+/** A permanent-store artifact snapshot ([spec:SP-0fc9], POD-441): the bytes live
+ *  at `<state-dir>/artifacts/<issueId>/<artifactId>/`, so this id and an
+ *  {@link IssueId} appear side by side in one path and must not be swappable. */
+export const ArtifactId = z.string().min(1).brand<'ArtifactId'>()
+export type ArtifactId = z.infer<typeof ArtifactId>
+export const ArtifactIdField = idField<'ArtifactId'>()
+export const asArtifactId = (s: string): ArtifactId => s as ArtifactId
+
+/** A managed agent account (`SessionMeta.accountId`) — a server-held row, not
+ *  the harness's own login. §3.1.4 M2's unresolved billing question is about
+ *  WHOSE this is, not about whether it is an id. */
+export const AccountId = z.string().min(1).brand<'AccountId'>()
+export type AccountId = z.infer<typeof AccountId>
+export const AccountIdField = idField<'AccountId'>()
+export const asAccountId = (s: string): AccountId => s as AccountId
+
+// ---------------------------------------------------------------------------
+// The MachineId carve-out — ADR 1 Amendment 2 D16.2
+// ---------------------------------------------------------------------------
+
+/**
+ * A machine-id FIELD that is deliberately still a raw string.
+ *
+ * ADR 1 Amendment 2 D16.2 rule 2 is normative and is quoted here in full
+ * because this is the one place a future flip would be attempted:
+ *
+ * > POD-318's migration must retire `local` and `__local__` BEFORE `MachineId`
+ * > branding is applied at any site that can hold either value. … If branding
+ * > must land first for an unrelated reason, the sentinel sites are carved out
+ * > and left as raw strings until the migration lands — a narrower, visible
+ * > debt, rather than a well-typed lie.
+ *
+ * Why the debt is narrower than it looks: {@link MachineId} validates LENGTH,
+ * not shape, so `MachineId.parse('local')` SUCCEEDS. Branding a sentinel does
+ * not flag it, it launders it — and `'__local__'` is a column DEFAULT on three
+ * tables (`sessions.machine_id`, `conversations.machine_id`,
+ * `repos.machine_id`), so the database MANUFACTURES the value for any insert
+ * that omits the column. Every machine-id field in `entities/` is downstream of
+ * one of those three defaults or of `LOCAL_MACHINE_ID = 'local'`, so the
+ * carve-out is all of them, not a subset.
+ *
+ * This is a marker, not a comment: it is the same `z.string()` at runtime, but
+ * `ids.machine-carveout.test.ts` asserts that every machine-id field in
+ * `packages/model/src/entities/` uses THIS export and none uses
+ * {@link MachineIdField} — so POD-318 flips the carve-out by changing these
+ * sites, and a well-meaning sweep cannot brand them silently in the meantime.
+ * The test enumerates fields by shape (`/machineId|machine_id|^id$/` inside a
+ * machine schema), not by a hand-written list of the seven known sites.
+ */
+export const machineIdBlockedOnPOD318 = z.string()

@@ -42,8 +42,9 @@
  *
  * 2. ATTRIBUTION IS HALF OF A PAIR — `humanQuestionAskedBy`.
  *
- *    Relocated UNCHANGED: still `z.string().optional()`, still a SessionId,
- *    still server-authoritative. Per §3.1.3 A3 attribution becomes a PAIR —
+ *    POD-361 flipped it to `SessionIdField` — the brand it always documented and
+ *    never carried — and it stays server-authoritative. Per §3.1.3 A3 attribution
+ *    becomes a PAIR —
  *    actor (which agent) and on-behalf-of (which human) — precisely so "did a
  *    person or an agent ask this?" stays answerable, which is the property this
  *    field exists to preserve. The on-behalf-of half is POD-1075's work.
@@ -52,7 +53,11 @@
  *    placement of this field is now a decision that must accommodate TWO
  *    values, not one. The same applies to its cohort — `startedBySession`,
  *    `coordinatorSessionId`, `assignee`, `origin` ('human' | 'agent') — each of
- *    which names one actor today.
+ *    which names one actor today. POD-361 flipped the two that name a session
+ *    (`startedBySession`, `coordinatorSessionId`) to `SessionId` and left
+ *    `assignee` / `origin` raw because they carry ROLE CLASSES, not identities;
+ *    the whole cohort is handed to POD-1075 as a list in
+ *    `docs/rearch-branded-id-flip.md` §4, so it works from a list and not a grep.
  *
  * 3. NO OWNER / VISIBILITY / GRANT / instance_id FIELD WAS ADDED. Those are
  *    POD-1075's model types and POD-1071's normative matrix columns; adding one
@@ -68,6 +73,13 @@
  */
 
 import { z } from 'zod'
+import {
+  ArtifactIdField,
+  IssueIdField,
+  machineIdBlockedOnPOD318,
+  RepoIdField,
+  SessionIdField,
+} from '../ids'
 import { ISSUE_COLOR_SLOTS } from './issue-color'
 import { SessionMeta } from './session'
 
@@ -143,11 +155,17 @@ export const IssueSessionSummary = z.object({
 })
 export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
-export const IssueDepWire = z.object({ id: z.string(), type: z.string() })
+export const IssueDepWire = z.object({ id: IssueIdField, type: z.string() })
 export type IssueDepWire = z.infer<typeof IssueDepWire>
 
 export const IssueComment = z.object({
+  /** UNBRANDED: a comment id, and there is no ratified `CommentId`. Not invented
+   *  here either, because this whole schema is DEPRECATED off the wire (#175 —
+   *  a current server never populates `IssueWire.comments`), and minting a
+   *  vocabulary member for a shape being deleted is the drift Phase 1 removes. */
   id: z.string(),
+  /** ATTRIBUTION SITE — a freeform author label, not an id; gains an
+   *  on-behalf-of value in POD-1075 (`docs/rearch-branded-id-flip.md` §4). */
   author: z.string(),
   body: z.string(),
   createdAt: z.string(),
@@ -168,7 +186,7 @@ export const IssuePanelArtifact = z.object({
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
    *  live /files/asset route against the worktree. */
-  artifactId: z.string().optional(),
+  artifactId: ArtifactIdField.optional(),
   /** Relpath of the primary file inside the snapshot bundle. */
   entry: z.string().optional(),
   /** Bundle manifest — relpaths + sizes of every snapshotted file. */
@@ -226,10 +244,10 @@ export type IssueGitState = z.infer<typeof IssueGitState>
 // ---------------------------------------------------------------------------
 
 export const IssueWire = z.object({
-  id: z.string(),
+  id: IssueIdField,
   repoPath: z.string(),
   /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
-  repoId: z.string().optional(),
+  repoId: RepoIdField.optional(),
   /** Human-facing repo prefix (#474), e.g. `POD`. Absent until backfilled. */
   prefix: z.string().optional(),
   /** Human-facing issue reference (#474): `POD-13` (or `#13` before a prefix
@@ -251,7 +269,11 @@ export const IssueWire = z.object({
   defaultModel: z.string(),
   defaultEffort: z.string(),
   // Machine (daemon) this issue's agents run on; absent = pick by repo affinity.
-  machineId: z.string().optional(),
+  // CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): resolvable to
+  // LOCAL_MACHINE_ID = 'local' today, and a length-only brand would launder that
+  // sentinel rather than flag it. POD-318 retires it, then this becomes MachineIdField.
+  machineId: machineIdBlockedOnPOD318.optional(),
+  /** UNBRANDED: ids in LINEAR's namespace, which we neither mint nor own. */
   linearId: z.string().optional(),
   linearIdentifier: z.string().optional(),
   linearUrl: z.string().optional(),
@@ -259,13 +281,17 @@ export const IssueWire = z.object({
   notesUpdatedAt: z.string().optional(),
   suggestedStage: IssueStage.optional(),
   suggestedReason: z.string().optional(),
-  blockedBy: z.array(z.string()),
+  blockedBy: z.array(IssueIdField),
   dependencyNote: z.string().optional(),
   prUrl: z.string().optional(),
   priority: z.number().int(),
   type: IssueType,
+  /** ATTRIBUTION SITE, not an id space we mint: today's values are role labels
+   *  ('agent:claude-code') rather than identities. Enumerated for POD-1075 in
+   *  `docs/rearch-branded-id-flip.md` §4; it becomes a `UserId` there, and
+   *  branding it `UserId` now would claim a person where a role class sits. */
   assignee: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
   design: z.string().optional(),
   acceptance: z.string().optional(),
   notes: z.string().optional(),
@@ -285,8 +311,8 @@ export const IssueWire = z.object({
    *  "not tucked" rather than failing the whole issue; a current server always
    *  sends it, explicitly null when untucked. */
   tuckedAt: z.string().nullable().optional().catch(undefined),
-  supersededBy: z.string().optional(),
-  duplicateOf: z.string().optional(),
+  supersededBy: IssueIdField.optional(),
+  duplicateOf: IssueIdField.optional(),
   pinned: z.boolean(),
   /** Manual order (POD-168, POD-100 §4 R1): fractional sort key, lexicographic
    *  ASCENDING = top of the scope. One key space per sibling scope — a project
@@ -307,10 +333,11 @@ export const IssueWire = z.object({
   /** sessionId of the agent session that asked (issue #53); absent = unattributed
    *  (legacy flag or a caller with no session identity).
    *
-   *  ONE HALF OF AN ATTRIBUTION PAIR — see this file's header note 2. Relocated
-   *  unchanged; §3.1.3 A3 makes attribution (actor, on-behalf-of), and the
-   *  placement decision belongs to POD-304 / POD-643. */
-  humanQuestionAskedBy: z.string().optional(),
+   *  ONE HALF OF AN ATTRIBUTION PAIR — see this file's header note 2. FLIPPED at
+   *  POD-361 to its correct CURRENT brand (`SessionId`, the actor half; §3.1.3 A3
+   *  and ADR 4 Amendment 1 D9.3). The on-behalf-of half is a SECOND, differently
+   *  branded field POD-1075 adds — never a second meaning on this one. */
+  humanQuestionAskedBy: SessionIdField.optional(),
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt: z.string().optional(),
   /** Agent-published human-facing panel; absent = nothing published yet. */
@@ -383,11 +410,11 @@ export const IssueWire = z.object({
   /** Designated coordinator session (bare session id) for actionable issue-addressed
    *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
    *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
-  coordinatorSessionId: z.string().optional(),
+  coordinatorSessionId: SessionIdField.optional(),
   /** Bare session id of the agent session that created this issue (started-by
    *  provenance). Null/absent for operator/human creates. Additive so pre-field
    *  payloads still parse. */
-  startedBySession: z.string().optional(),
+  startedBySession: SessionIdField.optional(),
 })
 export type IssueWire = z.infer<typeof IssueWire>
 
@@ -396,26 +423,26 @@ export type IssueWire = z.infer<typeof IssueWire>
 // universal record.
 // ---------------------------------------------------------------------------
 
-export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score: z.number() })
+export const DuplicateCandidate = z.object({ a: IssueIdField, b: IssueIdField, score: z.number() })
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
 export const LintFinding = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   findings: z.array(z.string()),
 })
 export type LintFinding = z.infer<typeof LintFinding>
 
 export const DoctorReport = z.object({
-  cycles: z.array(z.array(z.string())),
-  danglingDeps: z.array(z.object({ from: z.string(), to: z.string(), type: z.string() })),
+  cycles: z.array(z.array(IssueIdField)),
+  danglingDeps: z.array(z.object({ from: IssueIdField, to: IssueIdField, type: z.string() })),
   lintCount: z.number().int(),
   staleCount: z.number().int(),
 })
 export type DoctorReport = z.infer<typeof DoctorReport>
 
 export const IssueGraphNode = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   title: z.string(),
   stage: IssueStage,
@@ -424,7 +451,7 @@ export const IssueGraphNode = z.object({
   ready: z.boolean(),
   blocked: z.boolean(),
 })
-export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
+export const IssueGraphEdge = z.object({ from: IssueIdField, to: IssueIdField, type: z.string() })
 export const IssueGraph = z.object({
   nodes: z.array(IssueGraphNode),
   edges: z.array(IssueGraphEdge),
@@ -432,7 +459,7 @@ export const IssueGraph = z.object({
 export type IssueGraph = z.infer<typeof IssueGraph>
 
 export const EpicStatus = z.object({
-  id: z.string(),
+  id: IssueIdField,
   childCount: z.number().int(),
   childDoneCount: z.number().int(),
   complete: z.boolean(),
@@ -456,7 +483,7 @@ export const IssueStats = z.object({
 })
 export type IssueStats = z.infer<typeof IssueStats>
 export const OrphanIssue = z.object({
-  id: z.string(),
+  id: IssueIdField,
   seq: z.number().int(),
   title: z.string(),
   ref: z.string(),
@@ -471,6 +498,6 @@ export const IssueSearchFilter = z.object({
   type: IssueType.optional(),
   assignee: z.string().optional(),
   label: z.string().optional(),
-  parentId: z.string().optional(),
+  parentId: IssueIdField.optional(),
 })
 export type IssueSearchFilter = z.infer<typeof IssueSearchFilter>

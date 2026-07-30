@@ -29,6 +29,10 @@ export const TranscriptTag = z.object({
 export type TranscriptTag = z.infer<typeof TranscriptTag>
 
 export const TranscriptItem = z.object({
+  /** UNBRANDED: harness-derived and, for some items, SYNTHESIZED by the daemon
+   *  parser rather than minted by us — the schema says so two lines down. A
+   *  transcript item is per-session detail, not a replicated entity, so it has no
+   *  brand and no `MetadataEntityKind` membership. */
   id: z.string(),
   /** Opaque, daemon-defined position anchor for read-from/subscribe-since paging.
    *  Stable across re-reads of the same file bytes (unlike `id`, which is
@@ -52,7 +56,8 @@ export const TranscriptItem = z.object({
   toolInputJson: z.string().optional(),
   /** Truncated tool result text (set on role 'tool' result items). */
   toolResult: z.string().optional(),
-  /** Pairs a tool call with its result item. */
+  /** Pairs a tool call with its result item. UNBRANDED: the HARNESS's tool-use
+   *  id, in the provider's namespace. */
   toolUseId: z.string().optional(),
   tags: z.array(TranscriptTag).optional(),
   /** Absolute file paths this item structurally references (tool file_path

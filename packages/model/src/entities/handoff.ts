@@ -28,17 +28,18 @@
  */
 
 import { z } from 'zod'
+import { IssueIdField, machineIdBlockedOnPOD318, RepoIdField, SessionIdField } from '../ids'
 import { ResumeRef } from './session'
 
 /** Canonical portable session package ([spec:SP-3f7a]). */
 export const HandoffManifest = z.object({
   format: z.literal(1),
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   agentKind: z.enum(['claude-code', 'codex']),
   resume: ResumeRef,
   transcriptFilename: z.string(),
   transcriptRelativeDir: z.string().optional(),
-  repoId: z.string(),
+  repoId: RepoIdField,
   branch: z.string(),
   headSha: z.string(),
   snapshotSha: z.string().nullable(),
@@ -65,8 +66,12 @@ export const HandoffManifest = z.object({
   cwdSubpath: z.string().optional(),
   bundleBase: z.array(z.string()),
   title: z.string().optional(),
-  issueId: z.string().optional(),
-  sourceMachineId: z.string(),
+  issueId: IssueIdField.optional(),
+  /** CARVED OUT of the brand flip (ADR 1 Amendment 2 D16.2): an exporter running
+   *  on the bundled local daemon stamps LOCAL_MACHINE_ID = 'local' here, and a
+   *  length-only brand would launder that sentinel into a well-typed identity.
+   *  POD-318 retires it; this becomes MachineIdField then. */
+  sourceMachineId: machineIdBlockedOnPOD318,
   exportedAt: z.string(),
 })
 export type HandoffManifest = z.infer<typeof HandoffManifest>

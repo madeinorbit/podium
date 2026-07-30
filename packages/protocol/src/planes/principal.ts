@@ -1,3 +1,4 @@
+import type { UserId } from '@podium/model'
 import { z } from 'zod'
 import type { MachineId } from '../ids'
 
@@ -20,16 +21,22 @@ import type { MachineId } from '../ids'
  * routing decision needs one (ADR 7 Amendment 1 D14). Nothing in this file
  * decides who may see what.
  *
- * BRANDS: `UserId` / `DeviceId` / `AgentIdentityId` are defined here because
- * no user identity exists in the model yet. ADR 4 Amendment 1 D9.1 owns
- * `UserId`'s shape and Phase 1 (POD-299/POD-300) re-homes these brands to
- * `packages/model`; this module is their transitional home, matching
- * `ids.ts`'s additive-only posture.
+ * BRANDS: `UserId` HAS MOVED. POD-361 re-homed it to `packages/model`
+ * (`ids/brands.ts`) as this header asked — ADR 4 Amendment 1 D9.1 owns its shape,
+ * and defining it beside the other seven brands is what lets POD-1075 add the
+ * `User` aggregate to an EXISTING brand instead of introducing one mid-phase
+ * (`docs/multi-user-readiness.md` §3.2). The re-export below is an edge shim so
+ * POD-361 changed no consumer of this module; POD-362 / POD-363 delete it.
+ *
+ * `DeviceId` / `AgentIdentityId` / `CapabilityRef` / `DelegationRef` STAY here on
+ * purpose. They are not entity ids: they name a transport binding, an agent
+ * identity, and two server-minted opaque references — the principal taxonomy ADR
+ * 9 owns and POD-1075 lands as an aggregate. Moving them would have been scope
+ * this issue was not given, and `packages/model` gains them with that aggregate
+ * or not at all.
  */
 
-export const UserId = z.string().min(1).brand<'UserId'>()
-export type UserId = z.infer<typeof UserId>
-export const asUserId = (s: string): UserId => s as UserId
+export { asUserId, UserId } from '@podium/model'
 
 /** The authenticated client session / daemon binding a call arrived on. */
 export const DeviceId = z.string().min(1).brand<'DeviceId'>()

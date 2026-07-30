@@ -42,6 +42,13 @@
  */
 
 import { z } from 'zod'
+import {
+  AccountIdField,
+  ConversationIdField,
+  IssueIdField,
+  machineIdBlockedOnPOD318,
+  SessionIdField,
+} from '../ids'
 import { AgentKind } from './agent'
 
 // ---------------------------------------------------------------------------
@@ -102,6 +109,9 @@ export type AgentError = z.infer<typeof AgentError>
  *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
  *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
 export const NativeSubagent = z.object({
+  /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel, not a Podium
+   *  session id. Its brand is ADR 9's `AgentIdentityId` (the actor half of the
+   *  attribution pair), which POD-1075 owns; a `SessionId` here would be wrong. */
   id: z.string(),
   type: z.string().optional(),
 })
@@ -136,6 +146,13 @@ export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
 
 export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),
+  /** NOT a branded `ConversationId`, and this is evidence-based rather than an
+   *  oversight: this field holds the HARNESS-NATIVE conversation id, not the
+   *  Podium-stable `podiumId`. `apps/server/src/modules/sessions/service.ts`
+   *  fills it from `session.resume.value` — the native resume ref — on the
+   *  handoff path, and elsewhere from `r.conversationId ?? ''`. A native id has
+   *  no brand by decision (see `ids/brands.ts`), and the empty-string default is
+   *  why a `.min(1)` schema could not go here either. */
   z.object({ kind: z.literal('resume'), conversationId: z.string() }),
 ])
 export type SessionOrigin = z.infer<typeof SessionOrigin>
@@ -168,7 +185,7 @@ export const SessionOffer = z.object({
 export type SessionOffer = z.infer<typeof SessionOffer>
 
 export const SessionMeta = z.object({
-  sessionId: z.string(),
+  sessionId: SessionIdField,
   agentKind: AgentKind,
   title: z.string(),
   /** Curated name. Wins over `title` (the live terminal title) wherever shown. */
@@ -176,7 +193,7 @@ export const SessionMeta = z.object({
   /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
   model: z.string().optional(),
   effort: z.string().optional(),
-  accountId: z.string().optional(),
+  accountId: AccountIdField.optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
    *  'agent' = the session named itself (it may re-title itself). Absent = unnamed. */
   nameSource: z.enum(['user', 'agent']).optional(),
@@ -185,6 +202,12 @@ export const SessionMeta = z.object({
   exitCode: z.number().int().optional(), // present only when status === 'exited'
   /** Daemon diagnosis for exitCode=-1 (spawn never started). */
   spawnFailure: z.string().optional(),
+  /** NOT a `SessionId` — it holds a WEBSOCKET CLIENT id
+   *  (`apps/server/src/modules/sessions/session.ts`: `if (this.controllerId ===
+   *  null) this.controllerId = client.id`). Branding it `SessionId` because the
+   *  field sits on `SessionMeta` and is "actor-shaped" would have been a
+   *  well-typed lie. Its brand is ADR 9's `DeviceId` family (a device/connection,
+   *  not a person and not a session), which POD-1075 owns. */
   controllerId: z.string().nullable(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),
@@ -241,7 +264,12 @@ export const SessionMeta = z.object({
   // machineName is the display label (server-resolved from the machines table).
   // OPTIONAL during build-out so every task stays typecheck-green: Task 5 always
   // emits them, and the web treats absent as the local machine.
-  machineId: z.string().optional(),
+  // machineId is CARVED OUT of the brand flip, not missed: it can hold
+  // '__local__' (the `sessions.machine_id` column DEFAULT) or 'local'
+  // (LOCAL_MACHINE_ID), and ADR 1 Amendment 2 D16.2 forbids branding a site that
+  // can hold either until POD-318 retires them — a brand that validates length
+  // and not shape would launder the sentinel instead of flagging it.
+  machineId: machineIdBlockedOnPOD318.optional(),
   machineName: z.string().optional(),
   /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
    *  `null` = snoozed until the next message; an ISO string = snoozed until that
@@ -269,20 +297,38 @@ export const SessionMeta = z.object({
    *  onto SessionMeta, orthogonal to the agent's phase. Ephemeral: cleared on
    *  the next user-submitted turn (a button click counts). Absent/null = none. */
   offer: SessionOffer.nullable().optional(),
-  /** Transient move overlay; absent outside an in-flight handoff. */
+  /** Transient move overlay; absent outside an in-flight handoff. Not an id at
+   *  all: the server sets it to `targetMachine.name`, a display label. */
   handoffTarget: z.string().optional(),
   /** The stable Podium conversation identity this session is working in
    *  (docs/spec/conversation-registry.md) — survives resume-rolls and worktree
-   *  moves, unlike the native resume ref. Absent until first known. */
-  conversationPodiumId: z.string().optional(),
+   *  moves, unlike the native resume ref. Absent until first known.
+   *
+   *  THE branded `ConversationId` on this schema — `origin.conversationId` above
+   *  is the native id and is deliberately unbranded. */
+  conversationPodiumId: ConversationIdField.optional(),
   /** WHO created this session (provenance, issue #60). Freeform; documented values:
    *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
-   *  'session:<sessionId>'. Absent = created before this field existed (unknown). */
+   *  'session:<sessionId>'. Absent = created before this field existed (unknown).
+   *
+   *  DELIBERATELY LEFT A RAW STRING, and not because it is not identity —
+   *  because a brand would not fix it. POD-360 found SIX produced arms, exactly
+   *  ONE consumer that parses this string, and SEVEN that rebuild the template
+   *  literal to compare, FIVE of them gating parent-session authorization: a
+   *  tag-format change makes those five silently answer "not the parent" rather
+   *  than failing. A brand still permits seven hand-built strings, so what this
+   *  field needs is a shared CONSTRUCTOR and PARSER (POD-1128, `discovered-from`
+   *  this issue) — and it is simultaneously an attribution site that gains an
+   *  on-behalf-of value in POD-1075 (`docs/rearch-branded-id-flip.md` §4). */
   spawnedBy: z.string().optional(),
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]). Stamped at spawn/assignment by an external
    *  coordinator; the substrate never interprets them. Parent linkage rides
-   *  spawnedBy ('session:<id>'), deliberately not duplicated. */
+   *  spawnedBy ('session:<id>'), deliberately not duplicated.
+   *
+   *  UNBRANDED BY DECISION: "the substrate never interprets them" is exactly the
+   *  correlation-id class — these name rows in an EXTERNAL coordinator's id
+   *  space, and a brand would assert a namespace we do not own or mint. */
   workflowRunId: z.string().optional(),
   workflowStepId: z.string().optional(),
   executionProfileId: z.string().optional(),
@@ -290,12 +336,12 @@ export const SessionMeta = z.object({
    *  working on. Wins over cwd-derived worktree grouping. Structured successor
    *  of the freeform `spawnedBy: 'issue:<id>'`. Absent = unattached (legacy /
    *  shells) — cwd fallback applies. */
-  issueId: z.string().optional(),
+  issueId: IssueIdField.optional(),
   /** Human-facing nice-name fields (#474). refIssueId/refLetter identify a
    *  birth issue (`POD-13-A`); refDraft is the issueless DRAFT ordinal
    *  (`POD-DRAFT-3`). The birth name is PERMANENT — re-attaching to another
    *  issue never renames (the current issue shows as secondary context). */
-  refIssueId: z.string().optional(),
+  refIssueId: IssueIdField.optional(),
   refLetter: z.string().optional(),
   refDraft: z.number().int().optional(),
   /** Server-DERIVED permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`).

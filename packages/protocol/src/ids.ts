@@ -1,124 +1,52 @@
-import { z } from 'zod'
-
 /**
- * Branded entity ids [spec:SP-3fe2] — the contract foundation for the P2
- * replication ledger and the P3 command registry. Each id is a zod-branded
- * string: structurally a string on the wire, but nominally distinct in the
- * type system so a SessionId can't silently flow into a MachineId parameter.
+ * RE-EXPORT SHIM — the brands and composite keys moved to `@podium/model` at
+ * POD-361, which is where this file's own header always said they were going
+ * ("P1 is additive-only: nothing adopts these yet; later phases migrate call
+ * sites incrementally"). `packages/model` is the L0 zero-dependency root, so a
+ * brand defined there is reachable from every layer; a brand defined here was
+ * not reachable from `packages/model`, which is why the entity schemas could not
+ * adopt these until they moved.
  *
- * Two ways in:
- *   - `MachineId.parse(s)` — validating boundary (wire/db input);
- *   - `asMachineId(s)` — plain cast for boundaries where the string is
- *     already trusted (it came out of our own store or a parsed envelope).
+ * THIS FILE IS ONE OF THE EDGE SHIMS POD-362 / POD-363 DELETE. It exists so that
+ * POD-361 updates NO consumer: every `import { asSessionId } from
+ * '@podium/protocol'` keeps working unchanged. When the sweeps re-point those
+ * imports at `@podium/model`, delete this file and its line in `index.ts`.
+ * `docs/rearch-branded-id-flip.md` §6 enumerates the shims.
  *
- * P1 is additive-only: nothing adopts these yet; later phases migrate call
- * sites incrementally.
+ * `UserId` is NOT re-exported here: its old home is `planes/principal.ts`, which
+ * keeps its own shim, and re-exporting it from two files in one package would
+ * make `@podium/protocol`'s barrel ambiguous. One old path per moved name.
+ *
+ * THE SURFACE IS EXACTLY WHAT THIS FILE EXPORTED BEFORE THE MOVE — the seven
+ * brands, their casts, and the two legacy key helpers. POD-361's ADDITIONS (the
+ * field-position schemas, `UserId`, the tier-2 brands, `EntityRef` and the two
+ * new key shapes) are reachable ONLY from `@podium/model`: they have no old path
+ * to preserve, and shimming them would hand consumers a second import site to
+ * unpick later. One of them would also have collided outright —
+ * `planes/routing.ts` already exports a DIFFERENT `EntityRef` (see POD-1129).
+ *
+ * NOTHING new may be added here. A new brand or a new composite key belongs in
+ * `packages/model/src/ids/` — the single-definition-site rule is the entire point
+ * of the move, and an addition here would re-create the split home it closed.
  */
 
-export const MachineId = z.string().min(1).brand<'MachineId'>()
-export type MachineId = z.infer<typeof MachineId>
-export const asMachineId = (s: string): MachineId => s as MachineId
-
-export const SessionId = z.string().min(1).brand<'SessionId'>()
-export type SessionId = z.infer<typeof SessionId>
-export const asSessionId = (s: string): SessionId => s as SessionId
-
-export const IssueId = z.string().min(1).brand<'IssueId'>()
-export type IssueId = z.infer<typeof IssueId>
-export const asIssueId = (s: string): IssueId => s as IssueId
-
-export const RepoId = z.string().min(1).brand<'RepoId'>()
-export type RepoId = z.infer<typeof RepoId>
-export const asRepoId = (s: string): RepoId => s as RepoId
-
-export const ConversationId = z.string().min(1).brand<'ConversationId'>()
-export type ConversationId = z.infer<typeof ConversationId>
-export const asConversationId = (s: string): ConversationId => s as ConversationId
-
-export const MutationId = z.string().min(1).brand<'MutationId'>()
-export type MutationId = z.infer<typeof MutationId>
-export const asMutationId = (s: string): MutationId => s as MutationId
-
-export const ThreadId = z.string().min(1).brand<'ThreadId'>()
-export type ThreadId = z.infer<typeof ThreadId>
-export const asThreadId = (s: string): ThreadId => s as ThreadId
-
-// ---- Composite keys ---------------------------------------------------------
-//
-// Structured replacements for the ad-hoc string concatenations scattered around
-// the codebase (packages/sync/src/mirror.ts `${machineId}\n${nativeId}`,
-// packages/model/src/session-identity.ts `${resume.kind}:${resume.value}`).
-// Ad-hoc concatenation is injective only while the parts never contain the
-// separator; these helpers escape the separator (and the escape character), so
-// join∘parse round-trips for EVERY input — hostile parts included — and two
-// distinct part tuples can never collide on one key.
-//
-// For the common case (parts free of `\` and the separator) the output is
-// byte-identical to the legacy ad-hoc keys, so later adoption in mirror.ts /
-// session-identity.ts does not invalidate existing in-memory keys.
-
-/** Escape `\` and the separator so the separator's raw occurrence marks ONLY the join point. */
-const escapePart = (part: string, sep: string): string =>
-  part.replaceAll('\\', '\\\\').replaceAll(sep, `\\${sep}`)
-
-/**
- * Split on raw (unescaped) `sep` occurrences and unescape each part. STRICT:
- * a dangling trailing `\` or an escape of anything but `\`/`sep` throws, so a
- * malformed key has no silently-accepted non-canonical alias of a valid one.
- */
-const splitEscaped = (key: string, sep: string): string[] => {
-  const parts: string[] = []
-  let current = ''
-  for (let i = 0; i < key.length; i++) {
-    const ch = key[i]
-    if (ch === '\\') {
-      const next = i + 1 < key.length ? key[i + 1] : undefined
-      if (next !== '\\' && next !== sep) {
-        throw new Error(`malformed escape in key: ${JSON.stringify(key)}`)
-      }
-      current += next
-      i += 1
-    } else if (ch === sep) {
-      parts.push(current)
-      current = ''
-    } else {
-      current += ch
-    }
-  }
-  parts.push(current)
-  return parts
-}
-
-const MACHINE_SCOPED_SEP = '\n'
-
-/** A (machineId, nativeId) key — the typed successor of mirror.ts's `${machineId}\n${nativeId}`. */
-export const machineScopedKey = (machineId: MachineId, nativeId: string): string =>
-  `${escapePart(machineId, MACHINE_SCOPED_SEP)}${MACHINE_SCOPED_SEP}${escapePart(nativeId, MACHINE_SCOPED_SEP)}`
-
-/** Inverse of {@link machineScopedKey}. Throws on a string that is not a well-formed key. */
-export const parseMachineScopedKey = (key: string): { machineId: MachineId; nativeId: string } => {
-  const parts = splitEscaped(key, MACHINE_SCOPED_SEP)
-  if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined || parts[0] === '') {
-    throw new Error(`malformed machine-scoped key: ${JSON.stringify(key)}`)
-  }
-  return { machineId: asMachineId(parts[0]), nativeId: parts[1] }
-}
-
-const RESUME_SEP = ':'
-
-/** A (resume.kind, resume.value) key — the typed successor of session-identity.ts's
- *  `${resume.kind}:${resume.value}`. */
-export const resumeKey = (kind: string, value: string): string =>
-  `${escapePart(kind, RESUME_SEP)}${RESUME_SEP}${escapePart(value, RESUME_SEP)}`
-
-/** Inverse of {@link resumeKey}. Throws on a string that is not a well-formed
- *  key. An EMPTY kind is accepted: ResumeRef schemas allow it, so the
- *  constructor can legitimately produce `:value` and the parser must
- *  round-trip every constructor output. */
-export const parseResumeKey = (key: string): { kind: string; value: string } => {
-  const parts = splitEscaped(key, RESUME_SEP)
-  if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
-    throw new Error(`malformed resume key: ${JSON.stringify(key)}`)
-  }
-  return { kind: parts[0], value: parts[1] }
-}
+export {
+  asConversationId,
+  asIssueId,
+  asMachineId,
+  asMutationId,
+  asRepoId,
+  asSessionId,
+  asThreadId,
+  ConversationId,
+  IssueId,
+  MachineId,
+  MutationId,
+  machineScopedKey,
+  parseMachineScopedKey,
+  parseResumeKey,
+  RepoId,
+  resumeKey,
+  SessionId,
+  ThreadId,
+} from '@podium/model'

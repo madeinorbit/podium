@@ -1,6 +1,9 @@
 import {
   AgentKind,
   AgentRuntimeState,
+  asAutomationId,
+  asAutomationRunId,
+  asSessionId,
   ConversationSummaryWire,
   GitRepositoryWire,
   MachineWire,
@@ -263,7 +266,9 @@ describe('ClientMessage', () => {
 describe('ServerMessage', () => {
   const geometry = { cols: 80, rows: 24 }
   const sessionMeta = {
-    sessionId: 's1',
+    // POD-361 edge cast: `SessionMeta.sessionId` is branded now, so a test
+    // literal goes through the cast helper exactly as a store read will.
+    sessionId: asSessionId('s1'),
     agentKind: 'claude-code' as const,
     title: 't',
     cwd: '/w',
@@ -301,7 +306,7 @@ describe('ServerMessage', () => {
       type: 'automationsChanged',
       automations: [
         {
-          id: 'aut_1',
+          id: asAutomationId('aut_1'),
           name: 'Nightly',
           enabled: true,
           repoPath: '/w',
@@ -324,10 +329,10 @@ describe('ServerMessage', () => {
       type: 'automationRunsChanged',
       automationRuns: [
         {
-          id: 'arun_1',
-          automationId: 'aut_1',
+          id: asAutomationRunId('arun_1'),
+          automationId: asAutomationId('aut_1'),
           firedAt: '2026-07-01T00:00:00.000Z',
-          sessionId: 'sess_1',
+          sessionId: asSessionId('sess_1'),
           outcome: 'spawned',
           detail: null,
         },
@@ -710,7 +715,7 @@ describe('memory breakdown messages', () => {
       sampledAt: '2026-06-11T00:00:00.000Z',
       supported: true,
       memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
-      agents: [{ sessionId: 's1', bytes: 4, processCount: 3 }],
+      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 3 }],
       projects: [
         {
           root: '/src/app',

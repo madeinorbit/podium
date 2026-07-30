@@ -7,11 +7,10 @@
  *
  * The directory layout is a decision, not an accident — see README.md. Reserved
  * homes that are intentionally empty today:
- *   - `ids/`         branded ID types (POD-360…363)
  *   - `annotations/` per-field ownership / visibility annotations (POD-304)
  *   - `user-state/`  the per-user state family keyed `(userId, entityId)` (POD-1076)
- * and `identity/` is where POD-1075's `User`/account aggregate and `UserId`
- * brand land, beside the identity predicates already there.
+ * and `identity/` is where POD-1075's `User`/account aggregate lands, beside the
+ * identity predicates already there — its `UserId` brand is already in `ids/`.
  */
 
 // Authorization policy — the single enforcement function.
@@ -36,11 +35,14 @@ export * from './entities/machine'
 export * from './entities/session'
 export * from './entities/transcript'
 export * from './exhaustive'
-
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
 export * from './identity/git-identity'
 export * from './identity/session-identity'
 export * from './identity/worktree'
+// Branded entity ids and the composite-key helpers (POD-361) — re-homed from
+// @podium/protocol's ids.ts and planes/principal.ts, both of which named this
+// package as their destination. THE single definition site for a brand.
+export * from './ids'
 
 // Pure derivations over entity shapes.
 export * from './predicates/issue-stage'
