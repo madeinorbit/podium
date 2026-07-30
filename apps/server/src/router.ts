@@ -12,6 +12,7 @@ import {
   type FileReadResultMessage,
   presenceCommand,
 } from '@podium/protocol'
+import { sessionHandoffInput } from '@podium/commands'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {
@@ -432,7 +433,11 @@ export const appRouter = t.router({
       .input(sessionCommandPlaneInputs.kill)
       .mutation(({ ctx, input }) => sessionCommand(ctx, 'kill', input)),
     handoff: t.procedure
-      .input(z.object({ sessionId: z.string(), machineId: z.string() }))
+      // THE CONTRACT'S OWN SCHEMA, not a restatement beside it (POD-642). ADR 3 D1:
+      // one validation source for every transport that exposes the command — and
+      // `sessions.handoff`'s `exposure` declares `trpc` and nothing else, which is
+      // what makes this the only place it is served.
+      .input(sessionHandoffInput)
       // The caller is passed as a SEPARATE argument, from the context's
       // capability — never out of `input` (ADR 3 D7: payload identity is inert).
       // Handoff is a `use` operation on both machines, and this is where the

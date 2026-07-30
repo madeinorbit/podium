@@ -31,7 +31,7 @@ import type { ControlMessage, UserId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
-import { grantedMachineUse } from './handoff/access'
+import { machineUseGateFor } from './handoff/access'
 import { SessionStore } from '../../store'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
@@ -234,6 +234,63 @@ async function handoffFixture(
 const meta = (f: HandoffFixture) =>
   f.reg.modules.sessions.listSessions().find((s) => s.sessionId === f.sessionId)
 
+/**
+ * An ownership index that answers for a two-person fleet — POD-381's
+ * `MachineOwnershipIndex`, hand-built rather than derived from the machines table,
+ * because today's table resolves EVERY row to the one instance account and a
+ * second human is therefore not expressible through it yet. This is the only way
+ * to test the scoping rather than merely ship it; POD-1079 replaces the source of
+ * these rows, not the rules that read them.
+ */
+const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) => ({
+  rowFor: (machineId: string) =>
+    machineId === 'm1'
+      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [], name: 'source' }
+      : machineId === 'm2'
+        ? {
+            machine: 'm2' as MachineId,
+            owner: 'bob' as UserId,
+            grants: m2Grants.map((grant) => ({ subject: grant.subject as UserId, verb: grant.verb })),
+            name: 'target',
+          }
+        : undefined,
+})
+
+/**
+ * The same fleet, but with m2's grants read LIVE from a mutable holder — so a test
+ * can revoke a grant part-way through a transfer. This is the honest shape of a
+ * revocation: the ROW changes, and `checkMachineUse` is consulted again. Flipping
+ * a capability's role instead (which an earlier draft of these tests did) does not
+ * model anything real — a role floor is a different gate, and POD-381's resolver
+ * correctly ignores it when deciding machine `use`.
+ */
+const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
+  rowFor: (machineId: string) =>
+    machineId === 'm1'
+      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [], name: 'source' }
+      : machineId === 'm2'
+        ? {
+            machine: 'm2' as MachineId,
+            owner: 'bob' as UserId,
+            grants: state.m2.map((verb) => ({ subject: 'alice' as UserId, verb })),
+            name: 'target',
+          }
+        : undefined,
+})
+
+const gateForPrincipal = (user: string, ownership: ReturnType<typeof revocableFleet>) =>
+  machineUseGateFor({
+    principal: { kind: 'user', user: user as UserId, capability: OPERATOR },
+    ownership,
+  })
+
+/** The gate a real transport would build, for a principal that is `alice`. */
+const aliceGate = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) =>
+  machineUseGateFor({
+    principal: { kind: 'user', user: 'alice' as UserId, capability: OPERATOR },
+    ownership: twoPersonFleet(m2Grants),
+  })
+
 /** The PERSISTED row, as the store holds it — the widest view of "what moved". */
 const rowOf = (f: HandoffFixture): Record<string, unknown> => {
   const row = f.store.sessions.loadSessions().find((r) => r.id === f.sessionId)
@@ -315,67 +372,30 @@ describe('oracle: handoff success across two machines', () => {
     expect(f.at('m2', 'handoffImportRequest')).toBeLessThan(f.at('m2', 'spawn'))
   })
 
-  it(`${willChange('POD-1079', "the use-verb's BACKING becomes owner + per-machine grants; today it is admin-only")}: an OPERATOR may hand off to any paired online machine, and a constrained caller may not`, async () => {
+  it(`${willChange('POD-1079', 'machine rows gain real owners and grants; today every row resolves to the one instance account')}: with the DEFAULT fleet any authenticated caller may hand off, because there is only one account to own anything`, async () => {
     const f = await handoffFixture()
 
-    // POD-642 put the `use` check point in the handoff path. What POD-1079
-    // replaces is what it is BACKED BY: with no owner and no grant list in the
-    // machines table there is nothing to resolve a per-machine grant from, so the
-    // only holder of `use` today is an admin-scoped capability — which is what
-    // every shipped caller is (`sessions.handoff` is exposed on trpc only).
+    // The check point is in the path (the next three tests refuse through it).
+    // What POD-1079 replaces is where its ROWS come from: `ownershipFromMachines`
+    // resolves every machine to the instance owner with no grants, so a
+    // constrained capability is indistinguishable from the operator here — machine
+    // `use` is not gated on the issue-tracker role, and POD-381's resolver is right
+    // to ignore it. Two callers, one answer, and that is the behaviour-preserving
+    // default rather than an absence of enforcement.
     await expect(
       f.reg.modules.sessions.handoffSession(
         { sessionId: f.sessionId, machineId: 'm2' },
-        { capability: OPERATOR },
+        { capability: { role: 'worker', scope: { kind: 'all' } } },
       ),
     ).resolves.toMatchObject({ ok: true })
   })
 
-  it(`${willChange('POD-1079', 'a constrained caller gains use through a grant on the machine rather than being refused outright')}: a NON-ADMIN caller is refused at the FIRST machine it may not use — the SOURCE`, async () => {
-    const f = await handoffFixture()
-
-    // Handoff is a `use` operation on BOTH machines, and the source comes first:
-    // taking a session OFF a machine you may not use is already the refusal, so
-    // the target is never even considered. m2 is paired, online and fully eligible
-    // — the same fixture the operator just succeeded against — so this refusal is
-    // about the CALLER, not about either machine's state. It is spelled as an
-    // absent machine on purpose: a constrained capability holds no `see` either
-    // (there is no grant list to hold one in), so 'unauthorized' would confirm the
-    // machine exists to a principal not entitled to know (§3.1.5).
-    expect(
-      await messageOf(() =>
-        f.reg.modules.sessions.handoffSession(
-          { sessionId: f.sessionId, machineId: 'm2' },
-          { capability: { role: 'worker', scope: { kind: 'all' } } },
-        ),
-      ),
-    ).toBe("unknown machine 'm1'")
-    // Refused BEFORE anything moved (§3.1.4 M5): nothing stopped, nothing exported.
-    expect(f.source.some((m) => m.type === 'kill')).toBe(false)
-    expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
-    expect(meta(f)).toMatchObject({ machineId: 'm1' })
-    expect(meta(f)?.handoffTarget).toBeUndefined()
-  })
-
   it(`${MUST_NOT_CHANGE}: a caller that may use the SOURCE but not the TARGET is denied, and the session is not retargeted anywhere`, async () => {
     const f = await handoffFixture()
-    // The case the admin-only default cannot express, driven through the gate
-    // POD-1079's grant table plugs into: alice OWNS m1 and merely SEES m2.
-    f.reg.modules.sessions.machineUseGate = () =>
-      grantedMachineUse({
-        subject: () => 'alice' as UserId,
-        admin: () => false,
-        ownershipOf: (machineId) =>
-          machineId === 'm1'
-            ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [] }
-            : machineId === 'm2'
-              ? {
-                  machine: 'm2' as MachineId,
-                  owner: 'bob' as UserId,
-                  grants: [{ subject: 'alice' as UserId, verb: 'see' }],
-                }
-              : undefined,
-      })
+    // The case today's machines table cannot express: alice OWNS m1 and merely
+    // SEES m2. Driven through POD-381's real resolver over a hand-built ownership
+    // index — the rules are theirs, only the rows are the fixture's.
+    f.reg.modules.sessions.machineUseGate = () => aliceGate([{ subject: 'alice', verb: 'see' }])
 
     expect(
       await messageOf(() =>
@@ -385,8 +405,8 @@ describe('oracle: handoff success across two machines', () => {
         ),
       ),
       // DENIED, and distinguishable from unreachable: alice can SEE m2, so she is
-      // told she may not use it rather than that it does not exist.
-    ).toBe("not authorized to use machine 'm2'")
+      // told she may not run agents there rather than that it does not exist.
+    ).toBe("you do not have access to run agents on machine 'target'")
     // NEVER SILENTLY RETARGETED (§3.1.4 M5): the session stayed where it was, and
     // m1 — the one machine alice may use — was not handed its own session back as
     // a consolation move.
@@ -397,18 +417,9 @@ describe('oracle: handoff success across two machines', () => {
 
   it(`${MUST_NOT_CHANGE}: a machineId that does not exist is refused with the SAME message as one the caller may not SEE`, async () => {
     const f = await handoffFixture()
-    // alice owns the source and can see NEITHER m2 nor a nonexistent id.
-    f.reg.modules.sessions.machineUseGate = () =>
-      grantedMachineUse({
-        subject: () => 'alice' as UserId,
-        admin: () => false,
-        ownershipOf: (machineId) =>
-          machineId === 'm1'
-            ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [] }
-            : machineId === 'm2'
-              ? { machine: 'm2' as MachineId, owner: 'bob' as UserId, grants: [] }
-              : undefined,
-      })
+    // alice owns the source and can see NEITHER m2 (bob's, no grant) nor an id
+    // that names nothing at all.
+    f.reg.modules.sessions.machineUseGate = () => aliceGate([])
 
     const invisible = await messageOf(() =>
       f.reg.modules.sessions.handoffSession(
@@ -519,21 +530,23 @@ describe('oracle: mid-transfer crash', () => {
     // ADR 3 D8/D16: rights are re-resolved live at every apply, never carried as
     // the snapshot taken when the command was dispatched. The revocation lands
     // after the source has already been killed and the package exported — which is
-    // precisely the window a dispatch-time-only check cannot see.
-    const caller: { capability: Capability } = {
-      capability: { role: 'admin', scope: { kind: 'all' } },
-    }
+    // precisely the window a dispatch-time-only check cannot see. alice starts with
+    // see+use on bob's machine and loses `use` mid-transfer.
+    const fleet = { m2: ['see', 'use'] as ('see' | 'use' | 'manage')[] }
     const f = await handoffFixture({
       onExport: () => {
-        caller.capability.role = 'worker'
+        fleet.m2 = ['see']
       },
     })
+    f.reg.modules.sessions.machineUseGate = () => gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, caller),
+        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
       ),
-    ).toBe("unknown machine 'm2'")
+      // Refused as UNAUTHORIZED, not as absent: alice kept `see`, so she is told she
+      // may not run agents there rather than that the machine vanished (M5).
+    ).toBe("you do not have access to run agents on machine 'target'")
 
     // NOT COMPLETED AND NOT LOST: no import ran on the target, and the session is
     // back on the source with a recovery spawn — the same rollback contract as a
@@ -550,28 +563,24 @@ describe('oracle: mid-transfer crash', () => {
   it(`${MUST_NOT_CHANGE}: a revocation landing DURING the base handshake refuses before the kill, with the live process untouched`, async () => {
     // The earlier apply-time checkpoint. `ensureTargetRepo` may clone a repository
     // and the base handshake is a network round trip per ref, so the window between
-    // dispatch and the first irreversible act is minutes wide; the revocation here
-    // lands inside it, and nothing may be stopped. Refused naming the SOURCE
-    // because the pre-kill checkpoint re-checks both machines and the source comes
-    // first — the point of the assertion is WHEN it refused, which a dispatch-time
-    // check alone could not do: this revocation had not happened at dispatch.
-    const caller: { capability: Capability } = {
-      capability: { role: 'admin', scope: { kind: 'all' } },
-    }
+    // dispatch and the first irreversible act is minutes wide; the revocation lands
+    // inside it, and nothing may be stopped. A dispatch-time-only check cannot
+    // refuse here: at dispatch alice still held `use`.
+    const fleet = { m2: ['see', 'use'] as ('see' | 'use' | 'manage')[] }
     let seenTargetProbe = 0
     const f = await handoffFixture({
       onTargetProbe: () => {
         seenTargetProbe += 1
-        // Revoke while the base handshake is still in flight.
-        caller.capability.role = 'worker'
+        fleet.m2 = ['see']
       },
     })
+    f.reg.modules.sessions.machineUseGate = () => gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
-        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }, caller),
+        f.reg.modules.sessions.handoffSession({ sessionId: f.sessionId, machineId: 'm2' }),
       ),
-    ).toBe("unknown machine 'm1'")
+    ).toBe("you do not have access to run agents on machine 'target'")
 
     // The revocation really did land after dispatch: the target was probed, which
     // only happens once the dispatch-time checks have already passed.
@@ -757,13 +766,23 @@ describe('oracle: duplicate dispatch', () => {
     // while it is in flight. Coalescing is a latency optimisation and must not
     // become an authorization one: the joiner is refused on its own rights and
     // never learns the transfer succeeded.
+    // Two principals, distinguished by the actor half of their capability: the
+    // operator (default fleet — may use everything) and carol, who owns nothing.
+    f.reg.modules.sessions.machineUseGate = (caller) =>
+      caller.capability.actorUser === 'carol'
+        ? gateForPrincipal('carol', revocableFleet({ m2: [] }))
+        : machineUseGateFor({
+            principal: { kind: 'user', user: 'alice' as UserId, capability: OPERATOR },
+            ownership: revocableFleet({ m2: ['see', 'use'] }),
+          })
+
     const initiator = f.reg.modules.sessions.handoffSession(
       { sessionId: f.sessionId, machineId: 'm2' },
       { capability: OPERATOR },
     )
     const joiner = f.reg.modules.sessions.handoffSession(
       { sessionId: f.sessionId, machineId: 'm2' },
-      { capability: { role: 'worker', scope: { kind: 'all' } } },
+      { capability: { role: 'admin', scope: { kind: 'all' }, actorUser: 'carol' } },
     )
 
     await expect(joiner).rejects.toThrow("unknown machine 'm1'")

@@ -61,6 +61,7 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
+import { ownershipFromMachines } from '../../machine-access'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
@@ -94,7 +95,7 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import { legacyAdminMachineUse } from './handoff/access'
+import { machineUseGateForCapability } from './handoff/access'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
@@ -3128,7 +3129,19 @@ export class SessionsService {
    * the coordinator calls it again at each apply point.
    */
   machineUseGate: (caller: HandoffCaller) => AssertMachineUse = (caller) =>
-    legacyAdminMachineUse({ capability: caller.capability })
+    machineUseGateForCapability({
+      capability: caller.capability,
+      // POD-381's delegation index, read from live rows: an agent's chain is
+      // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
+      // cannot carry a delegator its parent lacks (D16.2).
+      parentSessionOf: (sessionId) => {
+        const spawnedBy = this.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy
+        return spawnedBy?.startsWith('session:') === true
+          ? spawnedBy.slice('session:'.length)
+          : undefined
+      },
+      ownership: ownershipFromMachines(this.machines),
+    })
 
   /**
    * ONE coordinator for the life of this service, not one per call: its
