@@ -178,6 +178,35 @@ export type UserId = z.infer<typeof UserId>
 export const UserIdField = idField<'UserId'>()
 export const asUserId = (s: string): UserId => s as UserId
 
+/**
+ * An AGENT SESSION acting — the ACTOR half of ADR 9 D5 A3's attribution pair,
+ * and the one member of {@link ActorRef} that is neither a person nor a machine.
+ *
+ * Re-homed from `@podium/protocol`'s `planes/principal.ts` by POD-365, following
+ * the {@link UserId} precedent above and that module's own instruction: it
+ * records that `AgentIdentityId` *"stays here on purpose … `packages/model`
+ * gains them with that aggregate or not at all"*. The aggregate is POD-1075's
+ * and has not landed, but the **brand** is POD-301-family work that model
+ * already owns for every other id, and `fields/attribution.ts` cannot build the
+ * pair without it. Protocol re-exports from here, so `Principal`, the delegation
+ * chain and the plane ports are untouched — the same shape the `UserId` move
+ * took.
+ *
+ * DISTINCT FROM `SessionId`, and that is the whole point. It names the harness
+ * identity on the hook channel (`agent_id` on SubagentStart / SubagentStop, and
+ * `Capability.actorSessionId` on the relay path), which is why
+ * `NativeSubagent.id` in `entities/session.ts` is documented as belonging to
+ * THIS brand rather than to `SessionId`.
+ *
+ * NOT the delegation shape. `(agentIdentity, onBehalfOf, scope)` — the agent
+ * principal itself — is POD-1075's aggregate and is deliberately not defined
+ * here; this is the id it is keyed by.
+ */
+export const AgentIdentityId = z.string().min(1).brand<'AgentIdentityId'>()
+export type AgentIdentityId = z.infer<typeof AgentIdentityId>
+export const AgentIdentityIdField = idField<'AgentIdentityId'>()
+export const asAgentIdentityId = (s: string): AgentIdentityId => s as AgentIdentityId
+
 // ---------------------------------------------------------------------------
 // Tier 2 — added by POD-361, recorded for ratification (see the header)
 // ---------------------------------------------------------------------------

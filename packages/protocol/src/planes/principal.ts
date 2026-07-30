@@ -1,4 +1,4 @@
-import type { MachineId, UserId } from '@podium/model'
+import type { AgentIdentityId, MachineId, UserId } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -27,25 +27,27 @@ import { z } from 'zod'
  * (`docs/multi-user-readiness.md` §3.2). The re-export below is an edge shim so
  * POD-361 changed no consumer of this module; POD-362 / POD-363 delete it.
  *
- * `DeviceId` / `AgentIdentityId` / `CapabilityRef` / `DelegationRef` STAY here on
- * purpose. They are not entity ids: they name a transport binding, an agent
- * identity, and two server-minted opaque references — the principal taxonomy ADR
- * 9 owns and POD-1075 lands as an aggregate. Moving them would have been scope
- * this issue was not given, and `packages/model` gains them with that aggregate
- * or not at all.
+ * `AgentIdentityId` HAS ALSO MOVED (POD-365), for the reason this paragraph
+ * anticipated: `packages/model` needed the actor half of ADR 9 D5 A3's
+ * attribution pair to build the durable `Attribution` field schema, and a brand
+ * is POD-301-family work model already owns for every other id. The delegation
+ * SHAPE — `(agentIdentity, onBehalfOf, scope)` — did not move and is still
+ * POD-1075's aggregate. The re-export below keeps every import path in this
+ * package and its consumers unchanged.
+ *
+ * `DeviceId` / `CapabilityRef` / `DelegationRef` STAY here on purpose. They are
+ * not entity ids: they name a transport binding and two server-minted opaque
+ * references — the principal taxonomy ADR 9 owns and POD-1075 lands as an
+ * aggregate. Moving them would have been scope this issue was not given, and
+ * `packages/model` gains them with that aggregate or not at all.
  */
 
-export { asUserId, UserId } from '@podium/model'
+export { asAgentIdentityId, AgentIdentityId, asUserId, UserId } from '@podium/model'
 
 /** The authenticated client session / daemon binding a call arrived on. */
 export const DeviceId = z.string().min(1).brand<'DeviceId'>()
 export type DeviceId = z.infer<typeof DeviceId>
 export const asDeviceId = (s: string): DeviceId => s as DeviceId
-
-/** The agent session acting; the actor half of ADR 3 D17's attribution pair. */
-export const AgentIdentityId = z.string().min(1).brand<'AgentIdentityId'>()
-export type AgentIdentityId = z.infer<typeof AgentIdentityId>
-export const asAgentIdentityId = (s: string): AgentIdentityId => s as AgentIdentityId
 
 /**
  * Reference to the server-minted capability (today's role + scope, extended by
