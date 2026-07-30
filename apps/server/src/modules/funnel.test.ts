@@ -1,5 +1,5 @@
 import type { MetadataChange } from '@podium/protocol'
-import type { AuthorityPort, SequencedChange } from '@podium/sync'
+import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../store'
@@ -31,22 +31,35 @@ function makeFunnel() {
  * what these tests are asserting as a side effect of a refactor.
  */
 function fakeAuthority() {
-  const listeners = new Set<(changes: readonly SequencedChange[]) => void>()
+  const listeners = new Set<(delivery: ScopedDelivery) => void>()
   const authority = {
-    subscribe: (fn: (changes: readonly SequencedChange[]) => void) => {
+    // Two parameters since POD-1077: the feed is per principal, and the funnel's
+    // subscription names the device-grade one. This fake ignores WHICH principal
+    // on purpose — these cases are about the ordered pipe, and the scoping
+    // properties belong to `packages/sync/src/authority/authority.scoped.test.ts`
+    // rather than being half-asserted here against a fake that decides nothing.
+    subscribe: (_principal: unknown, fn: (delivery: ScopedDelivery) => void) => {
       listeners.add(fn)
       return () => listeners.delete(fn)
     },
     changesSince: () => null,
     cursor: () => 0,
   } as unknown as AuthorityPort
-  const toKernel = (c: MetadataChange): SequencedChange =>
-    ({ seq: c.seq, entity: c.entity, entityId: c.id, op: c.op, value: (c as { value?: unknown }).value }) as SequencedChange
+  const toKernel = (c: MetadataChange): ScopedChange =>
+    ({ seq: c.seq, entity: c.entity, entityId: c.id, op: c.op, value: (c as { value?: unknown }).value }) as ScopedChange
   return {
     authority,
     emit: (changes: MetadataChange[]) => {
       const kernel = changes.map(toKernel)
-      for (const fn of listeners) fn(kernel)
+      // The delivery carries the evaluated range beside the rows (D13), so this
+      // fake cannot hand the funnel a filtered list with no certified range —
+      // the shape the production type forbids is unavailable to the fake too.
+      const delivery: ScopedDelivery = {
+        kind: 'batch',
+        throughSeq: kernel[kernel.length - 1]?.seq ?? 0,
+        changes: kernel,
+      }
+      for (const fn of listeners) fn(delivery)
     },
   }
 }
