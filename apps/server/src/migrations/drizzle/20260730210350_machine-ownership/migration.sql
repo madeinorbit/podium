@@ -1,0 +1,39 @@
+-- MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3, docs/multi-user-readiness.md §3.1.4)
+--
+-- A paired machine belongs to somebody. Until now it belonged to whoever could
+-- log in, which is what makes a personal laptop shared team compute the moment
+-- it is paired.
+--
+-- ---------------------------------------------------------------------------
+-- 1. NULLABLE, AND NULL IS THE DEFAULT-CLOSED ANSWER
+-- ---------------------------------------------------------------------------
+-- `owner_user_id` is nullable because `machineUseAllowed` (packages/protocol)
+-- already gives `owner: null` a meaning: an owner-less machine grants `use` to
+-- NOBODY. A NOT NULL column with a default would have to invent an owner for a
+-- row whose writer never named one — the fail-OPEN shape. A row that appears
+-- without an owner is unusable, loudly, rather than usable by everyone.
+--
+-- ---------------------------------------------------------------------------
+-- 2. EXISTING ROWS ARE ADOPTED, NOT ORPHANED
+-- ---------------------------------------------------------------------------
+-- Every machine already in the table is backfilled to the first admin —
+-- `'user:sole'`, the literal POD-1075's migration wrote and POD-1172 settled.
+-- That is ADR 9 D6 M3 ("a newly paired machine is private to its pairer")
+-- evaluated in a world with exactly one pairer, not a widening of it: on an
+-- upgraded instance every machine WAS paired by that account. Leaving them NULL
+-- would take the product offline on upgrade — nobody could spawn anywhere.
+--
+-- The literal is spelled out rather than imported for the reason POD-1075's
+-- migration gives: a migration is frozen history, so the rows keep the id they
+-- were actually written with even if `FIRST_ADMIN_USER_ID` is renamed.
+--
+-- ---------------------------------------------------------------------------
+-- 3. NO GRANT ROWS ARE WRITTEN HERE, AND THAT IS THE POINT
+-- ---------------------------------------------------------------------------
+-- The `grants` edge table (POD-1075) already exists; sharing is a deliberate
+-- act, so an upgrade that silently granted `use` to anyone would be the exact
+-- widening this issue exists to remove. An upgraded instance has one account,
+-- which owns everything and needs no grant to itself.
+ALTER TABLE `machines` ADD `owner_user_id` text;
+--> statement-breakpoint
+UPDATE `machines` SET `owner_user_id` = 'user:sole' WHERE `owner_user_id` IS NULL;

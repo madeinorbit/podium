@@ -38,7 +38,7 @@ function fakeWs() {
 
 const registryWithMachine = (id = 'm1', token = 'tok') => {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256(token) })
+  store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256(token), ownerUserId: 'user:sole' })
   return new SessionRegistry(store)
 }
 

@@ -210,6 +210,14 @@ export interface MachineRecord {
   /** Parsed machines.inventory_json (#222); absent until the daemon reports
    *  (or when the stored blob fails to parse — defensive). */
   inventory?: import('@podium/model').Inventory
+  /**
+   * WHO OWNS IT (POD-1079, ADR 9 D6 M1). `null` is meaningful and is the
+   * default-closed answer: `machineUseAllowed` refuses `use` on an owner-less
+   * machine to everyone. PRESENT-AND-NULL rather than optional, deliberately —
+   * an optional field lets a caller forget it and read "not evaluated" as
+   * "unowned", and the two must not look alike at the type level.
+   */
+  ownerUserId: string | null
 }
 
 /**

@@ -19,6 +19,8 @@
 import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
+import { onBehalfOfUser } from '../../command-principal'
+import { fleetAuthzDeps, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -82,7 +84,18 @@ export const machinePairingCodeHandler = ({
   code: string
   joinCommand: string | null
 } => {
+  // WHO THE MACHINE WILL BELONG TO IS DECIDED HERE, AT MINT (POD-1079, ADR 9 D6
+  // M3: "a newly paired machine is private to its pairer").
+  //
+  // Resolved from the transport principal, never from the pair frame: the daemon
+  // that later redeems this code supplies its own id, name and hostname, and if
+  // it could also supply an owner then pairing would be an identity claim from a
+  // payload (ADR 3 D7). A code minted by nobody — a system principal, which has
+  // no human — carries `null`, and a machine paired with it is owned by nobody
+  // and usable by nobody, which is the fail-closed arm rather than a crash.
+  const pairer = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
   const code = mods(ctx).machines.mintPairingCode({
+    ...(pairer === null ? {} : { ownerUserId: pairer }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
   })
   return { code, joinCommand: ports.joinCommand(code) }
@@ -149,7 +162,19 @@ export const repoSetPrefixHandler = ({
 // discovery.* — the `use` family
 // ---------------------------------------------------------------------------
 
-export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) => ctx.repos.scanReposAll()
+/**
+ * THE FAN-OUT IS NARROWED, NOT REFUSED (POD-1079).
+ *
+ * This is the one fleet command whose input names no machine: it refreshes every
+ * ONLINE machine. The gate cannot turn that into a single yes/no, so it hands
+ * down the predicate instead and the scan visits only the machines this
+ * principal holds `use` on. Refusing the whole command whenever one machine in
+ * the fleet was somebody else's would make a shared instance unusable; scanning
+ * them all would walk a colleague's filesystem through their daemon, which is
+ * precisely what `use` is a boundary against.
+ */
+export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) =>
+  ctx.repos.scanReposAll(fleetUsePredicate(fleetAuthzDeps(ctx), 'use'))
 
 export const discoveryScanFolderHandler = ({
   ctx,

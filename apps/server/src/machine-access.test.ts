@@ -108,10 +108,10 @@ void _ownerIsBranded
 const _grantsAreRequired: MachineOwnershipRow = { machine: 'box' as MachineId, owner: null }
 void _grantsAreRequired
 
-describe('the pre-accounts default preserves today: one account owns every paired machine', () => {
-  it('the instance owner holds all three verbs, and a second human holds none', () => {
+describe('the owner column decides: the machine\'s owner holds all three verbs, nobody else does', () => {
+  it('the owner holds all three verbs, and a second human holds none', () => {
     const ownership = ownershipFromMachines({
-      listMachines: () => [{ id: 'local', name: 'This Mac' }],
+      ownershipRows: () => [{ id: 'local', name: 'This Mac', ownerUserId: OWNER }],
     })
 
     expect([...machineVerbsFor(user(OWNER), 'local', ownership)].sort()).toEqual([
@@ -125,7 +125,9 @@ describe('the pre-accounts default preserves today: one account owns every paire
   it("M4, the all-in-one case: authenticating to a server running on the owner's Mac does not confer execute on it", () => {
     // The `local` daemon IS the host machine. The owner may use it — so this is
     // not a fixture that denies everybody — and the colleague may not.
-    const ownership = ownershipFromMachines({ listMachines: () => [{ id: 'local' }] })
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'local', ownerUserId: OWNER }],
+    })
 
     expect(checkMachineUse(user(OWNER), 'local', ownership)).toBeUndefined()
     expect(checkMachineUse(user(COLLEAGUE), 'local', ownership)).toBe('absent')
@@ -331,10 +333,109 @@ describe('the principal itself', () => {
   })
 
   it('a system job has no human, and holds see + use but never manage', () => {
-    const ownership = ownershipFromMachines({ listMachines: () => [{ id: 'local' }] })
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'local', ownerUserId: OWNER }],
+    })
     const steward = systemPrincipal('steward')
 
     expect(attributionOf(steward)).toEqual({ actor: 'system:steward', onBehalfOf: null })
     expect([...machineVerbsFor(steward, 'local', ownership)].sort()).toEqual(['see', 'use'])
+  })
+})
+
+/**
+ * THE PERSISTED HALF (POD-1079) — `ownershipFromMachines` over a source that
+ * carries a real owner column and real grant edges, rather than over the
+ * one-account default it replaced.
+ *
+ * The fixtures below are MUTABLE and every principal in them is a COLLEAGUE,
+ * never the owner. POD-351's failure was a revocation suite that ran as a
+ * principal whose scope short-circuited the check before ownership was read: it
+ * would have passed against an implementation with no ownership check at all.
+ * A colleague has no such short-circuit, so a `denied` here is a real denial.
+ */
+describe('ownership and grants come from the source, live', () => {
+  /** A source whose rows and edges can be edited BETWEEN two decisions. */
+  function liveSource() {
+    const rows = new Map<string, string | null>([['laptop', OWNER]])
+    const edges = new Map<string, { grantee: string; verb: string }[]>()
+    return {
+      rows,
+      edges,
+      source: {
+        ownershipRows: () => [...rows].map(([id, ownerUserId]) => ({ id, ownerUserId })),
+        grantsForMachine: (machineId: string) => edges.get(machineId) ?? [],
+      },
+    }
+  }
+
+  it('a `use` grant admits a colleague the owner column alone would refuse', () => {
+    const { edges, source } = liveSource()
+    const ownership = ownershipFromMachines(source)
+
+    // The instrument can say NO first — this is the state before the share.
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('absent')
+
+    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBeUndefined()
+    // …and the owner is unaffected, so the fixture is not simply permissive now.
+    expect(checkMachineUse(user(OWNER), 'laptop', ownership)).toBeUndefined()
+  })
+
+  it('REVOCATION takes effect at the next decision, with nothing to invalidate', () => {
+    const { edges, source } = liveSource()
+    const ownership = ownershipFromMachines(source)
+    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBeUndefined()
+
+    edges.set('laptop', [])
+
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('absent')
+  })
+
+  it('`see` alone discloses existence and REFUSES execution — the M2 line', () => {
+    const { edges, source } = liveSource()
+    const ownership = ownershipFromMachines(source)
+    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'see' }])
+
+    expect(canSeeMachine(user(COLLEAGUE), 'laptop', ownership)).toBe(true)
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('unauthorized')
+  })
+
+  it('an owner-less row refuses everyone, including the account that owns the OTHER machines', () => {
+    const { rows, source } = liveSource()
+    rows.set('orphan', null)
+    const ownership = ownershipFromMachines(source)
+
+    expect(checkMachineUse(user(OWNER), 'orphan', ownership)).toBe('absent')
+    expect(checkMachineUse(user(OWNER), 'laptop', ownership)).toBeUndefined()
+  })
+
+  it('a stored verb this build does not know is DROPPED rather than admitted', () => {
+    const { edges, source } = liveSource()
+    const ownership = ownershipFromMachines(source)
+    edges.set('laptop', [
+      { grantee: COLLEAGUE, verb: 'teleport' },
+      // `read` and `write` are real GRANT_VERBS — for other classes. Neither is a
+      // machine verb, and neither may leak in as one.
+      { grantee: COLLEAGUE, verb: 'write' },
+    ])
+
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('absent')
+
+    // The same source, one line different, says YES — so the refusal above is
+    // about the VERB and not about the fixture being unable to grant anything.
+    edges.set('laptop', [{ grantee: COLLEAGUE, verb: 'use' }])
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBeUndefined()
+  })
+
+  it('a source with no grant half resolves owner-only — the closed direction', () => {
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: 'laptop', ownerUserId: OWNER }],
+    })
+
+    expect(checkMachineUse(user(COLLEAGUE), 'laptop', ownership)).toBe('absent')
+    expect(checkMachineUse(user(OWNER), 'laptop', ownership)).toBeUndefined()
   })
 })

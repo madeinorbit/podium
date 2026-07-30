@@ -21,7 +21,7 @@ const hash = (t: string) => createHash('sha256').update(t).digest('hex')
 describe('machines store', () => {
   it('upserts, lists, renames, deletes a machine', () => {
     const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({ id: 'm1', name: 'box', hostname: 'box', tokenHash: hash('secret') })
+    s.machines.upsertMachine({ id: 'm1', name: 'box', hostname: 'box', tokenHash: hash('secret'), ownerUserId: 'user:sole' })
     expect(s.machines.listMachines().map((m) => m.id)).toEqual(['m1'])
     expect(s.machines.getMachineByToken('m1', 'secret')).toBe(true)
     expect(s.machines.getMachineByToken('m1', 'wrong')).toBe(false)
@@ -94,7 +94,7 @@ describe('machines store', () => {
 
   it('getMachine returns a record when it exists', () => {
     const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({ id: 'm2', name: 'server', hostname: 'srv', tokenHash: hash('tok') })
+    s.machines.upsertMachine({ id: 'm2', name: 'server', hostname: 'srv', tokenHash: hash('tok'), ownerUserId: 'user:sole' })
     const m = s.machines.getMachine('m2')
     expect(m?.id).toBe('m2')
     expect(m?.name).toBe('server')
@@ -104,7 +104,7 @@ describe('machines store', () => {
 
   it('touchMachine updates last_seen_at and hostname', () => {
     const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({ id: 'm3', name: 'box', hostname: 'old-host', tokenHash: hash('t') })
+    s.machines.upsertMachine({ id: 'm3', name: 'box', hostname: 'old-host', tokenHash: hash('t'), ownerUserId: 'user:sole' })
     s.machines.touchMachine('m3', 'new-host')
     const m = s.machines.getMachine('m3')
     expect(m?.hostname).toBe('new-host')
@@ -118,7 +118,7 @@ describe('machines store', () => {
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {
     const file = await tmpDbPath()
     const s1 = new SessionStore(file)
-    s1.machines.upsertMachine({ id: 'm1', name: 'a', hostname: 'h', tokenHash: 'x' })
+    s1.machines.upsertMachine({ id: 'm1', name: 'a', hostname: 'h', tokenHash: 'x', ownerUserId: 'user:sole' })
     s1.repos.addRepo('/a')
     s1.sessions.upsertSession({
       id: asSessionId('s1'),

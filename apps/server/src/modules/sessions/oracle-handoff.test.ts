@@ -94,8 +94,8 @@ async function handoffFixture(
   } = {},
 ): Promise<HandoffFixture> {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y', ownerUserId: 'user:sole' })
   const inventory = JSON.stringify({
     os: 'linux',
     arch: 'x64',
@@ -725,7 +725,7 @@ describe('oracle: duplicate dispatch', () => {
     // The counterfactual this name needs: m3 is a fully eligible target — paired,
     // online, with the same logged-in harness and the same repo — so the refusal
     // below is about the transfer already in flight and not about m3.
-    f.store.machines.upsertMachine({ id: 'm3', name: 'third', hostname: 'third', tokenHash: 'z' })
+    f.store.machines.upsertMachine({ id: 'm3', name: 'third', hostname: 'third', tokenHash: 'z', ownerUserId: 'user:sole' })
     f.store.machines.setMachineInventory(
       'm3',
       JSON.stringify({

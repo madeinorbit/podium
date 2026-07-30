@@ -32,7 +32,7 @@
  * as a later comparison baseline.
  */
 
-import type { SessionId } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
@@ -148,6 +148,9 @@ export function makeOracle(
       name: machine.name,
       hostname: machine.id,
       tokenHash: `hash-${machine.id}`,
+      // The oracle's fixture fleet belongs to the instance's one account: these
+      // rows stand in for machines the operator paired (POD-1079).
+      ownerUserId: FIRST_ADMIN_USER_ID,
     })
     store.machines.setMachineInventory(
       machine.id,

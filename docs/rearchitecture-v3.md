@@ -1465,6 +1465,96 @@ god-object audit items zero; module graph doc committed; session/issue/memory e2
 live redeploy keeps sessions; multi-instance isolation suite green through the
 decomposition. `podium issue tree 291`.
 
+#### LEDGER ENTRY — POD-1079 (4.11 machine ownership and grants): which half shipped
+
+**WHICH HALF: the see/use/manage grant MECHANISM, not a principal the transport can
+authenticate.** The brief demanded this be said explicitly, so: `machines.owner_user_id`
+is a real column, the `grants` edge table has its first writer and reader, the fleet
+family enforces `roleFloor` and `machineVerb` per command, and the handoff gate
+classifies its refusals. What did NOT change is `packages/runtime/src/auth-store.ts` —
+still ONE SHARED PASSWORD, `CLIENT_PRINCIPAL_GRADE` still `device`. Every authenticated
+connection still resolves to one `UserId`, so the gate below CAN refuse a second person
+and today's login cannot produce one. POD-1077's pattern is copied rather than
+re-invented: the placeholder is NAMED (`deviceGradeSoleOwner()`, `apps/server/src/
+device-grade-owner.ts`), held to three declared sites by `bun run audit:machine-grants`,
+and DELETED OUTRIGHT when per-user login lands so every site becomes a compile error
+that has to name a real principal.
+
+**THE SEAM POD-1075 LEFT IS THE SEAM THAT WAS FILLED, and no call site changed.**
+`ownershipFromMachines` carried two comments reading "POD-1079: read `row.ownerUserId`
+here" and "read the grant edges here". Both are now reads. Machine ROWS come through
+`MachinesService`'s cache (invalidated by every write); GRANTS deliberately bypass it,
+because ADR 9 D2 rule 4 evaluates an edge LIVE and a cached grant is the
+revoked-share-that-keeps-working failure the rule exists to prevent.
+
+**NULL OWNER IS A VALUE, NOT AN ABSENCE.** `machineUseAllowed` already gave `owner: null`
+a meaning — an owner-less machine grants `use` to NOBODY — so the column is nullable and
+a row whose writer never named an owner is unusable, loudly, rather than usable by
+everyone. The upgrade backfills existing rows to `'user:sole'`: D6 M3 ("private to its
+pairer") evaluated in a world with exactly one pairer, not a widening. No grant rows are
+written by the migration, because sharing is a deliberate act (D2 rule 3).
+
+**OWNERSHIP FLOWS FROM THE PAIRER, STAMPED AT MINT.** `PairingGrant` gained
+`ownerUserId`, set when the code is minted and carried opaquely to redeem, so the daemon —
+which supplies everything else in the pair frame — has no say in who owns the machine it
+becomes (ADR 3 D7: identity is never read from a payload). `ON CONFLICT` COALESCEs, so a
+re-pair is not a takeover while a legacy NULL row can still be adopted, and `revokeMachine`
+deletes the machine's edges because a daemon keeps its id across revoke/re-pair.
+
+**THE FLEET GATE IS DERIVED, AND THE ORDER OF ITS TWO QUESTIONS IS THE DECISION.**
+`modules/fleet/authz.ts` reads each contract's own `roleFloor` then its `machineVerb`;
+`trpc.ts` runs every derived procedure through it, so a fleet command added tomorrow is
+gated by what it declares. POD-384's reasoning is preserved rather than re-derived: a
+`member` CLEARS the floor on the nine, which is what keeps D6 M1's owner column
+reachable, and the real refusal is the per-machine row gate. A principal whose account
+row is missing, unreadable or disabled satisfies NO floor; a SYSTEM principal clears
+every floor, because it is in-process only (D21.2) and inventing an `admin` role for it
+would be the service account D8 S5 rejects.
+
+**FORK RESOLVED — how to gate a command that names no machine.** `discovery.refreshRepos`
+takes `z.void()` and fans out over every online machine. Refusing it whenever one machine
+belonged to somebody else makes a shared instance unusable; scanning them all walks a
+colleague's filesystem through their daemon, which is what `use` is a boundary against.
+So the fan-out is NARROWED — `scanReposAll` takes the principal's predicate — and refused
+only when it would reach nothing, which the caller must be able to tell from "no daemons
+online". An omitted machine selector is gated against `defaultMachine()`, never waved
+through: otherwise the whole repo family is ungated by leaving a field out.
+
+**FORK RESOLVED — ownership does not travel on the wire.** `ownershipRows()` is a
+separate method from `listMachines()` on purpose. The listing is the wire projection, and
+putting an owner id on `MachineWire` would disclose the fleet's ownership graph to every
+principal that can `see` a machine — a decision nobody made, and one the gate does not
+need, because refusals are computed server-side. `audit:machine-grants` checks the schema
+block, not the file.
+
+**POD-643's REQUIREMENT, DISCHARGED.** Handoff refusals now carry the three-arm reason at
+the point the refusal is DECIDED, not at the daemon frame where it is eventually reported
+— the server refuses before it dispatches, so a frame-only classification could never
+carry the server's own denials. `absent` maps to `unknown-target`, never `unauthorized`:
+`machine-access.ts` answers one thing for "no such machine" and "outside your see set",
+and re-deriving that distinction here would rebuild the existence oracle the lower layer
+refuses to build. An Error SUBCLASS rather than a result union, because every existing
+caller handles a throw and a parallel result path would be ignored by all of them.
+
+**DELIBERATELY NOT DONE — `machines.share` / `machines.unshare`.** ADR 1's matrix assigns
+those commands to Phase 3 / POD-290 in the `grant-edge` row's own `sites` field, and
+building them here would fork that. The stronger reason is POD-1077's: a share command
+takes a `grantee: UserId` that no login can ever produce, so it would be a sharing UI
+whose slices are decided by a shared credential — "worse than an honestly unscoped one
+because it reads as privacy". The edge table has a writer (`GrantsRepository`), a reader
+(the gate), and a deleter (`revokeMachine`); what it does not have is a command surface,
+and that is a stated deferral rather than an omission.
+
+**TWO INSTRUMENTS, and the reason the decision suite exists at all.** A second human
+cannot be produced through the router — so a router-only suite would exercise only the
+principal that is allowed everything, which is POD-351's failure exactly. The DECISION
+suite therefore drives `fleetAuthzFailure` directly with colleague principals; the WIRING
+suite drives the real `appRouter` and gets its refusals from facts the environment CAN
+produce (an unowned row; a row owned by someone the transport cannot authenticate as),
+including an admit → revoke → refuse sequence across three consecutive calls. Both assert
+the positive first. `audit:machine-grants` is the source-text half and says in its own
+header what it structurally cannot see.
+
 ### Phase 5 — Machine host tightening (POD-292) · exit gate POD-426
 
 **Scope:** SessionBinding designed lifecycle (POD-323, design doc gates code), async-only

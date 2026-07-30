@@ -243,6 +243,17 @@ export const machines = sqliteTable("machines", {
 	createdAt: text("created_at").notNull(),
 	lastSeenAt: text("last_seen_at").notNull(),
 	inventoryJson: text("inventory_json"),
+	// MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3). The person a paired machine
+	// belongs to. NULLABLE and null is MEANINGFUL: `machineUseAllowed` refuses
+	// `use` on an owner-less machine to EVERYONE, which is the default-closed
+	// answer for a row written by a code path that never named an owner. The
+	// upgrade backfills every existing row to the first admin (M3 evaluated in a
+	// world with exactly one pairer), so no install loses access.
+	//
+	// Grants live in the `grants` edge table keyed `('machine', id, grantee,
+	// verb)` — NOT in a column here. ADR 4 D7.1: a grant is its own aggregate and
+	// a granted row never embeds its grants.
+	ownerUserId: text("owner_user_id"),
 });
 
 export const repos = sqliteTable("repos", {

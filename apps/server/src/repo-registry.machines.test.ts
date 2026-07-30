@@ -13,8 +13,8 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y', ownerUserId: 'user:sole' })
   const reg = new SessionRegistry(store)
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
@@ -137,7 +137,7 @@ describe('RepoRegistry.scanReposAll()', () => {
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x', ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []

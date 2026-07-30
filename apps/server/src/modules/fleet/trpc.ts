@@ -40,6 +40,7 @@ import type { TRPCMutationProcedure } from '@trpc/server'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { t } from '../../trpc'
+import { fleetAuthzDeps, fleetAuthzFailure } from './authz'
 import type { FleetHandler, FleetPorts } from './handlers'
 import {
   FLEET_COMMANDS,
@@ -108,7 +109,18 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   // input it accepts), and `FleetProcedures` re-derives the per-command types
   // for the client. This erasure is the one place the two meet.
   const run = handler as FleetHandler<unknown, unknown>
-  return base.input(contract.input).mutation(({ ctx, input }) => run({ ctx, input, ports }))
+  return base.input(contract.input).mutation(({ ctx, input }) => {
+    // THE AUTHORIZATION GATE, DERIVED (POD-1079). It runs for every fleet
+    // command from the contract's own `roleFloor` and `machineVerb`, before the
+    // handler and after input parsing — the verb needs to know WHICH machine,
+    // and only the parsed input can say. A per-handler check would be ten places
+    // to forget; this is one, and `authz.ts`'s target table makes a new command
+    // that declares a verb a COMPILE error until it says how its machine is
+    // named.
+    const refusal = fleetAuthzFailure(name, input, fleetAuthzDeps(ctx))
+    if (refusal) throw refusal
+    return run({ ctx, input, ports })
+  })
 }
 
 /**

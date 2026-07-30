@@ -33,8 +33,8 @@ function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({ id: 'm1', name: 'podium-host', hostname: 'podium-host', tokenHash: 'x' })
-  store.machines.upsertMachine({ id: 'm2', name: 'VMI', hostname: 'vmi', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'podium-host', hostname: 'podium-host', tokenHash: 'x', ownerUserId: 'user:sole' })
+  store.machines.upsertMachine({ id: 'm2', name: 'VMI', hostname: 'vmi', tokenHash: 'y', ownerUserId: 'user:sole' })
   const reg = new SessionRegistry(store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
@@ -85,7 +85,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {
     const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({ id: 'm1', name: 'Solo', hostname: 'solo', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: 'm1', name: 'Solo', hostname: 'solo', tokenHash: 'x', ownerUserId: 'user:sole' })
     const reg = new SessionRegistry(store)
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
