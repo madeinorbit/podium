@@ -13,7 +13,7 @@
  * owner/visibility additions (docs/multi-user-readiness.md §3.2) are purely
  * additive, so silently rebasing it destroys that proof.
  *
- *   bun scripts/wire-golden-capture.ts
+ *   bun --conditions @podium/source scripts/wire-golden-capture.ts
  */
 
 import { writeFileSync } from 'node:fs'

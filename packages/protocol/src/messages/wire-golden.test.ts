@@ -8,7 +8,7 @@
  *
  * If a golden fails, the relocation changed the wire. That is a stop condition
  * — do NOT regenerate to make it pass. Regenerating is only correct for a
- * deliberate, reviewed wire change:  bun scripts/wire-golden-capture.ts
+ * deliberate, reviewed wire change:  bun --conditions @podium/source scripts/wire-golden-capture.ts
  */
 
 import { HandoffManifest } from '@podium/model'

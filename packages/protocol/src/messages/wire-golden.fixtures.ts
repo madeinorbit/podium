@@ -16,7 +16,7 @@
  * optional field populated, and a `.minimal` payload carrying only what is
  * required — the one that exercises defaults and catches.
  *
- * Regenerate deliberately, never casually:  bun scripts/wire-golden-capture.ts
+ * Regenerate deliberately, never casually:  bun --conditions @podium/source scripts/wire-golden-capture.ts
  * A golden that changes during a relocation is a STOP condition, not a fixture
  * to update (POD-300 constraints; the same baseline later proves the multi-user
  * model additions of docs/multi-user-readiness.md are purely additive).
@@ -63,6 +63,7 @@ import {
   UsageBucketWire,
 } from '@podium/model'
 import type { z } from 'zod'
+import { AutomationRunWire, AutomationWire } from './automations'
 import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
@@ -452,6 +453,39 @@ const TRANSCRIPT_ITEM_FULL = {
 
 const TRANSCRIPT_ITEM_MINIMAL = { id: 'item-2', role: 'user', text: 'go' }
 
+const AUTOMATION_WIRE_CRON = {
+  id: 'auto-1',
+  name: 'Nightly sweep',
+  enabled: true,
+  repoPath: '/home/u/repo',
+  scheduleKind: 'cron',
+  cron: '0 3 * * *',
+  runAt: null,
+  targetSessionId: 'sess-1',
+  agentKind: 'claude-code',
+  model: 'claude-opus-5',
+  effort: 'high',
+  prompt: 'sweep the tree',
+  sessionMode: 'resume',
+  nextRunAt: '2026-07-31T03:00:00.000Z',
+  lastRunAt: '2026-07-30T03:00:00.000Z',
+  createdAt: '2026-07-01T00:00:00.000Z',
+}
+
+const AUTOMATION_WIRE_ONCE = {
+  ...AUTOMATION_WIRE_CRON,
+  id: 'auto-2',
+  enabled: false,
+  repoPath: null,
+  scheduleKind: 'once',
+  cron: null,
+  runAt: '2026-08-01T09:00:00.000Z',
+  targetSessionId: null,
+  sessionMode: 'fresh',
+  nextRunAt: null,
+  lastRunAt: null,
+}
+
 const HANDOFF_MANIFEST_FULL = {
   format: 1,
   sessionId: 'sess-1',
@@ -753,6 +787,22 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: { path: '/', homePath: '/home/u', parentPath: null },
   },
 
+  // ---- scheduled automations (automations.ts) ----
+  { name: 'automationWire.cron', schema: AutomationWire, value: AUTOMATION_WIRE_CRON },
+  { name: 'automationWire.once', schema: AutomationWire, value: AUTOMATION_WIRE_ONCE },
+  {
+    name: 'automationRunWire',
+    schema: AutomationRunWire,
+    value: {
+      id: 'run-1',
+      automationId: 'auto-1',
+      firedAt: '2026-07-30T10:00:00.000Z',
+      sessionId: 'sess-1',
+      outcome: 'spawned',
+      detail: null,
+    },
+  },
+
   // ---- transcript items (transcript.ts) ----
   { name: 'transcriptItem.full', schema: TranscriptItem, value: TRANSCRIPT_ITEM_FULL },
   { name: 'transcriptItem.minimal', schema: TranscriptItem, value: TRANSCRIPT_ITEM_MINIMAL },
@@ -794,6 +844,31 @@ export const WIRE_FIXTURES: WireFixture[] = [
       conversations: [CONVERSATION_SUMMARY_FULL, CONVERSATION_SUMMARY_MINIMAL],
       diagnostics: [{ severity: 'warning', message: 'skipped one root' }],
       removed: ['native-3'],
+    },
+  },
+  {
+    name: 'frame.automationsChanged',
+    schema: ServerMessage,
+    value: {
+      type: 'automationsChanged',
+      automations: [AUTOMATION_WIRE_CRON, AUTOMATION_WIRE_ONCE],
+    },
+  },
+  {
+    name: 'frame.automationRunsChanged',
+    schema: ServerMessage,
+    value: {
+      type: 'automationRunsChanged',
+      automationRuns: [
+        {
+          id: 'run-1',
+          automationId: 'auto-1',
+          firedAt: '2026-07-30T10:00:00.000Z',
+          sessionId: null,
+          outcome: 'skipped_overlap',
+          detail: 'still running',
+        },
+      ],
     },
   },
   {
