@@ -39,6 +39,28 @@ export * from './entities/transcript'
 // POD-363 retire the uses).
 export * from './entities/wire-input'
 export * from './exhaustive'
+
+// The SHARED FIELD SCHEMAS (POD-365, 1.4b) — one vocabulary, composed by the
+// canonical aggregates and by every representation, never restated. See
+// `fields/README.md` for the four rules that keep them useful, in particular
+// rule 2: leave room for principal-dependent projection, do not build it.
+export * from './fields/attribution'
+export * from './fields/issue'
+export * from './fields/op-stream'
+export * from './fields/ownership'
+export * from './fields/per-user-key'
+export * from './fields/session'
+
+// The CANONICAL R1 AGGREGATES (POD-365) — the one definition of what a session
+// and an issue ARE, composed from the field groups above plus Ownership and
+// Attribution. NOT one universal record: the storage row, the live class, the
+// wire projections and the narrow ports stay DISTINCT types that Pick from the
+// same vocabulary (ADR 4 D1). `registry.ts` carries the default-closed
+// classification obligation, with a fixture aggregate proving it fails.
+export * from './aggregates/issue'
+export * from './aggregates/registry'
+export * from './aggregates/session'
+
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
 export * from './identity/git-identity'
 export * from './identity/session-identity'
