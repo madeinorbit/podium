@@ -503,7 +503,11 @@ export class SessionRegistry {
       now: () => this.now(),
       resolveRepoId: (repoPath) => this.store.repos.resolveRepoIdForPath(repoPath),
       sessionAlive: (sessionId) => {
-        const s = liveSessions().get(sessionId)
+        // `sessionId` is a LockSessionKey: it may be one of the two lock sentinels,
+        // which are NOT session ids. The lookup is expected to MISS for those —
+        // that miss is how the unknown-relay sentinel gets pruned from a queue
+        // (see LockSessionKey's note). So the map is probed as a plain key.
+        const s = (liveSessions() as ReadonlyMap<string, { status: string }>).get(sessionId)
         return !!s && s.status !== 'exited'
       },
       // Grant/steal notifications ride agent mail; best-effort by contract
@@ -1123,7 +1127,10 @@ export class SessionRegistry {
       for (const change of changes) {
         if (change.entity === 'session') {
           messagesSvc.onSessionEligibilityChanged(
-            change.id,
+            // `EntityChangeSpec.id` is polymorphic by `entity` (an issue id for
+            // 'issue', a session id here), so the brand is recovered inside the
+            // discriminated branch — the same rule as MessageRow's `toId`.
+            asSessionId(change.id),
             change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
           )
         } else if (change.entity === 'issue') {

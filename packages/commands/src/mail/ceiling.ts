@@ -1,3 +1,5 @@
+import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
+
 /**
  * THE human ceiling, and the consistent-error rule that keeps it from becoming
  * an existence oracle — ADR 3 Amendment 1 D20, readiness §3.1.5.
@@ -72,8 +74,10 @@ export const SINGLE_USER_CEILING: HumanCeiling = {
  *  unknown id and a beyond-ceiling id are the same value, not two values that
  *  happen to be rendered alike. */
 export type AddressResolution =
-  | { readonly kind: 'issue'; readonly id: string }
-  | { readonly kind: 'session'; readonly id: string }
+  /** Per-kind BRANDS (POD-362): an address resolves into exactly one id space, and
+   *  a single `id: string` across the arms was what forced the callers to cast. */
+  | { readonly kind: 'issue'; readonly id: IssueId }
+  | { readonly kind: 'session'; readonly id: SessionId }
   | { readonly kind: 'unresolvable' }
 
 export interface AddressDeps {
@@ -99,11 +103,16 @@ export interface AddressDeps {
  */
 export function resolveAddress(ref: string, deps: AddressDeps): AddressResolution {
   if (deps.isKnownSession(ref)) {
-    return deps.ceiling.canSee({ kind: 'session', id: ref })
-      ? { kind: 'session', id: ref }
+    // `isKnownSession` has just confirmed this ref names a live session, so the
+    // brand is applied on the far side of the existence check, not before it.
+    const sessionId = asSessionId(ref)
+    return deps.ceiling.canSee({ kind: 'session', id: sessionId })
+      ? { kind: 'session', id: sessionId }
       : { kind: 'unresolvable' }
   }
-  const id = deps.resolveIssueRef(ref)
+  // `resolveIssueRef` is the ref-to-id port (IssueService.resolveRef behind it),
+  // so its OUTPUT is the issue id — see the parse-boundary note on that method.
+  const id = asIssueId(deps.resolveIssueRef(ref))
   // ONE VALUE for both failures, which is what makes them indistinguishable by
   // CONSTRUCTION rather than by two branches producing similar-looking output.
   // An earlier shape here returned the caller's raw ref for the beyond-ceiling

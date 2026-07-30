@@ -83,13 +83,13 @@ export interface ClientConn {
   /** Session ids this client subscribed to the structured transcript of. Lets
    *  detachClient sweep just this client's subscriptions instead of scanning every
    *  session on the host (audit P2-18). */
-  transcriptSubs: Set<string>
+  transcriptSubs: Set<SessionId>
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
   /** Sessions this client currently RENDERS on screen (from viewState). */
   viewVisible: Set<SessionId>
   /** The one session that has input focus on this client, or null. */
-  focused: string | null
+  focused: SessionId | null
   /** Per-session rendered mode (native terminal vs chat) this client reports for the
    *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
    *  deliberately UNUSED by output scheduling — computePriorities never reads it, so

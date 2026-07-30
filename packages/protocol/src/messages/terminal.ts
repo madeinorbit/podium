@@ -274,8 +274,8 @@ export const PresenceMessage = z.object({ type: z.literal('presence'), visible: 
 // prioritize PTY output relay (focused/visible relayed live; the rest coalesced).
 export const ViewStateMessage = z.object({
   type: z.literal('viewState'),
-  visible: z.array(z.string()),
-  focused: z.string().nullable(),
+  visible: z.array(SessionIdField),
+  focused: SessionIdField.nullable(),
   // Optional sessionId→rendered-mode map for the visible sessions (native terminal
   // vs chat). Wired through so the rendered mode is AVAILABLE server-side; it is NOT
   // (yet) used to schedule/coalesce output — users bounce back to native, so the

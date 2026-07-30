@@ -84,7 +84,7 @@ export interface UserCommandPrincipal {
  */
 export interface AgentCommandPrincipal {
   readonly kind: 'agent'
-  readonly agentSessionId: string
+  readonly agentSessionId: SessionId
   readonly onBehalfOf: UserId
   readonly capability: Capability
   readonly chain: readonly SessionId[]

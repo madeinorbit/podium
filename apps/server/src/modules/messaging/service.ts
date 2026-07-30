@@ -49,10 +49,12 @@ export interface MessagingTopicsPort {
 
 /** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
 export interface TopicRecapPort {
-  getSuperagentThread(threadId: string): {
-    podiumSessionId?: string | null
-    originSessionId?: string | null
-  } | undefined
+  getSuperagentThread(threadId: string):
+    | {
+        podiumSessionId?: SessionId | null
+        originSessionId?: SessionId | null
+      }
+    | undefined
   readTranscript(input: {
     sessionId: SessionId
     direction: 'before' | 'after'
@@ -243,7 +245,7 @@ export class MessagingService implements TelegramNoticePort {
    * otherwise the main chat. Without `sessionId`, thread into the last inbound
    * forum topic (subscription / legacy callers).
    */
-  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: string }): void {
+  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: SessionId }): void {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
     if (!botToken || !chatId) return

@@ -560,7 +560,7 @@ export interface SuperagentMessageRow {
 export interface SuperagentThreadRow {
   id: string
   kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
+  originSessionId?: SessionId
   /** The repo this thread fronts (concierge threads only). */
   repoPath?: string
   title?: string

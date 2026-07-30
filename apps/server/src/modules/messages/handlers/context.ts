@@ -21,7 +21,7 @@
  *    delegation — and neither half is reachable from payload.
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model'
 import {
   type AddressResolution,
   type HumanCeiling,
@@ -230,10 +230,12 @@ export class MailAccess {
         m.fromKind === 'system' && m.fromName
           ? `system:${m.fromName}`
           : label(m.fromKind, m.fromIssue, m.fromSession),
+      // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so the
+      // brand is recovered inside each discriminated branch — never once, up front.
       to: label(
         m.toKind,
-        m.toKind === 'issue' ? m.toId : null,
-        m.toKind === 'session' ? m.toId : null,
+        m.toKind === 'issue' && m.toId ? asIssueId(m.toId) : null,
+        m.toKind === 'session' && m.toId ? asSessionId(m.toId) : null,
       ),
       kind: m.kind,
       urgency: m.urgency,

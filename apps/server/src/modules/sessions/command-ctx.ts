@@ -16,6 +16,7 @@ import {
   type MachineOwnershipIndex,
   ownershipFromMachines,
 } from '../../machine-access'
+import { sessionSpawnerParentId } from '../../steward'
 import type { RegistryModules } from '../../relay'
 import { SessionCommandCtx, type SessionCommandDeps } from './command-plane'
 
@@ -35,10 +36,12 @@ export function sessionCommandCtx(
   const sessions = modules.sessions
   const issues = modules.issues
   const principal = resolvePrincipal(capability, {
-    parentSessionOf: (sessionId) => {
-      const spawnedBy = sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy
-      return spawnedBy?.startsWith('session:') === true ? spawnedBy.slice('session:'.length) : undefined
-    },
+    // One parser for the `session:<id>` tag, and it brands what it extracts
+    // (POD-362) — see sessionSpawnerParentId for why the TAG stays raw.
+    parentSessionOf: (sessionId) =>
+      sessionSpawnerParentId(
+        sessions.listSessions().find((s) => s.sessionId === sessionId)?.spawnedBy,
+      ),
   })
   const deps: SessionCommandDeps = {
     sessions: () => sessions,

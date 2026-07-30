@@ -210,7 +210,7 @@ interface DeliveryOutcome {
 export interface SpawnOnWake {
   spawn(input: { issueId: string | null; message: MessageRow }): {
     ok: boolean
-    sessionId?: string
+    sessionId?: SessionId
     reason?: string
   }
 }

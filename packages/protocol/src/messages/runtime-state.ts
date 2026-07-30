@@ -91,7 +91,7 @@ export const TerminalFence = z.object({
 export type TerminalFence = z.infer<typeof TerminalFence>
 
 export const AgentObservation = z.object({
-  podiumSessionId: z.string().min(1),
+  podiumSessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().nonnegative(),
@@ -119,7 +119,7 @@ export const ACCEPTED_TRANSITION_ID_WINDOW_SIZE = 32
 
 export const SessionObservationCheckpointV1 = z.object({
   schemaVersion: z.literal(1),
-  podiumSessionId: z.string().min(1),
+  podiumSessionId: z.string().min(1).pipe(SessionIdField),
   provider: ObservationProvider,
   providerSessionId: z.string().min(1).nullable(),
   bindingVersion: z.number().int().nonnegative(),

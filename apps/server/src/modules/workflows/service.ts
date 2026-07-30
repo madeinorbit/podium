@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { AgentKind, type SessionId } from '@podium/model'
+import { AgentKind, type SessionId, SessionIdField } from '@podium/model'
 import {
   type ExecutionProfileWire,
   WorkflowBindingTarget,
@@ -92,7 +92,7 @@ export const workflowInputs = {
   assignStep: z.object({
     runId: z.string().optional(),
     stepId: z.string().min(1),
-    sessionId: z.string().nullable(),
+    sessionId: SessionIdField.nullable(),
   }),
   skip: z.object({
     runId: z.string().optional(),

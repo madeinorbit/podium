@@ -70,6 +70,7 @@ import type {
   SessionStore,
   TerminalCandidateFacts,
 } from '../../store'
+import type { StoredDraftDoc } from '../../store/sessions'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -307,11 +308,11 @@ export interface SessionSpawnResult {
 export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
-  readonly sessions = new Map<string, Session>()
+  readonly sessions = new Map<SessionId, Session>()
   readonly clients = new Map<string, ClientConn>()
 
   /** Durable observer leases, hydrated before session state restoration. */
-  private readonly observationLeases = new Map<string, ObservationLeaseRecord>()
+  private readonly observationLeases = new Map<SessionId, ObservationLeaseRecord>()
 
   private readonly store: SessionStore
   private readonly now: () => number
@@ -376,10 +377,10 @@ export class SessionsService {
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<
-    string,
+    SessionId,
     { version: number; preserve: Set<SessionVolatileField>; issueRelevant: boolean }
   >()
-  private readonly capturedSessionStates = new Map<string, SessionDurableState>()
+  private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   // The generation whose legacy sessionsChanged snapshot completed successfully.
@@ -402,7 +403,7 @@ export class SessionsService {
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
-  private readonly lastPriority = new Map<string, number>()
+  private readonly lastPriority = new Map<SessionId, number>()
   /** Pending remote browser-open requests, parked here when no client is connected. */
   private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
   private readonly openUrlExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -962,12 +963,16 @@ export class SessionsService {
     // Drafts historically replay independently of session-row existence. Keep
     // that contract for crash/orphan recovery; active rows additionally receive
     // their draft timestamp and runtime metadata below.
-    for (const [sessionId, text] of Object.entries(drafts)) {
+    // `Object.entries` types its keys `string` regardless of the Record's key type,
+    // so the brand is re-applied per entry (POD-362) rather than cast on the map.
+    for (const [sessionId, text] of Object.entries(drafts) as [SessionId, string][]) {
       this.draftBySession.set(sessionId, text)
     }
     // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
     // flag-on path resumes with the persisted rev/origin/history after a restart.
-    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs())) {
+    for (const [sessionId, d] of Object.entries(
+      this.store.sessions.loadDraftDocs(),
+    ) as [SessionId, StoredDraftDoc][]) {
       this.draftDocs.set(sessionId, {
         sessionId,
         text: d.text,
@@ -1255,7 +1260,7 @@ export class SessionsService {
   // Entities mirrored FROM the hub this node syncs against. They are display/read
   // surfaces: never in this.sessions (so PTY/command paths can't touch them), never
   // pushed back upstream (viaHub provenance), and retained-but-stale on hub loss.
-  private readonly upstreamSessions = new Map<string, SessionMeta>()
+  private readonly upstreamSessions = new Map<SessionId, SessionMeta>()
   private upstreamStale = false
   /** machineIds that ARE this node (its daemon may also be paired with the hub in
    *  some topologies) — hub entries for them are echoes and are dropped at ingest. */
@@ -3271,7 +3276,10 @@ export class SessionsService {
    * nothing is published or persisted ahead of time (export → transfer → import
    * all happen inside this one request, refs deleted before it returns).
    */
-  async fetchWorkspace(input: { sourceSessionId: string; callerSessionId: string }): Promise<{
+  async fetchWorkspace(input: {
+    sourceSessionId: SessionId
+    callerSessionId: SessionId
+  }): Promise<{
     path: string
     sameMachine: boolean
     sourceMachine: string
@@ -3354,7 +3362,8 @@ export class SessionsService {
       throw new Error(exported.error ?? 'source failed to export its workspace')
     await transferHandoffPackage({
       rpc: this.rpc,
-      sessionId: fetchId,
+      // A workspace-fetch subject, not a session — see HandoffTransferSubjectId.
+      sessionId: fetchId as `ws-${string}`,
       sourceMachineId: source.machineId,
       targetMachineId: caller.machineId,
       sourceStagePath: exported.stagePath,
@@ -3374,7 +3383,7 @@ export class SessionsService {
   }
 
   /** Remove every peek worktree fetch materialized in the caller's repo [POD-658]. */
-  async cleanWorkspacePeeks(input: { callerSessionId: string }): Promise<{ removed: string[] }> {
+  async cleanWorkspacePeeks(input: { callerSessionId: SessionId }): Promise<{ removed: string[] }> {
     const caller = this.sessions.get(input.callerSessionId)
     if (!caller) throw new Error('unknown calling session')
     const repo = this.store.repos
