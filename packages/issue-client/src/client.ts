@@ -19,7 +19,10 @@ export interface IssueProc {
  * to this seam.
  *
  * The proc-name union is NOT hand-maintained any more (#248 [spec:SP-3fe2]): it
- * derives from @podium/protocol's canonical ISSUE_COMMAND_NAMES — the same list
+ * derives from @podium/commands' ISSUE_COMMAND_NAMES, which POD-311 made a DERIVATION
+ * over the contract table (`Object.keys(ISSUE_CONTRACTS)`) rather than a hand-typed
+ * array — so the client shape, the server registry and the contracts cannot drift
+ * apart, because there is only one list. It is the same list
  * the server's command registry is `satisfies`-checked against — so a command
  * body calling an unknown or renamed proc breaks compilation, not runtime.
  */

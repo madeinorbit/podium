@@ -390,7 +390,16 @@ describe('the detector’s two judgement calls are pinned', () => {
     // `resumeInput` are excluded at their NEW address for the reason `appRouter`
     // already carried. Excluding them by their old container alone would have made
     // the audit's answer depend on which file the transport edge happens to live in.
-    expect(NOT_A_REPRESENTATION.length).toBe(34)
+    // 34 -> 36: POD-311 split the issue registry, extracting `createInput` and
+    // `updateInput` out of `def({ input: z.object({ … }) })` in
+    // apps/server/src/modules/issues/registry.ts and onto the L1 contracts. They are
+    // the SAME field lists the registry always declared — anonymous expressions
+    // there, which this detector cannot see, and named declarations now, which it
+    // can. Naming a restatement is not creating one, and the ratchet is one-way, so
+    // the alternative was a gate that punishes a migration for making an existing
+    // restatement legible. (The same commit moved the session pair above to their
+    // third address, in @podium/commands; that is a repoint, not a bump.)
+    expect(NOT_A_REPRESENTATION.length).toBe(36)
     for (const e of NOT_A_REPRESENTATION) {
       expect(e.file, e.symbol).toMatch(/^(apps|packages)\/.*\.tsx?$/)
       expect(e.symbol, e.file).toMatch(/^\w+$/)

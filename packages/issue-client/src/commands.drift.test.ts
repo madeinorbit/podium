@@ -8,7 +8,8 @@ import { ISSUE_COMMANDS } from './commands.js'
  * CLI-table drift pins (#248 [spec:SP-3fe2]). The `podium issue` command table
  * is PRESENTATION (verbs, positionals, render bodies) over the shared command
  * name contract: its run() bodies compile against `IssueTrpc`, whose issues
- * record is keyed by @podium/protocol's ISSUE_COMMAND_NAMES — the same union
+ * record is keyed by @podium/commands' ISSUE_COMMAND_NAMES, itself derived from the
+ * contract table (POD-311) — the same union
  * the server registry is satisfies-checked against. These tests pin the
  * type-level linkage and catch runtime drift a rename could smuggle past.
  */

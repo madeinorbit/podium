@@ -1,6 +1,7 @@
 
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
 import { guardIssueCommand, issueRegistry } from './registry'
@@ -188,6 +189,45 @@ describe('issue command registry completeness', () => {
     expect(agrees(false, 'none')).toBe(true)
     expect(agrees(false, 'issue')).toBe(false)
     expect(agrees(true, 'none')).toBe(false)
+  })
+})
+
+/**
+ * THE SEAM'S SCHEMA IDENTITY (POD-311).
+ *
+ * The contracts moved to `@podium/commands` and the handlers stayed here. The claim
+ * is that the schema MOVED — one instance, imported back — and not that it was
+ * re-declared on both sides.
+ *
+ * `toBe` and never `toEqual`, for the reason the ledger states plainly: a restatement
+ * of the same field list parses identically, encodes identically, and passes every
+ * golden wire fixture, because branding is compile-time. Object identity is the only
+ * instrument that sees the fork.
+ */
+describe('handler↔contract schema identity', () => {
+  it('every joined def parses with its contract’s own schema INSTANCE', () => {
+    let checked = 0
+    for (const name of ISSUE_COMMAND_NAMES) {
+      const def = (issueRegistry.defs as Record<string, { input: unknown }>)[name]
+      expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
+      checked += 1
+    }
+    expect(checked).toBe(68)
+  })
+
+  it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {
+    // The non-vacuity probe. `close`'s schema cloned field-for-field is a DIFFERENT
+    // object that validates the same values — which is exactly the fork this
+    // assertion exists to catch, and exactly what a value comparison would miss.
+    const original = ISSUE_CONTRACTS.close.input
+    const clone = z.object({
+      id: z.string(),
+      reason: z.string().optional(),
+      mutationId: z.string().max(128).optional(),
+    })
+    const sample = { id: 'i1', reason: 'done' }
+    expect(clone.parse(sample)).toEqual(original.parse(sample))
+    expect(clone).not.toBe(original)
   })
 })
 
