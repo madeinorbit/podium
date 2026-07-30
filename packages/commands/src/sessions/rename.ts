@@ -33,7 +33,7 @@
  */
 
 import { z } from 'zod'
-import { sessionPresenceCommands } from '@podium/protocol'
+import { sessionPresenceCommands } from './presence-commands'
 import type { CommandContract, OptimisticReducer } from '../contract'
 
 /**

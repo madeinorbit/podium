@@ -63,15 +63,9 @@
  * contract's output schema.
  */
 
+import { isExposedOn, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane, sessionCommandPlaneInputs, sessionPresenceInputs } from '@podium/commands'
 import { type SessionHandoffOutput, sessionHandoffInput } from '@podium/commands'
-import {
-  isExposedOn,
-  PRESENCE_COMMAND_TABLES,
-  presenceCommand,
-  sessionCommandPlane,
-  sessionCommandPlaneInputs,
-  sessionPresenceInputs,
-} from '@podium/protocol'
+
 import type { TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'

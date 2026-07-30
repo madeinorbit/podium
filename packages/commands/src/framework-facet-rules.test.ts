@@ -35,8 +35,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { CommandDef } from './commands'
-import * as protocol from './index'
+import type { CommandDef } from './framework'
+import * as commands from './index'
 
 interface CommandTable {
   readonly export: string
@@ -47,7 +47,7 @@ interface CommandTable {
 /** Every `defineCommands(...)` result this package exports. */
 function discoverTables(): CommandTable[] {
   const tables: CommandTable[] = []
-  for (const [name, value] of Object.entries(protocol as Record<string, unknown>)) {
+  for (const [name, value] of Object.entries(commands as Record<string, unknown>)) {
     if (typeof value !== 'object' || value === null) continue
     const candidate = value as { namespace?: unknown; defs?: unknown }
     if (typeof candidate.namespace !== 'string') continue

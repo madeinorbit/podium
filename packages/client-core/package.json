@@ -82,8 +82,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@podium/protocol": "workspace:*",
+    "@podium/commands": "workspace:*",
     "@podium/model": "workspace:*",
+    "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@tanstack/db": "^0.6.16",

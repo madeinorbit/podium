@@ -49,8 +49,8 @@
 
 import { AgentKind, IssueIdField, ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
-import type { CommandDef } from './commands'
-import { defineCommands } from './commands'
+import type { CommandDef } from '../framework'
+import { defineCommands } from '../framework'
 
 /**
  * `mutationId` — the client Outbox stamps a stable one per entry and replays it

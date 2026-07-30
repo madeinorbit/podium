@@ -1,7 +1,6 @@
 /**
  * @podium/protocol — wire types + codecs for agent/terminal sessions.
  */
-export * from './commands'
 export * from './delegation'
 export * from './features'
 export * from './handshake'
@@ -42,8 +41,6 @@ export * from './perf'
 export * from './planes'
 export * from './refs'
 export * from './relations'
-export * from './session-command-plane'
-export * from './session-commands'
 export * from './session-cookie'
 export * from './titles'
 export * from './version'

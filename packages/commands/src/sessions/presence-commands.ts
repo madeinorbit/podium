@@ -36,8 +36,8 @@
 
 import { IssueIdField, PinKind, SessionIdField, WorkState } from '@podium/model'
 import { z } from 'zod'
-import type { CommandDef } from './commands'
-import { defineCommands } from './commands'
+import type { CommandDef } from '../framework'
+import { defineCommands } from '../framework'
 
 /**
  * `mutationId` — carried on the input of every offline-eligible write because the

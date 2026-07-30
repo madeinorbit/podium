@@ -1,4 +1,5 @@
-import { ISSUE_COMMAND_NAMES, type IssueCommandName } from '@podium/protocol'
+
+import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { optimisticIssuePatch } from './upstream-forwarder'
 
@@ -45,7 +46,7 @@ const NAMED_ARMS = [
   'setLabels',
   'setNeedsHuman',
   'update',
-] as const satisfies readonly IssueCommandName[]
+] as const satisfies readonly IssueContractName[]
 
 /**
  * A probe input carrying EVERY key any arm of the switch reads, so that an arm
@@ -132,7 +133,7 @@ describe('optimisticIssuePatch — classification of the whole command surface',
       'stop',
       'answerQuestion',
       'panelApply',
-    ] satisfies IssueCommandName[]) {
+    ] satisfies IssueContractName[]) {
       expect(optimisticIssuePatch(proc, { ...EVERY_READ_KEY, value: true }, NOW)).toStrictEqual({
         updatedAt: NOW,
       })

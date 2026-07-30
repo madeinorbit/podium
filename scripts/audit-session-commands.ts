@@ -269,19 +269,59 @@ export function unkeyedPerUserAccessors(source: string, file: string): Finding[]
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const ROUTER = 'apps/server/src/router.ts'
+/**
+ * The two session contract tables. They moved from `@podium/protocol` to
+ * `@podium/commands` when POD-311 absorbed the stranded contract framework — they
+ * had to come with it, because `@podium/commands` imports `@podium/protocol` and a
+ * framework consumer left behind would have been a cycle.
+ *
+ * A MISSING TABLE IS A FINDING, NOT A CRASH. Pointing this list at a path that no
+ * longer exists used to throw ENOENT out of `main`, which is the worst shape a gate
+ * can have: the run fails for a reason that looks like an environment problem rather
+ * than like the audit having lost its subject. `readOptional` turns it into a
+ * `contract-table-missing` finding, and `--probe` exercises that arm.
+ */
 const CONTRACT_TABLES = [
-  'packages/protocol/src/session-commands.ts',
-  'packages/protocol/src/session-command-plane.ts',
+  'packages/commands/src/sessions/presence-commands.ts',
+  'packages/commands/src/sessions/command-plane.ts',
 ]
 const SERVICE = 'apps/server/src/modules/sessions/service.ts'
 const STORE = 'apps/server/src/store/sessions.ts'
 
 const read = (rel: string): string => readFileSync(join(REPO_ROOT, rel), 'utf8')
 
+/** Read a file the audit is POINTED AT, turning a missing one into a finding rather
+ *  than an ENOENT out of `main` — see the note on {@link CONTRACT_TABLES}. */
+const readOptional = (rel: string): { source: string } | { missing: Finding } => {
+  try {
+    return { source: readFileSync(join(REPO_ROOT, rel), 'utf8') }
+  } catch {
+    return {
+      missing: {
+        check: 'contract-table-missing',
+        where: rel,
+        detail:
+          'the audit is pointed at a contract table that does not exist — every check over it ' +
+          'would otherwise report a serene zero, or crash in a way that reads as an environment ' +
+          'problem. Repoint CONTRACT_TABLES, or say why the table is gone.',
+      },
+    }
+  }
+}
+
+/** Findings for one contract table: its absence, or its visibility violations. */
+export const contractTableFindings = (
+  rel: string,
+  load: (rel: string) => { source: string } | { missing: Finding },
+): Finding[] => {
+  const got = load(rel)
+  return 'missing' in got ? [got.missing] : undeclaredVisibility(got.source, rel)
+}
+
 export function auditSessionCommands(): Finding[] {
   return [
     ...handWrittenSessionMutations(read(ROUTER), ROUTER),
-    ...CONTRACT_TABLES.flatMap((file) => undeclaredVisibility(read(file), file)),
+    ...CONTRACT_TABLES.flatMap((file) => contractTableFindings(file, readOptional)),
     ...serviceIdempotencyWrapper(read(SERVICE), SERVICE),
     ...unkeyedPerUserAccessors(read(STORE), STORE),
   ]
@@ -374,6 +414,30 @@ export function probe(): Finding[] {
   // And the negative control: the real sources must NOT trip the probe fixtures'
   // checks for a reason unrelated to what is planted. Nothing to assert here beyond
   // the gate itself, which main() runs next.
+  // The missing-table arm: a path the audit is pointed at that no longer exists must
+  // be a FINDING, or every check over that table reports a serene zero.
+  expect(
+    'contract-table-missing',
+    contractTableFindings('packages/commands/src/sessions/gone.ts', () => ({
+      missing: {
+        check: 'contract-table-missing',
+        where: '<probe>',
+        detail: 'planted',
+      },
+    })),
+  )
+  // …and it must NOT fire when the table is there.
+  if (
+    contractTableFindings('<probe>', () => ({
+      source: "const x: CommandDef = {\n  visibility: 'personal',\n  policy: {},\n}\n",
+    })).length > 0
+  ) {
+    failures.push({
+      check: 'instrument',
+      where: 'scripts/audit-session-commands.ts',
+      detail: 'the contract-table check fires on a table that IS present and classified',
+    })
+  }
   return failures
 }
 
@@ -388,7 +452,7 @@ function main(): void {
     process.exit(2)
   }
   if (wants('--probe')) {
-    console.log('session-surface audit: all 4 checks found their planted fixtures')
+    console.log('session-surface audit: all 5 checks found their planted fixtures, and both non-firing probes stayed silent')
     return
   }
 

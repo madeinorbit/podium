@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { MachineId, MutationId } from '@podium/model'
-import { MetadataChange } from './sync'
+import { MetadataChange } from '@podium/protocol'
 
 /**
  * The generic client→authority write envelope + result contract for the P2

@@ -5,13 +5,13 @@
 
 import { AgentKind, ResumeRef, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { commandExposure, isExposedOn } from './commands'
+import { commandExposure, isExposedOn } from '../framework'
 import {
   commandPlaneContract,
   commandPlaneNames,
   sessionCommandPlane,
   sessionCommandPlaneInputs,
-} from './session-command-plane'
+} from './command-plane'
 
 const defs = Object.entries(sessionCommandPlane.defs)
 

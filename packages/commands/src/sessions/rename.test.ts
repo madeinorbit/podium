@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { sessionPresenceCommands } from '@podium/protocol'
+import { sessionPresenceCommands } from './presence-commands'
 import { classificationErrors } from '../contract'
 import {
   RENAME_REJECTIONS,
