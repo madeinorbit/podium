@@ -12,6 +12,7 @@ import {
   ISSUE_COMMAND_NAMES,
   type IssueCommandName,
 } from '@podium/protocol'
+import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
@@ -91,8 +92,16 @@ export interface IssueCommandDeps {
   forwardIssueMutation(proc: string, input: Record<string, unknown>): Promise<unknown>
   /** repoPaths that exist among hub issues (create's hub-only repo check). */
   upstreamIssueRepoPaths(): Set<string>
-  /** Idempotency wrapper (docs/spec/outbox-write-path.md §2.1) — modules/sessions. */
-  withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
+   *
+   * It used to be `withMutation`, a method borrowed from modules/sessions — an
+   * issue command reaching into the session service for a property that belongs
+   * to neither. The mechanism is unchanged (docs/spec/outbox-write-path.md §2.1);
+   * what changed is that there is now ONE implementation and no per-proc wrapper
+   * to omit.
+   */
+  mutations: MutationLedgerPort
   /** Session list — subscription source checks resolve session→issue through it. */
   listSessions(): SessionMeta[]
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
@@ -206,9 +215,9 @@ export class IssueCommandCtx {
     return this.deps.restoreIssue(id)
   }
 
-  /** Idempotency wrapper bound to this command's wire name (issues.<name>). */
+  /** Framework idempotency, bound to this command's wire name (issues.<name>). */
   withMutation<T>(mutationId: string | undefined, fn: () => T): T {
-    return this.deps.withMutation(mutationId, `issues.${this.name}`, fn)
+    return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
   }
 
   /**

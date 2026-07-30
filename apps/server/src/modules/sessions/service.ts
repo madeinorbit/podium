@@ -1,8 +1,16 @@
-import {
-  AgentKind,
-  asIssueId,
+import type {
+  ActorRef,
+  AgentRuntimeState,
+  AutomationRunWire,
+  AutomationWire,
+  Geometry,
+  IssueWire,
+  ResumeRef,
+  SessionMeta,
+  TranscriptItem,
+  WorkState,
 } from '@podium/model'
-import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
+import { AgentKind, asIssueId } from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -19,18 +27,18 @@ import type { ActorRef, AgentRuntimeState, AutomationRunWire, AutomationWire, Ge
  * overloading `null`.
  */
 export type SessionWirePrincipal = ActorRef
+
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
-import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  agentSupportsEffort,
-  agentSupportsInitialPrompt,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  agentSupportsEffort,
+  agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -48,7 +56,7 @@ import {
   type SyncChangesSinceResult,
 } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
-import type { EntityChangeSpec } from '@podium/sync'
+import { type EntityChangeSpec, MutationLedger, type MutationLedgerPort } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 // OPERATOR comes from '@podium/model' above. `../../issue-authz` RE-EXPORTS the same
@@ -61,8 +69,8 @@ import {
   selectMailNudgeSession,
   sessionsForIssue,
 } from '../../issue-util'
-import { ownershipFromMachines } from '../../machine-access'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { ownershipFromMachines } from '../../machine-access'
 import { assertModelSelectionValid } from '../../model-validation'
 import type {
   ObservationLeaseRecord,
@@ -88,6 +96,9 @@ import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
+import { machineUseGateForCapability } from './handoff/access'
+import { HandoffCoordinator } from './handoff/coordinator'
+import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import {
@@ -95,10 +106,8 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import { machineUseGateForCapability } from './handoff/access'
-import { HandoffCoordinator } from './handoff/coordinator'
-import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
+import { PresenceRegistry, soleHumanWsPrincipal } from './presence-registry'
 import {
   createViewKey,
   type PreparedPublication,
@@ -238,6 +247,18 @@ interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
+   * `MutationLedger`. Threaded through rather than constructed here — the service
+   * owns no dedup of its own since `withMutation` was deleted, and a
+   * service-built ledger would be a second in-flight map over one durable table.
+   *
+   * Optional so the ~40 test fixtures that build a bare service literal keep
+   * compiling; absent means a private ledger over the same store, which is
+   * behaviourally identical for the synchronous presence writes that reach it and
+   * is the only path that can be reached without the composition root.
+   */
+  mutations?: MutationLedgerPort
   /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
    *  fan-out tail; session deltas ride its ordered pipe via the ledger bridge. */
   funnel: WriteFunnel
@@ -413,6 +434,7 @@ export class SessionsService {
   constructor(private readonly deps: SessionsServiceDeps) {
     this.store = deps.store
     this.now = deps.now
+    this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
@@ -1923,7 +1945,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: string,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
@@ -2094,9 +2120,18 @@ export class SessionsService {
       sessions: this,
       store: this.store,
       now: () => this.now(),
+      mutations: this.mutations,
     })
     return this.presenceRegistry
   }
+
+  /**
+   * The framework's idempotency ledger — the composition root's instance when it
+   * supplied one, else a private one over the same durable table (see
+   * {@link SessionsServiceDeps.mutations}). Assigned in the constructor body, not
+   * as a field initializer: `this.store` is not set until then.
+   */
+  private readonly mutations: MutationLedgerPort
 
   /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
    *  send `setSessionDraft` are handled by that method's flag gate. */
@@ -2400,54 +2435,19 @@ export class SessionsService {
   }
 
   /**
-   * Idempotency wrapper (docs/spec/outbox-write-path.md §2.1): a mutation carrying
-   * an already-seen mutationId returns its recorded result WITHOUT re-running —
-   * what makes outbox replays and network retries safe. Check-run-record is one
-   * synchronous pass (no await), so replays can't interleave with the original.
+   * IDEMPOTENCY IS NOT THIS SERVICE'S ANYMORE (POD-382).
+   *
+   * `withMutation(mutationId, proc, fn)` lived here and every session write, plus
+   * the whole issue registry through an injected reference to it, wrapped itself in
+   * it. It is now `@podium/sync`'s `MutationLedger` — one implementation, called by
+   * the command envelopes (`PresenceRegistry.execute`, `dispatchSessionCommand`,
+   * `IssueCommandCtx.withMutation`) AFTER they authorize, never by a handler.
+   *
+   * Deliberately not re-exposed as a delegating method: a method here is a seam a
+   * new write can wrap itself in, which is exactly the per-proc shape POD-312 set
+   * out to delete. The service holds {@link SessionsService.mutations} privately
+   * for the presence envelope it builds and offers no public wrapper.
    */
-  /** Async mutations in flight, so a replay arriving before the original resolves
-   *  (e.g. both calls in one tRPC HTTP batch) joins the SAME promise instead of
-   *  re-running — the async analogue of the sync check-run-record pass. */
-  private readonly inFlightMutations = new Map<string, Promise<unknown>>()
-
-  withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T {
-    if (!mutationId) return fn()
-    const prior = this.store.sync.getAppliedMutation(mutationId)
-    if (prior !== undefined) return JSON.parse(prior) as T
-    const inFlight = this.inFlightMutations.get(mutationId)
-    if (inFlight !== undefined) return inFlight as T
-    const result = fn()
-    // An async proc (issues.create → createAndMaybeStart) must record its RESOLVED
-    // value: stringifying the pending Promise itself would durably record '{}' —
-    // poisoning every replay — and would mark a rejected mutation as applied.
-    if (result instanceof Promise) {
-      const tracked = result.then(
-        (value) => {
-          this.store.sync.recordAppliedMutation(
-            mutationId,
-            proc,
-            JSON.stringify(value ?? null),
-            this.now(),
-          )
-          this.inFlightMutations.delete(mutationId)
-          return value
-        },
-        (err) => {
-          this.inFlightMutations.delete(mutationId)
-          throw err
-        },
-      )
-      this.inFlightMutations.set(mutationId, tracked)
-      return tracked as T
-    }
-    this.store.sync.recordAppliedMutation(
-      mutationId,
-      proc,
-      JSON.stringify(result ?? null),
-      this.now(),
-    )
-    return result
-  }
 
   /**
    * The write funnel's session-metadata face: apply the field write, persist the
@@ -3174,7 +3174,8 @@ export class SessionsService {
       broadcastSessions: () => this.broadcastSessions(),
       onSessionGone: (sessionId) => this.autoContinue.onSessionGone(sessionId),
       toMachine: (machineId, message) => this.toMachine(machineId, message),
-      onWorktreesChanged: (repoPath, machineId) => this.deps.onWorktreesChanged(repoPath, machineId),
+      onWorktreesChanged: (repoPath, machineId) =>
+        this.deps.onWorktreesChanged(repoPath, machineId),
       resumeSession: (resumeInput) => this.resumeSession(resumeInput),
       resurrectSession: (resurrectInput) => this.resurrectSession(resurrectInput),
       recordEvent: (event) => {

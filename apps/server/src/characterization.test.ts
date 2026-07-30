@@ -490,7 +490,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
     reg1.issues.close(issue.id, 'done')
-    reg1.modules.sessions.withMutation('mut-char-1', 'issues.close', () => ({ ok: true }))
+    reg1.modules.mutations.once('mut-char-1', 'issues.close', () => ({ ok: true }))
     store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
