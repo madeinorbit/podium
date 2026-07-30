@@ -1203,3 +1203,44 @@ stops matching, at the one command the field exists for."
 POD-381 also moved that rule out of a per-file test into the scan for exactly that reason, and made its
 FIRST test the instrument check — asserting the five current tables BY NAME, so "no violations" can only
 be read after "and it looked at these".
+
+### A fix I authorised caused a second defect, and the stream implementing it said so
+
+POD-373's POD-1161 work uncovered **POD-1163**: `run` rethrew from its catch, leaving the `inflight`
+promise **rejected** — and a rejected promise makes every later `.then(task)` skip its task. One refused
+durable commit wedged the replica permanently: `connect()` issued **zero** `changesSince` calls, the frame
+stayed buffered forever, the entry stayed `applied` forever, and `settled()` replayed the same stale error
+to every future caller. ADR 2 D7 requires every failure to resolve strictly downward and **terminate**;
+that terminated nothing.
+
+**My POD-1158 ruling is part of the cause.** Before it, a multi-region commit threw synchronously out of
+`receive()` and never entered that chain — so the shape existed but this failure class could not reach it.
+Routing those commits through `inflight`, the very change that let the async Outbox enrol at all, converted
+a caller-visible throw into a permanent wedge. Reachable on an ordinary path: ADR 6 D4.4 quota denial and a
+commit-time conflict both land there, neither being corruption.
+
+> A fix that changes WHERE a failure travels can convert a loud error into a silent wedge. When authorising
+> a seam change, ask what previously threw past the new path.
+
+Fixed in the same commit: `run` holds the FIRST unreported error ("a later failure cannot hide an earlier
+unreported one") and `settled()` surfaces it exactly once.
+
+### Fixing only the line the issue named would have left half the defect
+
+POD-1161's fix needed **two sites**, and POD-373's first mutant re-breaking the second one **survived** —
+no case drove `drainBuffer`'s path. Driving it needed a `changesSince` reply capped BELOW the head so a
+buffered frame chains exactly where a heal lands; otherwise every heal covers everything, the buffered
+frame is dropped as covered, and the drain's own commit never runs.
+
+Its diagnosis of why the whole class hid is the sharpest in the run: **entity truth survives an aborted
+install because a heal re-derives it; RETIREMENT does not, because provenance appears in the feed ONCE and
+no later frame carries it after the cursor passes.** The user-visible consequence was a stuck entry for a
+command that demonstrably applied, dead-lettered later as `max-age` — telling someone their write aged out
+unsent when it had in fact landed.
+
+### Two done-but-unclosable issues (POD-1154 biting again)
+
+POD-1161 and POD-1163 are both FIXED AND MERGED, and both sit in `proposed`, which a coordinator may
+neither promote nor close. Resolution recorded in each issue's state so a human can close on sight. This is
+the third distinct way POD-1154 has cost something: it blocked scheduling earlier, and now it blocks
+closing work that is demonstrably done.
