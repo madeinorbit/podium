@@ -1357,3 +1357,50 @@ distinction the incident established.
 That is the same principle I applied when I declined to launder POD-1140 and POD-1130 into sub-issues —
 and it is better that an agent held me to it than that I held myself to it. The litmus is "could the parent
 close with this untouched", not "would a sub-issue be more convenient for the coordinator".
+
+### The typecheck rule has TWO halves, and I had been giving one
+
+POD-729's single `mailProc()` branching on `policy.action` **typechecked perfectly in `apps/server` and
+broke `apps/web`**: `policy.action` is a union at the type level, so all nine procedures inferred as
+query-or-mutation and the CLIENT lost `.query`/`.mutate`. Found by the **workspace** typecheck, not the
+in-package one.
+
+> IN-PACKAGE catches "the program covers nothing" — two agents reported exit 0 from the repo root where no
+> program covered the package they were changing. WORKSPACE catches a cross-package INFERENCE break that is
+> invisible from inside the package that caused it. Neither substitutes for the other; run both and say
+> which found what.
+
+I had been telling the fleet in-package was *the* rule. It is half of it.
+
+Its fix is better than a revert: `mailQuery`/`mailMutation` split by wire verb, with a **boot-time** check
+against the declared action, so `mailQuery` on inbox dies with "mail.inboxConsume declares action write but
+is served as a query" — the viewer-grade widening it would otherwise have been.
+
+### Default-closed exposure silently deleted a shipped surface
+
+`mail.ledger`'s exposure omitted `relay`, but the daemon relay has always served it — that is how agents
+reach the ledger. Harmless while transports were hand-written and everything fell through one switch; the
+moment `exposure` became **default-closed**, it removed a live agent surface. Its own gate caught it, and
+it was corrected in the CONTRACT rather than patched at the site.
+
+> Default-closed is the right default AND a migration hazard: every surface that was previously served by
+> falling through a switch must be re-declared, and the ones nobody remembers are exactly the ones that
+> vanish. Audit the OLD switch's reachable set against the new exposure declarations.
+
+### Halving a duplicated surface is still a duplicated surface
+
+POD-728 deliberately left five procs (show, dismiss, status, pendingReminders, ask) for POD-729. POD-729
+cut over all five and deleted `MessageGate`'s switch entirely, rather than stopping at its brief's line —
+because `ask` was the one of the five that reaches **delivery**, so leaving it would have left a live send
+path no contract governs, which is the thing the issue exists to remove.
+
+It also closed a real bypass on the way: `sendText`/`resumeAndSend` called the delivery service DIRECTLY,
+so the human ceiling never bound them (it applies when an ADDRESS is resolved, and they resolved none) and
+their sender came from a private expression rather than `senderFromCapability`.
+
+### A stale brief keeps re-reporting the same drift
+
+POD-729 flagged that my brief said 252 audit sites while the file said 219 before it started — because the
+brief was written before POD-380/381/728/1162 landed. That is my staleness, not its drift. **A brief that
+quotes a moving number will keep generating this report**; quote the invariant ("baseline exact, do not
+rebaseline") rather than the current value.
