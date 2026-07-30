@@ -33,7 +33,7 @@ methods were used and cross-checked.
 
 | Method | What it establishes | Evidence |
 |---|---|---|
-| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1571** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison and composite-key sites. | 11 325 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv`. |
+| **TypeScript AST sweep** — `bun run inventory:ids` (`scripts/id-inventory-sweep.ts`) | The site list. Parses **1572** `.ts`/`.tsx` files with the TypeScript compiler API and reports declaration, comparison, composite-key and tagged-identity sites, each with its **per-site owner**. | 11 487 sites; per-class counts in §3. Committed snapshot: `docs/rearch-id-inventory.sites.tsv` (2 233 rows). |
 | **NUL-byte guard** — `bun run lint:no-nul` | That the grep blind spot is *real on this branch*, and that the AST walk is not subject to it. | See §0.1 — one file on this base is binary to `grep`, and the AST walk swept it anyway. |
 | **Type checker** — `bun run typecheck` (tsgo, per-package) | That the sweep's file set is the file set the build actually compiles, and that nothing in this issue's additions is type-invisible. | Green; output in the handoff. |
 
@@ -82,11 +82,54 @@ Two notes on honesty of the numbers:
   brief's canonical example, `session-identity.ts`'s `${resume.kind}:${resume.value}`, names
   neither part `*Id`, and an inventory that missed the site it was told about would be worthless.
 
-**Known limit, stated rather than hidden.** The composite-key test recognises the key-shaped
-contexts listed above. A key built by `array.join(sep)`, by string concatenation with `+`, or
-passed straight into a function whose name does not end in `Key`, is not detected. §3.3 therefore
-lists the 70 detected sites *and* the hand-verified additions; POD-361 should re-run the sweep
-after its helper lands and treat a shrinking count as the ratchet.
+### 0.2 The composite-key detector, and the two mistakes fixed in it
+
+The first revision of this detector saw **only template literals**. A reviewer, working from an
+independent binary-safe lexical enumeration, correctly showed that this missed a whole syntax class,
+and that the misses were **real entity keys** — including two inside `packages/protocol` itself,
+the one package this document had claimed to cover completely.
+
+**Fixed at the detector, then re-derived** — not by patching the named lines, because patching the
+seven named lines leaves the eighth. Four forms added: `.join(sep)` on an array literal, `.join(sep)`
+on a mapped array, single-substitution templates with a literal prefix (`automation:${id}`), and
+`+` concatenation. Result: composite keys **70 → 102**, plus a new **tagged-identity** class with
+**130** sites. All seven reviewer-named sites are now found *by the detector*:
+
+| Site | Form |
+|---|---|
+| `apps/daemon/src/session-observers.ts:293` | `[sessionId, observerGeneration, bindingVersion, transitionId].join(NUL)` — 4-part |
+| `apps/server/src/modules/issues/service/core.ts:310` | `members.map(…).join()` — a membership fingerprint over `sessionId` |
+| `apps/web/src/features/issues/IssuesView.tsx:971` | `issues.map(i => i.id).join(NUL)` |
+| `packages/agent-bridge/src/discovery/scanner.ts:362` | `[providerId, path, id].join(NUL)` |
+| `packages/protocol/src/maintenance.ts:354` | `['automation-fire', encode(automationId), encode(nextRunAt)].join('/')` |
+| `packages/protocol/src/maintenance.ts:358` | `['steward-poll', fromCursor, toEventId].join('/')` |
+| `packages/protocol/src/maintenance.ts:362` | `['connect-scan', encode(machineId), encode(lastSeenAt)].join('/')` |
+
+*(the verdict listed the first as `apps/server/src/daemon/…`, a path that does not exist; the real
+file is `apps/daemon/src/…`.)*
+
+The three `maintenance.ts` `*RunKey` helpers are the most valuable recovery: they key on
+`automationId` and `machineId` **inside the protocol package**, and a template-literal-only detector
+is structurally incapable of seeing them.
+
+**A false positive I introduced fixing this, and caught before it shipped.** My first pass treated
+*any* control character as a key-shaped separator. That pulled in **176** extra sites, almost all CLI
+help text built with `lines.join('\n')` — and a ledger padded with help screens is worse than one
+with a stated gap, because it teaches the reader to skim. The distinction that fixes it:
+
+> **`\n` and `\t` are how this codebase joins text for HUMANS. NUL and `` are how it joins
+> values into a KEY**, because they cannot occur in an id or a path.
+
+So a NUL-class separator is self-evidently a key, while a `\n` separator counts only when the
+`usedAsKey` test independently says so. That still catches `mirror.ts`'s `${machineId}\n${nativeId}`
+and drops every help screen: 399 → 102, with all seven reviewer sites surviving.
+
+**Remaining stated limits.** A key assembled across statements (build a string, mutate it, use it) is
+not detected. And **owner-D detection is narrower than the D set**: the sweep flags `'__local__'`
+only where it sits at an id-named site, so the 12 rows it reports are a subset of the 13 the
+purpose-built `local-placeholders` detector in `bun run audit:rearch` finds — that ratchet, not this
+sweep, is authoritative for D1, and §3.5 lists its full output. POD-361 should re-run both after its
+helper lands and treat shrinking counts as the ratchet.
 
 ---
 
@@ -163,12 +206,31 @@ distinction mechanical instead of a matter of reading carefully.
 
 ## 2. Owner categories
 
-Every site below carries exactly one owner. Categories **A–D** are the flip classification;
-category **E** is the multi-user addition.
+**Every ROW of the committed ledger carries its own owner and the reason for it** — columns `owner`
+and `ownerReason` in `docs/rearch-id-inventory.sites.tsv`. That is deliberate and was a review
+finding: classifying by syntax class in prose is *not* per-site ownership, because two `id`
+properties in the same syntax class can have opposite dispositions — `machineId: msg.machineId` is a
+schema flip while `machineId: '__local__'` is a deletion. POD-361/362/363 execute from the column,
+not from this prose.
+
+Owners are rule-derived from (kind, name, site text) with **enumerated override tables** for D and E,
+because "is this attribution?" and "is this a placeholder?" are semantic questions a regex would
+answer plausibly and wrongly. The rules live in `ownerFor()` in the sweep, so the classification is
+re-derivable and auditable rather than hand-typed.
+
+Distribution over all 11 487 sites: `A-consequence` 8 746 · `A-schema-flip` 1 689 ·
+`C-stringly-on-purpose` 725 · `B-helper-adoption` 232 · `E-attribution` 83 · `D-delete-not-brand` 12.
+The committed ledger snapshots the 2 233 decision-bearing rows (the declaration classes, every
+composite key and tagged identity, and **every** D and E row regardless of syntax class); the
+`A-consequence` bulk is reproducible from the script and is what the flip's own type errors
+enumerate for free.
+
+Categories **A–D** are the flip classification; category **E** is the multi-user addition.
 
 | Owner | Meaning | Who executes |
 |---|---|---|
-| **A — schema flip (mechanical)** | A `z.string()` that becomes a branded schema; the change is the schema line and the type errors it surfaces. | POD-361 declares, POD-362/363 absorb |
+| **A — schema flip (mechanical)** (`A-schema-flip`) | A `z.string()` or type member that becomes a branded schema; the change is the declaration line and the type errors it surfaces. | POD-361 declares, POD-362/363 absorb |
+| **A-consequence** | A usage or comparison the flip's type errors surface for free. **No per-site decision needed** — listed so the volume is honest rather than to be worked through. | POD-362/363, mechanically |
 | **B — helper adoption** | An ad-hoc composite key that adopts a typed key helper. Injective only while no part contains the separator; the helper makes that true for every input. | POD-361 (API) → POD-362/363 (adoption) |
 | **C — genuinely stringly-typed, on purpose** | A wire boundary, a SQL parameter, a log line, a correlation handle. Stays a string; the brand is *unwrapped* here, deliberately. | POD-362/363, as `asXId()` / plain-string boundaries |
 | **D — placeholder identity or hand-restated definition** | Not to be branded. POD-279 **deletes** it. Branding it would preserve the thing the epic exists to remove. | the owning phase issue, named per site |
@@ -247,7 +309,9 @@ a manifest is read by a *different build* than wrote it.
 
 ### 3.3 Owner B — helper adoption (composite keys)
 
-**70 detected sites.** The named ones first.
+**102 detected composite-key sites plus 130 tagged-identity sites** (232 owner-B rows), every one in
+the committed ledger with its owner and reason. §0.2 covers the detector and the syntax forms it
+gained. The named ones first.
 
 | Site | Key | Owner |
 |---|---|---|
@@ -407,17 +471,90 @@ list.
 | # | Attribution site | Storage | Wire | Today's value | POD-1075 |
 |---|---|---|---|---|---|
 | E1 | `humanQuestionAskedBy` | `schema.ts:461` `human_question_asked_by` text | `IssueWire.humanQuestionAskedBy` (`issues.ts:236`) | a bare **session id**, server-authoritative (`registry.ts:1204-1209`: an explicit `askedBy` must equal the authenticated `actorSessionId`) | + on-behalf-of `UserId`. The server-authoritative check is the model for the rest: A3's rule is "stamped from the transport principal, never from payload", and this field already implements it. |
-| E2 | `deletion_source` | `schema.ts:55` `deletion_source` text | not on `SessionMeta` | freeform source string | + actor/on-behalf-of pair |
+| ~~E2~~ | ~~`deletion_source`~~ **NOT AN ATTRIBUTION SITE — see §3.6.1** | `schema.ts:55` | not on `SessionMeta` | **`'issue' \| 'standalone'`** (`apps/server/src/store/types.ts:36`) | **nothing.** It names a deletion *path*, not an actor. |
 | E3 | `nameSource: 'user'` | `schema.ts:60` `name_source` text | `SessionMeta.nameSource` (`runtime-state.ts:341`), `'user' \| 'agent'` | a **role class**, not a person. `'user'` outranks `'agent'` ([spec:SP-eb60]) — the precedence rule A3 says must survive | `'user'` gains *which* user. The precedence rule is what makes collapsing the pair lossy. |
 | E4 | close actor | `podium_events.payload` (`schema.ts:300`) | event payload `causedBySessionId` | a **session id**, threaded from `Capability.actorSessionId` (`crud.ts:450-462`, `:816-817`) | + on-behalf-of. Used today only to let the steward skip nudging the causing session (#116); under multi-user it is also *who closed it*. |
 | E5 | unblock actor | same | `issue.ready` payload `causedBySessionId` (`crud.ts:190-204`) | same | same |
 | E6 | reopen / stage-change actor | same | `issue.reopened`, `issue.stage_changed` payload `causedBySessionId` (`crud.ts:425-447`) | same | **Not named in the brief; found by the sweep.** Same shape, same seam, same fix — listed so POD-1075's list is the *whole* family rather than the four that were remembered. |
 | E7 | `startedBySession` | `schema.ts` (`issues`) | `IssueWire.startedBySession` (`issues.ts:311`) | a bare session id, null for operator creates | + on-behalf-of. Per §3.1.3 **A4**, *owner* of an agent-created entity = the agent's `onBehalfOf` human — so this site needs both the pair **and** an `owner` column. |
 | E8 | `coordinatorSessionId` | `schema.ts` (`issues`) | `IssueWire.coordinatorSessionId` (`issues.ts:307`) | a bare session id | A `SessionId` (owner A) and an attribution-adjacent site: "who coordinates" becomes answerable as a person. |
-| E9 | `SessionMeta.spawnedBy` | `schema.ts:47` `spawned_by` | `runtime-state.ts:440` | **freeform**, documented values `'user' \| 'superagent:<threadId>' \| 'steward' \| 'issue:<id>' \| 'session:<id>'` | The one site where attribution is an **unparsed union in a string**. `'user'` is exactly the role-level value §3.2 says must become a person. Also owner **B**: `issue:<id>` / `session:<id>` are composite keys the detector does not see (built at ~30 scattered call sites, not one helper). |
+| E9 | `SessionMeta.spawnedBy` | `schema.ts:47` `spawned_by` | `runtime-state.ts:440` | **freeform string carrying a SIX-member tagged union** — see §3.6.2 for the complete member set, its construction sites and its consumers | The one site where attribution is an **unparsed union in a string**. `'user'` is exactly the role-level value §3.2 says must become a person. Also owner **B**: the tagged arms are composite keys built at scattered call sites, not by one helper. |
 | E10 | `issue_messages.claimedBy` / `from_author` | `schema.ts:397`, `:394` | tracker mail | session id / freeform author | + on-behalf-of |
 | E11 | `messages.ackedBy` / `deliveredTo` / `fromName` | `schema.ts:~570` | agent mail | session ids / freeform | + on-behalf-of |
 | E12 | `locks` holder identity | `schema.ts:502` | lock wire | holder string | Per §3.1.1 advisory locks are **deployment substrate** (tenant-visible), but the *holder* is still a person-or-agent. |
+
+#### 3.6.1 CORRECTION — `deletion_source` is a typed path label, not an attribution value
+
+An earlier revision of this document listed `deletion_source` as an attribution site carrying a
+"freeform source string". **Both halves were wrong**, and the error is recorded rather than quietly
+edited out because it is the kind a migration map propagates:
+
+```ts
+// apps/server/src/store/types.ts:36
+export type SessionDeletionSource = 'issue' | 'standalone'
+```
+
+It is a **closed two-member type**, and it names **which deletion path ran** — not who ran it. So it
+gains nothing in POD-1075: there is no person to add to it. It is owner **C** (a typed enum-like
+label), not owner E.
+
+**Cross-document reconciliation:** POD-364's field map had this right and this document did not;
+adjudicated in POD-364's favour, and corrected here. The root cause on my side was reading the
+column name (`*_source`, which *sounds* like provenance) instead of the type — the same failure as
+trusting a grep over the thing that decides.
+
+The actor for a session deletion is elsewhere and is a genuine E site: `deleted_by_issue_id`
+(`schema.ts:54`) names the issue whose deletion cascaded, and the operator/agent behind it is not
+recorded at all today.
+
+#### 3.6.2 CORRECTION — `spawnedBy` has SIX arms, and production writes one this doc omitted
+
+An earlier revision listed five arms, taken from the schema's own comment. **Production writes a
+sixth.** Repeating a code comment as fact is the same error class as trusting a grep, so the
+complete set is now derived from the construction sites:
+
+| Arm | Constructed at | Notes |
+|---|---|---|
+| `'user'` | operator/web creates | A **role class**, not a person — the §3.2 case |
+| `'steward'` | system paths | Owner **D-adjacent**: per readiness §3.1.6 **S5** the steward is a `system` principal and must NOT gain a human |
+| `superagent:<threadId>` | `apps/server/src/modules/superagent/service.ts:462`, `:704` | Per §3.1.6 **S1/S2** the superagent is per-user, so this arm's *thread* gains an owner |
+| `issue:<issueId>` | issue-attached spawn paths | |
+| `session:<sessionId>` | parent-session spawn paths | |
+| **`automation:<automationId>`** | **`apps/server/src/modules/automations/service.ts:587`** | **The arm this document omitted.** Per §3.1.6 **S6** scheduled automations are delegated — they run as their creator — so this is the arm that most needs the on-behalf-of value. |
+
+**The consumers are why this is load-bearing, and they are all string surgery:**
+
+| Consumer | Shape |
+|---|---|
+| `apps/server/src/steward.ts:227-228` | `startsWith('session:')` then `.slice('session:'.length)` — the only site that *parses* the tag |
+| `apps/server/src/modules/messages/gate.ts:577`, `:820` | `spawnedBy === \`session:${actorSessionId}\`` — **reconstructs** the tag to compare |
+| `apps/server/src/modules/messages/service.ts:1807-1808` | same, for both `session:` and `issue:` |
+| `apps/server/src/modules/sessions/service.ts:2762` | same |
+| `apps/server/src/relay.ts:783`, `:866`, `:932` | same — **authorization decisions** turn on this string comparison |
+
+Seven of the eight consumers re-derive the tag inline rather than parsing it. A change to the tag
+format breaks them **silently** — the comparison simply stops matching, and in `relay.ts` and
+`gate.ts` a silently-non-matching parentage check is an authorization decision made on stale
+grounds. This is simultaneously owner **B** (a composite key with no helper), owner **E** (an
+attribution value), and a hand-restated definition, which is why §3.6's list flags it as the site
+POD-1075 should structure *before* adding a second value to it.
+
+**Cross-document reconciliation:** POD-364 carries the same six-member set.
+
+#### 3.6.3 Reconciliation the other way — `causedBySessionId` IS recorded
+
+For the record, since POD-364's map initially said close/unblock records no actor: it does. Issue
+CRUD emits `causedBySessionId` on four event kinds and threads `actorSessionId` through `close()`:
+
+| Event | Site |
+|---|---|
+| `issue.ready` (unblock) | `crud.ts:190-204` |
+| `issue.stage_changed` | `crud.ts:425-436` |
+| `issue.reopened` | `crud.ts:443-447` |
+| `issue.closed` | `crud.ts:450-462` |
+| `close()` threading `actorSessionId` | `crud.ts:816-817` |
+
+Adjudicated in this document's favour; POD-364 corrects theirs.
 
 **E9 is the finding worth acting on early.** `spawnedBy` is a freeform string carrying a
 five-member tagged union, with the tag and the id joined ad hoc. It is simultaneously an
@@ -555,15 +692,18 @@ Because POD-360 changes no behaviour, the two divergences are **filed, not fixed
 ## Appendix — regenerating this inventory
 
 ```sh
-bun run inventory:ids              # summary: files parsed, per-class and per-package counts
-bun run inventory:ids --full       # every site, file:line, tab-separated
+bun run inventory:ids              # summary: files parsed, per-class AND per-owner counts
+bun run inventory:ids --tsv        # regenerate the committed ledger (owner column included)
+bun run inventory:ids --full       # every site, file:line, with its owner
 bun run inventory:ids --json       # machine-readable
+bun run audit:rearch               # AUTHORITATIVE for owner D1 ('__local__' placeholders)
 bun run lint:no-nul                # the grep blind spot: which files are invisible to line tools
 bun run fixtures:wire:update       # regenerate the golden corpus, then READ THE DIFF
 bun run test:unit                  # the fixtures, in the lane CI runs
 ```
 
-`docs/rearch-id-inventory.sites.tsv` is the committed snapshot of the declaration-class and
-composite-key sites (1 997 rows) — the classes needing a per-site decision. The consequence
-classes (8 145 object-literal fields, 1 183 comparisons) are reproducible from the script and are
-not snapshotted: they are what the flip's type errors will enumerate for free.
+`docs/rearch-id-inventory.sites.tsv` is the committed snapshot of the decision-bearing rows: the
+declaration classes, every composite key and tagged identity, and EVERY owner-D and owner-E row
+whatever its syntax class (2 233 rows). Each carries its own `owner` and `ownerReason`. The
+`A-consequence` bulk (8 145 object-literal fields, 1 183 comparisons) is reproducible from the
+script and is not snapshotted: it is what the flip's own type errors enumerate for free.

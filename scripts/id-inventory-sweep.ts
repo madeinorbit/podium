@@ -80,15 +80,159 @@ export type SiteKind =
   /** An object-literal field carrying an identity value — a usage site, counted
    *  for volume because it is what POD-362/POD-363 walk through. */
   | 'object-literal-field'
+  /** A tag joined to an id in one string (`automation:${id}`) — a composite key
+   *  with one part hidden in the prefix, and a closed vocabulary living unparsed. */
+  | 'tagged-identity'
+
+/**
+ * The PER-SITE disposition. This is the column POD-361/362/363 execute from: a
+ * reviewer correctly observed that classifying by syntax class in prose is not
+ * per-site ownership, because two `id` properties in the same syntax class can
+ * have opposite dispositions. Every row carries one of these.
+ */
+export type Owner =
+  /** A — mechanical schema flip: this declaration becomes a branded schema. */
+  | 'A-schema-flip'
+  /** A-consequence — a usage or comparison the flip's type errors will surface.
+   *  No decision needed per site; listed so the volume is honest. */
+  | 'A-consequence'
+  /** B — adopts a typed composite-key helper. */
+  | 'B-helper-adoption'
+  /** C — stays a string on purpose: correlation handle, wire/SQL boundary, or a
+   *  key over values that are not entity identities. */
+  | 'C-stringly-on-purpose'
+  /** D — a placeholder identity or hand-restated definition POD-279 DELETES.
+   *  Must not be branded: branding freezes it into the type system. */
+  | 'D-delete-not-brand'
+  /** E — an attribution site that gains an on-behalf-of UserId in POD-1075. */
+  | 'E-attribution'
 
 export interface Site {
   file: string
   line: number
   kind: SiteKind
   name: string
+  owner: Owner
+  /** Why this owner, when the rule is not obvious from kind+name alone. */
+  ownerReason: string
   /** The source text of the site, trimmed — enough to classify without opening the file. */
   text: string
   correlation: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Per-site owner derivation
+// ---------------------------------------------------------------------------
+
+/** Attribution fields (owner E). Each names WHO acted and gains an on-behalf-of
+ *  UserId in POD-1075. Enumerated, not pattern-matched: "is this attribution?"
+ *  is a semantic question, and a regex guessing at it would be the kind of
+ *  plausible-looking answer that makes an inventory untrustworthy. */
+const ATTRIBUTION_FIELDS = new Set([
+  'humanQuestionAskedBy',
+  'human_question_asked_by',
+  'causedBySessionId',
+  'actorSessionId',
+  'startedBySession',
+  'started_by_session',
+  'coordinatorSessionId',
+  'coordinator_session_id',
+  'spawnedBy',
+  'spawned_by',
+  'claimedBy',
+  'claimed_by',
+  'ackedBy',
+  'acked_by',
+  'deliveredTo',
+  'delivered_to',
+  'nameSource',
+  'name_source',
+])
+
+/** Placeholder identities and hand-restated definitions POD-279 deletes (owner D).
+ *  Matched on the SITE TEXT, because the tell is the literal value, not the field
+ *  name — `machineId: '__local__'` is D while `machineId: msg.machineId` is A. */
+const DELETE_MARKERS = [
+  {
+    pattern: '__local__',
+    reason:
+      "'__local__' placeholder — POD-318 deletes it; branding would freeze it into the type system",
+  },
+  { pattern: 'LOCAL_PLACEHOLDER', reason: "'__local__' placeholder constant — POD-318" },
+  {
+    pattern: 'OPERATOR',
+    reason: 'single-operator capability — POD-1075 replaces it with a real principal',
+  },
+] as const
+
+/** Fields whose value is a typed enum-like label rather than an identity at all.
+ *  deletion_source is the case a reviewer caught me on: it is `'issue' |
+ *  'standalone'`, a deletion-PATH label, so it is neither an entity id nor an
+ *  actor. Recorded so the mistake cannot recur silently. */
+const NOT_AN_IDENTITY = new Set(['deletionSource', 'deletion_source'])
+
+const ownerFor = (
+  kind: SiteKind,
+  name: string,
+  text: string,
+  correlation: boolean,
+  isSchemaFile: boolean,
+): { owner: Owner; reason: string } => {
+  for (const marker of DELETE_MARKERS) {
+    // Word-ish match so `OPERATOR` does not catch `OPERATOR_LIKE_THING`.
+    if (new RegExp(`\\b${marker.pattern}\\b`).test(text)) {
+      return { owner: 'D-delete-not-brand', reason: marker.reason }
+    }
+  }
+  if (NOT_AN_IDENTITY.has(name)) {
+    return {
+      owner: 'C-stringly-on-purpose',
+      reason: 'typed enum-like label, not an identity (deletion PATH, not an actor)',
+    }
+  }
+  if (ATTRIBUTION_FIELDS.has(name)) {
+    return {
+      owner: 'E-attribution',
+      reason: 'names who acted; gains an on-behalf-of UserId in POD-1075',
+    }
+  }
+  if (correlation) {
+    return {
+      owner: 'C-stringly-on-purpose',
+      reason: 'correlation/transport handle, not a durable entity identity',
+    }
+  }
+  switch (kind) {
+    case 'composite-key':
+      return {
+        owner: 'B-helper-adoption',
+        reason: 'ad-hoc composite key; adopts a typed key helper',
+      }
+    case 'tagged-identity':
+      return {
+        owner: 'B-helper-adoption',
+        reason: 'tag+id in one string; the tag is a closed vocabulary living unparsed',
+      }
+    case 'zod-field':
+      return { owner: 'A-schema-flip', reason: 'zod declaration; becomes a branded schema' }
+    case 'ts-property':
+      return { owner: 'A-schema-flip', reason: 'type member; gains the brand with its schema' }
+    case 'sql-column':
+      return {
+        owner: 'C-stringly-on-purpose',
+        reason:
+          'storage boundary — a brand is a TS construct; the column stays TEXT unless POD-361 adopts drizzle $type<>()',
+      }
+    case 'comparison':
+      return { owner: 'A-consequence', reason: 'the flip turns a mismatch here into a type error' }
+    case 'object-literal-field':
+      return {
+        owner: isSchemaFile ? 'C-stringly-on-purpose' : 'A-consequence',
+        reason: isSchemaFile
+          ? 'storage boundary'
+          : 'usage site the flip surfaces via its type errors',
+      }
+  }
 }
 
 const walkFiles = (dir: string, out: string[]): void => {
@@ -101,13 +245,38 @@ const walkFiles = (dir: string, out: string[]): void => {
   }
 }
 
-/** C0 controls, DEL, and the Unicode line separators JSON leaves bare. Built from
- *  char codes rather than written as a literal class: a source file that spells
- *  its own NUL out is the bug this guard exists to prevent. */
-const CONTROL_CHARS = new RegExp(
-  `[${String.fromCharCode(0)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}]`,
-  'g',
+/** C0 controls plus DEL. Built from char codes rather than written as a literal
+ *  class: a source file that spells its own NUL out is the bug this guard exists
+ *  to prevent (it happened once in this very script). */
+const CONTROL_CLASS = `[${String.fromCharCode(0)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}]`
+
+/** For `replace` only, hence the `g`. Nothing `.test()`s this instance on purpose:
+ *  a `g`-flagged regex carries `lastIndex` across `.test()` calls, so sharing one
+ *  would make a detector report control characters present, then absent, then
+ *  present as the sweep walked — worse than one that is simply wrong.
+ *  {@link KEY_SEPARATOR_CONTROLS} below is the un-flagged one used for testing. */
+const CONTROL_CHARS_GLOBAL = new RegExp(CONTROL_CLASS, 'g')
+
+/**
+ * Control characters that signal "this is a KEY separator" — the C0 set MINUS
+ * the display whitespace (`\n`, `\r`, `\t`).
+ *
+ * The distinction is load-bearing and I got it wrong first: treating every
+ * control char as key-shaped pulled in 176 false positives, almost all of them
+ * CLI help text built with `lines.join('\n')`. Newline and tab are how this
+ * codebase joins text for HUMANS; NUL and  are how it joins values into a
+ * key, because they cannot occur in an id or a path. So a NUL separator is
+ * self-evidently a key, while a `\n` separator is only a key when something else
+ * (the `usedAsKey` test) says so — which is what catches mirror.ts's
+ * `${machineId}\n${nativeId}` without catching a help screen.
+ */
+const KEY_SEPARATOR_CONTROLS = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(8)}${String.fromCharCode(0x0b)}${String.fromCharCode(0x0c)}${String.fromCharCode(0x0e)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}]`,
 )
+
+/** Render control characters visibly, so no output of this script can go binary. */
+const escapeControls = (text: string): string =>
+  text.replace(CONTROL_CHARS_GLOBAL, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
 
 const snippet = (source: ts.SourceFile, node: ts.Node): string => {
   // Escape control characters — INCLUDING NUL — before the text leaves this
@@ -116,11 +285,7 @@ const snippet = (source: ts.SourceFile, node: ts.Node): string => {
   // sweep exists to route around (POD-758, POD-296, and engine.ts on this
   // branch). It also renders invisibly, so a NUL-separated key misreads as a
   // space-separated one. Escape first, report second.
-  const text = node
-    .getText(source)
-    .replace(CONTROL_CHARS, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`)
-    .replace(/\s+/g, ' ')
-    .trim()
+  const text = escapeControls(node.getText(source)).replace(/\s+/g, ' ').trim()
   return text.length > 160 ? `${text.slice(0, 157)}…` : text
 }
 
@@ -196,23 +361,39 @@ const usedAsKey = (node: ts.Node): boolean => {
   return false
 }
 
+/** This script and the fixture sampler report sites inside THEMSELVES (both build
+ *  keys and paths from parts), which makes the committed ledger churn every time
+ *  either file is edited — a diff that says nothing about the codebase being
+ *  inventoried. Excluded for that reason, not because tooling is out of scope:
+ *  every other file under scripts/ is swept. */
+const SELF_EXCLUDED = new Set([
+  'scripts/id-inventory-sweep.ts',
+  'packages/protocol/src/__fixtures__/sampler.ts',
+])
+
 const sweepFile = (file: string, sites: Site[]): void => {
   // Read as a buffer and decode: a NUL byte survives this path intact, where a
   // line-oriented tool would drop the whole file.
   const text = readFileSync(file).toString('utf8')
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const rel = relative(ROOT, file).split(sep).join('/')
+  if (SELF_EXCLUDED.has(rel)) return
   const isSchemaFile = /migrations\/schema\.ts$/.test(rel) || /\/schema\.ts$/.test(rel)
 
   const record = (node: ts.Node, kind: SiteKind, name: string): void => {
     const { line } = source.getLineAndCharacterOfPosition(node.getStart(source))
+    const text = snippet(source, node)
+    const correlation = CORRELATION.has(name)
+    const { owner, reason } = ownerFor(kind, name, text, correlation, isSchemaFile)
     sites.push({
       file: rel,
       line: line + 1,
       kind,
       name,
-      text: snippet(source, node),
-      correlation: CORRELATION.has(name),
+      owner,
+      ownerReason: reason,
+      text,
+      correlation,
     })
   }
 
@@ -287,6 +468,72 @@ const sweepFile = (file: string, sites: Site[]): void => {
       }
     }
 
+    // (3b) TAGGED IDENTITY — a single-substitution template with a literal PREFIX
+    //      (`automation:${id}`, `session:${id}`). A tag joined to an id is a
+    //      composite key with one part hidden in the prefix, and the tag is a
+    //      closed vocabulary living unparsed in a string. SessionMeta.spawnedBy is
+    //      the load-bearing instance. Gated on being used as a key OR assigned to
+    //      a field, so log lines with a prefix do not qualify.
+    if (ts.isTemplateExpression(node) && node.templateSpans.length === 1) {
+      const tag = node.head.text
+      const suffix = node.templateSpans[0]?.literal.text ?? ''
+      const looksTagged = /[:/|@#]$/.test(tag) && suffix === ''
+      const assignedToField =
+        node.parent !== undefined &&
+        ts.isPropertyAssignment(node.parent) &&
+        ts.isIdentifier(node.parent.name)
+      if (looksTagged && (usedAsKey(node) || assignedToField)) {
+        const field =
+          node.parent !== undefined &&
+          ts.isPropertyAssignment(node.parent) &&
+          ts.isIdentifier(node.parent.name)
+            ? node.parent.name.text
+            : 'key'
+        record(node, 'tagged-identity', `${field}=${tag}`)
+      }
+    }
+
+    // (3c) JOIN-CONSTRUCTED KEYS — `[a, b].join(sep)` and `xs.map(…).join(sep)`.
+    //      The gap a reviewer correctly called out: the template-literal detector
+    //      cannot see these, and the misses were real entity keys, including two
+    //      `*RunKey` helpers inside packages/protocol itself.
+    //
+    //      Counted when consumed as a key OR when the SEPARATOR ITSELF is
+    //      key-shaped. Nobody joins prose with a NUL: a control-character or
+    //      double-punctuation delimiter is an unambiguous declaration of intent,
+    //      and it catches the sites whose enclosing name gives no hint
+    //      (`conversationTieBreaker`).
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'join' &&
+      node.arguments.length === 1
+    ) {
+      const arg = node.arguments[0]
+      const separator = arg !== undefined && ts.isStringLiteral(arg) ? arg.text : undefined
+      if (separator !== undefined && separator !== '') {
+        const keyShapedSeparator =
+          KEY_SEPARATOR_CONTROLS.test(separator) || /^(\\|\\||::|\\|)$/.test(separator)
+        if (keyShapedSeparator || usedAsKey(node)) {
+          record(node, 'composite-key', `join(${escapeControls(separator)})`)
+        }
+      }
+    }
+
+    // (3d) CONCATENATED KEYS — `a + SEP + b` consumed as a key. Rarer than the
+    //      other two forms here, but it is the third way to build one and an
+    //      inventory that stops at two would be making the same mistake twice.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+      usedAsKey(node) &&
+      // Only when a literal separator appears somewhere in the chain, else every
+      // arithmetic sum used as a key qualifies.
+      /['"`]/.test(node.getText(source))
+    ) {
+      record(node, 'composite-key', 'concat(+)')
+    }
+
     ts.forEachChild(node, visit)
   }
 
@@ -312,15 +559,61 @@ const args = new Set(process.argv.slice(2))
 
 if (args.has('--json')) {
   console.log(JSON.stringify({ filesParsed: files.length, sites }, null, 2))
+} else if (args.has('--tsv')) {
+  // The committed ledger (docs/rearch-id-inventory.sites.tsv). Declaration-class,
+  // composite-key and tagged-identity rows: the ones needing a per-site decision.
+  const KEEP = new Set<SiteKind>([
+    'zod-field',
+    'sql-column',
+    'composite-key',
+    'tagged-identity',
+    'ts-property',
+  ])
+  console.log(
+    '# Generated by `bun run inventory:ids --tsv` (POD-360). One row per site, each with its',
+  )
+  console.log(
+    '# PER-SITE OWNER. Consequence classes (object-literal-field, comparison) are reproducible',
+  )
+  console.log('# from the script and not snapshotted — the flip enumerates them via type errors.')
+  console.log('# Control characters are ESCAPED, so this file never goes binary.')
+  console.log('file\tline\tkind\towner\tname\townerReason\ttext')
+  for (const site of sites) {
+    // D and E rows are decision-bearing BY DEFINITION, whatever their syntax
+    // class: a `'__local__'` default in an object literal is a POD-318 to-do and
+    // an attribution field is a POD-1075 to-do, and both would be dropped by the
+    // declaration-class filter. Filtering them out is how the committed ledger
+    // ends up claiming 3 placeholder sites where the prose says 13.
+    if (
+      !KEEP.has(site.kind) &&
+      site.owner !== 'D-delete-not-brand' &&
+      site.owner !== 'E-attribution'
+    ) {
+      continue
+    }
+    console.log(
+      [
+        site.file,
+        site.line,
+        site.kind,
+        site.owner,
+        site.name,
+        site.ownerReason,
+        site.text.replace(/\t/g, ' '),
+      ].join('\t'),
+    )
+  }
 } else if (args.has('--full')) {
   for (const site of sites) {
     console.log(
-      `${site.file}:${site.line}\t${site.kind}\t${site.name}${site.correlation ? '\t(correlation)' : ''}\t${site.text}`,
+      `${site.file}:${site.line}\t${site.kind}\t${site.owner}\t${site.name}\t${site.text}`,
     )
   }
 } else {
   const byKind = new Map<SiteKind, number>()
   for (const site of sites) byKind.set(site.kind, (byKind.get(site.kind) ?? 0) + 1)
+  const byOwner = new Map<Owner, number>()
+  for (const site of sites) byOwner.set(site.owner, (byOwner.get(site.owner) ?? 0) + 1)
   const byPackage = new Map<string, number>()
   for (const site of sites) {
     const key = site.file.split('/').slice(0, 2).join('/')
@@ -330,7 +623,11 @@ if (args.has('--json')) {
   console.log(`sites: ${sites.length}`)
   console.log('\nby kind:')
   for (const [kind, count] of [...byKind].sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${kind.padEnd(14)} ${count}`)
+    console.log(`  ${kind.padEnd(22)} ${count}`)
+  }
+  console.log('\nby PER-SITE owner:')
+  for (const [owner, count] of [...byOwner].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${owner.padEnd(22)} ${count}`)
   }
   console.log('\nby package (top 20):')
   for (const [pkg, count] of [...byPackage].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
