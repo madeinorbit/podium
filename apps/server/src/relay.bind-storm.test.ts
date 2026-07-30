@@ -37,7 +37,7 @@ describe('bind-storm regression', () => {
     // Settle setup: run any coalesced broadcast so the storm below starts clean.
     registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     inbox.length = 0
     return { registry, store, bound, inbox }
   }

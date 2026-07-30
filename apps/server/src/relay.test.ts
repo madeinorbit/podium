@@ -415,7 +415,7 @@ describe('SessionRegistry', () => {
     // A workflow-only session receives neither a synthetic user prompt nor a
     // composer draft, while still starting a run pinned to the revision.
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     const blankSessionId = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
@@ -526,7 +526,7 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
@@ -572,7 +572,7 @@ describe('SessionRegistry', () => {
     }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const sent: ServerMessage[] = []
-    expect(() => reg.modules.sessions.attachClient((m) => sent.push(m))).not.toThrow()
+    expect(() => reg.clientGateway.attachClient((m) => sent.push(m))).not.toThrow()
     expect(sent.some((m) => m.type === 'welcome')).toBe(true)
     expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
     const issues = sent.find((m) => m.type === 'issuesChanged')
@@ -719,8 +719,8 @@ describe('SessionRegistry', () => {
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'ping' })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'ping' })
     expect(c.sent).toContainEqual({ type: 'pong' })
   })
 
@@ -732,8 +732,8 @@ describe('SessionRegistry', () => {
     reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.gateway.routeDaemonFrame('local', bind(s2))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentFrame',
       sessionId: s1,
@@ -770,8 +770,8 @@ describe('SessionRegistry', () => {
       data: 'Qg==',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
   })
@@ -795,8 +795,8 @@ describe('SessionRegistry', () => {
       data: clearFrame,
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
   })
@@ -808,9 +808,9 @@ describe('SessionRegistry', () => {
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
     reg.gateway.routeDaemonFrame('local', bind(s1))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(id, { type: 'input', sessionId: s1, data: 'eA==' })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -827,9 +827,9 @@ describe('SessionRegistry', () => {
     reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.gateway.routeDaemonFrame('local', bind(s2))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
     expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === s2)?.epoch).toBe(0)
   })
 
@@ -840,17 +840,17 @@ describe('SessionRegistry', () => {
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
     reg.gateway.routeDaemonFrame('local', bind(s1))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(id, { type: 'presence', visible: true })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'presence', visible: true })
     // Real client order on a live foreground: the panel's effect fires before the
     // store's, so requestControl + the fitted resize arrive BEFORE viewState.
-    reg.modules.sessions.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // The viewVisible gate dropped it (the session isn't in viewState yet).
     expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // viewState lands → the dropped size self-heals instead of sticking at 80x24.
-    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
     expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
   })
 
@@ -863,14 +863,14 @@ describe('SessionRegistry', () => {
     reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.gateway.routeDaemonFrame('local', bind(s2))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s2 })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s2 })
 
     // A resize for hidden s2 is remembered for s2 only. When viewState later says
     // s1 is visible, reconciliation must not apply s2's small grid to s1.
-    reg.modules.sessions.onClientMessage(id, { type: 'resize', sessionId: s2, cols: 40, rows: 12 })
-    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+    reg.clientGateway.routeClientFrame(id, { type: 'resize', sessionId: s2, cols: 40, rows: 12 })
+    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1], focused: s1 })
 
     expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 40, rows: 12 })
   })
@@ -996,8 +996,8 @@ describe('SessionRegistry', () => {
     const reg = new SessionRegistry(store)
     // A client renders 'visible' + 'focused' and focuses 'focused' — viewState is
     // server-authoritative, same tiers the output scheduler uses.
-    const clientId = reg.modules.sessions.attachClient(() => {})
-    reg.modules.sessions.onClientMessage(clientId, {
+    const clientId = reg.clientGateway.attachClient(() => {})
+    reg.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
       visible: ['visible', 'focused'],
       focused: 'focused',
@@ -1036,7 +1036,7 @@ describe('SessionRegistry', () => {
       diagnostics: [],
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
     expect(c.sent).toContainEqual({
@@ -1059,7 +1059,7 @@ describe('SessionRegistry', () => {
     reg.gateway.attachDaemon('local', () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1113,7 +1113,7 @@ describe('SessionRegistry', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1143,7 +1143,7 @@ describe('SessionRegistry', () => {
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon('local', (m) => daemon.push(m))
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
     const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
@@ -1217,7 +1217,7 @@ describe('SessionRegistry', () => {
       cwd: '/proj',
     })
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0 // drop the welcome + initial sessionsChanged
 
     reg.gateway.routeDaemonFrame('local', {
@@ -1244,7 +1244,7 @@ describe('SessionRegistry', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
     reg.gateway.routeDaemonFrame('local', {
       type: 'title',
@@ -1304,10 +1304,10 @@ describe('SessionRegistry', () => {
     reg.gateway.attachDaemon('local', () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
-    const cid = reg.modules.sessions.attachClient(sink().send) // first client → controller
-    reg.modules.sessions.onClientMessage(cid, { type: 'attach', sessionId })
+    const cid = reg.clientGateway.attachClient(sink().send) // first client → controller
+    reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
     const spy = vi.spyOn(store.sessions, 'upsertSession')
-    reg.modules.sessions.onClientMessage(cid, {
+    reg.clientGateway.routeClientFrame(cid, {
       type: 'input',
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
@@ -1341,14 +1341,14 @@ describe('SessionRegistry', () => {
       title: 'old',
     })
     reg1.gateway.routeDaemonFrame('local', bind(sessionId))
-    const clientId = reg1.modules.sessions.attachClient(sink().send)
-    reg1.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
-    reg1.modules.sessions.onClientMessage(clientId, {
+    const clientId = reg1.clientGateway.attachClient(sink().send)
+    reg1.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
+    reg1.clientGateway.routeClientFrame(clientId, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
-    reg1.modules.sessions.onClientMessage(clientId, {
+    reg1.clientGateway.routeClientFrame(clientId, {
       type: 'resize',
       sessionId,
       cols: 173,
@@ -1498,8 +1498,8 @@ describe('host metrics relay', () => {
     const reg = new SessionRegistry()
     const a = sink()
     const b = sink()
-    reg.modules.sessions.attachClient(a.send)
-    reg.modules.sessions.attachClient(b.send)
+    reg.clientGateway.attachClient(a.send)
+    reg.clientGateway.attachClient(b.send)
     reg.gateway.routeDaemonFrame('local', sample('podium-host'))
     reg.gateway.routeDaemonFrame('local', sample('podium-host', 8)) // newer sample replaces, not appends
     const last = metricsMsgs(a.sent).at(-1)
@@ -1524,7 +1524,7 @@ describe('host metrics relay', () => {
     reg.gateway.attachDaemon('m-alpha', () => {})
     reg.gateway.attachDaemon('m-beta', () => {})
     const a = sink()
-    reg.modules.sessions.attachClient(a.send)
+    reg.clientGateway.attachClient(a.send)
     reg.gateway.routeDaemonFrame('m-alpha', sample('alpha'))
     reg.gateway.routeDaemonFrame('m-beta', sample('beta'))
     const hosts = metricsMsgs(a.sent)
@@ -1537,7 +1537,7 @@ describe('host metrics relay', () => {
     const reg = new SessionRegistry()
     reg.gateway.routeDaemonFrame('local', sample('podium-host'))
     const late = sink()
-    reg.modules.sessions.attachClient(late.send)
+    reg.clientGateway.attachClient(late.send)
     expect(metricsMsgs(late.sent).at(-1)?.hosts).toEqual([
       expect.objectContaining({ hostname: 'podium-host' }),
     ])
@@ -1546,7 +1546,7 @@ describe('host metrics relay', () => {
   it('clears and re-broadcasts when the daemon detaches (stale numbers never linger)', () => {
     const reg = new SessionRegistry()
     const a = sink()
-    reg.modules.sessions.attachClient(a.send)
+    reg.clientGateway.attachClient(a.send)
     reg.gateway.attachDaemon('local', () => {})
     reg.gateway.routeDaemonFrame('local', sample('podium-host'))
     reg.gateway.detachDaemon('local')
@@ -1614,7 +1614,7 @@ describe('agent state', () => {
       cwd: '/proj',
     })
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     client.sent.length = 0
     reg.gateway.routeDaemonFrame('local', {
       type: 'agentState',
@@ -1638,7 +1638,7 @@ describe('agent state', () => {
       cwd: '/proj',
     })
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     client.sent.length = 0
 
     const send = (phase: 'working' | 'idle', workingMsTotal: number, since: string): void => {
@@ -1731,8 +1731,8 @@ describe('agent state', () => {
         title: 'keyboard',
       })
       const hidden = sink()
-      const hiddenId = reg.modules.sessions.attachClient(hidden.send)
-      reg.modules.sessions.onClientMessage(hiddenId, { type: 'presence', visible: false })
+      const hiddenId = reg.clientGateway.attachClient(hidden.send)
+      reg.clientGateway.routeClientFrame(hiddenId, { type: 'presence', visible: false })
       hidden.sent.length = 0
 
       reg.gateway.routeDaemonFrame('local', {
@@ -1764,8 +1764,8 @@ describe('agent state', () => {
       ntfy.mockClear()
       telegram.mockClear()
       const visible = sink()
-      const visibleId = reg.modules.sessions.attachClient(visible.send)
-      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
+      const visibleId = reg.clientGateway.attachClient(visible.send)
+      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
       reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
         sessionId,
@@ -1804,8 +1804,8 @@ describe('agent state', () => {
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
       const visible = sink()
-      const visibleId = reg.modules.sessions.attachClient(visible.send)
-      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
+      const visibleId = reg.clientGateway.attachClient(visible.send)
+      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
 
       const notice = { title: 'Podium: issue.closed', body: 'issue.closed fired for iss_x' }
       reg.modules.notify.notifyExternal(notice)
@@ -1913,8 +1913,8 @@ describe('agent state', () => {
         title: 'keyboard',
       })
       const visible = sink()
-      const visibleId = reg.modules.sessions.attachClient(visible.send)
-      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
+      const visibleId = reg.clientGateway.attachClient(visible.send)
+      reg.clientGateway.routeClientFrame(visibleId, { type: 'presence', visible: true })
 
       reg.gateway.routeDaemonFrame('local', {
         type: 'agentState',
@@ -1972,10 +1972,10 @@ describe('structured transcript channel', () => {
       cwd: '/w',
     })
     const client = sink()
-    const clientId = reg.modules.sessions.attachClient(client.send)
+    const clientId = reg.clientGateway.attachClient(client.send)
     // Empty cache → subscribe sends no replay delta (NOT a snapshot/reset — the
     // client loads its history off disk via transcriptRead, not the stream).
-    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
     expect(client.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
     const item = { id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }
@@ -2028,8 +2028,8 @@ describe('structured transcript channel', () => {
 
     // since=c1 → replay strictly after it (b, c).
     const known = sink()
-    const knownId = reg.modules.sessions.attachClient(known.send)
-    reg.modules.sessions.onClientMessage(knownId, {
+    const knownId = reg.clientGateway.attachClient(known.send)
+    reg.clientGateway.routeClientFrame(knownId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c1',
@@ -2040,8 +2040,8 @@ describe('structured transcript channel', () => {
 
     // since unknown to the cache → replay the whole cache (client cursor-dedups).
     const stale = sink()
-    const staleId = reg.modules.sessions.attachClient(stale.send)
-    reg.modules.sessions.onClientMessage(staleId, {
+    const staleId = reg.clientGateway.attachClient(stale.send)
+    reg.clientGateway.routeClientFrame(staleId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c0-older',
@@ -2052,8 +2052,8 @@ describe('structured transcript channel', () => {
 
     // since = the newest cached cursor → nothing after it, send nothing.
     const caught = sink()
-    const caughtId = reg.modules.sessions.attachClient(caught.send)
-    reg.modules.sessions.onClientMessage(caughtId, {
+    const caughtId = reg.clientGateway.attachClient(caught.send)
+    reg.clientGateway.routeClientFrame(caughtId, {
       type: 'transcriptSubscribe',
       sessionId,
       since: 'c3',
@@ -2069,9 +2069,9 @@ describe('structured transcript channel', () => {
       cwd: '/w',
     })
     const client = sink()
-    const clientId = reg.modules.sessions.attachClient(client.send)
-    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
-    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
+    const clientId = reg.clientGateway.attachClient(client.send)
+    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.clientGateway.routeClientFrame(clientId, { type: 'transcriptUnsubscribe', sessionId })
     // Count transcript-stream frames only: the first delta flips the session's
     // transcriptAvailable flag, which broadcasts a sessionsChanged to every
     // client (subscribed or not) — that capability flip is not a stream frame.
@@ -2093,7 +2093,7 @@ describe('structured transcript channel', () => {
       cwd: '/w',
     })
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     reg.gateway.routeDaemonFrame('local', {
       type: 'transcriptDelta',
       sessionId,
@@ -2118,7 +2118,7 @@ describe('structured transcript channel', () => {
       cwd: '/w',
     })
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     // The user opened the session by typing `/model`. Claude records that turn as a
     // pseudo-XML wrapper, NOT as a prompt — titling from it used to produce the
     // literal "<command-name>/model</command-name>" and lock it in forever.
@@ -2159,7 +2159,7 @@ describe('structured transcript channel', () => {
       cwd: '/w',
     })
     const client = sink()
-    reg.modules.sessions.attachClient(client.send)
+    reg.clientGateway.attachClient(client.send)
     reg.gateway.routeDaemonFrame('local', {
       type: 'title',
       sessionId,
@@ -2914,9 +2914,9 @@ describe('hibernation', () => {
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     // Controller types just now — recent input must veto hibernation.
     const c = sink()
-    const idC = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(idC, { type: 'attach', sessionId })
-    reg.modules.sessions.onClientMessage(idC, { type: 'input', sessionId, data: 'eA==' })
+    const idC = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(idC, { type: 'attach', sessionId })
+    reg.clientGateway.routeClientFrame(idC, { type: 'input', sessionId, data: 'eA==' })
     reg.gateway.routeDaemonFrame('local', {
       type: 'hostMetrics',
       hostname: 'box',
@@ -2939,9 +2939,9 @@ describe('reconnect identity (hello reclaim)', () => {
 
     // First socket: attaches and becomes controller; its input flows.
     const a = sink()
-    const idA = reg.modules.sessions.attachClient(a.send)
-    reg.modules.sessions.onClientMessage(idA, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
+    const idA = reg.clientGateway.attachClient(a.send)
+    reg.clientGateway.routeClientFrame(idA, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -2952,13 +2952,13 @@ describe('reconnect identity (hello reclaim)', () => {
     // The socket goes half-open; a new socket connects and re-presents idA in hello,
     // then re-attaches the way the client does on reconnect.
     const b = sink()
-    const idB = reg.modules.sessions.attachClient(b.send)
-    reg.modules.sessions.onClientMessage(idB, { type: 'hello', clientId: idA, viewport: VP })
-    reg.modules.sessions.onClientMessage(idB, { type: 'attach', sessionId: s1 })
+    const idB = reg.clientGateway.attachClient(b.send)
+    reg.clientGateway.routeClientFrame(idB, { type: 'hello', clientId: idA, viewport: VP })
+    reg.clientGateway.routeClientFrame(idB, { type: 'attach', sessionId: s1 })
 
     daemon.length = 0
     // B now drives input (it inherited control)...
-    reg.modules.sessions.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
+    reg.clientGateway.routeClientFrame(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
     expect(daemon).toContainEqual({
       type: 'input',
       sessionId: s1,
@@ -2966,7 +2966,7 @@ describe('reconnect identity (hello reclaim)', () => {
       inputOrigin: 'human',
     })
     // ...and the stale A is gone: its messages are dropped, not honored.
-    reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
+    reg.clientGateway.routeClientFrame(idA, { type: 'input', sessionId: s1, data: 'eg==' })
     expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })
   })
 
@@ -2974,9 +2974,9 @@ describe('reconnect identity (hello reclaim)', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
     expect(() =>
-      reg.modules.sessions.onClientMessage(id, {
+      reg.clientGateway.routeClientFrame(id, {
         type: 'hello',
         clientId: 'c-stale-gone',
         viewport: VP,
@@ -3008,9 +3008,9 @@ describe('reconnect identity (hello reclaim)', () => {
       const sessionId = seedSession(reg)
       const a: ServerMessage[] = []
       const b: ServerMessage[] = []
-      const idA = reg.modules.sessions.attachClient((m) => a.push(m))
-      reg.modules.sessions.attachClient((m) => b.push(m))
-      reg.modules.sessions.onClientMessage(idA, {
+      const idA = reg.clientGateway.attachClient((m) => a.push(m))
+      reg.clientGateway.attachClient((m) => b.push(m))
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: 'half typed',
@@ -3030,11 +3030,11 @@ describe('reconnect identity (hello reclaim)', () => {
       // draft now shares it (§3.1.5).
       const reg = new SessionRegistry()
       const seen: ServerMessage[] = []
-      const idA = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.attachClient((m) => seen.push(m))
+      const idA = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.attachClient((m) => seen.push(m))
 
       expect(() =>
-        reg.modules.sessions.onClientMessage(idA, {
+        reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId: 'no-such-session',
           text: 'into the void',
@@ -3048,22 +3048,22 @@ describe('reconnect identity (hello reclaim)', () => {
     it('replays stored drafts to a freshly connected client', () => {
       const reg = new SessionRegistry()
       const sessionId = seedSession(reg)
-      const idA = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.onClientMessage(idA, {
+      const idA = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: 'wip',
       })
       const c: ServerMessage[] = []
-      reg.modules.sessions.attachClient((m) => c.push(m))
+      reg.clientGateway.attachClient((m) => c.push(m))
       expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId, text: 'wip' })
     })
 
     it('clears a draft when text is empty', () => {
       const reg = new SessionRegistry()
       const sessionId = seedSession(reg)
-      const idA = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.onClientMessage(idA, {
+      const idA = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: 'wip',
@@ -3074,8 +3074,8 @@ describe('reconnect identity (hello reclaim)', () => {
       // rather than the row, because persistence is debounced and the row would not
       // be there yet even on the happy path.
       const watcher: ServerMessage[] = []
-      reg.modules.sessions.attachClient((m) => watcher.push(m))
-      reg.modules.sessions.onClientMessage(idA, {
+      reg.clientGateway.attachClient((m) => watcher.push(m))
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: 'wip again',
@@ -3086,14 +3086,14 @@ describe('reconnect identity (hello reclaim)', () => {
         text: 'wip again',
       })
 
-      reg.modules.sessions.onClientMessage(idA, {
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'setSessionDraft',
         sessionId,
         text: '',
       })
       expect(reg.sessionStore.sessions.loadDrafts()[sessionId]).toBeUndefined()
       const c: ServerMessage[] = []
-      reg.modules.sessions.attachClient((m) => c.push(m))
+      reg.clientGateway.attachClient((m) => c.push(m))
       expect(c.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
     })
 
@@ -3105,8 +3105,8 @@ describe('reconnect identity (hello reclaim)', () => {
         const store = new SessionStore(dbPath)
         const reg = new SessionRegistry(store)
         const sessionId = seedSession(reg)
-        const idA = reg.modules.sessions.attachClient(() => {})
-        reg.modules.sessions.onClientMessage(idA, {
+        const idA = reg.clientGateway.attachClient(() => {})
+        reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId,
           text: 'real work',
@@ -3122,7 +3122,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const store2 = new SessionStore(dbPath)
         const reg2 = new SessionRegistry(store2)
         const c: ServerMessage[] = []
-        reg2.modules.sessions.attachClient((m) => c.push(m))
+        reg2.clientGateway.attachClient((m) => c.push(m))
         expect(c).toContainEqual({
           type: 'sessionDraftChanged',
           sessionId,
@@ -3140,8 +3140,8 @@ describe('reconnect identity (hello reclaim)', () => {
         const store = new SessionStore(':memory:')
         const reg = new SessionRegistry(store)
         const sessionId = seedSession(reg)
-        const idA = reg.modules.sessions.attachClient(() => {})
-        reg.modules.sessions.onClientMessage(idA, {
+        const idA = reg.clientGateway.attachClient(() => {})
+        reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId,
           text: 'about to send',
@@ -3151,7 +3151,7 @@ describe('reconnect identity (hello reclaim)', () => {
         // a presence (this test asserted an absence that a refused write also gives).
         expect(store.sessions.loadDrafts()[sessionId]).toBe('about to send')
 
-        reg.modules.sessions.onClientMessage(idA, {
+        reg.clientGateway.routeClientFrame(idA, {
           type: 'setSessionDraft',
           sessionId,
           text: '',
@@ -3183,9 +3183,9 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const { reg } = flaggedReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
-    const idA = reg.modules.sessions.attachClient((m) => a.push(m))
-    reg.modules.sessions.attachClient((m) => b.push(m))
-    reg.modules.sessions.onClientMessage(idA, {
+    const idA = reg.clientGateway.attachClient((m) => a.push(m))
+    reg.clientGateway.attachClient((m) => b.push(m))
+    reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: 'sess',
       baseRev: 0,
@@ -3199,15 +3199,15 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
   it('assigns monotonically increasing revs', () => {
     const { reg } = flaggedReg()
     const b: ServerMessage[] = []
-    const idA = reg.modules.sessions.attachClient(() => {})
-    reg.modules.sessions.attachClient((m) => b.push(m))
-    reg.modules.sessions.onClientMessage(idA, {
+    const idA = reg.clientGateway.attachClient(() => {})
+    reg.clientGateway.attachClient((m) => b.push(m))
+    reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: 's',
       baseRev: 0,
       text: 'a',
     })
-    reg.modules.sessions.onClientMessage(idA, {
+    reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: 's',
       baseRev: 1,
@@ -3223,9 +3223,9 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const { reg } = flaggedReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
-    const idA = reg.modules.sessions.attachClient((m) => a.push(m))
-    const idB = reg.modules.sessions.attachClient((m) => b.push(m))
-    reg.modules.sessions.onClientMessage(idA, {
+    const idA = reg.clientGateway.attachClient((m) => a.push(m))
+    const idB = reg.clientGateway.attachClient((m) => b.push(m))
+    reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
       sessionId: 's',
       baseRev: 0,
@@ -3233,7 +3233,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     })
     a.length = 0
     b.length = 0
-    reg.modules.sessions.onClientMessage(idB, {
+    reg.clientGateway.routeClientFrame(idB, {
       type: 'draftEdit',
       sessionId: 's',
       baseRev: 0,
@@ -3249,7 +3249,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     const { reg } = flaggedReg()
     reg.gateway.attachDaemon('local', () => {})
     const c: ServerMessage[] = []
-    reg.modules.sessions.attachClient((m) => c.push(m))
+    reg.clientGateway.attachClient((m) => c.push(m))
     reg.gateway.routeDaemonFrame('local', {
       type: 'nativeDraft',
       sessionId: 'sess',
@@ -3272,9 +3272,9 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
         agentKind: 'claude-code',
         cwd: '/p',
       })
-      const idA = reg.modules.sessions.attachClient(() => {})
+      const idA = reg.clientGateway.attachClient(() => {})
       daemonMsgs.length = 0
-      reg.modules.sessions.onClientMessage(idA, {
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'draftEdit',
         sessionId,
         baseRev: 0,
@@ -3300,8 +3300,8 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
         cwd: '/p',
       })
       vi.setSystemTime(new Date('2026-07-17T12:05:00.000Z'))
-      const idA = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.onClientMessage(idA, {
+      const idA = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.routeClientFrame(idA, {
         type: 'draftEdit',
         sessionId,
         baseRev: 0,
@@ -3328,9 +3328,9 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
     // see the note in the 'session draft sync' describe above.
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const b: ServerMessage[] = []
-    const idA = reg.modules.sessions.attachClient(() => {})
-    reg.modules.sessions.attachClient((m) => b.push(m))
-    reg.modules.sessions.onClientMessage(idA, {
+    const idA = reg.clientGateway.attachClient(() => {})
+    reg.clientGateway.attachClient((m) => b.push(m))
+    reg.clientGateway.routeClientFrame(idA, {
       type: 'setSessionDraft',
       sessionId,
       text: 'legacy',
@@ -3379,7 +3379,7 @@ describe('SessionRegistry read state (#124)', () => {
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
 
     reg.modules.sessions.markSessionRead(sessionId)
@@ -3406,7 +3406,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
-    reg.modules.sessions.attachClient(c.send)
+    reg.clientGateway.attachClient(c.send)
     c.sent.length = 0
     reg.modules.sessions.markSessionUnread(sessionId)
     reg.modules.sessions.flushBroadcasts()
@@ -3626,10 +3626,10 @@ describe('output-relay priority + frame batch', () => {
       cwd: '/w',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
     daemon.length = 0 // drop the spawn + daemon-connect priority push
 
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -3646,9 +3646,9 @@ describe('output-relay priority + frame batch', () => {
       cwd: '/w',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
 
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -3666,16 +3666,16 @@ describe('output-relay priority + frame batch', () => {
       cwd: '/w',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
 
     // First set a mode, then send a modes-less viewState — it must reset, not retain.
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
       modes: { [sessionId]: 'native' },
     })
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -3688,7 +3688,7 @@ describe('output-relay priority + frame batch', () => {
     const reg = new SessionRegistry()
     reg.gateway.attachDaemon('local', () => {})
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
     expect((reg as any).modules.sessions.clients.get(id).viewModes).toEqual({})
   })
 
@@ -3702,10 +3702,10 @@ describe('output-relay priority + frame batch', () => {
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
     const s2 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
     daemon.length = 0
 
-    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
+    reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
     const sent = priorities(daemon)
     expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
     expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
@@ -3720,16 +3720,16 @@ describe('output-relay priority + frame batch', () => {
       cwd: '/w',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
+    const id = reg.clientGateway.attachClient(c.send)
 
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
     daemon.length = 0
     // An identical viewState changes nothing → no re-send.
-    reg.modules.sessions.onClientMessage(id, {
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -3745,8 +3745,8 @@ describe('output-relay priority + frame batch', () => {
       cwd: '/w',
     })
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, {
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -3772,8 +3772,8 @@ describe('output-relay priority + frame batch', () => {
     })
     reg.gateway.routeDaemonFrame('local', bind(sessionId))
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId })
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId })
     c.sent.length = 0
 
     reg.gateway.routeDaemonFrame('local', {

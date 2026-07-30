@@ -125,15 +125,15 @@ describe('SessionsService publication worker integration', () => {
       }),
     })
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
-    registry.modules.sessions.attachClient((message) => objectMessages.push(message), {
+    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
       sendPrepared: (bytes) => aliceA.push(bytes),
       ...authority('alice', [aliceSession]),
     })
-    registry.modules.sessions.attachClient((message) => objectMessages.push(message), {
+    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
       sendPrepared: (bytes) => aliceB.push(bytes),
       ...authority('alice', [aliceSession]),
     })
-    registry.modules.sessions.attachClient((message) => objectMessages.push(message), {
+    registry.clientGateway.attachClient((message) => objectMessages.push(message), {
       sendPrepared: (bytes) => bob.push(bytes),
       ...authority('bob', [bobSession]),
     })
@@ -166,7 +166,7 @@ describe('SessionsService publication worker integration', () => {
     let allowed = [first, revoked]
     const encoded: string[] = []
     const objectMessages: ServerMessage[] = []
-    const clientId = registry.modules.sessions.attachClient(
+    const clientId = registry.clientGateway.attachClient(
       (message) => objectMessages.push(message),
       {
         sendPrepared: (bytes) => encoded.push(bytes),
@@ -182,7 +182,7 @@ describe('SessionsService publication worker integration', () => {
         }),
       },
     )
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -225,7 +225,7 @@ describe('SessionsService publication worker integration', () => {
     const attach = (principal: string, allowedSessionIds: string[]) => {
       const encoded: string[] = []
       const objects: ServerMessage[] = []
-      const id = registry.modules.sessions.attachClient((message) => objects.push(message), {
+      const id = registry.clientGateway.attachClient((message) => objects.push(message), {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal,
         scope: 'principal:' + principal,
@@ -238,7 +238,7 @@ describe('SessionsService publication worker integration', () => {
           allowedSessionIds,
         }),
       })
-      registry.modules.sessions.onClientMessage(id, {
+      registry.clientGateway.routeClientFrame(id, {
         type: 'hello',
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -295,7 +295,7 @@ describe('SessionsService publication worker integration', () => {
     }).sessionId
     registry.modules.sessions.flushBroadcasts()
     const encoded: string[] = []
-    const clientId = registry.modules.sessions.attachClient(() => {}, {
+    const clientId = registry.clientGateway.attachClient(() => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'operator',
       scope: 'all',
@@ -308,7 +308,7 @@ describe('SessionsService publication worker integration', () => {
         allowedSessionIds: [],
       }),
     })
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -384,7 +384,7 @@ describe('SessionsService publication worker integration', () => {
     }).sessionId
     registry.modules.sessions.flushBroadcasts()
     const encoded: string[] = []
-    const clientId = registry.modules.sessions.attachClient(() => {}, {
+    const clientId = registry.clientGateway.attachClient(() => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'operator',
       scope: 'all',
@@ -397,7 +397,7 @@ describe('SessionsService publication worker integration', () => {
         allowedSessionIds: [],
       }),
     })
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -421,7 +421,7 @@ describe('SessionsService publication worker integration', () => {
     registry.modules.sessions.flushBroadcasts()
 
     const encoded: string[] = []
-    registry.modules.sessions.attachClient(() => {}, {
+    registry.clientGateway.attachClient(() => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -456,7 +456,7 @@ describe('SessionsService publication worker integration', () => {
     registry.modules.sessions.flushBroadcasts()
 
     const encoded: string[] = []
-    const clientId = registry.modules.sessions.attachClient(() => {}, {
+    const clientId = registry.clientGateway.attachClient(() => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -469,7 +469,7 @@ describe('SessionsService publication worker integration', () => {
         allowedSessionIds: [sessionId],
       }),
     })
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -530,7 +530,7 @@ describe('SessionsService publication worker integration', () => {
     let revision = 1
     let allowed = [first, revoked]
     const encoded: string[] = []
-    const clientId = registry.modules.sessions.attachClient(() => {}, {
+    const clientId = registry.clientGateway.attachClient(() => {}, {
       sendPrepared: (bytes) => encoded.push(bytes),
       principal: 'alice',
       scope: 'principal:alice',
@@ -545,7 +545,7 @@ describe('SessionsService publication worker integration', () => {
     })
     workers.at(-1)?.reply()
     await until(() => encoded.length === 1)
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -599,7 +599,7 @@ describe('SessionsService publication worker integration', () => {
       },
     ) => {
       const encoded: string[] = []
-      const id = registry.modules.sessions.attachClient(() => {}, {
+      const id = registry.clientGateway.attachClient(() => {}, {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal,
         scope: `principal:${principal}`,
@@ -608,7 +608,7 @@ describe('SessionsService publication worker integration', () => {
         global: false,
         snapshot,
       })
-      registry.modules.sessions.onClientMessage(id, {
+      registry.clientGateway.routeClientFrame(id, {
         type: 'hello',
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -687,7 +687,7 @@ describe('SessionsService publication worker integration', () => {
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
     const publications = Array.from({ length: 4 }, () => [] as string[])
     for (const encoded of publications) {
-      registry.modules.sessions.attachClient(() => {}, {
+      registry.clientGateway.attachClient(() => {}, {
         sendPrepared: (bytes) => encoded.push(bytes),
         principal: 'operator',
         scope: 'all',

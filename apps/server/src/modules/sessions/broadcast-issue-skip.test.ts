@@ -20,7 +20,7 @@ describe('POD-722 session broadcast skips issue republish when no issue field ch
     reg.gateway.routeDaemonFrame('local', bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    const clientId = reg.modules.sessions.attachClient((m) => inbox.push(m))
+    const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
     reg.modules.sessions.flushBroadcasts()
     // Clear the bootstrap traffic; from here on we watch only what our churn emits.
     inbox.length = 0
@@ -32,8 +32,8 @@ describe('POD-722 session broadcast skips issue republish when no issue field ch
 
     // A full session switch: attach the new session, detach the old — only
     // clientCount/controllerId move, so no issue payload can change.
-    reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId: s1 })
-    reg.modules.sessions.onClientMessage(clientId, { type: 'detach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId: s1 })
+    reg.clientGateway.routeClientFrame(clientId, { type: 'detach', sessionId: s1 })
     reg.modules.sessions.flushBroadcasts()
 
     expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)

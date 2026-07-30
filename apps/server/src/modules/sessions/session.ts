@@ -49,53 +49,17 @@ export interface ClientPublicationAuthority extends PublicationAuthority {
   sendPrepared: Send<string>
 }
 
-export interface ClientConn {
-  id: string
-  send: Send<ServerMessage>
-  publication?: ClientPublicationAuthority
-  /** A current worker publication has reached this socket. */
-  publicationBootstrapped?: boolean
-  publicationPending?: boolean
-  publicationRequestVersion?: number
-  publicationAccepted?: {
-    viewKey: string
-    viewRevision: number
-    allowedSignature: string
-    cursor: number
-    allowedSessionIds: readonly string[]
-  }
-  /** A revocation frame was emitted and must be followed by a replacement. */
-  publicationReplacementRequired?: boolean
-  /** Previously-visible ids already removed while a replacement is pending. */
-  publicationRevokedSessionIds?: Set<string>
-  /** Global-only funnel frames held behind an in-flight bootstrap/replacement. */
-  publicationBufferedChanges?: MetadataChange[][]
-  /** Last grid this client measured for each terminal it mounted. Geometry is
-   * session-specific: split panes can have different widths, and the 80x24
-   * viewport in `hello` is only a transport bootstrap default. Sharing one
-   * viewport across sessions can resize the foreground PTY from another pane. */
-  viewports: Map<string, Geometry>
-  attached: Set<string>
-  /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
-   *  hello arrives, so a pre-hello client is treated as legacy — it receives
-   *  snapshot broadcasts, never deltas it hasn't asked for. */
-  caps: Set<string>
-  /** Session ids this client subscribed to the structured transcript of. Lets
-   *  detachClient sweep just this client's subscriptions instead of scanning every
-   *  session on the host (audit P2-18). */
-  transcriptSubs: Set<string>
-  /** Page-visibility presence — drives smart notification routing. */
-  visible: boolean
-  /** Sessions this client currently RENDERS on screen (from viewState). */
-  viewVisible: Set<string>
-  /** The one session that has input focus on this client, or null. */
-  focused: string | null
-  /** Per-session rendered mode (native terminal vs chat) this client reports for the
-   *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
-   *  deliberately UNUSED by output scheduling — computePriorities never reads it, so
-   *  relay/coalescing stays mode-agnostic (the terminal stays warm for native bounce-back). */
-  viewModes: Record<string, 'native' | 'chat'>
-}
+/**
+ * ONE CLIENT CONNECTION — DEFINED IN THE GATEWAY (POD-390).
+ *
+ * The record holds the socket (`send` closes over a `ws`), so it moved to
+ * `gateway/client-registry.ts` with the connection set itself. A session reads
+ * a client's subscription state and delivers to it; it does not own it.
+ * Imported (not re-exported) so there is exactly ONE definition site and no
+ * forwarding shim: `Session` takes one as an argument, and every other consumer
+ * imports it from the gateway too.
+ */
+import type { ClientConn } from '../../gateway/client-registry'
 
 export interface SessionInit {
   sessionId: string

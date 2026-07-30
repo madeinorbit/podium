@@ -62,8 +62,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // A client attached from the start observes everything live.
     const witness = sink()
-    const witnessId = reg.modules.sessions.attachClient(witness.send)
-    reg.modules.sessions.onClientMessage(witnessId, { type: 'attach', sessionId })
+    const witnessId = reg.clientGateway.attachClient(witness.send)
+    reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
     // IGNORED: the server assigns its own monotonic seq starting at 0.
@@ -121,8 +121,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
-    const resumerId = reg.modules.sessions.attachClient(resumer.send)
-    reg.modules.sessions.onClientMessage(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
+    const resumerId = reg.clientGateway.attachClient(resumer.send)
+    reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
       epoch: 0,
@@ -138,8 +138,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
     // not dropped by the reconnect.
     const fresh = sink()
-    const freshId = reg.modules.sessions.attachClient(fresh.send)
-    reg.modules.sessions.onClientMessage(freshId, { type: 'attach', sessionId })
+    const freshId = reg.clientGateway.attachClient(fresh.send)
+    reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
       0, 1, 2, 3, 4,
@@ -204,8 +204,8 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
     const c = sink()
-    const id = reg.modules.sessions.attachClient(c.send)
-    reg.modules.sessions.onClientMessage(id, {
+    const id = reg.clientGateway.attachClient(c.send)
+    reg.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },

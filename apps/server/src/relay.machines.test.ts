@@ -165,7 +165,7 @@ describe('multi-daemon routing', () => {
   it('host metrics are scoped per machine', () => {
     const { reg } = regWithTwoDaemons()
     const sent: import('@podium/protocol').ServerMessage[] = []
-    reg.modules.sessions.attachClient((m) => sent.push(m))
+    reg.clientGateway.attachClient((m) => sent.push(m))
     reg.gateway.routeDaemonFrame('m1', {
       type: 'hostMetrics',
       hostname: 'one',
@@ -514,7 +514,7 @@ describe('session handoff orchestration', () => {
     try {
       const { reg, sessionId } = await handoffRegistry()
       const client: ServerMessage[] = []
-      reg.modules.sessions.attachClient((message) => client.push(message))
+      reg.clientGateway.attachClient((message) => client.push(message))
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(client.filter((m) => m.type === 'worktreesChanged')).toEqual([
         { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },

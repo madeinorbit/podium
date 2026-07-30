@@ -29,6 +29,9 @@ import { AgentKind, asIssueId } from '@podium/model'
 export type SessionWirePrincipal = ActorRef
 
 import type { MachinePrincipal } from '@podium/protocol'
+import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
+import type { ClientPrincipal } from '../../gateway/client-principal'
+import { type ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
@@ -122,7 +125,6 @@ import {
   type PublishWorkerMetrics,
 } from './publish-worker-client'
 import {
-  type ClientConn,
   type ClientPublicationAuthority,
   type PublicationAuthority,
   type Send,
@@ -267,6 +269,24 @@ interface SessionsServiceDeps {
   /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
    *  write + declared session change atomically; loadFromStore reconciles. */
   ledger: SessionLedger
+  /**
+   * THE GATEWAY's client connection set (POD-390). Threaded in rather than
+   * constructed here: the mux owns the lifecycle, and a service-built registry
+   * would be a second connection set.
+   *
+   * Optional for the same reason `mutations` is — the ~40 test fixtures that
+   * build a bare service literal keep compiling, and absent means a private
+   * registry that only this service can reach (no socket can ever enter it), the
+   * client-plane mirror of the daemon mux's in-process peer form.
+   */
+  clients?: ClientRegistry
+  /**
+   * Evict a client connection through the GATEWAY (registry removal + the sweep),
+   * for the one place a feature initiates a disconnect: the reconnect reclaim,
+   * where a client's `hello` supersedes its own previous socket. Absent = the
+   * in-process fallback below.
+   */
+  disconnectClient?(id: string): void
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
   /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
@@ -330,7 +350,16 @@ export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
   readonly sessions = new Map<string, Session>()
-  readonly clients = new Map<string, ClientConn>()
+  /**
+   * THE CLIENT CONNECTION SET — OWNED BY THE GATEWAY (POD-390).
+   *
+   * Held as a reference, not constructed here: `gateway/client-mux.ts` adds and
+   * removes entries, and this service only READS the set to decide who a given
+   * message is for. That read is the fan-out's selection half and it stays a
+   * feature concern (see `gateway/client-registry.ts`); the delivery half is the
+   * registry's methods.
+   */
+  readonly clients: ClientRegistry
 
   /** Durable observer leases, hydrated before session state restoration. */
   private readonly observationLeases = new Map<string, ObservationLeaseRecord>()
@@ -420,7 +449,6 @@ export class SessionsService {
   // Interim until POD-308 deletes the snapshot fan-out.
   private issueProjectionGeneration = 0
   private lastIssueProjectionGeneration = -1
-  private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
@@ -436,6 +464,7 @@ export class SessionsService {
     this.store = deps.store
     this.now = deps.now
     this.mutations = deps.mutations ?? new MutationLedger(this.store.sync, () => this.now())
+    this.clients = deps.clients ?? new ClientRegistry()
     this.bus = deps.bus
     this.machines = deps.machines
     this.rpc = deps.rpc
@@ -2165,7 +2194,10 @@ export class SessionsService {
       at,
     })
     if (result.status === 'rejected') {
-      if (fromClientId) this.clients.get(fromClientId)?.send(this.draftDocWire(result.doc))
+      if (fromClientId) {
+        const origin = this.clients.get(fromClientId)
+        if (origin) this.clients.deliver(origin, this.draftDocWire(result.doc))
+      }
       return
     }
     if (!result.changed) return
@@ -3954,38 +3986,22 @@ export class SessionsService {
     return resolveAccountEnv(this.store.accounts, accountId)
   }
 
-  // ---- ws data plane: clients ----
-  attachClient(send: Send<ServerMessage>, publication?: ClientPublicationAuthority): string {
-    const id = `c${this.nextClientNum++}`
-    this.clients.set(id, {
-      id,
-      send,
-      ...(publication ? { publication } : {}),
-      publicationBootstrapped: false,
-      publicationPending: false,
-      publicationRequestVersion: 0,
-      publicationBufferedChanges: [],
-      viewports: new Map(),
-      attached: new Set(),
-      // No caps until hello — the bootstrap snapshots below are sent to everyone
-      // (a delta client uses them as its initial paint, then takes a cursor via
-      // sync.changesSince and rides the metadataDelta stream).
-      caps: new Set(),
-      transcriptSubs: new Set(),
-      // Fail-safe toward notifying: a client counts as NOT watching until it
-      // tells us otherwise (every browser client sends `presence` right after
-      // connecting). Defaulting to visible:true let one stale/non-browser client
-      // silently suppress all mobile push forever.
-      visible: false,
-      // View-state defaults to "renders nothing, focuses nothing" until the client
-      // sends its first `viewState`. A session reads as unwatched (tier 3) until then.
-      viewVisible: new Set(),
-      focused: null,
-      // Rendered-mode map (native/chat) per session. Stored from viewState but NOT
-      // consulted by scheduling — see ClientConn.viewModes.
-      viewModes: {},
-    })
-    send({ type: 'welcome', clientId: id })
+  // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
+  /**
+   * A client connection was admitted: send it the world it is owed.
+   *
+   * This used to be the tail of `attachClient`, which also minted the id,
+   * registered the socket and sent `welcome`. Those are the gateway's now
+   * (POD-390) and this is what remains: the session/issue/conversation/machine
+   * bootstrap, byte-for-byte and in the same order.
+   *
+   * The `principal` is carried, not consulted — the bootstrap is NOT scoped by it
+   * today (the publication AUTHORITY is what narrows a scoped socket, exactly as
+   * before). POD-1077 is where a principal starts deciding content.
+   */
+  onClientAttached(_principal: ClientPrincipal, client: ClientConn): void {
+    const send = client.send
+    const publication = client.publication
     if (publication) this.schedulePreparedSessionPublications()
     else send({ type: 'sessionsChanged', sessions: this.listSessions() })
     // Until an authority supplies per-kind worlds, a scoped socket is explicitly
@@ -4018,7 +4034,6 @@ export class SessionsService {
       // needs-attention affordance for the next client. [spec:SP-a43e]
       for (const request of this.pendingOpenUrls.values()) send(request)
     }
-    return id
   }
 
   /** Authorization/view invalidation seam: the main authority changed one client world. */
@@ -4076,9 +4091,16 @@ export class SessionsService {
     })
   }
 
-  detachClient(id: string): void {
-    const client = this.clients.get(id)
-    if (!client) return
+  /**
+   * A client connection is gone: sweep the session state it held.
+   *
+   * The gateway has ALREADY removed it from the connection set when this runs
+   * (`client-mux.ts` explains why that ordering is behaviour-identical: every
+   * read below is off the connection object or the per-session client maps, and
+   * the two recomputes at the end always ran after the removal anyway).
+   */
+  onClientDetached(_principal: ClientPrincipal, client: ClientConn): void {
+    const id = client.id
     for (const sessionId of client.attached) {
       this.mutateSessionView(sessionId, (session) => session.detachClient(id), false)
     }
@@ -4087,7 +4109,6 @@ export class SessionsService {
     // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
     for (const sessionId of client.transcriptSubs)
       this.sessions.get(sessionId)?.unsubscribeTranscript(id)
-    this.clients.delete(id)
     // A gone client no longer attaches/views/focuses anything — recompute so the
     // sessions it was watching can drop priority (and the daemon stops relaying
     // them live).
@@ -4143,7 +4164,7 @@ export class SessionsService {
     const focused = clients.filter((client) => client.focused === request.sessionId)
     const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
     const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
-    for (const client of recipients) client.send(request)
+    for (const client of recipients) this.clients.deliver(client, request)
   }
 
   private onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
@@ -4165,7 +4186,7 @@ export class SessionsService {
     const request = this.pendingOpenUrls.get(requestKey)
     const session = this.sessions.get(message.sessionId)
     if (!request || !session || request.expiresAt <= this.now()) {
-      client.send({
+      this.clients.deliver(client, {
         type: 'sessionOpenUrlResult',
         sessionId: message.sessionId,
         requestId: message.requestId,
@@ -4205,12 +4226,36 @@ export class SessionsService {
     for (const sessionId of prior.attached) {
       this.sessions.get(sessionId)?.reassignController(priorId, next.id)
     }
-    this.detachClient(priorId)
+    // Disconnect through the GATEWAY: the connection set is its, so the removal
+    // and the sweep must stay one operation. The fallback is the in-process form
+    // (a service built without a gateway, i.e. a test fixture) and does exactly
+    // what the mux does.
+    if (this.deps.disconnectClient) this.deps.disconnectClient(priorId)
+    else if (this.clients.delete(priorId)) this.onClientDetached(prior.principal, prior)
   }
 
-  onClientMessage(id: string, msg: ClientMessage): void {
-    const client = this.clients.get(id)
-    if (!client) return
+  /**
+   * One SESSION-OWNED client frame, attributed to the connection it arrived on.
+   *
+   * This used to be `onClientMessage` — a switch over the WHOLE client union
+   * reached by id lookup, which made the sessions service the multiplexer AND
+   * the socket owner for the client plane. The mux is the gateway's now
+   * (POD-390); what remains is the session-owned subset the routing table
+   * assigns to this port, with `SessionsClientFrame` making that subset a
+   * compile-checked type rather than a comment. `ping`/`pong` is no longer here:
+   * a liveness echo is transport, and the gateway answers it.
+   *
+   * The principal is carried and not consulted: authorization on this plane is
+   * the command envelope's (`sessions.setDraft` below routes through it), and a
+   * device-grade principal has nothing to decide that today's single-user trust
+   * model does not already settle. See `gateway/client-principal.ts`.
+   */
+  onSessionClientFrame(
+    _principal: ClientPrincipal,
+    client: ClientConn,
+    msg: SessionsClientFrame,
+  ): void {
+    const id = client.id
     switch (msg.type) {
       case 'hello':
         // `hello.viewport` is a connection bootstrap hint, not a measured grid
@@ -4331,9 +4376,6 @@ export class SessionsService {
         break
       case 'sessionOpenUrlDismiss':
         this.dismissOpenUrl(msg)
-        break
-      case 'ping':
-        client.send({ type: 'pong' })
         break
     }
   }
@@ -5085,12 +5127,14 @@ export class SessionsService {
   /** Raw fan-out to every connected client. Typed LIVE-ONLY (modules/
    *  message-class, issue #190): durable entity messages must go through the
    *  write funnel's publish tail instead, so passing one here is a type error.
-   *  `exceptClientId` skips the originator (draft echo suppression). */
+   *  `exceptClientId` skips the originator (draft echo suppression).
+   *
+   *  The MECHANISM is the gateway registry's (POD-390); this method is the
+   *  feature's typed entry point to it, and the LiveServerMessage constraint is
+   *  why it stays a method rather than becoming a call to `registry.broadcast`
+   *  at 8 sites — the registry deliberately has no opinion about message class. */
   broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {
-    for (const c of this.clients.values()) {
-      if (c.id === opts.exceptClientId) continue
-      c.send(msg)
-    }
+    this.clients.broadcast(msg, opts)
   }
 
   // Coalescing state for broadcastSessions() (bind-storm fix). Design: the FIRST
@@ -5254,9 +5298,9 @@ export class SessionsService {
     for (const c of this.clients.values()) {
       if (c.publication && (snapshot.type === 'sessionsChanged' || !c.publication.global)) continue
       if (c.caps.has(CAP_METADATA_DELTA)) {
-        if (opts.snapshotToCapClients) c.send(snapshot)
+        if (opts.snapshotToCapClients) this.clients.deliver(c, snapshot)
       } else {
-        c.send(snapshot)
+        this.clients.deliver(c, snapshot)
       }
     }
   }
@@ -5335,7 +5379,8 @@ export class SessionsService {
       (sessionId) => !allowed.has(sessionId) && !alreadyRemoved.has(sessionId),
     )
     if (removedSessionIds.length === 0) return
-    client.publication.sendPrepared(
+    this.clients.deliverPrepared(
+      client,
       JSON.stringify({ type: 'sessionViewDelta', removedSessionIds } satisfies ServerMessage),
     )
     for (const sessionId of removedSessionIds) alreadyRemoved.add(sessionId)
@@ -5438,7 +5483,7 @@ export class SessionsService {
             ) {
               continue
             }
-            client.publication.sendPrepared(publication.bytes)
+            this.clients.deliverPrepared(client, publication.bytes)
             client.publicationBootstrapped = true
             client.publicationPending = false
             client.publicationAccepted = {
@@ -5455,7 +5500,8 @@ export class SessionsService {
               for (const changes of buffered) {
                 const last = changes.at(-1)
                 if (!last) continue
-                client.publication.sendPrepared(
+                this.clients.deliverPrepared(
+                  client,
                   JSON.stringify({
                     type: 'metadataDelta',
                     seq: last.seq,
@@ -5509,7 +5555,7 @@ export class SessionsService {
     for (const c of this.clients.values()) {
       if (!c.caps.has(CAP_METADATA_DELTA)) continue
       if (!c.publication) {
-        c.send(delta)
+        this.clients.deliver(c, delta)
         continue
       }
       // Scoped publication clients never see the raw global batch. The worker
@@ -5524,7 +5570,7 @@ export class SessionsService {
         continue
       }
       encoded ??= JSON.stringify(delta)
-      c.publication.sendPrepared(encoded)
+      this.clients.deliverPrepared(c, encoded)
     }
   }
 

@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { ClientMux } from './gateway/client-mux'
+import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import {
   formatIssueRef,
@@ -226,6 +228,16 @@ export class SessionRegistry {
    * the sessions service is one of them.
    */
   readonly gateway: DaemonMux
+  /**
+   * THE GATEWAY's client socket mux (POD-390). `attachClient`, `detachClient`
+   * and `routeClientFrame` live here, not on the sessions service: a client
+   * connection is a transport-authenticated principal whose frames and whose
+   * fan-out belong to the gateway plane, and the sessions service is one of the
+   * features that delivers through it. Named separately from {@link gateway}
+   * (the daemon mux) rather than renaming POD-389's field across the tree;
+   * POD-391 owns whether the two become one object.
+   */
+  readonly clientGateway: ClientMux
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
   /** In-process issue command surface (≡ modules.issueCommands) — the registry
@@ -290,7 +302,10 @@ export class SessionRegistry {
     const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
-    const clients = () => sessionsSvc.clients
+    // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
+    // the gateway owns it (POD-390), and the mux below is what mutates it.
+    const clientRegistry = new ClientRegistry()
+    const clients = () => clientRegistry
 
     const machines = new MachinesService({
       store: this.store,
@@ -1022,6 +1037,8 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       funnel,
+      clients: clientRegistry,
+      disconnectClient: (id) => this.clientGateway.detachClient(id),
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
@@ -1402,6 +1419,12 @@ export class SessionRegistry {
     // traffic. `agentRelay` is its own port and receives exactly the two relay
     // frames — the host-edge separation of ADR 7 D2 / ADR 5 D7 survives the fact
     // that both surfaces arrive on the same socket.
+    // The CLIENT plane's mux. Every client frame is session-owned today except
+    // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
+    this.clientGateway = new ClientMux({
+      registry: clientRegistry,
+      ports: { sessions: sessionsSvc },
+    })
     this.gateway = new DaemonMux({
       bus: this.bus,
       ports: {

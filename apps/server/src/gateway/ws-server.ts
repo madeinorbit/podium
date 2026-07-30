@@ -3,18 +3,18 @@
  * per-plane liveness sweeps (POD-389; moved here from `apps/server/src/wsServer.ts`).
  *
  * The gateway is now the ONLY place `ws` types are imported: no feature module
- * touches a socket. The `/daemon` half hands frames to the mux
- * (`daemon-socket.ts` → `daemon-mux.ts`); the `/client` half still calls the
- * sessions service's client methods directly, because the CLIENT fan-out
- * extraction is POD-390's deliverable and this issue deliberately does not
- * anticipate its shape.
+ * touches a socket. BOTH halves hand their frames to a mux and stop —
+ * `daemon-socket.ts` → `daemon-mux.ts` (POD-389) and `client-socket.ts` →
+ * `client-mux.ts` (POD-390). This file is the upgrade gate and the liveness
+ * sweeps; it knows about no feature and no frame type.
  */
 
 import type { IncomingMessage, Server } from 'node:http'
-import { parseClientMessage, versionSupport, WIRE_VERSION } from '@podium/protocol'
+import { versionSupport } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { PublicationAuthority } from '../modules/sessions/session'
 import type { SessionRegistry } from '../relay'
+import { wireClientSocket } from './client-socket'
 import { wireDaemonSocket } from './daemon-socket'
 import {
   CLIENT_PLANE_LIVENESS,
@@ -22,7 +22,6 @@ import {
   type HeartbeatSocket,
   sweepPlaneLiveness,
 } from './plane-liveness'
-import { safeSend, safeSendEncoded, warnDroppedFrame } from './ws-send'
 
 export interface WsHandle {
   close(): Promise<void>
@@ -154,43 +153,12 @@ export function attachWebSockets(
   // Liveness marks for client sockets: present = ponged since the last sweep.
   const aliveClients = new WeakSet<HeartbeatSocket>()
   clientWss.on('connection', (ws, req) => {
-    const url = new URL(req.url ?? '/', 'http://localhost')
-    const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
-    const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
-    let authority: PublicationAuthority
-    try {
-      authority = auth.resolvePublicationAuthority?.(req) ?? {
-        principal: auth.principal ?? 'operator',
-        scope: auth.scope ?? 'all',
-        serverRole: auth.serverRole ?? 'standalone',
-        protocolVersion,
-        global: true,
-        snapshot: () => ({
-          revision: 0,
-          allowedSignature: 'global',
-          allowedSessionIds: [],
-        }),
-      }
-    } catch (error) {
-      console.warn('[podium] rejected client with invalid publication authority', error)
-      ws.terminate()
-      return
-    }
-    const limit = CLIENT_PLANE_LIVENESS.sendBufferLimitBytes
-    const id = registry.modules.sessions.attachClient((msg) => safeSend(ws, msg, limit), {
-      ...authority,
-      sendPrepared: (bytes) => safeSendEncoded(ws, bytes, limit),
-    })
+    // The connection, its principal and its frame switch belong to the client
+    // mux (POD-390); this handler layers the liveness mark on top, exactly as the
+    // daemon half above does.
+    if (wireClientSocket(ws, req, registry, auth) === undefined) return
     aliveClients.add(ws)
     ws.on('pong', () => aliveClients.add(ws))
-    ws.on('message', (raw: import('ws').RawData) => {
-      try {
-        registry.modules.sessions.onClientMessage(id, parseClientMessage(raw.toString()))
-      } catch (err) {
-        warnDroppedFrame('client', err)
-      }
-    })
-    ws.on('close', () => registry.modules.sessions.detachClient(id))
   })
 
   const heartbeat = setInterval(
