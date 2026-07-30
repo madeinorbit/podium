@@ -45,9 +45,9 @@
 import {
   asMatrixRowId,
   type GrantRule,
-  MATRIX_INDEX_HOLDER,
   type MatrixRow,
   type MatrixRowId,
+  MATRIX_INDEX_HOLDER,
   OP_STREAM_COMPACTION_CONSTRAINT,
   SYSTEM_WRITER_RULE,
 } from './ownership'
@@ -159,14 +159,12 @@ const perUserState = (
   idMinting: 'composite `(userId, entityId)` — one shared key fragment (ADR 4 Amendment 1 D10.2)',
   writers: ['operator'],
   replication: 'client-to-server-to-clients',
-  replicationNote:
-    'Only to the owning user’s own replicas: a per-user row is not another reader’s row.',
+  replicationNote: 'Only to the owning user’s own replicas: a per-user row is not another reader’s row.',
   conflict: 'single-writer',
   conflictNote:
     'With the user IN THE KEY there is exactly one writer per row, so the conflict does not exist to resolve (D10). This is why the family is cheap.',
   tombstone: 'hard-delete',
-  tombstoneNote:
-    'Rows follow the USER and cascade on user deletion; they are not the entity’s rows, so deleting or transferring the entity does not transfer them (D10).',
+  tombstoneNote: 'Rows follow the USER and cascade on user deletion; they are not the entity’s rows, so deleting or transferring the entity does not transfer them (D10).',
   offline: 'offline-eligible',
   secret: 'preference',
   owner: { kind: 'user', resolves: 'the-user-in-the-key' },
@@ -209,14 +207,12 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     replicationNote:
       'NOT a replicated aggregate (D5.2). It is the deployment partition of an entire Authority; two instances are two isolated product universes. Amendment 2 D17 confines the brand to CONFIGURATION positions — never a field on a table, projection or payload.',
     conflict: 'n/a',
-    conflictNote:
-      'A wrong instance marker in a state dir is a HARD FAIL, not a merge (`assertInstanceStateIdentity`).',
+    conflictNote: 'A wrong instance marker in a state dir is a HARD FAIL, not a merge (`assertInstanceStateIdentity`).',
     tombstone: 'n/a',
     tombstoneNote: 'Marker lifetime = state dir lifetime.',
     offline: 'n/a',
     secret: 'public',
-    secretNote:
-      'The id string is public within the instance; the marker file is mode `0600`. Pairing TOKENS are a different row.',
+    secretNote: 'The id string is public within the instance; the marker file is mode `0600`. Pairing TOKENS are a different row.',
     owner: {
       kind: 'none',
       reason: 'substrate',
@@ -231,10 +227,7 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Substrate: there is no owner or grant to inherit.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Substrate: there is no owner or grant to inherit.' },
     visibilityMutability: {
       mutable: false,
       verbs: [],
@@ -246,27 +239,19 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     id: ROW.machine,
     section: 'identity-and-deployment-scope',
     title: 'Machine (fleet row / `machines`)',
-    sites: [
-      'apps/server/src/migrations/schema.ts (`machines`)',
-      'apps/daemon/src/identity.ts',
-      'packages/runtime/src/local-machine.ts',
-    ],
+    sites: ['apps/server/src/migrations/schema.ts (`machines`)', 'apps/daemon/src/identity.ts', 'packages/runtime/src/local-machine.ts'],
     home: 'server',
-    idMinting:
-      'Daemon mints `machineId` UUID once into per-instance `daemon.json`; server registers on pair/hello',
+    idMinting: 'Daemon mints `machineId` UUID once into per-instance `daemon.json`; server registers on pair/hello',
     writers: ['daemon', 'operator'],
     replication: 'server-to-clients',
     replicationNote: 'Public fields only.',
     conflict: 'exp-rev',
-    conflictNote:
-      'exp-rev on admin rename; the JOIN KEY is single-writer (the daemon mints it once and the server never re-mints it).',
+    conflictNote: 'exp-rev on admin rename; the JOIN KEY is single-writer (the daemon mints it once and the server never re-mints it).',
     tombstone: 'soft-delete',
-    tombstoneNote:
-      'Soft remove / token revoke — a new secret for the same MachineId, so the fleet identity survives rotation.',
+    tombstoneNote: 'Soft remove / token revoke — a new secret for the same MachineId, so the fleet identity survives rotation.',
     offline: 'online-only',
     secret: 'public',
-    secretNote:
-      'Public: id, name, hostname, lastSeen, inventory. The pairing token is `secret-value`; "is it paired?" is `secret-presence`.',
+    secretNote: 'Public: id, name, hostname, lastSeen, inventory. The pairing token is `secret-value`; "is it paired?" is `secret-presence`.',
     owner: {
       kind: 'user',
       resolves: 'pairer',
@@ -287,15 +272,7 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     },
     visibilityMutability: {
       mutable: true,
-      verbs: [
-        'grant-see',
-        'grant-use',
-        'grant-manage',
-        'revoke',
-        'transfer-owner',
-        'pair',
-        'unpair',
-      ],
+      verbs: ['grant-see', 'grant-use', 'grant-manage', 'revoke', 'transfer-owner', 'pair', 'unpair'],
       note: 'PHASE 2 MUST HANDLE: granting `see` makes a machine and every per-machine fact appear for a principal with no revision moving. Revoking `use` must not read as "machine deleted" — and per ADR 9 D6 M5 a machine outside the `see` set is ABSENT, so an evict/rescope signal (not `remove`) is the only correct expression.',
     },
     open: ['O1'],
@@ -316,29 +293,14 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     tombstoneNote: 'Revoke rotates.',
     offline: 'never-enqueue',
     secret: 'secret-value',
-    owner: {
-      kind: 'none',
-      reason: 'secret',
-      note: 'ADR 1 D6 unchanged: server-local only, never replicated, never queued.',
-    },
+    owner: { kind: 'none', reason: 'secret', note: 'ADR 1 D6 unchanged: server-local only, never replicated, never queued.' },
     visibility: 'secret',
     grants: NO_GRANTS_SECRET,
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'Minted by the server as `system`.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'Minted by the server as `system`.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Secret: no owner and no grants exist to inherit (D15).',
-    },
-    visibilityMutability: {
-      mutable: false,
-      verbs: [],
-      note: 'Never visible to any replica, so there is nothing to change.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Secret: no owner and no grants exist to inherit (D15).' },
+    visibilityMutability: { mutable: false, verbs: [], note: 'Never visible to any replica, so there is nothing to change.' },
     open: [],
   },
   {
@@ -359,18 +321,10 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'inherits', from: ROW.machine },
     visibility: 'owned-compute',
     grants: { kind: 'inherits', from: ROW.machine },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'A machine principal writing its own identity file.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'A machine principal writing its own identity file.' },
     systemWriter: 'never-writes',
     inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
-    visibilityMutability: {
-      mutable: false,
-      verbs: [],
-      note: 'A local file; not replicated, so replica visibility never changes.',
-    },
+    visibilityMutability: { mutable: false, verbs: [], note: 'A local file; not replicated, so replica visibility never changes.' },
     open: [],
   },
 ]
@@ -386,15 +340,13 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     title: 'Session identity (`sessionId`, birth display ref / letters)',
     sites: ['apps/server/src/modules/sessions/service.ts (`randomUUID()`)', '`issue_ref_letters`'],
     home: 'server',
-    idMinting:
-      'Server UUID; ref letter server-allocated per issue. Daemons do NOT coin the registry id — a documented inversion, kept so a daemon cannot bypass the Authority.',
+    idMinting: 'Server UUID; ref letter server-allocated per issue. Daemons do NOT coin the registry id — a documented inversion, kept so a daemon cannot bypass the Authority.',
     writers: ['operator', 'agent-session', 'system'],
     replication: 'server-to-clients',
     conflict: 'single-writer',
     conflictNote: 'The id is immutable after mint, so there is nothing to arbitrate.',
     tombstone: 'soft-delete',
-    tombstoneNote:
-      'Soft-delete `deletedAt` + `deletionSource` (+ `deletedByIssueId` on issue cascade); issue-cascade deletes are recoverable.',
+    tombstoneNote: 'Soft-delete `deletedAt` + `deletionSource` (+ `deletedByIssueId` on issue cascade); issue-cascade deletes are recoverable.',
     offline: 'live-path-required',
     secret: 'public',
     owner: {
@@ -431,8 +383,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.sessionPlacement,
     section: 'sessions',
-    title:
-      'Session placement (`cwd`, `machineId`, `issueId`, `agentKind`, origin, headless, workflow pass-through ids)',
+    title: 'Session placement (`cwd`, `machineId`, `issueId`, `agentKind`, origin, headless, workflow pass-through ids)',
     sites: ['packages/model/src/entities/session.ts'],
     home: 'server',
     idMinting: 'n/a',
@@ -475,8 +426,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     conflictNote:
       'AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and are now SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
     tombstone: 'never-delete',
-    tombstoneNote:
-      'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
+    tombstoneNote: 'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
     offline: 'offline-eligible',
     secret: 'public',
     owner: { kind: 'inherits', from: ROW.sessionIdentity },
@@ -527,8 +477,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     conflictNote:
       'Clock: the Authority-assigned event time at commit (ADR 1 D3 condition 1) — client `draftUpdatedAt` is spoofable and non-monotonic across devices, so it is attribution metadata only. Invariant: the WHOLE draft body is one group. NOT a justified carve-out — see INTERIM DEFECT. Deliberately NOT per-user state: readiness §3.3/§4 classify the draft as SHARED-SURFACE state (one message being composed for one session, not five private scratchpads), so making it per-user would quietly delete the collaboration feature rather than defer it.',
     tombstone: 'hard-delete',
-    tombstoneNote:
-      'Empty body deletes the row; the clear participates in the same clock (D3 condition 4).',
+    tombstoneNote: 'Empty body deletes the row; the clear participates in the same clock (D3 condition 4).',
     offline: 'offline-eligible',
     secret: 'public',
     owner: { kind: 'inherits', from: ROW.sessionIdentity },
@@ -559,8 +508,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     idMinting: '`mutationId` (client-minted, deduped by the Authority)',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    replicationNote:
-      'Count on session meta reaches clients; the BODY is not general replica content.',
+    replicationNote: 'Count on session meta reaches clients; the BODY is not general replica content.',
     conflict: 'append',
     conflictNote: 'Append FIFO per session; dedupe by `mutationId`.',
     tombstone: 'hard-delete',
@@ -574,18 +522,13 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the session.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the session.' },
     open: [],
   },
   {
     id: ROW.daemonObservedRuntime,
     section: 'sessions',
-    title:
-      'Daemon-observed runtime (status, exitCode, epoch, geometry, resumable, transcriptAvailable, busy, agentState, agentColor, clientCount, activity timestamps)',
+    title: 'Daemon-observed runtime (status, exitCode, epoch, geometry, resumable, transcriptAvailable, busy, agentState, agentColor, clientCount, activity timestamps)',
     sites: ['packages/model/src/entities/session.ts'],
     home: 'daemon-then-server',
     idMinting: 'n/a',
@@ -613,11 +556,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the session.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the session.' },
     open: [],
   },
   {
@@ -667,16 +606,8 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     secret: 'public',
     owner: { kind: 'inherits', from: ROW.machine },
     visibility: 'owned-compute',
-    grants: {
-      kind: 'verbs',
-      verbs: ['see'],
-      note: 'Fleet health needs `see` and nothing more (ADR 9 D6 M1).',
-    },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'Machine principal.',
-    },
+    grants: { kind: 'verbs', verbs: ['see'], note: 'Fleet health needs `see` and nothing more (ADR 9 D6 M1).' },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'Machine principal.' },
     systemWriter: 'never-writes',
     inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
     visibilityMutability: {
@@ -698,8 +629,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     replicationNote:
       'Envelope only (ADR 4 D3.8 / this issue). Computed AT a replica boundary: it answers "how did this row reach this replica", which is different for two replicas holding the same revision.',
     conflict: 'n/a',
-    conflictNote:
-      'Not durable truth; there is nothing to arbitrate. Amendment 1 §3 §2 classifies it `derived` — a per-delivery fact.',
+    conflictNote: 'Not durable truth; there is nothing to arbitrate. Amendment 1 §3 §2 classifies it `derived` — a per-delivery fact.',
     tombstone: 'n/a',
     offline: 'observe-only',
     secret: 'public',
@@ -709,11 +639,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       note: 'THE PLACEMENT RULE (obligation 9): owner / visibility / actor / on-behalf-of MUST NOT live on the envelope. They are authoritative facts about the row that must survive bootstrap, export and re-replication, and an authorization input that is droppable at a replica boundary fails OPEN. `envelope.test.ts` enforces this.',
     },
     visibility: 'personal',
-    grants: {
-      kind: 'none',
-      reason: 'derived',
-      note: 'Inherits the visibility of whatever it envelopes; it is never independently grantable.',
-    },
+    grants: { kind: 'none', reason: 'derived', note: 'Inherits the visibility of whatever it envelopes; it is never independently grantable.' },
     attribution: {
       actor: 'not-applicable',
       onBehalfOf: 'not-applicable',
@@ -723,8 +649,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: {
       kind: 'not-applicable',
-      reason:
-        'Derived per delivery: it inherits the enveloped entity’s visibility and has no owner or grants of its own.',
+      reason: 'Derived per delivery: it inherits the enveloped entity’s visibility and has no owner or grants of its own.',
     },
     visibilityMutability: {
       mutable: true,
@@ -743,15 +668,10 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.issueCore,
     section: 'issues-and-tracker',
-    title:
-      'Issue core (title, design, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …)',
-    sites: [
-      'apps/server/src/modules/issues/service/crud.ts',
-      'packages/model/src/entities/issue.ts',
-    ],
+    title: 'Issue core (title, design, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …)',
+    sites: ['apps/server/src/modules/issues/service/crud.ts', 'packages/model/src/entities/issue.ts'],
     home: 'server',
-    idMinting:
-      '`iss_<uuid>`; a client-proposed id is accepted ONCE at create (optimistic reconcile) and the Authority still homes the row',
+    idMinting: '`iss_<uuid>`; a client-proposed id is accepted ONCE at create (optimistic reconcile) and the Authority still homes the row',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'exp-rev',
@@ -785,8 +705,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
       note: 'PHASE 2 MUST HANDLE: `reparent` is in this list because subtree scope is a MOVING SET — reparenting under an epic widens a working agent’s visibility with nobody having decided it (O3). That is recorded, not resolved.',
     },
     open: ['O3'],
-    openNote:
-      'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
+    openNote: 'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
   },
   {
     id: ROW.issueDocumentFields,
@@ -812,22 +731,14 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the issue.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the issue.' },
     open: [],
   },
   {
     id: ROW.needsHuman,
     section: 'issues-and-tracker',
-    title:
-      'Needs-human group (`needsHuman`, `humanQuestion`, options, `humanQuestionAskedBy`, `humanQuestionAskedAt`)',
-    sites: [
-      'packages/model/src/entities/issue.ts',
-      'apps/server/src/issues.answer-question.test.ts',
-    ],
+    title: 'Needs-human group (`needsHuman`, `humanQuestion`, options, `humanQuestionAskedBy`, `humanQuestionAskedAt`)',
+    sites: ['packages/model/src/entities/issue.ts', 'apps/server/src/issues.answer-question.test.ts'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['agent-session', 'operator'],
@@ -852,11 +763,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     },
     systemWriter: 'never-writes',
     inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the issue.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the issue.' },
     open: [],
   },
   {
@@ -869,17 +776,12 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'exp-rev',
-    conflictNote:
-      'Plus `cmd` invariant checks — explicitly NOT field-LWW: issue core and graph are not independent fields, and blind merge produces states no command could have produced.',
+    conflictNote: 'Plus `cmd` invariant checks — explicitly NOT field-LWW: issue core and graph are not independent fields, and blind merge produces states no command could have produced.',
     tombstone: 'remove',
     tombstoneNote: 'Edge removal is explicit.',
     offline: 'offline-eligible',
     secret: 'public',
-    owner: {
-      kind: 'inherits',
-      from: ROW.issueCore,
-      note: 'Specifically the EDGE’S OWNING ISSUE (Amendment 1 §3 §3).',
-    },
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'Specifically the EDGE’S OWNING ISSUE (Amendment 1 §3 §3).' },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.issueCore },
     attribution: { actor: 'required', onBehalfOf: 'required' },
@@ -929,11 +831,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
       from: ROW.issueCore,
       note: 'GRANTS inherit the parent issue (otherwise sharing an issue would not share its discussion); OWNER is the actor’s human. Declared as a split, not assumed.',
     },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the issue.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the issue.' },
     open: [],
   },
   {
@@ -962,11 +860,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: read visibility follows the issue.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: read visibility follows the issue.' },
     open: ['O1'],
     openNote:
       'O1 at a concrete site: the consistent-error rule is the ONE instance of the existence-leak class that is already decided (ADR 9 D7 clause 2). The rest of the class stays open.',
@@ -994,26 +888,14 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     offline: 'online-only',
     secret: 'public',
     secretNote: 'Public bytes; paths validated.',
-    owner: {
-      kind: 'inherits',
-      from: ROW.issueCore,
-      note: 'Inherits its SESSION or ISSUE, whichever it hangs on.',
-    },
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'Inherits its SESSION or ISSUE, whichever it hangs on.' },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.issueCore },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'parent',
-      from: ROW.issueCore,
-      note: 'An artifact on a session inherits the session; on an issue, the issue.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows its parent.',
-    },
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore, note: 'An artifact on a session inherits the session; on an issue, the issue.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows its parent.' },
     open: [],
   },
 ]
@@ -1033,8 +915,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     writers: ['system', 'operator'],
     replication: 'server-to-clients',
     conflict: 'exp-rev',
-    conflictNote:
-      'exp-rev on user fields; LINK rules are `cmd`, biased against mis-merge (two conversations wrongly joined is worse than two left apart).',
+    conflictNote: 'exp-rev on user fields; LINK rules are `cmd`, biased against mis-merge (two conversations wrongly joined is worse than two left apart).',
     tombstone: 'soft-delete',
     tombstoneNote: 'Soft removal from resume lists.',
     offline: 'offline-eligible',
@@ -1050,11 +931,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
       from: ROW.sessionIdentity,
       note: 'DECLARED as the producing session — but a conversation can SPAN sessions, and the multi-parent case is exactly O4’s open part. Recorded, not resolved.',
     },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the session.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the session.' },
     open: ['O4'],
     openNote:
       'O4: a conversation spanning several sessions has several candidate parents, so "inherit the parent" does not identify one. The annotation SHAPE is this issue’s (and is above); the VALUE for the multi-parent case is the per-class feature owner’s.',
@@ -1078,19 +955,11 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'inherits', from: ROW.conversationRegistry },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.conversationRegistry },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'Machine principal on the mirror path.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'Machine principal on the mirror path.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.conversationRegistry },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the conversation.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the conversation.' },
     open: [],
   },
   {
@@ -1104,8 +973,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     replication: 'server-to-clients',
     replicationNote: 'Bulk / on-view.',
     conflict: 'single-writer',
-    conflictNote:
-      'Content addressing removes the conflict: two writers of the same bytes write the same row.',
+    conflictNote: 'Content addressing removes the conflict: two writers of the same bytes write the same row.',
     tombstone: 'hard-delete',
     tombstoneNote: 'GC by retention.',
     offline: 'online-only',
@@ -1121,17 +989,12 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
       reason: 'derived',
       note: 'A blob is readable only VIA a reference the principal may see; it inherits EVERY referencing entity rather than carrying its own grant.',
     },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'Ingest is a system/machine act.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'Ingest is a system/machine act.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: {
       kind: 'not-applicable',
-      reason:
-        'Derived: no owner, and access is mediated by references rather than by grants of its own.',
+      reason: 'Derived: no owner, and access is mediated by references rather than by grants of its own.',
     },
     visibilityMutability: {
       mutable: true,
@@ -1180,24 +1043,21 @@ const REPO_ROWS: readonly MatrixRow[] = [
       note: 'PHASE 2 MUST HANDLE: the whole per-machine fact set appears/disappears with one machine grant.',
     },
     open: ['O1'],
-    openNote:
-      'O1: "this worktree is in use" is an existence fact about someone else’s work. Marked, not resolved.',
+    openNote: 'O1: "this worktree is in use" is an existence fact about someone else’s work. Marked, not resolved.',
   },
   perUserState({
     id: ROW.pins,
     section: 'repos-pins-tabs',
     title: 'Pins',
     sites: ['`pins` (keyed `(kind, id)` today — a singleton)'],
-    conflictNote:
-      'The sidebar is "my tasks" (readiness header decision), so a pin is mine by definition.',
+    conflictNote: 'The sidebar is "my tasks" (readiness header decision), so a pin is mine by definition.',
   }),
   perUserState({
     id: ROW.tabOrder,
     section: 'repos-pins-tabs',
     title: 'Tab order / sidebar layout',
     sites: ['`tab_order` (keyed `worktree` today — a singleton)'],
-    conflictNote:
-      'Layout is per person by definition. The whole order vector was one field-LWW group; keyed per user it is single-writer instead.',
+    conflictNote: 'Layout is per person by definition. The whole order vector was one field-LWW group; keyed per user it is single-writer instead.',
     tombstoneNote: 'Scrubbed with sessions, and cascades on user deletion.',
   }),
 ]
@@ -1210,8 +1070,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
   perUserState({
     id: ROW.preferencesPersonal,
     section: 'settings-secrets-accounts',
-    title:
-      'Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …)',
+    title: 'Preferences — PERSONAL keys (session defaults, sidebar, autoContinue, `telegramChatId`, ntfy topic, …)',
     sites: ['packages/runtime/src/settings.ts (`PodiumSettings` — one instance-wide blob today)'],
     conflictNote:
       'Moved out of field-LWW by Amendment 1 D10. `notifications.telegramChatId` moves here explicitly (ADR 9 D8 S4): it is ROUTING CONFIG, not a secret, and classifying it as a secret would break the per-user notification routing S3 depends on.',
@@ -1235,8 +1094,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     tombstoneNote: 'Reset-to-default is a write, not a delete.',
     offline: 'offline-eligible',
     secret: 'preference',
-    secretNote:
-      '`settings.experimental` is a PREFERENCE, intentionally replicated, and carries no secret annotation (POD-418).',
+    secretNote: '`settings.experimental` is a PREFERENCE, intentionally replicated, and carries no secret annotation (POD-418).',
     owner: {
       kind: 'none',
       reason: 'substrate',
@@ -1258,15 +1116,13 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.serverSecrets,
     section: 'settings-secrets-accounts',
-    title:
-      'Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`)',
+    title: 'Server-owned secrets (`apiKeys.*`, `integrations.linearApiKey`, `notifications.telegramBotToken`)',
     sites: ['packages/runtime/src/settings.ts'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator'],
     replication: 'none',
-    replicationNote:
-      'VALUES never replicate. The wire carries `secret-presence` (+ fingerprint) at most.',
+    replicationNote: 'VALUES never replicate. The wire carries `secret-presence` (+ fingerprint) at most.',
     conflict: 'cmd',
     conflictNote: 'Online replace only.',
     tombstone: 'hard-delete',
@@ -1284,10 +1140,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     grants: NO_GRANTS_SECRET,
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Secret: no owner and no grants (D15).',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Secret: no owner and no grants (D15).' },
     visibilityMutability: {
       mutable: false,
       verbs: [],
@@ -1304,8 +1157,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     idMinting: 'Server account id',
     writers: ['operator', 'system'],
     replication: 'none',
-    replicationNote:
-      'Presence / identity reach clients; VALUES never do. Injection at spawn is server→daemon.',
+    replicationNote: 'Presence / identity reach clients; VALUES never do. Injection at spawn is server→daemon.',
     conflict: 'exp-rev',
     tombstone: 'hard-delete',
     tombstoneNote: 'Delete the row.',
@@ -1322,15 +1174,8 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Secret: no owner and no grants (D15).',
-    },
-    visibilityMutability: {
-      mutable: false,
-      verbs: [],
-      note: 'Values never replicate; `manage` is admin-grade.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Secret: no owner and no grants (D15).' },
+    visibilityMutability: { mutable: false, verbs: [], note: 'Values never replicate; `manage` is admin-grade.' },
     open: ['O5'],
     openNote:
       'O5: with `use` granted on a machine, LOCAL credentials remain the machine owner’s and are not separable from the host — the model does not close this, and readiness leans to product copy rather than a speculative model. Recorded so it stays visible.',
@@ -1353,11 +1198,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'none', reason: 'substrate', note: 'A property of the deployment.' },
     visibility: 'deployment-substrate',
     grants: { kind: 'none', reason: 'substrate', note: 'Deploy-time.' },
-    attribution: {
-      actor: 'not-applicable',
-      onBehalfOf: 'not-applicable',
-      note: 'Deploy-time configuration has no durable write principal.',
-    },
+    attribution: { actor: 'not-applicable', onBehalfOf: 'not-applicable', note: 'Deploy-time configuration has no durable write principal.' },
     systemWriter: 'never-writes',
     inheritanceOnCreate: { kind: 'not-applicable', reason: 'Substrate: no owner, no grants.' },
     visibilityMutability: { mutable: false, verbs: [], note: 'Tenant-visible from creation.' },
@@ -1399,15 +1240,8 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Substrate: a coordination name has no owner.',
-    },
-    visibilityMutability: {
-      mutable: false,
-      verbs: [],
-      note: 'Tenant-visible from creation — that is the point of a coordination name.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'Substrate: a coordination name has no owner.' },
+    visibilityMutability: { mutable: false, verbs: [], note: 'Tenant-visible from creation — that is the point of a coordination name.' },
     open: ['O1'],
     openNote:
       'O1 at a concrete site: whether the lock HOLDER’s identity is visible is an existence question ("someone you cannot see is working on this"). The lock NAME must be tenant-visible; the holder need not be. Marked, not resolved.',
@@ -1434,22 +1268,14 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       note: 'The human the request is ROUTED TO — the requesting agent’s on-behalf-of (Amendment 1 §3 §7). Attention routing is per-user by construction (ADR 9 D8 S3).',
     },
     visibility: 'personal',
-    grants: {
-      kind: 'inherits',
-      from: ROW.sessionIdentity,
-      note: 'Inherits the SUBJECT entity, whichever it is.',
-    },
+    grants: { kind: 'inherits', from: ROW.sessionIdentity, note: 'Inherits the SUBJECT entity, whichever it is.' },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'never-writes',
     inheritanceOnCreate: {
       kind: 'on-behalf-of-human',
       note: 'DECLARED as the routed-to human rather than the parent: an approval must reach a PERSON, and inheriting a shared subject entity’s owner would route it to the wrong one.',
     },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows its subject entity.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows its subject entity.' },
     open: [],
   },
   {
@@ -1481,15 +1307,8 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the creating principal’s human. A run inherits its definition.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'account-disable'],
-      note: 'PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human. A run inherits its definition.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'account-disable'], note: 'PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability.' },
     open: [],
   },
   // -------------------------------------------------------------------------
@@ -1513,7 +1332,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
   // Readiness §3.1.1 rule 2 requires the classification to be declared per
   // class with a totality test. Five classes, five rows. What is NOT here is a
   // sixth `deployment-substrate` row for the global library: see
-  // `workflowDefinitions`' ownerNote.
+  // `workflowDefinitions`' owner note.
   // -------------------------------------------------------------------------
   {
     id: ROW.workflowDefinitions,
@@ -1526,29 +1345,17 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     replication: 'server-to-clients',
     conflict: 'exp-rev',
     tombstone: 'soft-delete',
-    tombstoneNote:
-      'Archive; a definition is never hard-deleted while a run references one of its revisions.',
+    tombstoneNote: 'Archive; a definition is never hard-deleted while a run references one of its revisions.',
     offline: 'offline-eligible',
     secret: 'public',
-    owner: {
-      kind: 'user',
-      resolves: 'creating-user',
-      note: 'ADR 9 D8 S6, and the GLOBAL arm is the same rule rather than an exception: a global-scope definition is owned by the ADMIN who created it and shared by an explicit read grant. It is deliberately NOT declared `deployment-substrate` — readiness §3.1.1 says a global library entry is substrate-SHAPED, but the substrate set is ADR 1 Amendment 1 D9.3’s one-way ratchet and POD-1071 owns turning it. Its WRITE path is admin-grade all the same (POD-731 closed the ambient `scope === "global"` early return in `assertCreateScope` and `assertWorkflowWrite`); its READ reaches the same audience through ADR 9 D2’s grant edge, which a reader can be shown and an owner can revoke.',
-    },
+    owner: { kind: 'user', resolves: 'creating-user', note: 'ADR 9 D8 S6, and the GLOBAL arm is the same rule rather than an exception: a global-scope definition is owned by the ADMIN who created it and shared by an explicit read grant. It is deliberately NOT declared `deployment-substrate` — readiness §3.1.1 says a global library entry is substrate-SHAPED, but the substrate set is ADR 1 Amendment 1 D9.3’s one-way ratchet and POD-1071 owns turning it. Its WRITE path is admin-grade all the same (POD-731 closed the ambient `scope === "global"` early return in `assertCreateScope` and `assertWorkflowWrite`); its READ reaches the same audience through ADR 9 D2’s grant edge, which a reader can be shown and an owner can revoke.' },
     visibility: 'personal',
     grants: PERSONAL_GRANTS,
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the creating principal’s human (ADR 9 D5 A4).',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'account-disable'],
-      note: 'PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human (ADR 9 D5 A4).' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'account-disable'], note: 'PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability.' },
     open: [],
   },
   {
@@ -1561,32 +1368,19 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'append',
-    conflictNote:
-      'REVISION IMMUTABILITY, as a conflict rule rather than a convention: a revise APPENDS a version and never edits a prior one in place, and publication is not a lock (POD-730 §2). That is why the offline class below is safe — a queued revise replayed after the library moved is a new revision, not a lost edit.',
+    conflictNote: 'REVISION IMMUTABILITY, as a conflict rule rather than a convention: a revise APPENDS a version and never edits a prior one in place, and publication is not a lock (POD-730 §2). That is why the offline class below is safe — a queued revise replayed after the library moved is a new revision, not a lost edit.',
     tombstone: 'never-delete',
     tombstoneNote: 'A revision a run pinned must remain readable for that run’s whole life.',
     offline: 'offline-eligible',
     secret: 'public',
-    owner: {
-      kind: 'inherits',
-      from: ROW.workflowDefinitions,
-      note: 'The DEFINITION’s owner, not the reviser’s — readiness §3.1.2’s parent rule. Otherwise a shared workflow fragments into per-reviser ownership one edit at a time and the person who shared it loses the ability to read what it became.',
-    },
+    owner: { kind: 'inherits', from: ROW.workflowDefinitions, note: 'The DEFINITION’s owner, not the reviser’s — readiness §3.1.2’s parent rule. Otherwise a shared workflow fragments into per-reviser ownership one edit at a time and the person who shared it loses the ability to read what it became.' },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.workflowDefinitions },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'parent',
-      from: ROW.workflowDefinitions,
-      note: 'DECLARED: owner AND grants follow the definition.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the definition, so a share on the definition makes every revision appear at once without any revision’s own version moving.',
-    },
+    inheritanceOnCreate: { kind: 'parent', from: ROW.workflowDefinitions, note: 'DECLARED: owner AND grants follow the definition.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the definition, so a share on the definition makes every revision appear at once without any revision’s own version moving.' },
     open: [],
   },
   {
@@ -1603,112 +1397,64 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     tombstoneNote: 'Rebinding replaces the row; there is no binding history.',
     offline: 'offline-eligible',
     secret: 'public',
-    owner: {
-      kind: 'inherits',
-      from: ROW.issueCore,
-      note: 'A binding inherits its TARGET, and the edge points at the issue arm because that is the one this matrix has a row for. The other three arms are stated rather than left implicit: a `session` binding inherits that session, a `repository` binding inherits the machine-scoped repo (POD-1079’s model, cited by POD-731’s contract rather than guessed at), and a `global` binding is instance-wide and admin-grade — the shipped `protectedWrite` brake, kept. Sharing an issue must share what runs on it; a binding owned by whoever last changed it would leave the issue’s owner unable to see why their own issue starts the workflow it does.',
-    },
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'A binding inherits its TARGET, and the edge points at the issue arm because that is the one this matrix has a row for. The other three arms are stated rather than left implicit: a `session` binding inherits that session, a `repository` binding inherits the machine-scoped repo (POD-1079’s model, cited by POD-731’s contract rather than guessed at), and a `global` binding is instance-wide and admin-grade — the shipped `protectedWrite` brake, kept. Sharing an issue must share what runs on it; a binding owned by whoever last changed it would leave the issue’s owner unable to see why their own issue starts the workflow it does.' },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.issueCore },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'parent',
-      from: ROW.issueCore,
-      note: 'DECLARED: the target’s owner and grants, never the binder’s.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'reparent'],
-      note: 'PHASE 2 MUST HANDLE: `bindings()` is a QUERY and was one of the three read-shaped operator branches POD-730 pinned — it returned every binding in the instance. A scoped feed must filter it per principal.',
-    },
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore, note: 'DECLARED: the target’s owner and grants, never the binder’s.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'reparent'], note: 'PHASE 2 MUST HANDLE: `bindings()` is a QUERY and was one of the three read-shaped operator branches POD-730 pinned — it returned every binding in the instance. A scoped feed must filter it per principal.' },
     open: [],
   },
   {
     id: ROW.workflowExecutionProfiles,
     section: 'coordination',
     title: 'Execution profiles (`execution_profiles`)',
-    sites: [
-      'apps/server `execution_profiles` table (`wfp_` prefix); the per-run immutable snapshot on `workflow_run_steps`',
-    ],
+    sites: ['apps/server `execution_profiles` table (`wfp_` prefix); the per-run immutable snapshot on `workflow_run_steps`'],
     home: 'server',
     idMinting: 'Server prefixed ids (`wfp_`)',
     writers: ['operator'],
     replication: 'server-to-clients',
-    replicationNote:
-      'The `accountId` REFERENCE replicates; no credential material does. ADR 1 D6 is untouched — this row is `secret-presence`, not `secret-value`.',
+    replicationNote: 'The `accountId` REFERENCE replicates; no credential material does. ADR 1 D6 is untouched — this row is `secret-presence`, not `secret-value`.',
     conflict: 'exp-rev',
     tombstone: 'soft-delete',
     tombstoneNote: 'A profile a run pinned survives as that run’s immutable snapshot regardless.',
     offline: 'never-enqueue',
     secret: 'secret-presence',
-    secretNote:
-      'FAIL CLOSED: `accountId` names MANAGED CREDENTIALS (server-only, admin-grade to manage under ADR 1 D6) and `machineId` names OWNED COMPUTE, where `use` is a CODE-EXECUTION boundary and not a privacy one (ADR 9 D6 M2). The row holds neither the credential nor the machine — it holds two references — but which account funds which workflow, and which machine runs it, are disclosures on their own. Never enqueued: a queued profile write would replay a credential-to-compute binding after the grant authorizing it may have been revoked.',
+    secretNote: 'FAIL CLOSED: `accountId` names MANAGED CREDENTIALS (server-only, admin-grade to manage under ADR 1 D6) and `machineId` names OWNED COMPUTE, where `use` is a CODE-EXECUTION boundary and not a privacy one (ADR 9 D6 M2). The row holds neither the credential nor the machine — it holds two references — but which account funds which workflow, and which machine runs it, are disclosures on their own. Never enqueued: a queued profile write would replay a credential-to-compute binding after the grant authorizing it may have been revoked.',
     owner: { kind: 'user', resolves: 'creating-user' },
     visibility: 'personal',
     grants: PERSONAL_GRANTS,
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the creating principal’s human. A RUN does not inherit the live profile — it pins an immutable SNAPSHOT (POD-730 §4), which is correct for reproducibility and must never become the model for authorization: the snapshot is re-authorized at every apply against the CURRENT delegation (ADR 9 D5 A1).',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-role-change'],
-      note: 'PHASE 2 MUST HANDLE: two axes that move independently — the profile’s own grants, and `use` on the machine it pins. `profiles()` had NO gate at all and listed every profile, with its `accountId`, to any caller.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the creating principal’s human. A RUN does not inherit the live profile — it pins an immutable SNAPSHOT (POD-730 §4), which is correct for reproducibility and must never become the model for authorization: the snapshot is re-authorized at every apply against the CURRENT delegation (ADR 9 D5 A1).' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-role-change'], note: 'PHASE 2 MUST HANDLE: two axes that move independently — the profile’s own grants, and `use` on the machine it pins. `profiles()` had NO gate at all and listed every profile, with its `accountId`, to any caller.' },
     open: [],
   },
   {
     id: ROW.workflowRuns,
     section: 'coordination',
-    title:
-      'Workflow runs, run steps and run events (`workflow_runs` / `workflow_run_steps` / `workflow_events`)',
-    sites: [
-      'apps/server `workflow_runs`, `workflow_run_steps`, `workflow_events` (`wrun_` prefix)',
-    ],
+    title: 'Workflow runs, run steps and run events (`workflow_runs` / `workflow_run_steps` / `workflow_events`)',
+    sites: ['apps/server `workflow_runs`, `workflow_run_steps`, `workflow_events` (`wrun_` prefix)'],
     home: 'server',
     idMinting: 'Server prefixed ids (`wrun_`)',
     writers: ['operator', 'agent-session', 'system'],
     replication: 'server-to-clients',
     conflict: 'cmd',
-    conflictNote:
-      'The run STATE MACHINE, and the reason this could not stay in a note on a definitions row: an advance is a COMMAND against a run, not a field write, and its at-most-once property is the run-scoped idempotency POD-731 landed rather than anything a merge rule could supply.',
+    conflictNote: 'The run STATE MACHINE, and the reason this could not stay in a note on a definitions row: an advance is a COMMAND against a run, not a field write, and its at-most-once property is the run-scoped idempotency POD-731 landed rather than anything a merge rule could supply.',
     tombstone: 'never-delete',
-    tombstoneNote:
-      'A superseded run keeps its whole step history; `workflow_events` is append-only and is the ONLY durable audit trail this surface has (POD-730 §9 — write-only today, with no reader in the product, and it must not be dropped on the assumption nothing reads it).',
+    tombstoneNote: 'A superseded run keeps its whole step history; `workflow_events` is append-only and is the ONLY durable audit trail this surface has (POD-730 §9 — no reader in the product yet, and it must not be dropped on the assumption nothing reads it).',
     offline: 'online-only',
     secret: 'public',
-    owner: {
-      kind: 'inherits',
-      from: ROW.issueCore,
-      note: 'A run inherits the ISSUE or SESSION it advances, NOT the agent that advances it (readiness §3.1.2) — a colleague’s agent checkpointing your issue must not acquire your run. This is where the old single row was most misleading: it declared `creating-user` for the whole surface, which is right for a definition and wrong for a run.',
-    },
+    owner: { kind: 'inherits', from: ROW.issueCore, note: 'A run inherits the ISSUE or SESSION it advances, NOT the agent that advances it (readiness §3.1.2) — a colleague’s agent checkpointing your issue must not acquire your run. This is where the old single row was most misleading: it declared `creating-user` for the whole surface, which is right for a definition and wrong for a run.' },
     visibility: 'personal',
-    grants: {
-      kind: 'verbs',
-      verbs: ['read', 'write'],
-      note: 'Read and write on the run follow the subject. An ADVANCE is ADDITIONALLY gated by `use` on the machine the step is placed on (ADR 9 D6 M5, checked at assign time AND again at apply, with unauthorized distinguishable from unreachable) — a DIFFERENT vocabulary on a different object, never a personal verb on this row.',
-    },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'required',
-      note: 'ADR 9 D5 A3, and the gap is concrete: run history and step records name ONE session today, so "did a person or an agent skip this step?" is unanswerable. Both halves are stamped from the transport principal, never from payload.',
-    },
+    grants: { kind: 'verbs', verbs: ['read', 'write'], note: 'Read and write on the run follow the subject. An ADVANCE is ADDITIONALLY gated by `use` on the machine the step is placed on (ADR 9 D6 M5, checked at assign time AND again at apply, with unauthorized distinguishable from unreachable) — a DIFFERENT vocabulary on a different object, never a personal verb on this row.' },
+    attribution: { actor: 'required', onBehalfOf: 'required', note: 'ADR 9 D5 A3, and POD-731 landed the pair: `workflow_events.on_behalf_of` records WHICH HUMAN the actor acted for beside WHICH agent or session acted, both stamped from the transport principal and never from payload. The one path still recording a null human is `startRun`, which takes no caller to resolve one from.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'parent',
-      from: ROW.issueCore,
-      note: 'DECLARED: the subject issue or session, not the actor.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-disable'],
-      note: 'PHASE 2 MUST HANDLE: `runs()` and `runFor()` were the other two read-shaped operator branches — every run in the instance, and any run by id. And `account-disable` is load-bearing here rather than theoretical: runs are long-lived and UNATTENDED, so revoking a person must stop their in-flight runs advancing with no reaper to write.',
-    },
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore, note: 'DECLARED: the subject issue or session, not the actor.' },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke', 'grant-use', 'account-disable'], note: 'PHASE 2 MUST HANDLE: `runs()` and `runFor()` were the other two read-shaped operator branches — every run in the instance, and any run by id. And `account-disable` is load-bearing here rather than theoretical: runs are long-lived and UNATTENDED, so revoking a person must stop their in-flight runs advancing with no reaper to write.' },
     open: [],
   },
 ]
@@ -1744,10 +1490,7 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the sender’s human owns the message.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the sender’s human owns the message.' },
     visibilityMutability: {
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
@@ -1772,31 +1515,18 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'inherits', from: ROW.issueCore },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.issueCore },
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'none-representable',
-      note: 'Bridge writes are `system`.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'none-representable', note: 'Bridge writes are `system`.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows the issue.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: follows the issue.' },
     open: [],
   },
   {
     id: ROW.superagentState,
     section: 'messaging-and-superagent',
     title: 'Superagent threads / messages / queued inputs / pending turns',
-    sites: [
-      '`superagent_threads`',
-      '`superagent_messages`',
-      '`superagent_queued_inputs`',
-      '`superagent_pending_turns`',
-    ],
+    sites: ['`superagent_threads`', '`superagent_messages`', '`superagent_queued_inputs`', '`superagent_pending_turns`'],
     home: 'server',
     idMinting: 'Server id',
     writers: ['operator', 'agent-session', 'system'],
@@ -1819,11 +1549,7 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the superagent’s human.' },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: private by default, shareable by explicit grant.',
-    },
+    visibilityMutability: { mutable: true, verbs: ['share', 'unshare', 'revoke'], note: 'PHASE 2 MUST HANDLE: private by default, shareable by explicit grant.' },
     open: [],
   },
 ]
@@ -1846,20 +1572,13 @@ const HANDOFF_ROWS: readonly MatrixRow[] = [
     replicationNote:
       'DIRECTION: source → target, then the target ACCEPTS — a one-shot export followed by an accept, NOT continuous multi-home sync. Nothing makes the two servers co-authorities of the same row.',
     conflict: 'cmd',
-    conflictNote:
-      'Accept is a `cmd` on the target. There is no merge because there is no concurrent second writer: the source stops owning the session when the target accepts.',
+    conflictNote: 'Accept is a `cmd` on the target. There is no merge because there is no concurrent second writer: the source stops owning the session when the target accepts.',
     tombstone: 'hard-delete',
-    tombstoneNote:
-      'Export-artifact retention is separate from the session tombstone — deleting a bundle does not delete the session, and vice versa.',
+    tombstoneNote: 'Export-artifact retention is separate from the session tombstone — deleting a bundle does not delete the session, and vice versa.',
     offline: 'online-only',
     secret: 'public',
-    secretNote:
-      'Public session fields; **no secrets in the manifest** (D6). A bundle leaves the live system, so a secret in it would leave the trust domain entirely.',
-    owner: {
-      kind: 'inherits',
-      from: ROW.sessionIdentity,
-      note: 'The exported session’s owner. The manifest carries owner + attribution.',
-    },
+    secretNote: 'Public session fields; **no secrets in the manifest** (D6). A bundle leaves the live system, so a secret in it would leave the trust domain entirely.',
+    owner: { kind: 'inherits', from: ROW.sessionIdentity, note: 'The exported session’s owner. The manifest carries owner + attribution.' },
     visibility: 'personal',
     grants: {
       kind: 'inherits',
@@ -1908,20 +1627,11 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     tombstoneNote: 'Compaction / retention is ADR 2’s.',
     offline: 'n/a',
     secret: 'public',
-    secretNote:
-      'Payloads are subject to the secret scrub — a change row must never carry `secret-value` material.',
-    owner: {
-      kind: 'none',
-      reason: 'substrate',
-      note: 'The feed is the Authority’s ledger, not anybody’s row.',
-    },
+    secretNote: 'Payloads are subject to the secret scrub — a change row must never carry `secret-value` material.',
+    owner: { kind: 'none', reason: 'substrate', note: 'The feed is the Authority’s ledger, not anybody’s row.' },
     visibility: 'deployment-substrate',
     grants: NO_GRANTS_SUBSTRATE,
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'required',
-      note: 'Each change carries origin / causation / mutation identity (D7’s federation seam), which is where the pair lands.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'required', note: 'Each change carries origin / causation / mutation identity (D7’s federation seam), which is where the pair lands.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: { kind: 'not-applicable', reason: 'Substrate: the ledger has no owner.' },
@@ -1976,11 +1686,9 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     idMinting: 'Client `mutationId`',
     writers: ['operator', 'agent-session'],
     replication: 'client-to-server-to-clients',
-    replicationNote:
-      'Drains TOWARD the server; the outbox itself is device-local and never replicated.',
+    replicationNote: 'Drains TOWARD the server; the outbox itself is device-local and never replicated.',
     conflict: 'single-writer',
-    conflictNote:
-      'Local FIFO partitions. It is durable command DELIVERY, not a second authority (ADR 1 D1).',
+    conflictNote: 'Local FIFO partitions. It is durable command DELIVERY, not a second authority (ADR 1 D1).',
     tombstone: 'hard-delete',
     tombstoneNote: 'Dead-letter is a UX state; user work is never silently dropped.',
     offline: 'offline-eligible',
@@ -1989,16 +1697,9 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'user', resolves: 'authenticated-principal-on-device' },
     visibility: 'per-user-state',
     grants: NO_GRANTS_PER_USER,
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'required',
-      note: 'Re-authorized at APPLY, not at enqueue (ADR 3 D8): rights revoked while offline still apply on reconnect, which is the central multi-user risk and is already designed for.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'required', note: 'Re-authorized at APPLY, not at enqueue (ADR 3 D8): rights revoked while offline still apply on reconnect, which is the central multi-user risk and is already designed for.' },
     systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'the-user-in-the-key',
-      note: 'DECLARED: the authenticated principal on that device.',
-    },
+    inheritanceOnCreate: { kind: 'the-user-in-the-key', note: 'DECLARED: the authenticated principal on that device.' },
     visibilityMutability: { mutable: false, verbs: [], note: 'Device-local and never replicated.' },
     open: [],
   },
@@ -2013,8 +1714,7 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     replication: 'none',
     replicationNote: 'A device-local cache of that principal’s SLICE.',
     conflict: 'single-writer',
-    conflictNote:
-      'The Authority always wins; a corrupt cursor means a cold start. The Replica never arbitrates — that is D1 and it is unchanged by multi-user.',
+    conflictNote: 'The Authority always wins; a corrupt cursor means a cold start. The Replica never arbitrates — that is D1 and it is unchanged by multi-user.',
     tombstone: 'hard-delete',
     tombstoneNote: 'Corruption → cold start (ADR 2 D9’s demotion to resync).',
     offline: 'offline-eligible',
@@ -2023,17 +1723,10 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     owner: { kind: 'user', resolves: 'authenticated-principal-on-device' },
     visibility: 'per-user-state',
     grants: NO_GRANTS_PER_USER,
-    attribution: {
-      actor: 'not-applicable',
-      onBehalfOf: 'not-applicable',
-      note: 'Cache maintenance is not an attributable durable write.',
-    },
+    attribution: { actor: 'not-applicable', onBehalfOf: 'not-applicable', note: 'Cache maintenance is not an attributable durable write.' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'the-user-in-the-key',
-      note: 'DECLARED: the authenticated principal on that device.',
-    },
+    inheritanceOnCreate: { kind: 'the-user-in-the-key', note: 'DECLARED: the authenticated principal on that device.' },
     visibilityMutability: {
       mutable: false,
       verbs: [],
@@ -2054,14 +1747,12 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     title: 'User / account aggregate (identity, display name, role, lifecycle)',
     sites: ['POD-1075 (packages/model/src/identity)'],
     home: 'server',
-    idMinting:
-      'Server-minted `UserId` (the brand is POD-1075’s; it lives transitionally in @podium/protocol’s principal module because L0 may not import it)',
+    idMinting: 'Server-minted `UserId` (the brand is POD-1075’s; it lives transitionally in @podium/protocol’s principal module because L0 may not import it)',
     writers: ['operator', 'system'],
     replication: 'server-to-clients',
     conflict: 'exp-rev',
     tombstone: 'soft-delete',
-    tombstoneNote:
-      'Disable before remove; per-user rows cascade on user deletion, while OWNED entities need a transfer story — flagged, and ADR 9’s lifecycle territory rather than this issue’s.',
+    tombstoneNote: 'Disable before remove; per-user rows cascade on user deletion, while OWNED entities need a transfer story — flagged, and ADR 9’s lifecycle territory rather than this issue’s.',
     offline: 'online-only',
     secret: 'public',
     secretNote: 'Credential material is a SEPARATE row and is excluded from every wire projection.',
@@ -2075,10 +1766,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'An account has no parent and inherits nothing; it is created by an admin invite.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'An account has no parent and inherits nothing; it is created by an admin invite.' },
     visibilityMutability: {
       mutable: true,
       verbs: ['account-role-change', 'account-disable'],
@@ -2129,18 +1817,13 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     idMinting: 'Server-minted at login',
     writers: ['system'],
     replication: 'none',
-    conflictNote:
-      'A client session is a DEVICE, not a person — the principal becomes `(user, device, capability)`, so device and person are two answers rather than one.',
+    conflictNote: 'A client session is a DEVICE, not a person — the principal becomes `(user, device, capability)`, so device and person are two answers rather than one.',
     secret: 'secret-presence',
     secretNote: 'The token material itself is the pairing-token row (`secret-value`).',
     offline: 'online-only',
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    attribution: {
-      actor: 'required',
-      onBehalfOf: 'required',
-      note: 'Existing client sessions are ADOPTED by the first admin at the migration rather than invalidated — nobody is logged out by an upgrade.',
-    },
+    attribution: { actor: 'required', onBehalfOf: 'required', note: 'Existing client sessions are ADOPTED by the first admin at the migration rather than invalidated — nobody is logged out by an upgrade.' },
   }),
   {
     id: ROW.grantEdge,
@@ -2155,8 +1838,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     conflictNote:
       'Sharing is an EXPLICIT act with its own commands, never a side effect of another operation (ADR 9 D2 rule 3). A grant is NOT a copy of rights: it is evaluated live against the granter’s CURRENT rights, so a frozen grant cannot survive the revocation of the person who issued it. Revocation is immediate and takes effect at the next apply (ADR 3 D8).',
     tombstone: 'remove',
-    tombstoneNote:
-      'Revocation removes the edge, and the removal is itself a durable change with a global `seq` — which is what a visibility event can be anchored on.',
+    tombstoneNote: 'Revocation removes the edge, and the removal is itself a durable change with a global `seq` — which is what a visibility event can be anchored on.',
     offline: 'online-only',
     secret: 'public',
     owner: {
@@ -2172,11 +1854,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason:
-        'An edge inherits the entity it grants on; it has no owner to inherit and is not itself grantable.',
-    },
+    inheritanceOnCreate: { kind: 'not-applicable', reason: 'An edge inherits the entity it grants on; it has no owner to inherit and is not itself grantable.' },
     visibilityMutability: {
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
@@ -2188,10 +1866,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.delegationRecord,
     section: 'multi-user-classes',
     title: 'Delegation record (`agentIdentity`, `onBehalfOf`, scope, lifecycle)',
-    sites: [
-      'packages/protocol/src/planes/principal.ts (`DelegationRef`)',
-      'POD-323 (`SessionBinding`)',
-    ],
+    sites: ['packages/protocol/src/planes/principal.ts (`DelegationRef`)', 'POD-323 (`SessionBinding`)'],
     home: 'server',
     idMinting: 'Server-minted; NEVER wire-supplied',
     writers: ['system'],
@@ -2200,17 +1875,12 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     conflictNote:
       'Effective rights are its own scope INTERSECTED WITH ITS HUMAN’S CURRENT RIGHTS, resolved at EVERY APPLY — never a capability frozen at spawn (ADR 9 D5 A1). A snapshot would leave a revoked person’s unattended agents running with rights they no longer hold, with no cleanup trigger. There must therefore be NO serialized "effective capability" anywhere.',
     tombstone: 'hard-delete',
-    tombstoneNote:
-      'Born and retired with its `SessionBinding` (A5), so delegation survives handoff between machines for free instead of needing a second lifecycle.',
+    tombstoneNote: 'Born and retired with its `SessionBinding` (A5), so delegation survives handoff between machines for free instead of needing a second lifecycle.',
     offline: 'online-only',
     secret: 'public',
     owner: { kind: 'user', resolves: 'on-behalf-of-human', note: 'The delegating human (A1).' },
     visibility: 'personal',
-    grants: {
-      kind: 'none',
-      reason: 'derived',
-      note: 'Not grantable: widening an agent’s reach is a scope act, not a share.',
-    },
+    grants: { kind: 'none', reason: 'derived', note: 'Not grantable: widening an agent’s reach is a scope act, not a share.' },
     attribution: {
       actor: 'required',
       onBehalfOf: 'required',
@@ -2218,32 +1888,25 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
-    inheritanceOnCreate: {
-      kind: 'on-behalf-of-human',
-      note: 'DECLARED: the delegating human. The default SCOPE is what the agent was spawned for — its session, its issue, that issue’s subtree — not everything its human can see (A2); the human is a CEILING, not the default grant.',
-    },
+    inheritanceOnCreate: { kind: 'on-behalf-of-human', note: 'DECLARED: the delegating human. The default SCOPE is what the agent was spawned for — its session, its issue, that issue’s subtree — not everything its human can see (A2); the human is a CEILING, not the default grant.' },
     visibilityMutability: {
       mutable: true,
       verbs: ['account-disable', 'revoke', 'reparent'],
       note: 'PHASE 2 MUST HANDLE: an agent’s visible set changes when its human’s does, and `reparent` moves a subtree scope under it (O3).',
     },
     open: ['O3'],
-    openNote:
-      'O3: subtree scope is dynamic, so `reparent` widens a working agent’s visibility with nobody having decided it.',
+    openNote: 'O3: subtree scope is dynamic, so `reparent` widens a working agent’s visibility with nobody having decided it.',
   },
   perUserState({
     id: ROW.telegramChatBinding,
     section: 'multi-user-classes',
     title: 'Telegram chat binding (`chatId → UserId`)',
-    sites: [
-      'packages/runtime/src/settings.ts (`notifications.telegramChatId` — one instance-wide string today)',
-    ],
+    sites: ['packages/runtime/src/settings.ts (`notifications.telegramChatId` — one instance-wide string today)'],
     idMinting: 'Keyed `(userId, chatId)` — this is where D10’s move of `telegramChatId` lands',
     conflictNote:
       'A binding CEREMONY, not a preference write: a claim code issued in the web UI and presented to the bot, the same shape as machine pairing. Content-based routing would be PAYLOAD IDENTITY, which ADR 3 D7 declares inert.',
     secret: 'preference',
-    secretNote:
-      'The BOT TOKEN stays `secret` (D15). The chat id is routing config. UNKNOWN CHATS MUST FAIL CLOSED — never fall back to an operator identity, which would turn knowledge of the bot handle into an unauthenticated write path against the whole instance.',
+    secretNote: 'The BOT TOKEN stays `secret` (D15). The chat id is routing config. UNKNOWN CHATS MUST FAIL CLOSED — never fall back to an operator identity, which would turn knowledge of the bot handle into an unauthenticated write path against the whole instance.',
     offline: 'online-only',
   }),
   perUserState({
