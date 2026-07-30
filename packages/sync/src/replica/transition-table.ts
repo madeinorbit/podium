@@ -21,13 +21,23 @@
  * visibility.
  *
  * The application rows (D7-0-APPLY, D13-WATERMARK, D5-REMOVE, D14-EVICT) declare
- * TWO source postures, because a frame reaches the store by two routes and the
- * row describes WHAT HAPPENED TO THE FRAME rather than the machine's overall
- * posture: the live path, and the certified reply that ends a heal. The install
- * path commits inside `installSnapshot` and does NOT fire these rows, so it is
- * deliberately not declared here. Every declaration below is asserted against
- * what the machine really did AND asserted to be exercised, so an aspirational
- * row fails the suite rather than misleading POD-372/POD-373.
+ * MORE THAN ONE source posture, because a frame reaches the store by several
+ * routes and the row describes WHAT HAPPENED TO THE FRAME rather than the
+ * machine's overall posture: the live path, and the certified reply that ends a
+ * heal. The install path commits inside `installSnapshot` and records the whole
+ * install as D6-INSTALL, so it fires no application row of its own and is
+ * deliberately not declared as a SOURCE posture for one.
+ *
+ * `to` is a different question from `from`, and the two are declared separately.
+ * A row's `to` is the posture its effect SETTLES on, so a row that fires from
+ * 'live' can still land in 'bootstrapping' when the very next thing the machine
+ * does is start a re-bootstrap. Those landings are declared where they really
+ * happen; symmetry between `from` and `to` is not assumed anywhere below.
+ *
+ * Every declaration below is asserted against what the machine really did AND
+ * asserted to be exercised, so an aspirational row fails the suite rather than
+ * misleading POD-372/POD-373. A posture is declared here when a real path
+ * reaches it, never because it looks symmetrical.
  *
  * Every row here is quoted from the ADR pack. There are deliberately NO derived
  * rows: an earlier revision carried two (absorbing re-delivered and overlapping
@@ -69,7 +79,12 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     input: 'delta frame',
     condition: 'feedId/epoch match AND fromSeq === cursor.seq AND changes non-empty',
     effect: 'Apply changes in seq order and set cursor = seq, in ONE transaction.',
-    to: ['live', 'healing'],
+    // A row's `to` is the posture its effect SETTLES on, which is not always the
+    // posture it started in: the drain applies a frame from 'live' and may then
+    // meet a frame from another epoch, so the re-bootstrap that follows seals this
+    // row at 'bootstrapping'. Declared because the machine really does it, not
+    // because the application rows are symmetrical.
+    to: ['live', 'healing', 'bootstrapping'],
     rung: 0,
     adr: 'ADR 2 D7 rung 0; Amendment 1 D13 (accept iff fromSeq === cursor)',
   },
@@ -276,12 +291,16 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D6-BUFFER-COVERED',
-    from: ['bootstrapping', 'healing', 'live'],
+    // Two postures, not three. The drop happens either inside a bootstrap install
+    // ('bootstrapping') or at the drain that follows a completed heal — and the
+    // drain runs only AFTER the heal has set 'live', so no path drops a covered
+    // frame while still healing. 'healing' was declared here and never reachable.
+    from: ['bootstrapping', 'live'],
     input: 'buffered frame, at install or at drain',
     condition: 'frame.seq <= cursor.seq (the snapshot or the heal already covers it)',
     effect:
       'DROP it. Not applied and not healed: our own cursor already certifies that range, so there is nothing to learn from it. Nothing from the frame reaches the store, so this is not acceptance of an overlapping frame.',
-    to: ['bootstrapping', 'healing', 'live'],
+    to: ['bootstrapping', 'live'],
     rung: null,
     adr: 'ADR 2 D6.3',
   },

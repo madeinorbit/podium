@@ -1693,16 +1693,30 @@ describe('every declared ADR route is driven, not merely declared', () => {
     expect(b.replica.trace).toContain('D6-EXHAUSTED')
   })
 
-  it('D6-BUFFER and D6-BUFFER-COVERED fire from healing', async () => {
+  it('D6-BUFFER fires from healing, and the drain drops the covered frame from live', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
-    // Heal reply lands at 20, so the frame buffered mid-heal is wholly covered.
+    // Heal reply lands at 20, so both buffered frames are wholly covered by it.
     h.authority.changesSinceQueue = [deltaFrame(10, 20, [])]
-    h.replica.receive(deltaFrame(30, 31, [session(31, 'x', 'y')]))
+
+    // The frame that OPENS the heal is itself buffered, and it must be one the
+    // drain can get past: the drain walks the buffer in arrival order and stops at
+    // the first frame that does not chain, so a leading gap frame would short-
+    // circuit the walk and the covered frame behind it would never be classified.
+    // That is exactly what the previous fixture did, which is why the row this
+    // test is named for never fired.
+    h.replica.receive(deltaFrame(12, 15, [session(15, 'x', 'y')]))
     expect(h.replica.posture).toBe('healing')
-    expect(h.replica.receive(deltaFrame(12, 15, [])).rowId).toBe('D6-BUFFER')
+    expect(h.replica.receive(deltaFrame(15, 18, [])).rowId).toBe('D6-BUFFER')
+
     await h.replica.settled()
-    expect(h.replica.trace).toContain('D6-BUFFER-COVERED')
+
+    // Both were at or below the healed cursor, so both are dropped rather than
+    // applied — nothing from either frame reaches the store.
+    const covered = h.replica.transitions.filter((t) => t.rowId === 'D6-BUFFER-COVERED')
+    expect(covered.map((t) => t.from)).toEqual(['live', 'live'])
+    expect(h.replica.cursor?.seq).toBe(20)
+    expect(h.replica.view('session', 'x')).toBeUndefined()
   })
 
   it('disconnect fires from healing, from stale, and cold from bootstrapping', async () => {
