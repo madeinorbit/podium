@@ -494,6 +494,15 @@ export const NOT_A_REPRESENTATION: readonly {
     [
       ['apps/server/src/router.ts', 'appRouter'],
       ['apps/server/src/router.ts', 'cloudSourceSessionInput'],
+      // POD-381 moved sessions.create / sessions.resume's procedure inputs OUT of
+      // `appRouter` and onto their command contracts, which the router then uses
+      // as its `.input()` — the same declarations, in the same role, at a new
+      // address. They are excluded for the reason `appRouter` already was, not
+      // for a new one; excluding them by their old container only would have made
+      // the audit's answer depend on which file the transport edge happens to
+      // live in.
+      ['packages/protocol/src/session-command-plane.ts', 'createInput'],
+      ['packages/protocol/src/session-command-plane.ts', 'resumeInput'],
       ['apps/server/src/modules/workflows/service.ts', 'workflowInputs'],
       ['packages/client-core/src/api.ts', 'PodiumClientApi'],
       ['apps/mobile/src/client/trpc.ts', 'MobileTrpcExtras'],

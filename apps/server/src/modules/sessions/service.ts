@@ -78,7 +78,7 @@ import type { WriteFunnel } from '../funnel'
 import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
-import type { MachinesService } from '../machines/service'
+import type { MachinesService, MachineUseResolver } from '../machines/service'
 import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
@@ -1512,6 +1512,12 @@ export class SessionsService {
     sessionId?: string
     /** Explicit workflow override; absent = issue → repository → global default. */
     workflowRevisionId?: string
+    /** The CALLING principal's per-machine `use` decision (ADR 3 Am1 D18). Absent
+     *  = not evaluated, which is what every non-command-plane caller (issue
+     *  start, superagent, boot reconcile) passes today. Threaded into placement
+     *  so an IMPLICIT machine pick can never land on a machine the principal may
+     *  not execute on — readiness §3.1.4 M5's "must not offer". */
+    use?: MachineUseResolver
   }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
@@ -1559,7 +1565,12 @@ export class SessionsService {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
       origin: { kind: 'spawn' },
-      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind),
+      machineId: this.machines.resolveMachineForAgent(
+        input.machineId,
+        input.cwd,
+        agentKind,
+        input.use,
+      ),
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -1629,6 +1640,8 @@ export class SessionsService {
      *  lands on an existing row (reuse/resurrect below), that row's original
      *  spawnedBy is kept — a resume never rewrites who created the session. */
     spawnedBy?: string
+    /** The calling principal's `use` decision per machine — see createSession. */
+    use?: MachineUseResolver
   }): Promise<{ sessionId: string }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
@@ -1665,7 +1678,12 @@ export class SessionsService {
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
-      machineId: this.machines.resolveMachineForAgent(input.machineId, input.cwd, input.agentKind),
+      machineId: this.machines.resolveMachineForAgent(
+        input.machineId,
+        input.cwd,
+        input.agentKind,
+        input.use,
+      ),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
@@ -3288,6 +3306,8 @@ export class SessionsService {
     agentKind?: AgentKind
     cwd: string
     machineId?: string
+    /** The calling principal's `use` decision per machine — see createSession. */
+    use?: MachineUseResolver
   }): Promise<{ cwd: string; machineId?: string }> {
     if (!input.machineId) return { cwd: input.cwd }
     const parsed = AgentKind.safeParse(input.agentKind)
@@ -3295,7 +3315,7 @@ export class SessionsService {
       ? parsed.data
       : resolveRole(this.store.settings.getSettings(), 'coding').harness
     // Validate connectivity, harness installation, and login before cloning.
-    this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind)
+    this.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
     const sourceRepo = this.store.repos
       .listRepos()
       .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))

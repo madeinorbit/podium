@@ -3,6 +3,7 @@ import {
   agentCapabilityRejection,
   type AgentKind,
   type Inventory,
+  type MachineUseDecision,
   type MachineWire,
 } from '@podium/model'
 import type {
@@ -14,6 +15,31 @@ import type {
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
+
+/**
+ * One principal's `use` decision, per machine. Supplied by the command layer
+ * (`apps/server/src/machine-access.ts`), which is where the principal lives;
+ * this service stays principal-free and only carries the answer.
+ */
+export type MachineUseResolver = (machineId: string) => MachineUseDecision
+
+/**
+ * A machine row with the calling principal's `use` decision attached.
+ *
+ * NOT on `MachineWire` itself, and that is deliberate: `packages/model`'s
+ * machine entity says in its own header that no `owner`, `visibility` or `grant`
+ * field may land there yet — those are POD-1075's model types and POD-1071's
+ * matrix columns, and adding one would break the byte-identical wire contract
+ * that made the Phase-1 move provable. A per-principal decision is the same
+ * class of field.
+ *
+ * So the decision is a SERVER-SIDE annotation today. It reaches every server
+ * consumer that enforces it (`requireAgent`, `resolveMachineForAgent`, and
+ * through them `agentCapabilityRejection`), and it does NOT survive the wire
+ * until the schema carries it — which is POD-1079's, with the projection this
+ * type already shapes.
+ */
+export type MachineListing = MachineWire & { use?: MachineUseDecision }
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
@@ -237,15 +263,24 @@ export class MachinesService {
    * capability before any durable session or spawn side effect is created.
    * Legacy boot-before-daemon routing through `__local__` remains queueable.
    */
-  resolveMachineForAgent(requested: string | undefined, cwd: string, agentKind: AgentKind): string {
+  resolveMachineForAgent(
+    requested: string | undefined,
+    cwd: string,
+    agentKind: AgentKind,
+    use?: MachineUseResolver,
+  ): string {
     if (requested) {
-      this.requireAgent(requested, agentKind)
+      this.requireAgent(requested, agentKind, use)
       return requested
     }
 
     const legacy = this.resolveMachine(undefined, cwd)
     if (legacy === LOCAL_PLACEHOLDER) return legacy
-    const machines = this.listMachines()
+    // IMPLICIT placement is a surface too: readiness §3.1.4 M5 says the spawn
+    // path must not OFFER a machine the principal cannot use, and an implicit
+    // pick offers one without asking. Decorated rows make the existing
+    // capability predicate refuse them for us, in the same branch as offline.
+    const machines = this.listMachines(use)
     const selected = machines.find((machine) => machine.id === legacy)
     if (selected && agentCapabilityRejection(selected, agentKind) === undefined) return legacy
 
@@ -265,13 +300,13 @@ export class MachinesService {
     // inventory, lack of the requested harness is authoritative and actionable.
     if (!machines.some((machine) => machine.online && machine.inventory !== undefined))
       return legacy
-    this.requireAgent(legacy, agentKind)
+    this.requireAgent(legacy, agentKind, use)
     return legacy
   }
 
   /** Throw a human-readable reason when a machine cannot run an agent. */
-  requireAgent(machineId: string, agentKind: AgentKind): void {
-    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+  requireAgent(machineId: string, agentKind: AgentKind, use?: MachineUseResolver): void {
+    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = agentCapabilityRejection(machine, agentKind)
     // Exhaustive rather than a chain of ifs: a rejection reason nobody handled
@@ -350,9 +385,23 @@ export class MachinesService {
     return LOCAL_PLACEHOLDER
   }
 
-  /** All known machines with live online status (a daemon socket is attached). */
-  listMachines(): MachineWire[] {
+  /**
+   * All known machines with live online status (a daemon socket is attached).
+   *
+   * `use` is the CALLING PRINCIPAL's execute decision (ADR 3 Amendment 1 D18 /
+   * ADR 9 D6 M5). It is a parameter rather than service state because it is a
+   * fact about the caller, not about the fleet: two principals looking at the
+   * same machine must get two different answers in the same process.
+   *
+   * OMITTING IT MEANS NOT EVALUATED, exactly as `MachineUseDecision`'s home in
+   * `@podium/model` documents — never "granted". Every consumer downstream
+   * (`agentCapabilityRejection`, `machinesForAgent`, `handoffTargets`) already
+   * reads the field and already denies FIRST when it says `'denied'`, so
+   * supplying it here is what turns the whole placement surface on.
+   */
+  listMachines(use?: MachineUseResolver): MachineListing[] {
     return this.machineRecords().map((m) => ({
+      ...(use ? { use: use(m.id) } : {}),
       id: m.id,
       name: m.name,
       hostname: m.hostname,

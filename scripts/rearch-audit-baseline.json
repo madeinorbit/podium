@@ -19,7 +19,7 @@
     "publish-computed-fanout": 13,
     "reexport-shims": 23,
     "representation-registry-rot": 0,
-    "router-triple-access": 114,
+    "router-triple-access": 101,
     "send-turn-duplicate": 1,
     "session-shapes": 0,
     "state-dir-defs": 0,

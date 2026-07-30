@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import type { MachineVerb } from './handshake/strategies/types'
 
 /**
  * Command-definition contract for the P3 command registry [spec:SP-3fe2]:
@@ -92,7 +93,32 @@ export interface CommandPolicy {
   scope: PolicyScope
   /** Verb, in the same vocabulary as {@link CommandAction}. */
   action: CommandAction
+  /**
+   * ADDITIONALLY required on the machine the target lives on (POD-381, ADR 3
+   * Amendment 1 D18 / ADR 9 D6). A command can name a `session` resource and
+   * still be an execution request: spawning, reattaching, typing into a PTY and
+   * killing a process all run code on someone's hardware with THEIR ssh keys,
+   * git identity and private checkouts.
+   *
+   * It is a SECOND axis rather than `resource: 'machine'` because collapsing
+   * them would lose the row gate: `sessions.kill` is authorized against the
+   * session's owner AND against `use` on its machine, and D15.2 says neither
+   * substitutes for the other.
+   *
+   * The type is the handshake's `MachineVerb`, aliased below, not a second
+   * declaration of the same three literals — that file already owns the
+   * vocabulary beside the `MachineGrant` edge and the `machineUseAllowed`
+   * all-in-one guard that reads it.
+   *
+   * Declaring `'use'` makes `offline: 'online-only'` a CONSEQUENCE rather than a
+   * judgement call (D18.3): a queued execution command is a rights snapshot with
+   * a delayed fuse. `session-commands-plane.test.ts` enforces the implication.
+   */
+  machineVerb?: MachineVerb
 }
+
+/** See {@link CommandPolicy.machineVerb}. */
+export type { MachineVerb }
 
 /**
  * Delivery class (ADR 3 D4), and the one facet whose values are already pinned by

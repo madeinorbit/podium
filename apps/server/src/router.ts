@@ -68,6 +68,31 @@ import { searchAll } from './search'
 export { type Context, mods } from './trpc'
 
 import { type Context, mods, t } from './trpc'
+import { sessionCommandPlaneInputs } from '@podium/protocol'
+import {
+  dispatchSessionCommand,
+  type SessionCommandKey,
+  type SessionCommandResult,
+} from './modules/sessions/command-plane'
+import { sessionCommandCtx, visibleMachinesFor } from './modules/sessions/command-ctx'
+
+/**
+ * Dispatch a migrated session command (POD-381). The tRPC procedure is now pure
+ * transport: it hands the authenticated capability to the composition root and
+ * the contract decides everything else.
+ */
+function sessionCommand<K extends SessionCommandKey>(
+  ctx: Context,
+  key: K,
+  input: unknown,
+): SessionCommandResult<K> {
+  return dispatchSessionCommand(
+    sessionCommandCtx(mods(ctx), ctx.capability, ctx.overrideScope),
+    key,
+    input,
+  )
+}
+
 import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presence-registry'
 import type { PinState, SnoozeMap } from './store/types'
 
@@ -394,160 +419,45 @@ export const appRouter = t.router({
   }),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => mods(ctx).sessions.listSessions()),
+    // MIGRATED (POD-381): the contract owns authz + idempotency + envelope; this
+    // procedure owns only the transport. Its input schema is the CONTRACT's own
+    // instance, so there is one validation source and no second copy to drift.
     create: t.procedure
-      .input(
-        z.object({
-          // Omitted = the settings default decides which harness to start.
-          agentKind: AgentKind.optional(),
-          cwd: z.string(),
-          title: z.string().optional(),
-          // Which machine to spawn on. Omitted = resolved by repo affinity / the sole
-          // online machine (single-machine behavior is unchanged).
-          machineId: z.string().optional(),
-          // Explicit issue attachment (issue-as-workspace). Omitted = derived from
-          // cwd (sole non-archived owning issue) inside createSession.
-          issueId: z.string().optional(),
-          // Explicit workflow override; omitted = issue → repository → global default.
-          workflowRevisionId: z.string().optional(),
-          // Client-supplied id (optimistic UI): the web client can render an
-          // optimistic row before the round-trip completes, then reconcile it
-          // seamlessly when the server's broadcast lands using this same id.
-          // Omitted = the server mints one (unchanged default behavior). uuid-bounded
-          // because it feeds durableLabel → the systemd-run scope / abduco socket name.
-          sessionId: z.string().uuid().optional(),
-          // Low-friction start: create a draft issue vessel first and attach the
-          // new session to it (spec: issue-as-workspace).
-          draftIssue: z.object({ repoPath: z.string(), issueId: z.string().optional() }).optional(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Provenance (issue #60) is stamped HERE, the one human seam: every tRPC
-      // sessions.create is an operator action (web UI / CLI). Programmatic creators
-      // (issues, superagent) call registry.createSession directly with their own tag.
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', async () => {
-          const { draftIssue, mutationId: _m, ...rest } = input
-          const target = await mods(ctx).sessions.prepareSessionTarget(rest)
-          const issueId =
-            rest.issueId ??
-            (draftIssue
-              ? mods(ctx).issues.createDraftFor(
-                  draftIssue.repoPath,
-                  rest.agentKind,
-                  draftIssue.issueId,
-                ).id
-              : undefined)
-          return mods(ctx).sessions.createSession({
-            ...rest,
-            ...target,
-            ...(issueId ? { issueId } : {}),
-            spawnedBy: 'user',
-          })
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.create)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'create', input)),
     resume: t.procedure
-      .input(
-        z.object({
-          agentKind: AgentKind,
-          cwd: z.string(),
-          resume: ResumeRef,
-          conversationId: z.string(),
-          title: z.string().optional(),
-          machineId: z.string().optional(),
-        }),
-      )
-      // Same human seam as create (issue #60): a tRPC resume is an operator action.
-      // Only the fresh-spawn fallback uses this — a resume that lands on an existing
-      // row keeps that row's original provenance (see resumeSession).
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.resumeSession({ ...input, spawnedBy: 'user' }),
-      ),
+      .input(sessionCommandPlaneInputs.resume)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resume', input)),
     kill: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.killSession(input)),
+      .input(sessionCommandPlaneInputs.kill)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'kill', input)),
     handoff: t.procedure
       .input(z.object({ sessionId: z.string(), machineId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.handoffSession(input)),
     continue: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.continueSession(input)),
+      .input(sessionCommandPlaneInputs.continue)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'continue', input)),
     // Chat-view send path: routes around controller gating on purpose — a chat
-    // message is an explicit user act, not a competing keyboard.
+    // message is an explicit user act, not a competing keyboard. The contract
+    // adds a machine `use` gate and leaves controller gating exactly as it was;
+    // identity on controllerId is POD-1081's, not this migration's.
     sendText: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          text: z.string().min(1).max(32_768),
-          // Idempotency key (docs/spec/outbox-write-path.md §2.1): a replayed send
-          // must NOT double-type into the PTY.
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Unified substrate (#237) [spec:SP-34d7 migration]: human chat sends
-      // ride the substrate as OPERATOR — unwrapped, unclamped, ledgered.
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () => {
-          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
-            { kind: 'operator' },
-            {
-              to: { kind: 'session', id: input.sessionId },
-              body: input.text,
-              urgency: 'next-turn',
-              lifecycle: 'wait',
-            },
-          )
-          return {
-            ok,
-            ...(queued !== undefined ? { queued } : {}),
-            ...(reason !== undefined ? { reason } : {}),
-            disposition,
-          }
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.sendText)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'sendText', input)),
     // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
     // number(s) into the agent's native menu (the native terminal is unmounted in
-    // chat mode). One entry per question, each with its 1-based option indices.
+    // chat mode). WHICH HUMAN answered comes from the transport principal — the
+    // contract's schema carries no identity field, so a payload-supplied answerer
+    // is unrepresentable rather than merely ignored.
     answerAskUserQuestion: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          choices: z
-            .array(z.object({ optionIndices: z.array(z.number().int().min(1).max(9)).min(1) }))
-            .min(1),
-        }),
-      )
-      .mutation(({ ctx, input }) => mods(ctx).sessions.answerAskUserQuestion(input)),
+      .input(sessionCommandPlaneInputs.answerAskUserQuestion)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'answerAskUserQuestion', input)),
     // Chat compose for a parked session: wake it if needed, then deliver the
-    // message once the resumed CLI is ready (auto-resume on submit).
+    // message once the resumed CLI is ready. The ONE offline-eligible member of
+    // the command class — see the contract's decision record.
     resumeAndSend: t.procedure
-      .input(
-        z.object({
-          sessionId: z.string(),
-          text: z.string().min(1).max(32_768),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      // Substrate-routed like sendText; lifecycle wake resurrects the parked
-      // target (operator wakes are never cooldown-braked).
-      .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () => {
-          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
-            { kind: 'operator' },
-            {
-              to: { kind: 'session', id: input.sessionId },
-              body: input.text,
-              urgency: 'next-turn',
-              lifecycle: 'wake',
-            },
-          )
-          return {
-            ok,
-            ...(queued !== undefined ? { queued } : {}),
-            ...(reason !== undefined ? { reason } : {}),
-            disposition,
-          }
-        }),
-      ),
+      .input(sessionCommandPlaneInputs.resumeAndSend)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resumeAndSend', input)),
     // On-demand transcript window for the chat view — a pure disk read via the
     // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
     // `limit` items before (older) or after (newer) it. No anchor = the latest
@@ -602,8 +512,8 @@ export const appRouter = t.router({
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ask', input)!,
       ),
     hibernate: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
+      .input(sessionCommandPlaneInputs.hibernate)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'hibernate', input)),
     // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
     // Operator path (web/tRPC) — no self-stop deferral; force discards dirty tree.
     stop: t.procedure
@@ -615,8 +525,8 @@ export const appRouter = t.router({
       )
       .mutation(({ ctx, input }) => mods(ctx).sessions.stopSession(input)),
     resurrect: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).sessions.resurrectSession(input)),
+      .input(sessionCommandPlaneInputs.resurrect)
+      .mutation(({ ctx, input }) => sessionCommand(ctx, 'resurrect', input)),
     // ---- PRESENCE CLASS (POD-380) ----
     //
     // These six no longer carry a hand-written body. Their input schema IS their
@@ -1133,7 +1043,10 @@ export const appRouter = t.router({
     // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
     // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
     // administering machines is the hub's job (hubProc below).
-    list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
+    // The spawn picker's source. Scoped to what THIS principal may see, with
+    // its `use` decision attached, so a machine it cannot execute on is never
+    // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
+    list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
     rename: hubProc
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {
