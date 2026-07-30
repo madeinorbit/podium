@@ -729,6 +729,41 @@ that changes after create, which is the quantitative form of "the machinery is
 load-bearing from day one". The owner column is a RULE (`OwnerResolution` + declared
 no-owner reason), not a `UserId` field, so POD-1075's brand plugs in additively.
 
+**POD-368 as-built (1.4e — the vocabulary audit, closing POD-302).** Four things this section
+records because later phases inherit them:
+
+1. **The audit item was REDEFINED, and the redefinition is the deliverable.** `session-shapes` and
+   `issue-shapes` were hardcoded lists of nine and seven NAMES; POD-367 measured them at **4 of 17**
+   issue representations, counting `packages/model`'s own canonical declarations as debt. The lists
+   were deliberately **not** extended — that leaves the criterion zeroable by renaming an identifier
+   — so the detectors now key on the entity **vocabulary**, read at runtime out of the field groups.
+   9 → 0 and 8 → 0. Their limit travels with them: a **composed** representation is invisible to a
+   key-counting detector by construction, so they enumerate RESTATEMENTS and can never enumerate
+   REPRESENTATIONS. `packages/model/src/representations/registry.ts` is the enumeration and is
+   deliberately not derived from them.
+2. **Every retained representation is documented in model**, with purpose, why its semantics differ
+   from the canonical aggregate, what it composes, and a declared ADR 9 D3 class checked against an
+   ADR 1 matrix row. Storage, live state, wire and the narrow ports each keep their own entry (ADR 4
+   D1). **43 entries: 26 session + 17 issue** — POD-364's 41, minus two drifted duplicates deleted
+   rather than documented, plus four its hand pass missed and the detector found.
+3. **Two audit items are ratchets, not zeros, and are mapped away from POD-302 on purpose.**
+   `per-user-singletons` (8, all inherited) → **POD-1076**; `change-row-typings` (7) re-phased →
+   **POD-308** as ADR 2 D9 sync-envelope shape. The second is what makes POD-302's gate pass, so it
+   is the deviation a reviewer should check first. Neither is folded into a zero.
+4. **`findCapabilitySnapshotKeys` had exactly one caller.** ADR 9 D5 A1's rule is about every
+   representation, so it now runs over all of them — with `owner` / `actor` / `onBehalfOf` exempt **by
+   test**, because attribution must survive export and an audit that conflated the two would forbid
+   what this matrix requires.
+
+Full record: `docs/rearch-vocabulary-audit.md` (§9 carries the LEDGER-ENTRY text).
+
+**Handed forward in writing, and OPEN:** the 13-surface existence-leak list (L-1…L-13, ADR 9 §3 O1)
+and the cross-boundary graph-edge question (O2) go to Phase 3 (POD-290). POD-367 landed the property
+that keeps BOTH edge answers expressible without a second projection function — `IssueRefHead` is
+identity-only and content is added by mask — and the decision itself is made nowhere. One real
+vocabulary drift is filed as **POD-1148**: two attribution pairs exist, and reconciling them needs a
+decision nobody has made about whether the actor's agent arm names the agent identity or the session.
+
 **Verification steps (gate POD-423):** regenerate the gate evidence checklist against
 current main, not the 07-13 snapshot; audit items zero; oracle green; wire fixtures
 unchanged (incl. the handoff family); ledger + as-built updated. `podium issue tree 288`.
