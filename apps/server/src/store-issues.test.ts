@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
 const base = () => ({
-  id: 'iss_1', repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
+  id: asIssueId('iss_1'), repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
   stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
   defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
   linearId: null, linearIdentifier: null, linearUrl: null,

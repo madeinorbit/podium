@@ -144,7 +144,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const parentId = `parent-${provider}`
       const childId = asSessionId(`child-${provider}`)
       registry.modules.sessions.createSession({
-        sessionId: parentId,
+        sessionId: asSessionId(parentId),
         agentKind: 'claude-code',
         cwd: join(root, 'parent'),
       })

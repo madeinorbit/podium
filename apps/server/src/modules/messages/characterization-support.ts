@@ -155,7 +155,7 @@ export interface MailHarness {
   setNow(iso: string): void
   /** Create an issue and return its row-ish metadata. */
   createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): {
-    id: string
+    id: IssueId
     seq: number
   }
   /** Attach a worktree path to an issue (issue-membership by cwd). Goes through

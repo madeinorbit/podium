@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import { type WorkflowCaller, WorkflowService, workflowInputs } from './service'
@@ -11,7 +11,7 @@ const agent = (sessionId: SessionId, issueId = 'issue-1'): WorkflowCaller => ({
   actor: { kind: 'session', id: sessionId },
   capability: {
     role: 'worker',
-    scope: { kind: 'subtree', rootId: issueId },
+    scope: { kind: 'subtree', rootId: asIssueId(issueId) },
     actorSessionId: sessionId,
   },
 })

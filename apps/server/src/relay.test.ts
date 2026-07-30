@@ -119,7 +119,7 @@ describe('SessionRegistry', () => {
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
-      sessionId: clientId,
+      sessionId: asSessionId(clientId),
     })
     expect(sessionId).toBe(clientId)
     expect(reg.modules.sessions.listSessions()).toMatchObject([
@@ -148,13 +148,13 @@ describe('SessionRegistry', () => {
     reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
-      sessionId: clientId,
+      sessionId: asSessionId(clientId),
     })
     expect(() =>
       reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/other',
-        sessionId: clientId,
+        sessionId: asSessionId(clientId),
       }),
     ).toThrow()
     // The original session is intact — not overwritten by the second cwd.
@@ -366,7 +366,7 @@ describe('SessionRegistry', () => {
         instructions: 'Research before changing code.',
         steps: [
           {
-            id: 'research',
+            id: asSessionId('research'),
             title: 'Research',
             instructions: 'Inspect the system.',
             completionGuidance: 'Unknowns resolved.',
@@ -461,7 +461,7 @@ describe('SessionRegistry', () => {
         instructions: 'Use a separate reviewer.',
         steps: [
           {
-            id: 'review',
+            id: asSessionId('review'),
             title: 'Review',
             instructions: 'Review the change.',
             completionGuidance: 'Report findings.',
@@ -898,7 +898,7 @@ describe('SessionRegistry', () => {
   // boot the durable host — not the stale row — is the source of truth, so the
   // registry probes exited rows and reattaches the ones still running.
   const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
-    id,
+    id: asSessionId(id),
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'agent',
@@ -1041,7 +1041,7 @@ describe('SessionRegistry', () => {
       // The registry enriches broadcasts with the stable podium identity.
       conversations: [
         {
-          id: 'conv-1',
+          id: asSessionId('conv-1'),
           agentKind: 'codex',
           providerId: 'codex-jsonl',
           podiumId: expect.stringMatching(/^conv_/),
@@ -1124,7 +1124,7 @@ describe('SessionRegistry', () => {
         type: 'conversationsChanged',
         conversations: [
           {
-            id: 'conv-2',
+            id: asSessionId('conv-2'),
             agentKind: 'claude-code',
             providerId: 'claude-code-jsonl',
             podiumId: expect.stringMatching(/^conv_/),
@@ -1159,7 +1159,7 @@ describe('SessionRegistry', () => {
       type: 'conversationsChanged',
       conversations: [
         {
-          id: 'conv-3',
+          id: asSessionId('conv-3'),
           agentKind: 'codex',
           providerId: 'codex-jsonl',
           podiumId: expect.stringMatching(/^conv_/),
@@ -1511,7 +1511,7 @@ describe('host metrics relay', () => {
     // replaces — see the "latest sample per host" test above).
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({
-      id: 'm-alpha',
+      id: asSessionId('m-alpha'),
       name: 'alpha',
       hostname: 'alpha',
       tokenHash: 'x',
@@ -2124,7 +2124,7 @@ describe('structured transcript channel', () => {
       sessionId,
       items: [
         {
-          id: 'u1',
+          id: asSessionId('u1'),
           role: 'user',
           text: '<command-name>/model</command-name>\n<command-message>model</command-message>',
           cursor: 'c1',
@@ -3009,7 +3009,7 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.modules.sessions.attachClient((m) => b.push(m))
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'half typed',
       })
       expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
@@ -3048,7 +3048,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const idA = reg.modules.sessions.attachClient(() => {})
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip',
       })
       const c: ServerMessage[] = []
@@ -3062,7 +3062,7 @@ describe('reconnect identity (hello reclaim)', () => {
       const idA = reg.modules.sessions.attachClient(() => {})
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip',
       })
       // The write LANDED first — asserted, because this test's real assertion is an
@@ -3074,7 +3074,7 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.modules.sessions.attachClient((m) => watcher.push(m))
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: 'wip again',
       })
       expect(watcher).toContainEqual({
@@ -3085,7 +3085,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
       reg.modules.sessions.onClientMessage(idA, {
         type: 'setSessionDraft',
-        sessionId,
+        sessionId: asSessionId(sessionId),
         text: '',
       })
       expect(reg.sessionStore.sessions.loadDrafts()[sessionId]).toBeUndefined()
@@ -3105,7 +3105,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const idA = reg.modules.sessions.attachClient(() => {})
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: 'real work',
         })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
@@ -3140,7 +3140,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const idA = reg.modules.sessions.attachClient(() => {})
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: 'about to send',
         })
         vi.advanceTimersByTime(1000)
@@ -3150,7 +3150,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
         reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
-          sessionId,
+          sessionId: asSessionId(sessionId),
           text: '',
         })
         // No debounce wait: an empty draft flushes at once so a restart right after
@@ -3558,7 +3558,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput)
@@ -3576,7 +3576,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).toContainEqual(continueInput)
@@ -3594,7 +3594,7 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far

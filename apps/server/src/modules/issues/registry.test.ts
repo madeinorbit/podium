@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { ISSUE_COMMAND_NAMES } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
@@ -370,7 +370,7 @@ describe('issue spawn provenance', () => {
         {
           capability: {
             role: 'worker',
-            scope: { kind: 'subtree', rootId: created.id },
+            scope: { kind: 'subtree', rootId: asIssueId(created.id) },
             actorSessionId: asSessionId('sess_coord'),
           },
         },

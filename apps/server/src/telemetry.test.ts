@@ -35,7 +35,7 @@ describe('no consent = no collection, however hard the bus is driven', () => {
     const bus = new EventBus()
     const t = wire(bus)
     for (let i = 0; i < 50; i++) {
-      bus.emit('session.created', { sessionId: `s${i}`, agentKind: 'claude-code' })
+      bus.emit('session.created', { sessionId: asSessionId(`s${i}`), agentKind: 'claude-code' })
       bus.emit('issue.updated', { issue: { id: `i${i}` } as never })
     }
     expect(readWindow(dir)).toBeUndefined()

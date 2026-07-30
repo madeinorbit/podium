@@ -1994,7 +1994,7 @@ describe('agent state instrumentation', () => {
     }
     send({ type: 'spawn', sessionId: 'sT1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT1'))
-    expect(await themeOf('sT1')).toBe('auto') // absent = the default (on)
+    expect(await themeOf(asSessionId('sT1'))).toBe('auto') // absent = the default (on)
     send({
       type: 'spawn',
       sessionId: 'sT2',
@@ -2004,7 +2004,7 @@ describe('agent state instrumentation', () => {
       seedCliTheme: false,
     })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT2'))
-    expect(await themeOf('sT2')).toBeUndefined() // opt-out: no theme key at all
+    expect(await themeOf(asSessionId('sT2'))).toBeUndefined() // opt-out: no theme key at all
   })
 
   it('does not instrument shell sessions', async () => {
@@ -2465,7 +2465,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   it('serves an opencode transcriptRead from the DB store', async () => {
     const home = trackTmp('podium-trx-oc-home-')
     const sid = 'oc-ses-read'
-    seedOpencodeDb(home, sid, ['o0', 'o1', 'o2'])
+    seedOpencodeDb(home, asSessionId(sid), ['o0', 'o1', 'o2'])
 
     const srv = await startServer()
     await startTestDaemon(srv, home)

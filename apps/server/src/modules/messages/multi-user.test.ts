@@ -12,7 +12,7 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -36,7 +36,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     // Without the confirmation it is a WIDENING, not a denial: an issue the
     // human can see, outside the agent's own subtree, answers confirm-required
@@ -63,7 +63,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     // Raise the ceiling against it. The capability, the confirmation and the
     // target are all UNCHANGED from the passing case above — the only thing
@@ -89,7 +89,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     hidden.push(theirs.id)
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     const shape = async (to: string, override: boolean | undefined): Promise<unknown> => {
       try {
@@ -131,7 +131,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
-    const cap = h.agentCap(mine.id, 'sMine')
+    const cap = h.agentCap(mine.id, asSessionId('sMine'))
     // A row this agent may `mayView` in the OTHER issue's box — one it sent
     // itself. Without it the peek returns [] for mayView reasons and the test
     // would pass whether or not the ceiling was ever consulted (the read path
@@ -272,7 +272,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = withMachine(h)
     await expect(
-      h.gate.dispatch(h.agentCap(issue.id, 'sMe'), undefined, 'spawnAgent', {
+      h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
         issue: issue.id,
         prompt: 'go',
       }),
@@ -288,7 +288,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const b = withMachine(offline)
     const message = async (h: ReturnType<typeof mailHarness>, id: string): Promise<string> => {
       try {
-        await h.gate.dispatch(h.agentCap(id, 'sMe'), undefined, 'spawnAgent', {
+        await h.gate.dispatch(h.agentCap(asIssueId(id), asSessionId('sMe')), undefined, 'spawnAgent', {
           issue: id,
           prompt: 'go',
         })
@@ -307,7 +307,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   it('spawns when the principal holds `use` — the instrument can say yes', async () => {
     const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = withMachine(h)
-    const r = (await h.gate.dispatch(h.agentCap(issue.id, 'sMe'), undefined, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(asIssueId(issue.id), asSessionId('sMe')), undefined, 'spawnAgent', {
       issue: issue.id,
       prompt: 'go',
     })) as { ok: boolean; machine: string | null }
@@ -341,7 +341,7 @@ describe('sender identity is stamped from the capability and cannot be influence
   it('ignores every impersonation field on `send`', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine' })
-    const cap: Capability = h.agentCap(mine.id, 'sMine')
+    const cap: Capability = h.agentCap(mine.id, asSessionId('sMine'))
     const r = (await h.gate.dispatch(cap, undefined, 'send', {
       to: mine.id,
       body: 'x',
@@ -362,7 +362,7 @@ describe('sender identity is stamped from the capability and cannot be influence
       { kind: 'operator' },
       { to: { kind: 'issue', id: mine.id }, body: 'ping' },
     )
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'reply', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'reply', {
       id: original.message.id,
       body: 'pong',
       ...IMPERSONATION_PAYLOAD,

@@ -171,7 +171,7 @@ function liveIssue(overrides: Record<string, unknown> = {}) {
     draft: false,
     sessions: [
       {
-        sessionId: 'sess_1',
+        sessionId: asSessionId('sess_1'),
         agentKind: 'grok',
         title: 'work',
         cwd: '/p',
@@ -543,7 +543,7 @@ describe('MessagingService', () => {
         superagentThreadId: `btw_${sessionId}`,
         updatedAt: '2026-07-16T00:00:00.000Z',
       })
-      return { sessionId, issueId, threadRef }
+      return { sessionId: asSessionId(sessionId), issueId, threadRef }
     }
 
     it('sends typing into the bound topic when the session enters working', () => {
@@ -847,7 +847,7 @@ describe('MessagingService', () => {
     await flush()
     expect(h.createForumTopic).toHaveBeenCalled()
     expect(h.readTranscript).toHaveBeenCalledWith({
-      sessionId: 'sess_1',
+      sessionId: asSessionId('sess_1'),
       direction: 'before',
       limit: 50,
     })

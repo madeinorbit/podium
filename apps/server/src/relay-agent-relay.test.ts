@@ -1,3 +1,4 @@
+import { asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -48,7 +49,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir1',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'issues',
       proc: 'update',
       input: { id: B.id, patch: { notes: 'x' } },
@@ -63,7 +64,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir2',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'issues',
       proc: 'update',
       input: { id: B.id, patch: { notes: 'x' } },
@@ -77,7 +78,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'messages',
       proc: 'spawnAgent',
       input: { issue: A.id, harness: 'shell', prompt: 'check the relay' },
@@ -98,7 +99,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-await',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'messages',
       proc: 'awaitAgent',
       input: { sessionId: childId, timeoutSeconds: 0 },
@@ -113,7 +114,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-agent-spawn-scoped',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'messages',
       proc: 'spawnAgent',
       input: { issue: B.id, harness: 'shell', prompt: 'cross the boundary' },
@@ -128,7 +129,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir3',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'kill',
       input: { id: 'whatever' },
@@ -171,7 +172,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-quota-summary',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'quota',
       proc: 'summary',
     })
@@ -197,13 +198,13 @@ describe('server agent relay handler (P1b)', () => {
     const target = registry.modules.sessions.createSession({
       cwd: '/r/other',
       agentKind: 'shell',
-      issueId: B.id,
+      issueId: asIssueId(B.id),
     }).sessionId
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-scoped',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'resumeAndSend',
       input: { sessionId: target, text: 'continue' },
@@ -217,13 +218,13 @@ describe('server agent relay handler (P1b)', () => {
     const target = registry.modules.sessions.createSession({
       cwd: '/r/other',
       agentKind: 'shell',
-      issueId: B.id,
+      issueId: asIssueId(B.id),
     }).sessionId
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-send-override',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'resumeAndSend',
       input: { sessionId: target, text: 'continue' },
@@ -245,7 +246,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'sendText',
       input: { sessionId: target, text: 'hi' },
@@ -266,7 +267,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir-issueless-parent',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'sendText',
       input: { sessionId: target, text: 'hi child' },
@@ -283,7 +284,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir5',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'constructor',
       proc: 'x',
       input: {},
@@ -299,7 +300,7 @@ describe('server agent relay handler (P1b)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'ir4',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'issues',
       proc: 'prime',
       input: { repoPath },
@@ -332,7 +333,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     sA = registry.modules.sessions.createSession({
       cwd: wtA,
       agentKind: 'shell',
-      issueId: A.id,
+      issueId: asIssueId(A.id),
     }).sessionId
     // stop free/unsaved paths call rpc.repoOp — stub clean so tests stay hermetic.
     const rpc = (
@@ -358,7 +359,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registry.modules.sessions.attachDaemon(machineId, () => {})
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'bind',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       cmd: 'sh',
       cwd: wtA,
       agentKind: 'shell',
@@ -368,7 +369,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-self',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: {},
@@ -387,13 +388,13 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     const sibling = registry.modules.sessions.createSession({
       cwd: wtA,
       agentKind: 'shell',
-      issueId: A.id,
+      issueId: asIssueId(A.id),
     }).sessionId
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-sib',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: { sessionId: sibling },
@@ -407,13 +408,13 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     const target = registry.modules.sessions.createSession({
       cwd: wtB,
       agentKind: 'shell',
-      issueId: B.id,
+      issueId: asIssueId(B.id),
     }).sessionId
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: { sessionId: target },
@@ -428,13 +429,13 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     const target = registry.modules.sessions.createSession({
       cwd: wtB,
       agentKind: 'shell',
-      issueId: B.id,
+      issueId: asIssueId(B.id),
     }).sessionId
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-out-ok',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: { sessionId: target },
@@ -452,7 +453,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-block',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: { sessionId: target },
@@ -465,7 +466,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: 'stop-issueless-ok',
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'sessions',
       proc: 'stop',
       input: { sessionId: target },
@@ -527,48 +528,48 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('names the calling session, and may re-title itself as the work clarifies', async () => {
-    const first = await relay(sA, 'sessions', 'title', { name: 'Migration runner backfill' })
+    const first = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Migration runner backfill' })
     expect(first.ok).toBe(true)
     expect(first.result).toMatchObject({ ok: true, name: 'Migration runner backfill' })
-    expect(nameOf(sA)).toBe('Migration runner backfill')
+    expect(nameOf(asSessionId(sA))).toBe('Migration runner backfill')
 
     // Its OWN earlier name is not sovereign — an agent re-titles itself freely.
-    const second = await relay(sA, 'sessions', 'title', { name: 'Session name source column' })
+    const second = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Session name source column' })
     expect(second.ok).toBe(true)
-    expect(nameOf(sA)).toBe('Session name source column')
+    expect(nameOf(asSessionId(sA))).toBe('Session name source column')
     // And it never touched its sibling.
-    expect(nameOf(sB)).toBeUndefined()
+    expect(nameOf(asSessionId(sB))).toBeUndefined()
   })
 
   it('REFUSES to overwrite a name the user set — with a reason, not a throw', async () => {
-    registry.modules.sessions.renameSession({ sessionId: sA, name: 'Mike’s pet session' })
+    registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Mike’s pet session' })
 
-    const r = await relay(sA, 'sessions', 'title', { name: 'Something the agent prefers' })
+    const r = await relay(asSessionId(sA), 'sessions', 'title', { name: 'Something the agent prefers' })
     // The relay call SUCCEEDS (no exception on the wire); the refusal is in the result,
     // so the agent reads it and carries on rather than treating it as a crash.
     expect(r.ok).toBe(true)
     expect(r.result).toMatchObject({ ok: false })
     expect((r.result as { reason: string }).reason).toMatch(/named by the user/i)
-    expect(nameOf(sA)).toBe('Mike’s pet session')
+    expect(nameOf(asSessionId(sA))).toBe('Mike’s pet session')
   })
 
   it('targets the CALLER — an input sessionId cannot redirect it at a neighbour', async () => {
-    const r = await relay(sA, 'sessions', 'title', { sessionId: sB, name: 'Hijacked' })
+    const r = await relay(asSessionId(sA), 'sessions', 'title', { sessionId: sB, name: 'Hijacked' })
     expect(r.ok).toBe(true)
-    expect(nameOf(sA)).toBe('Hijacked')
-    expect(nameOf(sB)).toBeUndefined()
+    expect(nameOf(asSessionId(sA))).toBe('Hijacked')
+    expect(nameOf(asSessionId(sB))).toBeUndefined()
   })
 
   it('rejects an empty title', async () => {
-    const r = await relay(sA, 'sessions', 'title', { name: '   ' })
+    const r = await relay(asSessionId(sA), 'sessions', 'title', { name: '   ' })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/name is required/)
   })
 
   it('primes an UNNAMED session to title itself, listing its siblings', async () => {
-    registry.modules.sessions.renameSession({ sessionId: sB, name: 'Merge lock lease expiry' })
+    registry.modules.sessions.renameSession({ sessionId: asSessionId(sB), name: 'Merge lock lease expiry' })
 
-    const r = await relay(sA, 'issues', 'prime', { repoPath })
+    const r = await relay(asSessionId(sA), 'issues', 'prime', { repoPath })
     expect(r.ok).toBe(true)
     const prime = String(r.result)
     expect(prime).toContain('This session has no name')
@@ -578,9 +579,9 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('says nothing about titles once the session HAS a name', async () => {
-    registry.modules.sessions.renameSession({ sessionId: sA, name: 'Already named' })
+    registry.modules.sessions.renameSession({ sessionId: asSessionId(sA), name: 'Already named' })
 
-    const prime = String((await relay(sA, 'issues', 'prime', { repoPath })).result)
+    const prime = String((await relay(asSessionId(sA), 'issues', 'prime', { repoPath })).result)
     expect(prime).not.toContain('This session has no name')
     // The issue prime itself is unaffected.
     expect(prime).toContain(A.title)
@@ -638,26 +639,26 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   })
 
   it('sets an offer on the calling session and clears it', async () => {
-    const set = await relay(sA, 'offer', 'set', {
+    const set = await relay(asSessionId(sA), 'offer', 'set', {
       message: 'Tests are red on main',
       actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests' }],
     })
     expect(set.ok).toBe(true)
     expect(set.result).toMatchObject({ ok: true })
-    expect(offerOf(sA)?.message).toBe('Tests are red on main')
-    expect(offerOf(sB)).toBeUndefined() // never touches a neighbour
+    expect(offerOf(asSessionId(sA))?.message).toBe('Tests are red on main')
+    expect(offerOf(asSessionId(sB))).toBeUndefined() // never touches a neighbour
 
-    const clear = await relay(sA, 'offer', 'clear', {})
+    const clear = await relay(asSessionId(sA), 'offer', 'clear', {})
     expect(clear.ok).toBe(true)
-    expect(offerOf(sA)).toBeUndefined()
+    expect(offerOf(asSessionId(sA))).toBeUndefined()
   })
 
   it('rejects an empty message and an action missing its prompt', async () => {
-    const noMsg = await relay(sA, 'offer', 'set', { message: '  ', actions: [] })
+    const noMsg = await relay(asSessionId(sA), 'offer', 'set', { message: '  ', actions: [] })
     expect(noMsg.ok).toBe(false)
     expect(noMsg.error).toMatch(/message must contain/)
 
-    const badAction = await relay(sA, 'offer', 'set', {
+    const badAction = await relay(asSessionId(sA), 'offer', 'set', {
       message: 'ok',
       actions: [{ label: 'Go' }],
     })
@@ -666,7 +667,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   })
 
   it('rejects an unknown proc on the offer router', async () => {
-    const r = await relay(sA, 'offer', 'bogus', {})
+    const r = await relay(asSessionId(sA), 'offer', 'bogus', {})
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/not permitted via relay/)
   })

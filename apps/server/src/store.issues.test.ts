@@ -136,7 +136,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 function seedIssues(store: SessionStore, ...ids: string[]): void {
   ids.forEach((id, i) => {
-    store.issues.upsertIssue(baseRow({ id, seq: 100 + i }))
+    store.issues.upsertIssue(baseRow({ id: asIssueId(id), seq: 100 + i }))
   })
 }
 
@@ -290,21 +290,21 @@ describe('issue comments (P1)', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
     store.issues.addIssueComment({
-      id: 'c1',
+      id: asIssueId('c1'),
       issueId: asIssueId('iss_a'),
       author: 'mike',
       body: 'first',
       createdAt: 't1',
     })
     store.issues.addIssueComment({
-      id: 'c2',
+      id: asIssueId('c2'),
       issueId: asIssueId('iss_a'),
       author: 'agent',
       body: 'second',
       createdAt: 't2',
     })
     store.issues.addIssueComment({
-      id: 'c3',
+      id: asIssueId('c3'),
       issueId: asIssueId('iss_b'),
       author: 'x',
       body: 'other',
@@ -389,7 +389,7 @@ describe('subscriptions store (Phase B)', () => {
   const sub = (
     over: Partial<import('./store').Subscription> = {},
   ): import('./store').Subscription => ({
-    id: 'sub_a',
+    id: asIssueId('sub_a'),
     subscriberKind: 'issue',
     subscriberId: 'iss_p',
     event: 'issue.closed',

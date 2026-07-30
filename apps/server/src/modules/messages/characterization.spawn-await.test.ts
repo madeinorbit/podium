@@ -11,7 +11,7 @@
  * harness's poll seam advances an INJECTED clock rather than the wall clock.
  */
 
-import { asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mailHarness, OPERATOR, phaseState } from './characterization-support'
 import { MessageGate } from './gate'
@@ -29,7 +29,7 @@ describe('characterization: spawn target resolution (S1)', () => {
     const target = h.createIssue({ title: 'target' })
     h.setWorktree(target.id, '/wt/target')
 
-    const r = (await h.gate.dispatch(h.agentCap(parent.id, 'sParent'), true, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(parent.id, asSessionId('sParent')), true, 'spawnAgent', {
       issue: `#${target.seq}`,
       prompt: 'do the thing',
       harness: 'codex',
@@ -96,7 +96,7 @@ describe('characterization: spawn target resolution (S1)', () => {
   it('takes --new as the deliberate issue-create path, inheriting the caller’s repo and parent', async () => {
     const h = mailHarness()
     const mine = h.createIssue({ title: 'mine', repoPath: '/repo' })
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), undefined, 'spawnAgent', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'spawnAgent', {
       newTitle: 'a fresh child',
       prompt: 'the brief',
     })) as { issueId: string }
@@ -252,7 +252,7 @@ describe('characterization: machine placement and the unreachable arm (S2)', () 
       },
     })
     const iss = h.createIssue({ title: 'pinned' })
-    const cap = h.agentCap(iss.id, 'sMe')
+    const cap = h.agentCap(iss.id, asSessionId('sMe'))
     await expect(
       h.gate.dispatch(cap, undefined, 'spawnAgent', { issue: iss.id, prompt: 'p' }),
     ).rejects.toThrow("machine 'Builder' is offline")
@@ -272,7 +272,7 @@ describe('characterization: the daily spawn budget (S3)', () => {
   it('stops a looping agent at the per-issue daily budget with a verbatim, actionable error', async () => {
     const h = mailHarness()
     const iss = h.createIssue({ title: 'busy issue' })
-    const cap = h.agentCap(iss.id, 'sMe')
+    const cap = h.agentCap(iss.id, asSessionId('sMe'))
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       await h.gate.dispatch(cap, undefined, 'spawnAgent', { issue: iss.id, prompt: `p${i}` })
     }
@@ -326,7 +326,7 @@ describe('characterization: the daily spawn budget (S3)', () => {
 
 describe('characterization: awaitAgent always returns (S4)', () => {
   const parentCapFor = (h: ReturnType<typeof mailHarness>, issueId: string) =>
-    h.agentCap(issueId, 'sParent')
+    h.agentCap(asIssueId(issueId), asSessionId('sParent'))
 
   it('returns "working" plus a status snapshot at the timeout instead of hanging', async () => {
     const h = mailHarness()
@@ -442,7 +442,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
       phase: 'working',
       spawnedBy: 'session:sParent',
     })
-    const cap = h.agentCap(parentIssue.id, 'sParent')
+    const cap = h.agentCap(parentIssue.id, asSessionId('sParent'))
 
     // A message from the parent, and the child's ack for it — this is the STALE
     // ack: it predates the next wait and must not satisfy it.
@@ -495,7 +495,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // The parent relationship (spawnedBy provenance) is sufficient authority —
     // it already crossed the scope, confirmed, at spawn time.
     const asParent = (await h.gate.dispatch(
-      h.agentCap(parentIssue.id, 'sParent'),
+      h.agentCap(parentIssue.id, asSessionId('sParent')),
       undefined,
       'awaitAgent',
       { sessionId: 'sChild', timeoutSeconds: 0 },
@@ -505,7 +505,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     // A stranger does not get a free pass.
     const stranger = h.createIssue({ title: 'stranger' })
     await expect(
-      h.gate.dispatch(h.agentCap(stranger.id, 'sStranger'), undefined, 'awaitAgent', {
+      h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'awaitAgent', {
         sessionId: 'sChild',
         timeoutSeconds: 0,
       }),
@@ -542,7 +542,7 @@ describe('characterization: awaitAgent always returns (S4)', () => {
     })
     expect(facts.hasActive(factKey, 'sParent', h.now())).toBe(true)
 
-    await h.gate.dispatch(h.agentCap(parentIssue.id, 'sParent'), undefined, 'awaitAgent', {
+    await h.gate.dispatch(h.agentCap(parentIssue.id, asSessionId('sParent')), undefined, 'awaitAgent', {
       sessionId: 'sChild',
       timeoutSeconds: 0,
     })
@@ -592,13 +592,13 @@ describe('characterization: ask is a question message plus a bounded wait (S5)',
     const theirs = h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, status: 'hibernated' })
     // First ask: a peer keeps wake.
-    await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'ask', {
+    await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
       sessionId: 'sTheirs',
       question: 'q1',
       timeoutSeconds: 0,
     })
     // Second within the cooldown window: clamped to wait, and the caller is told.
-    const r = (await h.gate.dispatch(h.agentCap(mine.id, 'sMine'), true, 'ask', {
+    const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'ask', {
       sessionId: 'sTheirs',
       question: 'q2',
       timeoutSeconds: 0,

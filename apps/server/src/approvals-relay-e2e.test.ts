@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -37,7 +38,7 @@ describe('approval broker relay e2e (#410)', () => {
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'agentRelayRequest',
       requestId: `ir${before}`,
-      sessionId: sA,
+      sessionId: asSessionId(sA),
       router: 'approvals',
       proc,
       input,
@@ -119,7 +120,7 @@ describe('approval broker relay e2e (#410)', () => {
   it('a forged sessionId/machineId in the input is overwritten by the relay context', async () => {
     const r = await relay('request', {
       op: { kind: 'stop' },
-      sessionId: 'someone-else',
+      sessionId: asSessionId('someone-else'),
       machineId: 'evil',
     })
     expect(r.ok).toBe(true)

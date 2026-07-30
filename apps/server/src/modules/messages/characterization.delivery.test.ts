@@ -660,7 +660,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     )
     const oid = original.message.id
 
-    const r = (await h.gate.dispatch(h.agentCap(to.id, 'sTo'), undefined, 'reply', {
+    const r = (await h.gate.dispatch(h.agentCap(to.id, asSessionId('sTo')), undefined, 'reply', {
       id: oid,
       body: 'answer!',
     })) as { id: string; acked: boolean; disposition: string }
@@ -913,7 +913,7 @@ describe('characterization: self-delivery suppression (D10)', () => {
     const iss = h.createIssue({ title: 'drain' })
     const [sender, peer] = h.put(
       { sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'working' },
-      { sessionId: 'sPeer', issueId: iss.id, phase: 'working' },
+      { sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'working' },
     )
     h.svc.send(
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('sSender') },
@@ -956,7 +956,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
       const row = h.svc.inbox([{ kind: 'session', id: 's1' }]).at(-1)!
       h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: `podium message ${row.id}` }])
     }
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
       to: 's1',
       body: 'confirm me',
       urgency: 'next-turn',
@@ -971,7 +971,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
     const h = mailHarness({ awaitPollMs: 500 })
     const iss = h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
       to: 's1',
       body: 'held by a busy turn',
       urgency: 'next-turn',
@@ -986,7 +986,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
     const iss = h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const before = h.now()
-    const r = (await h.gate.dispatch(h.agentCap(iss.id, 'sFrom'), undefined, 'send', {
+    const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
       to: 's1',
       body: 'fyi',
       urgency: 'fyi',
@@ -1012,7 +1012,7 @@ describe('characterization: sender-queryable status (D12)', () => {
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'session', id: 'sTo' }, body: 'x', urgency: 'next-turn' },
     )
-    const wire = (await h.gate.dispatch(h.agentCap(from.id, 'sFrom'), undefined, 'status', {
+    const wire = (await h.gate.dispatch(h.agentCap(from.id, asSessionId('sFrom')), undefined, 'status', {
       id: r.message.id,
     })) as Record<string, unknown>
     expect(wire).toMatchObject({
@@ -1027,7 +1027,7 @@ describe('characterization: sender-queryable status (D12)', () => {
     // A stranger may not query it.
     const stranger = h.createIssue({ title: 'stranger' })
     await expect(
-      h.gate.dispatch(h.agentCap(stranger.id, 'sStranger'), undefined, 'status', {
+      h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'status', {
         id: r.message.id,
       }),
     ).rejects.toThrow('not allowed to view a message you neither sent nor received')

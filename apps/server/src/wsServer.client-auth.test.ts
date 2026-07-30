@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { ServerMessage } from '@podium/protocol'
@@ -232,7 +233,7 @@ describe('/client WS auth gate', () => {
         sessionStateFrames(bob.frames).length === 1,
     )
 
-    registry.modules.sessions.renameSession({ sessionId: bobSession, name: 'BOB-SECRET' })
+    registry.modules.sessions.renameSession({ sessionId: asSessionId(bobSession), name: 'BOB-SECRET' })
     registry.modules.sessions.flushBroadcasts()
     await until(
       () =>

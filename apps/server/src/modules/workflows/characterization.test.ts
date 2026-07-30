@@ -44,7 +44,7 @@
  * docs/multi-user-readiness.md (sections cited inline),
  * docs/workflows/pinned-behaviour-pod730.md (the pin table).
  */
-import { asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -80,7 +80,7 @@ const agent = (sessionId: SessionId, subtreeRootId = 'issue-1'): WorkflowCaller 
   actor: { kind: 'session', id: sessionId },
   capability: {
     role: 'worker',
-    scope: { kind: 'subtree', rootId: subtreeRootId },
+    scope: { kind: 'subtree', rootId: asIssueId(subtreeRootId) },
     actorSessionId: sessionId,
   },
 })
@@ -102,7 +102,7 @@ const SESSIONS = new Map([
   [
     's1',
     {
-      sessionId: 's1',
+      sessionId: asSessionId('s1'),
       cwd: '/repo-a/wt',
       issueId: 'issue-1',
       agentKind: 'claude-code',
@@ -118,7 +118,7 @@ const SESSIONS = new Map([
   [
     's3',
     {
-      sessionId: 's3',
+      sessionId: asSessionId('s3'),
       cwd: '/repo-b/wt',
       issueId: 'issue-2',
       agentKind: 'claude-code',
@@ -131,7 +131,7 @@ const SESSIONS = new Map([
   [
     's5',
     {
-      sessionId: 's5',
+      sessionId: asSessionId('s5'),
       cwd: '/nowhere',
       issueId: 'issue-1',
       agentKind: 'claude-code',
@@ -241,7 +241,7 @@ function twoStepRun(
     },
     operator,
   )
-  const run = h.service.startRun({ sessionId, cwd, issueId, revisionId: created.revision.id })
+  const run = h.service.startRun({ sessionId: asSessionId(sessionId), cwd, issueId, revisionId: created.revision.id })
   return { created, run }
 }
 
@@ -1828,7 +1828,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent(asSessionId('s2')),
       )
       expect(h.notices.at(-1)).toEqual({
-        sessionId: 's1',
+        sessionId: asSessionId('s1'),
         text: 'Workflow step "Implement" blocked: (no summary)',
       })
     })

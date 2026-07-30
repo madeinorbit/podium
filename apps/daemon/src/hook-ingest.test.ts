@@ -124,7 +124,7 @@ describe('hook ingest Unix socket', () => {
         onPayload: (sessionId, payload) => got.push({ sessionId, payload }),
       })
       try {
-        expect(await postSocket(socketPath, 'pane-a', { session_id: 'thread-a' })).toEqual({
+        expect(await postSocket(socketPath, asSessionId('pane-a'), { session_id: 'thread-a' })).toEqual({
           status: 200,
           text: '{}',
         })
@@ -147,7 +147,7 @@ describe('hook ingest Unix socket', () => {
         await expect(
           startHookIngest({ port: 0, socketPath, onPayload: () => {} }),
         ).rejects.toMatchObject({ code: 'EADDRINUSE' })
-        expect((await postSocket(socketPath, 'pane-a', {})).status).toBe(200)
+        expect((await postSocket(socketPath, asSessionId('pane-a'), {})).status).toBe(200)
       } finally {
         await first.close()
         await rm(root, { recursive: true, force: true })

@@ -120,7 +120,7 @@ describe('idle-session cap', () => {
   })
 
   it('uses a separate conservative burst and refill budget per machine', () => {
-    const sessions = Array.from({ length: 6 }, (_, index) => session(`s${index}`))
+    const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -135,7 +135,7 @@ describe('idle-session cap', () => {
   })
 
   it('keeps memory pressure independent of the count target and its limiter', () => {
-    const sessions = Array.from({ length: 6 }, (_, index) => session(`s${index}`))
+    const sessions = Array.from({ length: 6 }, (_, index) => session(asSessionId(`s${index}`)))
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 
     service.onHostMetrics('local', sample(10))
@@ -217,8 +217,8 @@ describe('idle-session cap', () => {
 
   it('keeps count-pressure burst budgets independent per machine', () => {
     const sessions = [
-      ...Array.from({ length: 5 }, (_, index) => session(`a${index}`, { machineId: 'a' })),
-      ...Array.from({ length: 5 }, (_, index) => session(`b${index}`, { machineId: 'b' })),
+      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`a${index}`), { machineId: 'a' })),
+      ...Array.from({ length: 5 }, (_, index) => session(asSessionId(`b${index}`), { machineId: 'b' })),
     ]
     const { service, parked } = harness({ sessions, maxIdleSessions: 0 })
 

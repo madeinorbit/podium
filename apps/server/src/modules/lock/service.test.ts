@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
@@ -42,8 +42,8 @@ function harness(opts?: { alive?: Set<string> }) {
 }
 
 const agent = (n: number) => ({
-  sessionId: `sess_${n}`,
-  issueId: `iss_${n}`,
+  sessionId: asSessionId(`sess_${n}`),
+  issueId: asIssueId(`iss_${n}`),
   label: `issue:#${n}`,
 })
 const OPERATOR = { sessionId: null, issueId: null, label: 'operator' }

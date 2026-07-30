@@ -394,7 +394,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('answer_question matches a label and types the option digit into the menu', async () => {
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    markPending(h, sessionId)
+    markPending(h, asSessionId(sessionId))
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'No' })
     expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [2] }] })
     expect(h.inputs).toContain('2')
@@ -403,7 +403,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('answer_question passes multi-select numbers through as a comma set + Enter, deduped', async () => {
     const h = harness({ transcriptItems: [askItem(true)] })
     const sessionId = h.spawn(true)
-    markPending(h, sessionId)
+    markPending(h, asSessionId(sessionId))
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: '1,3,3' })
     expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [1, 3] }] })
     expect(h.inputs).toContain('1,3\r')
@@ -415,7 +415,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })
     expect(out).toBe('no pending question (phase=working)')
     expect(h.inputs).toEqual([]) // zero PTY input
@@ -430,7 +430,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('answer_question notes single-select truncation instead of silently dropping picks', async () => {
     const h = harness({ transcriptItems: [askItem(false)] })
     const sessionId = h.spawn(true)
-    markPending(h, sessionId)
+    markPending(h, asSessionId(sessionId))
     const out = JSON.parse(await h.sa.callMcpTool('answer_question', { sessionId, answer: '1,3' }))
     expect(out).toEqual({
       answered: true,
@@ -456,7 +456,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
     const h = harness({ transcriptItems: [tenOptions] })
     const sessionId = h.spawn(true)
-    markPending(h, sessionId)
+    markPending(h, asSessionId(sessionId))
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: '10' })
     expect(out).toMatch(/option 10 is beyond the native menu's 1-9 range/)
     expect(h.inputs).toEqual([]) // nothing typed — no false success
@@ -465,14 +465,14 @@ describe('session-steering tool belt (issue #62)', () => {
   it('answer_question reports unmatched answers with the option list, and missing prompts', async () => {
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    markPending(h, sessionId)
+    markPending(h, asSessionId(sessionId))
     expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'maybe' })).toMatch(
       /could not match "maybe".*1\) Yes, 2\) No, 3\) Later/,
     )
     // Phase says pending but the tail has no structured prompt to answer from.
     const empty = harness()
     const s2 = empty.spawn(true)
-    markPending(empty, s2)
+    markPending(empty, asSessionId(s2))
     expect(await empty.sa.callMcpTool('answer_question', { sessionId: s2, answer: 'Yes' })).toMatch(
       /no pending AskUserQuestion/,
     )
@@ -503,11 +503,11 @@ describe('session-steering tool belt (issue #62)', () => {
   it("continue_session types 'continue' into an errored live session only", async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('errored') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('errored') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
     expect(h.inputs).toContain('continue\r')
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('idle') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
   })
 
@@ -523,7 +523,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sessionId = h.spawn(true)
     h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
     })
     expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toBe('hibernated')
@@ -600,12 +600,12 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
     h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'done' } }),
     })
     expect(JSON.parse(await p)).toEqual({ phase: 'idle', verdict: 'done' })
@@ -616,7 +616,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sessionId = h.spawn(true)
     h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
-      sessionId,
+      sessionId: asSessionId(sessionId),
       state: st('idle', { idle: { kind: 'question' } }),
     })
     const t0 = Date.now()
@@ -628,7 +628,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
-    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
     expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
       'timeout after 0s (session still working)',
     )

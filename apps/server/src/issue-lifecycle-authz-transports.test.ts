@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
@@ -119,7 +120,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       const f = fixture(registry)
       const client = registry.issueCommands.asIssueTrpc({
         role: 'worker',
-        scope: { kind: 'subtree', rootId: f.root.id },
+        scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
       })
       await runIssueClient(client, f)
       verify(registry, f)
@@ -136,7 +137,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       provider.setClient(
         registry.issueCommands.asIssueTrpc({
           role: 'worker',
-          scope: { kind: 'subtree', rootId: f.root.id },
+          scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
         }),
       )
       for (const [name, input] of lifecycleInputs(f)) {

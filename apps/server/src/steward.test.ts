@@ -1,4 +1,4 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -95,7 +95,7 @@ function seedTold(
     inReplyTo: null,
     fromKind: 'agent',
     fromSession: null,
-    fromIssue,
+    fromIssue: asIssueId(fromIssue),
     toKind: to.kind,
     toId: to.id,
     kind: 'message',

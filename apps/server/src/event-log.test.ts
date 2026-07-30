@@ -14,7 +14,7 @@ function harness(sessions: SessionMeta[] = []) {
     store,
     listSessions: () => sessions,
     getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
-    spawnSession: vi.fn(() => ({ sessionId: 's1' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
