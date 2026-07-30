@@ -318,10 +318,32 @@ export function checkMachineUse(
   machineId: string,
   ownership: MachineOwnershipIndex,
 ): MachineAccessFailure | undefined {
+  return checkMachineVerb(principal, machineId, ownership, 'use')
+}
+
+/**
+ * The same resolution for ANY verb (POD-1079) — `manage` is what the fleet's
+ * rename / revoke / repo-write family needs, and `see` is what a listing needs.
+ *
+ * ONE implementation, so the absent-versus-unauthorized split cannot be right
+ * for `use` and wrong for `manage`. The ordering is the load-bearing part and it
+ * is the same for every verb: a principal that cannot SEE the machine is told
+ * the machine does not exist, in the same words a never-paired id gets, BEFORE
+ * the verb is considered. A gate that checked the verb first would answer
+ * "forbidden" for a colleague's machine and "unknown" for a nonexistent one —
+ * an existence oracle over somebody else's fleet (D20's consistent-error rule,
+ * readiness §3.1.2).
+ */
+export function checkMachineVerb(
+  principal: CommandPrincipal,
+  machineId: string,
+  ownership: MachineOwnershipIndex,
+  verb: MachineVerb,
+): MachineAccessFailure | undefined {
   const verbs = machineVerbsFor(principal, machineId, ownership)
   // Invisible and never-paired are ONE answer on purpose.
   if (!verbs.has('see')) return 'absent'
-  return verbs.has('use') ? undefined : 'unauthorized'
+  return verbs.has(verb) ? undefined : 'unauthorized'
 }
 
 /**

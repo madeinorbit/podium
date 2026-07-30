@@ -19,6 +19,7 @@
 import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
+import { fleetAuthzDeps, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -149,7 +150,19 @@ export const repoSetPrefixHandler = ({
 // discovery.* — the `use` family
 // ---------------------------------------------------------------------------
 
-export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) => ctx.repos.scanReposAll()
+/**
+ * THE FAN-OUT IS NARROWED, NOT REFUSED (POD-1079).
+ *
+ * This is the one fleet command whose input names no machine: it refreshes every
+ * ONLINE machine. The gate cannot turn that into a single yes/no, so it hands
+ * down the predicate instead and the scan visits only the machines this
+ * principal holds `use` on. Refusing the whole command whenever one machine in
+ * the fleet was somebody else's would make a shared instance unusable; scanning
+ * them all would walk a colleague's filesystem through their daemon, which is
+ * precisely what `use` is a boundary against.
+ */
+export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) =>
+  ctx.repos.scanReposAll(fleetUsePredicate(fleetAuthzDeps(ctx), 'use'))
 
 export const discoveryScanFolderHandler = ({
   ctx,

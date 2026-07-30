@@ -132,8 +132,18 @@ export class RepoRegistry {
    * added. The web ignores `machineId` until the machine-aware UI lands, so the
    * single-machine UI is unchanged.
    */
-  async scanReposAll(): Promise<ScanReposResult> {
-    const machineIds = this.sessionReg.modules.machines.onlineMachineIds()
+  /**
+   * @param mayUse - POD-1079: the machines this caller may place work on. A
+   * fan-out with no filter would walk every paired host's filesystem through its
+   * daemon, which is exactly the code-execution boundary `use` draws. Absent
+   * means unfiltered, and the ONLY callers that omit it are in-process ones with
+   * no principal to filter by (boot reconcile, tests) — every transport path
+   * supplies it, and `audit:machine-grants` checks that.
+   */
+  async scanReposAll(mayUse?: (machineId: string) => boolean): Promise<ScanReposResult> {
+    const machineIds = this.sessionReg.modules.machines
+      .onlineMachineIds()
+      .filter((id) => mayUse?.(id) ?? true)
     if (machineIds.length === 0) {
       return {
         repositories: [],
