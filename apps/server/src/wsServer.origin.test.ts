@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isAllowedWsOrigin } from './wsServer'
+import { isAllowedWsOrigin } from './gateway/ws-server'
 
 describe('isAllowedWsOrigin', () => {
   test('a request with no Origin (native client / daemon) is allowed', () => {

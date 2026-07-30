@@ -60,14 +60,18 @@ describe('the WS boundary', () => {
     expect(inModules).toEqual([])
   })
 
-  it('keeps wsServer.ts a pure re-export, so the boundary claim is not routed around', () => {
-    const shim = readFileSync(join(SERVER_SRC, 'wsServer.ts'), 'utf8')
-    expect(IMPORTS_WS.test(shim)).toBe(false)
-    // Every non-comment, non-blank line is an export.
-    const code = shim
-      .split('\n')
-      .filter((l) => l.trim() && !l.trim().startsWith('*') && !l.trim().startsWith('/*'))
-    expect(code.every((l) => /^(export|\s|})/.test(l))).toBe(true)
+  it('left no re-export shim behind at the old location', () => {
+    // The extraction routes callers through the replacement seam rather than a
+    // forwarding file: a shim would satisfy the import audit above while adding
+    // exactly the debt `scripts/rearch-audit.ts` ratchets down (it caught one
+    // here, 23 -> 24, and this pins the fix).
+    expect(files.map((f) => relative(SERVER_SRC, f))).not.toContain('wsServer.ts')
+    const reexporters = files
+      .filter((f) => /export\s*\{[^}]*\}\s*from\s*['"]\.\/gateway\/ws-(server|send)['"]/.test(
+        readFileSync(f, 'utf8'),
+      ))
+      .map((f) => relative(SERVER_SRC, f))
+    expect(reexporters).toEqual([])
   })
 
   it('does not reach a socket from the sessions service, transitively', () => {

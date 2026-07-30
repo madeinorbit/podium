@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from './hub/pairing'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
-import { wireDaemonSocket } from './wsServer'
+import { wireDaemonSocket } from './gateway/daemon-socket'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 

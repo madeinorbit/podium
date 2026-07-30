@@ -51,7 +51,7 @@ import { closeServerFast } from './shutdown'
 import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { wireTelemetry } from './telemetry'
-import { attachWebSockets } from './wsServer'
+import { attachWebSockets } from './gateway/ws-server'
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already

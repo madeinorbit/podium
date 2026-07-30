@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
-import { attachWebSockets, type WsHandle } from './wsServer'
+import { attachWebSockets, type WsHandle } from './gateway/ws-server'
 
 let server: Server | undefined
 let handle: WsHandle | undefined
