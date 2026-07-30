@@ -972,6 +972,24 @@
       "encoded": "{\"format\":1,\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"transcriptFilename\":\"transcriptFilename\",\"transcriptRelativeDir\":\"transcriptRelativeDir\",\"repoId\":\"repoId\",\"branch\":\"branch\",\"headSha\":\"headSha\",\"snapshotSha\":\"snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"worktreeName\",\"worktreeRelativePath\":\"worktreeRelativePath\",\"cwdSubpath\":\"cwdSubpath\",\"bundleBase\":[\"bundleBase[0]\"],\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"exportedAt\":\"exportedAt\"}"
     },
     {
+      "schema": "HandoffRefusalReason",
+      "variant": "minimal",
+      "wire": "unauthorized",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unauthorized\""
+    },
+    {
+      "schema": "HandoffRefusalReason",
+      "variant": "full",
+      "wire": "unauthorized",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"unauthorized\""
+    },
+    {
       "schema": "HarnessAgent",
       "variant": "minimal",
       "wire": "claude-code",

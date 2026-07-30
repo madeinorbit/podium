@@ -1162,4 +1162,30 @@ export const WIRE_FIXTURES: WireFixture[] = [
       worktreeRoot: '/home/u/repo/.worktrees/issue-300',
     },
   },
+  // POD-643: the fail-closed refusal on the wire (ADR 9 D6 M5). Added, not
+  // regenerated over — the `.ok` fixtures above are byte-identical, which is what
+  // proves `refusal` is purely additive. These pin the encoding for POD-1079 /
+  // POD-323, who populate it.
+  {
+    name: 'frame.handoffImportResult.refusedUnauthorized',
+    schema: DaemonMessage,
+    value: {
+      type: 'handoffImportResult',
+      requestId: 'req-13',
+      ok: false,
+      error: 'no `use` on the target machine',
+      refusal: 'unauthorized',
+    },
+  },
+  {
+    name: 'frame.handoffImportResult.refusedUnreachable',
+    schema: DaemonMessage,
+    value: {
+      type: 'handoffImportResult',
+      requestId: 'req-14',
+      ok: false,
+      error: 'target machine is offline',
+      refusal: 'unreachable',
+    },
+  },
 ]

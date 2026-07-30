@@ -83,5 +83,7 @@
   "frame.handoffImportChunk": "{\"type\":\"handoffImportChunk\",\"requestId\":\"req-11\",\"sessionId\":\"sess-1\",\"offset\":0,\"data\":\"AAAA\"}",
   "frame.handoffImportChunkResult": "{\"type\":\"handoffImportChunkResult\",\"requestId\":\"req-11\",\"ok\":true,\"sizeBytes\":3}",
   "frame.handoffImportRequest": "{\"type\":\"handoffImportRequest\",\"requestId\":\"req-12\",\"sessionId\":\"sess-1\",\"repoPath\":\"/home/u/repo\",\"worktreeName\":\"issue-300\",\"occupiedWorktreePaths\":[\"/home/u/repo/.worktrees/issue-299\"]}",
-  "frame.handoffImportResult": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-12\",\"ok\":true,\"newCwd\":\"/home/u/repo/.worktrees/issue-300/packages/model\",\"worktreeRoot\":\"/home/u/repo/.worktrees/issue-300\"}"
+  "frame.handoffImportResult": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-12\",\"ok\":true,\"newCwd\":\"/home/u/repo/.worktrees/issue-300/packages/model\",\"worktreeRoot\":\"/home/u/repo/.worktrees/issue-300\"}",
+  "frame.handoffImportResult.refusedUnauthorized": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-13\",\"ok\":false,\"error\":\"no `use` on the target machine\",\"refusal\":\"unauthorized\"}",
+  "frame.handoffImportResult.refusedUnreachable": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-14\",\"ok\":false,\"error\":\"target machine is offline\",\"refusal\":\"unreachable\"}"
 }
