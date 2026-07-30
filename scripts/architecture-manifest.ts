@@ -11,7 +11,7 @@
  *  - `layer` (L0–L5) — the ordinal dependency tier. Imports point DOWN:
  *      L0 model        (domain)
  *      L1 wire/commands/contracts (protocol, issue-client)
- *      L2 kernels/ports (transcript, runtime, sync, agent-bridge, terminal-client)
+ *      L2 kernels/ports (transcript, runtime, sync, agent-bridge, pty, terminal-client)
  *      L3 features/adapters/engine (client-core, terminal-client-react)
  *      L4 app composition roots (apps/*)
  *      L5 build/compose tier (scripts/) — may import anything; nothing may import it.
@@ -202,7 +202,19 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'packages/agent-bridge': {
     layer: 2,
     platform: 'node-only',
-    features: ['harness-adapters', 'pty-port'],
+    features: ['harness-adapters'],
+  },
+  // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
+  // durable hosts (abduco/tmux + the vendored-C build), byte framing, OSC scan,
+  // redraw. It owns `pty-port`, which agent-bridge used to claim alongside
+  // `harness-adapters` — feature ownership is exclusive, so the tag moves rather
+  // than being duplicated. HARNESS-AGNOSTIC by construction: the harness axiom's
+  // home stays agent-bridge (see HARNESS_ADAPTER_HOME), so a harness comparison
+  // appearing in here is a violation, which is exactly the seam POD-325 wants.
+  'packages/pty': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['pty-port', 'durable-host'],
   },
   'packages/terminal-client': { layer: 2, platform: 'browser-safe', features: ['terminal-port'] },
   // The harness composer port: pure prompt-draft extraction + keystroke
@@ -262,6 +274,10 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   'packages/sync -> packages/runtime',
   'packages/telemetry -> packages/runtime',
   'packages/agent-bridge -> packages/runtime',
+  // L2: pty resolves the abduco binary cache under runtime's stateDir() rather
+  // than re-deriving the state directory (the `state-dir-defs` audit item is at 0
+  // and must stay there).
+  'packages/pty -> packages/runtime',
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
   'packages/agent-bridge -> packages/transcript',

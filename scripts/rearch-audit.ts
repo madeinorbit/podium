@@ -525,7 +525,15 @@ export const CHECKS: AuditCheck[] = [
     collect: (ctx) => {
       const sites: AuditSite[] = []
       for (const f of ctx.files) {
-        if (!f.file.startsWith('packages/agent-bridge/src/') || f.isTest) continue
+        // POD-396 moved the durable hosts (abduco.ts, tmux.ts) out of
+        // agent-bridge into packages/pty. Both roots are listed rather than one
+        // swapped for the other: a single hardcoded root turns a package MOVE
+        // into "0 sites = twins deleted, POD-324 clear to close" — the phantom
+        // zero this audit exists to prevent. POD-397 adds packages/harness here
+        // if any durable-host twin ever lands there.
+        const inDurableHostHome =
+          f.file.startsWith('packages/pty/src/') || f.file.startsWith('packages/agent-bridge/src/')
+        if (!inDurableHostHome || f.isTest) continue
         const lines = f.stripped.split('\n')
         const asyncTwins = new Set<string>()
         for (const line of lines) {
