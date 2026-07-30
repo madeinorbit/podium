@@ -113,7 +113,7 @@ describe('sidebarSections (containment grouping)', () => {
         worktreePath: '/repo/.worktrees/feat',
         updatedAt: new Date(NOW).toISOString(),
         ...over,
-      }) as unknown as import('@podium/protocol').IssueWire
+      }) as unknown as import('@podium/model').IssueWire
     const issues = [
       issue('live-1', {}),
       issue('live-2', {}), // two issues may own the same worktree

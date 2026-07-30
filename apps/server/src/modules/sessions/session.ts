@@ -9,6 +9,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/model'
+import { WorkState as WorkStateSchema } from '@podium/model'
 import type {
   ControlMessage,
   MetadataChange,

@@ -82,7 +82,7 @@ export interface DaemonContext {
   refreshAndPublishConversations(full?: boolean): Promise<ConversationDeltaWire>
   /** Per-agent plan-quota reader (TTL-cached). */
   quotaFetcher: {
-    getAgentQuota(refresh?: boolean): Promise<import('@podium/protocol').AgentQuotaWire[]>
+    getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
   }
   /** Usage-scan memo (mutable box — handlers replace the value). */
   usageMemo: { value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] } }

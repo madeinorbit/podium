@@ -104,7 +104,7 @@ describe('docs/TELEMETRY.md lists every value each closed enum admits', () => {
   })
 
   it('documents every harness kind sessions can be keyed by', async () => {
-    const { AgentKind } = await import('@podium/protocol')
+    const { AgentKind } = await import('@podium/model')
     for (const kind of AgentKind.options) {
       expect(
         doc.includes(`\`${kind}\``),

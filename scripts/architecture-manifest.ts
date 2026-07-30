@@ -397,13 +397,13 @@ export function checkManifestRole(file: string, ref: ImportRef): Violation | nul
 // Harness axiom
 // ---------------------------------------------------------------------------
 
-const HARNESS_ENUM_SOURCE = 'packages/protocol/src/messages/harness.ts'
+const HARNESS_ENUM_SOURCE = 'packages/model/src/entities/agent.ts'
 
 /** The workspace that OWNS harness behavioral branching. */
 export const HARNESS_ADAPTER_HOME = 'packages/agent-bridge'
 
 /**
- * The canonical harness identifiers, read LIVE from the protocol enum so this
+ * The canonical harness identifiers, read LIVE from the model enum so this
  * lint can never drift from the actual union. Returns [] when the enum can't be
  * read or parsed — which would silently disable the rule, so
  * architecture-manifest.test.ts asserts against the REAL repo that it returns

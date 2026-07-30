@@ -53,7 +53,7 @@ export function SessionScreen() {
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   // Chat is the default view; 'native' flips to the real PTY in place [POD-131].
   const [view, setView] = useState<'chat' | 'native'>('chat')
-  const [peekIssue, setPeekIssue] = useState<import('@podium/protocol').IssueWire | null>(null)
+  const [peekIssue, setPeekIssue] = useState<import('@podium/model').IssueWire | null>(null)
   const { readTranscript, subscribeTranscript } = client
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onEndReached can fire in bursts.

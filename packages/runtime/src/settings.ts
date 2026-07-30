@@ -1,3 +1,4 @@
+import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -15,8 +16,11 @@ import { z } from 'zod'
 export const AUTO_CONTINUE_BASE_DELAY_MS = 10_000
 export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
 
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
-export type HarnessAgent = z.infer<typeof HarnessAgent>
+/** Re-exported, not redeclared: `@podium/model` owns the harness vocabulary
+ *  (POD-300). Runtime kept its own identical `z.enum` copy only because the
+ *  L0 package did not carry it before. Same members, same order — the settings
+ *  wire is unchanged. */
+export { HarnessAgent }
 
 /**
  * The one capability matrix (issue #84): which harness CLIs can mount Podium's

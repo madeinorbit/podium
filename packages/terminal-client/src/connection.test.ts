@@ -754,7 +754,7 @@ describe('resume + offline input queue', () => {
 })
 
 describe('transcript delta forwarding', () => {
-  const item = (id: string, cursor: string): import('@podium/protocol').TranscriptItem => ({
+  const item = (id: string, cursor: string): import('@podium/model').TranscriptItem => ({
     id,
     cursor,
     role: 'assistant' as const,

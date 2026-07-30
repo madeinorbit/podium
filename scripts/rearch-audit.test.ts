@@ -208,7 +208,7 @@ describe('inventory checks', () => {
   it('agent-kind-enums counts redeclarations but not the canonical one or an alias', () => {
     const ctx = ctxOf({
       // Canonical home — never counted.
-      'packages/protocol/src/messages/harness.ts': `export const HarnessAgent = z.enum(['codex'])`,
+      'packages/model/src/entities/agent.ts': `export const HarnessAgent = z.enum(['codex'])`,
       // A true redeclaration (the drift risk).
       'packages/runtime/src/settings.ts': `export const HarnessAgent = z.enum(['codex'])`,
       // An alias re-using the canonical enum is the GOOD pattern, not debt.
@@ -494,7 +494,11 @@ describe('against the live repo', () => {
     // A check that silently stops matching (a rename, a moved file) would read
     // as "deleted!" and let the phase close on a false zero. Items that are
     // legitimately at zero are listed here as deliberate regression guards.
-    const ZERO_BY_DESIGN = new Set(['state-dir-defs'])
+    // agent-kind-enums reached zero at POD-300: @podium/model's
+    // entities/agent.ts is now the single declaration of AgentKind AND
+    // HarnessAgent, and packages/runtime re-exports it rather than keeping its
+    // own identical z.enum copy. The detector stays as a regression guard.
+    const ZERO_BY_DESIGN = new Set(['state-dir-defs', 'agent-kind-enums'])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
       expect(

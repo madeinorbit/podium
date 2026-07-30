@@ -141,7 +141,11 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/model'])
+// The TRUE leaf is @podium/model (L0): zod-only, zero workspace deps. Since
+// POD-300 @podium/protocol is no longer a leaf — it holds only frames and
+// imports its entity schemas from model. That single edge is declared in
+// RESTRICTED_PACKAGE_DEPS below, so protocol still cannot reach anything else.
+const LEAF_PACKAGES = new Set<string>(['packages/model'])
 
 /**
  * Near-leaf packages: may import ONLY the listed workspace packages (plus node
@@ -152,11 +156,14 @@ const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/model'])
  * must never depend on another app or a non-leaf package.
  */
 const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
-  'packages/transcript': new Set(['packages/protocol']),
+  // L1 wire/frames. Since POD-300 the entity schemas live in L0 @podium/model
+  // and protocol imports them; that is its ONLY workspace edge.
+  'packages/protocol': new Set(['packages/model']),
+  'packages/transcript': new Set(['packages/protocol', 'packages/model']),
   // Pure harness composer adapters (POD-859): prompt-draft extraction + keystroke
   // injection, shared by the web fallback and the daemon engine. Must stay pure —
-  // only protocol's AgentKind enum, never IO or harness packages.
-  'packages/composer': new Set(['packages/protocol']),
+  // only model's AgentKind enum, never IO or harness packages.
+  'packages/composer': new Set(['packages/protocol', 'packages/model']),
   'packages/runtime': new Set(['packages/protocol', 'packages/model']),
   // The issue-client seam (IssueTrpc + the shared command table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.
@@ -165,11 +172,11 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
   // apps/server injects its store repositories through narrow interfaces
   // instead of this package importing apps/server.
-  'packages/sync': new Set(['packages/protocol', 'packages/runtime']),
-  // Opt-in telemetry [spec:SP-f933]: the schema needs protocol's AgentKind enum
+  'packages/sync': new Set(['packages/protocol', 'packages/runtime', 'packages/model']),
+  // Opt-in telemetry [spec:SP-f933]: the schema needs model's AgentKind enum
   // and consent/queue need runtime's config + state dir. It must never reach an
   // app — apps/server constructs the emitter and injects its gauges.
-  'packages/telemetry': new Set(['packages/protocol', 'packages/runtime']),
+  'packages/telemetry': new Set(['packages/protocol', 'packages/runtime', 'packages/model']),
 }
 
 // ---------------------------------------------------------------------------
