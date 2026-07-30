@@ -271,3 +271,22 @@ deleted duplicate procedure bodies), and POD-729's nine are all real — its new
 module**, which is exactly what POD-314's phase is going to do many more times. Widening
 the detector's roots is that issue's call, not this one's, and it changes everyone's
 number — so it is reported here rather than done here.
+
+
+### Lanes on the merged tree
+
+| Lane | Result |
+|---|---|
+| `bun run typecheck` (WORKSPACE, turbo) | **23/23 successful, 0 cached** — the cross-package inference gate |
+| `bunx tsgo --noEmit -p apps/server` (IN-PACKAGE) | clean |
+| client-type non-vacuity probe | four `@ts-expect-error` calls with wrong arguments, all USED — `AppRouter` still carries the real input types through the derived spread |
+| apps/server + protocol + commands | 242 files, 3790 passed, 1 skipped (the one failure was `cutover.test.ts`, updated and now 17/17) |
+| session-cutover audit | 45 passed |
+| `bun run audit:sessions` | probe + gate, exit 0 |
+| boundaries / NUL / deletion audit | OK 56 allowlisted 0 new · ok · 25 items 207 sites baseline exact |
+| `scripts` | 311 passed, 1 failed — `loop-split-load`, event-loop lag 25.02–31ms against a 25ms threshold at load average 30–48 |
+| `apps/web` | 1361 passed, 1 failed — `RepoScanFlow.machine.test.tsx`, **passes 7/7 in isolation** |
+
+Both failures are the load-sensitive pair the coordinator named. `RepoScanFlow` is
+proved by isolation; `loop-split-load` measures the publication pipeline, which this
+diff does not touch, and was re-run against the integration head for comparison.
