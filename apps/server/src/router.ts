@@ -50,13 +50,14 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
+import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
-import { specsInputs } from './modules/specs/service'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
+import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import type { RegistryModules } from './relay'
@@ -1171,17 +1172,16 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => mods(ctx).automations.runs(input.automationId, input.limit)),
     ...automationProcedures(),
   }),
-  // Approval broker [spec:SP-edbb] (#410): the operator decision surface. The
-  // agent side (request/get) rides the issue relay, never this router.
-  approvals: t.router({
-    list: t.procedure.query(({ ctx }) => mods(ctx).approvals.listPending()),
-    approve: t.procedure
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).approvals.approve(input.id)),
-    deny: t.procedure
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).approvals.deny(input.id)),
-  }),
+  /**
+   * THE APPROVAL SURFACE IS DERIVED (POD-314) — the operator decision surface of
+   * the approval broker [spec:SP-edbb] (#410). The agent side (request/get) rides
+   * the issue relay and has never been a procedure here.
+   *
+   * `approve` and `deny` come from `APPROVAL_CONTRACTS`; `list` comes from the
+   * query table. Both are built by the one derived-family builder, so there is
+   * deliberately no procedure written out here.
+   */
+  approvals: t.router(approvalFamilyProcedures()),
   /**
    * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover).
    *

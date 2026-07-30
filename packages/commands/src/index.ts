@@ -22,31 +22,14 @@
  */
 
 export {
-  type AnyCommandContract,
-  type AttributionPolicy,
-  type AuthoredAttribution,
-  type CommandAction,
-  type CommandContract,
-  type CommandContractBase,
-  type CommandPolicy,
-  type CommandResource,
-  type ConfirmationRule,
-  type ContractInput,
-  type CreationOwnership,
-  classificationErrors,
-  type DeliveryClass,
-  type DeliveryPolicy,
-  type ErrorConsistency,
-  type MachineVerb,
-  type OptimisticEffect,
-  type OptimisticReducer,
-  type RedactionPolicy,
-  type RoleFloor,
-  registryClassificationErrors,
-  SERVED_NOWHERE,
-  type TransportTag,
-  type VisibilityClass,
-} from './contract'
+  APPROVAL_CONTRACT_NAMES,
+  APPROVAL_CONTRACTS,
+  type ApprovalContractName,
+  approvalsApproveContract,
+  approvalsApproveInput,
+  approvalsDenyContract,
+  approvalsDenyInput,
+} from './approvals/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
@@ -75,6 +58,32 @@ export {
   respectsScheduleFloor,
   SCHEDULE_FLOOR_MESSAGE,
 } from './automations/cron'
+export {
+  type AnyCommandContract,
+  type AttributionPolicy,
+  type AuthoredAttribution,
+  type CommandAction,
+  type CommandContract,
+  type CommandContractBase,
+  type CommandPolicy,
+  type CommandResource,
+  type ConfirmationRule,
+  type ContractInput,
+  type CreationOwnership,
+  classificationErrors,
+  type DeliveryClass,
+  type DeliveryPolicy,
+  type ErrorConsistency,
+  type MachineVerb,
+  type OptimisticEffect,
+  type OptimisticReducer,
+  type RedactionPolicy,
+  type RoleFloor,
+  registryClassificationErrors,
+  SERVED_NOWHERE,
+  type TransportTag,
+  type VisibilityClass,
+} from './contract'
 export {
   discoveryRefreshReposContract,
   discoveryRefreshReposInput,
@@ -160,39 +169,6 @@ export {
   UNADDRESSABLE,
 } from './mail/ceiling'
 export {
-  SUPERAGENT_COMMAND_NAMES,
-  SUPERAGENT_CONTRACTS,
-  type SuperagentContractName,
-  type SuperagentUserFocus,
-  superagentClearContract,
-  superagentClearInput,
-  superagentConciergeContract,
-  superagentConciergeInput,
-  superagentInterruptTurnContract,
-  superagentInterruptTurnInput,
-  superagentOpenInTerminalContract,
-  superagentOpenInTerminalInput,
-  superagentRestartContract,
-  superagentRestartInput,
-  superagentSendTurnContract,
-  superagentSendTurnInput,
-  superagentStartBtwContract,
-  superagentStartBtwInput,
-  superagentUserFocus,
-} from './superagent/contracts'
-export {
-  SPEC_CONTRACT_NAMES,
-  SPEC_CONTRACTS,
-  type SpecContractName,
-  SpecStatus,
-  specsCreateContract,
-  specsCreateInput,
-  specsRemoveContract,
-  specsRemoveInput,
-  specsSaveContract,
-  specsSaveInput,
-} from './specs/contracts'
-export {
   awaitAgentContract,
   awaitAgentInput,
   MAIL_CONTRACTS,
@@ -235,6 +211,23 @@ export {
 } from './mutations'
 export * from './sessions/command-plane'
 export {
+  EXPORTABLE_HARNESSES,
+  type SessionHandoffInput,
+  type SessionHandoffOutput,
+  sessionHandoffContract,
+  sessionHandoffInput,
+  sessionHandoffOutput,
+} from './sessions/handoff'
+export * from './sessions/presence-commands'
+export {
+  RENAME_REJECTIONS,
+  type SessionRenameInput,
+  type SessionRenameOutcome,
+  sessionRenameContract,
+  sessionRenameInput,
+  sessionRenameReducer,
+} from './sessions/rename'
+export {
   CONTRACT_TIER,
   contractMatrixRow,
   preferencePathsInTier,
@@ -254,8 +247,8 @@ export {
   WRITABLE_PREFERENCE_PATHS,
 } from './settings/contracts'
 export {
-  type ChangedLeaf,
   applySettingsPatch,
+  type ChangedLeaf,
   changedSettingsLeaves,
   ONLINE_ONLY_SETTINGS_COMMANDS,
   type PlanOptions,
@@ -266,22 +259,38 @@ export {
   type SettingsWriteRefusal,
 } from './settings/write-plan'
 export {
-  EXPORTABLE_HARNESSES,
-  type SessionHandoffInput,
-  type SessionHandoffOutput,
-  sessionHandoffContract,
-  sessionHandoffInput,
-  sessionHandoffOutput,
-} from './sessions/handoff'
-export * from './sessions/presence-commands'
+  SPEC_CONTRACT_NAMES,
+  SPEC_CONTRACTS,
+  type SpecContractName,
+  SpecStatus,
+  specsCreateContract,
+  specsCreateInput,
+  specsRemoveContract,
+  specsRemoveInput,
+  specsSaveContract,
+  specsSaveInput,
+} from './specs/contracts'
 export {
-  RENAME_REJECTIONS,
-  type SessionRenameInput,
-  type SessionRenameOutcome,
-  sessionRenameContract,
-  sessionRenameInput,
-  sessionRenameReducer,
-} from './sessions/rename'
+  SUPERAGENT_COMMAND_NAMES,
+  SUPERAGENT_CONTRACTS,
+  type SuperagentContractName,
+  type SuperagentUserFocus,
+  superagentClearContract,
+  superagentClearInput,
+  superagentConciergeContract,
+  superagentConciergeInput,
+  superagentInterruptTurnContract,
+  superagentInterruptTurnInput,
+  superagentOpenInTerminalContract,
+  superagentOpenInTerminalInput,
+  superagentRestartContract,
+  superagentRestartInput,
+  superagentSendTurnContract,
+  superagentSendTurnInput,
+  superagentStartBtwContract,
+  superagentStartBtwInput,
+  superagentUserFocus,
+} from './superagent/contracts'
 export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,
