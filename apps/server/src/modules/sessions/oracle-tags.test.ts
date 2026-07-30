@@ -135,8 +135,13 @@ describe('oracle tag ratchet', () => {
     )
 
     // POD-1076 per-user state, POD-1073 human-vs-human authz, POD-1075 user
-    // principal + attribution, POD-1079 machines as owned compute, POD-642
-    // handoff idempotency across duplicate dispatch.
-    expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1076', 'POD-1079', 'POD-642'])
+    // principal + attribution, POD-1079 machines as owned compute.
+    //
+    // POD-642 WAS HERE AND IS NOT ANY MORE, because it landed: handoff now
+    // single-flights duplicate dispatch, so what was a will-change is pinned
+    // must-not-change and the tag is gone from the corpus. This list is the record
+    // of what is still PENDING; a landed issue left in it would keep asserting that
+    // its characterization has not been replaced yet.
+    expect([...named].sort()).toEqual(['POD-1073', 'POD-1075', 'POD-1076', 'POD-1079'])
   })
 })

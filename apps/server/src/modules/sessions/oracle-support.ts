@@ -57,9 +57,12 @@ export const SUPERSEDING_ISSUES = [
   'POD-1073',
   // Machines as owned compute: see / use / manage (ambient placement today).
   'POD-1079',
-  // Handoff onto the command plane, WITH idempotency across duplicate dispatch:
-  // a retry must not fork or duplicate the session (today it runs twice).
-  'POD-642',
+  // POD-642 HAS LANDED and is deliberately NOT listed any more. It superseded one
+  // characterization — concurrent duplicate handoff dispatch running two complete
+  // orchestrations — and `oracle-handoff.test.ts` now pins the single-flighted
+  // behaviour as must-not-change instead. Keeping a superseding issue in this list
+  // after its supersession would leave the ratchet asserting that a pending change
+  // is still pending, which is how a stale will-change tag survives forever.
 ] as const
 
 export type SupersedingIssue = (typeof SUPERSEDING_ISSUES)[number]
