@@ -59,6 +59,7 @@
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "audit:issues": "bun scripts/audit-issue-commands.ts --probe && bun scripts/audit-issue-commands.ts",
     "audit:sessions": "bun scripts/audit-session-commands.ts --probe && bun scripts/audit-session-commands.ts",
+    "audit:superagent": "bun scripts/audit-superagent-commands.ts --probe && bun scripts/audit-superagent-commands.ts",
     "audit:workflows": "bun scripts/audit-workflow-commands.ts --probe && bun scripts/audit-workflow-commands.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",

@@ -20,7 +20,7 @@
     "reexport-shims": 22,
     "representation-registry-rot": 0,
     "router-triple-access": 68,
-    "send-turn-duplicate": 1,
+    "send-turn-duplicate": 0,
     "session-shapes": 0,
     "state-dir-defs": 0,
     "static-systemd-units": 11,

@@ -576,21 +576,43 @@ export const CHECKS: AuditCheck[] = [
     phase: 'POD-313',
     unit: 'REDUNDANT alias: N procedures forwarding to superagent.sendTurn ⇒ N-1 counted (one is the real entry)',
     collect: (ctx) => {
-      // No `=>` in the anchor: it rides on formatting, and biome wraps the
-      // arrow onto its own line as soon as the arg list grows.
-      const sites = grep(ctx, {
-        roots: ['apps/server/src/router.ts'],
-        pattern: /ctx\.superagent\.sendTurn\(/,
-      })
+      // THE ANCHOR FOLLOWED THE CODE (POD-383), and this comment says which of
+      // the two things happened, because POD-1180 exists for the case where they
+      // are confused. The DUPLICATE PROCEDURE genuinely VANISHED: `superagent.send`
+      // is deleted, not relocated, and no file in the repo declares it. The CALL
+      // ONTO THE SERVICE merely MOVED: `ctx.superagent.sendTurn(input)` in
+      // router.ts became `s.sendTurn(input)` in the joined table at
+      // modules/superagent/registry.ts, because the router is now derived from
+      // the contract table. A detector still scanning only router.ts would have
+      // read the move as a win — and its own guard below would have thrown, which
+      // is the guard working.
+      //
+      // So BOTH homes are scanned. Adding a second `sendTurn:`-shaped alias is
+      // counted wherever it is written: by hand in the router, or as a second key
+      // in the table (`send: { contract: …, handler: (s) => s.sendTurn(…) }`),
+      // which is the only place an alias could now come back. No `=>` in either
+      // anchor: it rides on formatting, and biome wraps the arrow onto its own
+      // line as soon as the arg list grows.
+      const sites = [
+        ...grep(ctx, {
+          roots: ['apps/server/src/router.ts'],
+          pattern: /ctx\.superagent\.sendTurn\(/,
+        }),
+        ...grep(ctx, {
+          roots: ['apps/server/src/modules/superagent/registry.ts'],
+          pattern: /\bs\.sendTurn\(/,
+        }),
+      ]
       // A bare `sites.slice(1)` turns detector FAILURE into "0 = deleted, phase
       // clear to close": if the anchor ever stops matching, [].slice(1) is []
       // and POD-313 reads as done with both procedures intact. Zero matches
       // means the anchor moved, not that the duplicate went away.
       if (sites.length === 0)
         throw new Error(
-          'send-turn-duplicate: anchor `ctx.superagent.sendTurn(` matched nothing in ' +
-            'apps/server/src/router.ts — the detector is broken (or the router moved). ' +
-            'Fix the check; do not record a phantom zero.',
+          'send-turn-duplicate: neither anchor matched — `ctx.superagent.sendTurn(` in ' +
+            'apps/server/src/router.ts nor `s.sendTurn(` in ' +
+            'apps/server/src/modules/superagent/registry.ts. The detector is broken (or the ' +
+            'turn command moved again). Fix the check; do not record a phantom zero.',
         )
       return sites.slice(1)
     },
