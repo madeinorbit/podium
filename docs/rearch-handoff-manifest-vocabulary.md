@@ -330,11 +330,35 @@ Two consequences:
    rejecting), and a bundle that simply lacks the subpath — so the imported agent lands at the
    worktree root instead of the directory it was working in. A silent behavioural regression with no
    failing gate anywhere.
-2. **The safe rewrite is wire-safe here, which is worth stating** because the generic warning about
-   it is not. Rewriting to a fully-spelled literal plus `satisfies` changes key *presence* in memory
-   (`|| undefined` keeps the key), but `JSON.stringify` drops an undefined value, so the bundle bytes
-   are unchanged. The coordinator's key-presence trap applies to in-memory consumers of this object,
-   not to the exported file.
+2. **The safe rewrite is wire-safe only under a condition I first stated too broadly.**
+   POD-366 corrected this and the correction matters, because the loose version would have shipped a
+   silent wire change in its own mapper. The discriminator is *which* nullish form the rewrite uses:
+
+   | Rewrite | `title` when the value is `""` | On the wire |
+   |---|---|---|
+   | `...(x ? { title: x } : {})` (the retired idiom) | key omitted | absent |
+   | `title: x \|\| undefined` | `undefined` | **absent** — falsy-drop preserved |
+   | `title: x ?? undefined` | `""` | **`"title":""`** — a new key crosses the wire |
+
+   `undefined` is wire-invisible, but `""`, `false` and `0` survive `JSON.stringify`. The retired
+   idiom drops **falsy**, not undefined — so `||` preserves its behaviour while `??` (or a
+   drop-undefined helper) does not. **The triage question is therefore two parts, not one:** (a) can
+   this value be falsy-but-defined — `""`, `false`, `0`? If yes, a `??`-style rewrite is a wire change
+   regardless of what reads key presence. (b) Only if no, ask whether anything downstream reads
+   `k in obj` rather than the JSON.
+
+   **This applies to this schema, not only to POD-366's.** `title` and `cwdSubpath` are both plain
+   optional strings that can legitimately be `""`, so both are exposed. `worktreeRelativePath` is
+   *not*: its `.min(1)` rejects `""` outright rather than shipping it — validation catching what the
+   type layer cannot, and an argument for constraining optional strings that have a meaningful
+   non-empty invariant.
+
+The general rule worth extracting, in POD-366's formulation: **a schema `.parse()` on a literal you
+just built validates the data against the schema but never validates that you wrote the keys the
+schema wants** — and a strip-unknown parser turns a typo into silent data loss. `satisfies` on the
+literal *before* the parse is the fix, because that is the only step which checks the keys you wrote.
+This is a distinct and worse rung than POD-1138's original case: there, an annotation fails to check
+through a spread; here there is no annotation at all.
 
 Not fixed here: `apps/daemon` is POD-644's transfer path, which was explicitly scoped out of this
 diff. Reported to POD-1138 with the site and this evidence. Making the schema `.strict()` would be
