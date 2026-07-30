@@ -195,8 +195,14 @@ export class WriteFunnel {
     const queued = this.pending
     this.pending = []
     for (const delivery of coalesce(queued)) {
-      this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+      // POSITION FIRST, DELIVERY SECOND, and the order is transcribed from the
+      // deleted `sendMetadataDelta`: it advanced the prepared-publication
+      // worker's cursor and scheduled a rebuild BEFORE walking the connections.
+      // A connection whose view is being rebuilt BUFFERS the batch instead of
+      // receiving it, so delivering first would hand a global-publication client
+      // a batch the worker is about to supersede.
       this.deps.onPublished(delivery.throughSeq)
+      this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     }
   }
 }

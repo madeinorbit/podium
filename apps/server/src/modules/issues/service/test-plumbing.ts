@@ -1,4 +1,4 @@
-import type { ServerMessage } from '@podium/protocol'
+import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps } from '@podium/sync'
 import type { IssueDeps } from './types'
 
@@ -17,8 +17,25 @@ import type { IssueDeps } from './types'
  * a client is served from, and was not before.
  */
 export function issueTestPlumbing(
-  broadcast: (msg: ServerMessage) => void = () => {},
+  /**
+   * Observe what a mutation PUBLISHED, one appended change row at a time.
+   *
+   * This used to be `(msg: ServerMessage) => void`, fed from the snapshot tail.
+   * The rows are the honest replacement and a stronger observation point: a
+   * snapshot could disagree with them, they are what every client is now served
+   * from, and a caller asserting on a row is asserting on the value a user sees
+   * rather than on the fact that a message went out.
+   */
+  onPublished: (change: MetadataChange) => void = () => {},
 ): Pick<IssueDeps, 'funnel' | 'ledger' | 'publishSpecs'> {
+  const ledger = new Ledger({
+    repo: memoryChangeLogStore(),
+    now: Date.now,
+    transact: (fn) => fn(),
+  })
+  ledger.onAppended((changes) => {
+    for (const change of changes) onPublished(change)
+  })
   return {
     funnel: {
       run: (op) => {
@@ -26,19 +43,13 @@ export function issueTestPlumbing(
         return op.write()
       },
     },
-    ledger: new Ledger({
-      repo: memoryChangeLogStore(),
-      now: Date.now,
-      transact: (fn) => fn(),
-    }),
+    ledger,
     publishSpecs: {
       issueUpdated: (issue) => ({
         rows: [{ id: issue.id, value: issue }],
-        snapshot: { type: 'issueUpdated', issue },
       }),
       issuesChanged: (issues) => ({
         rows: issues.map((i) => ({ id: i.id, value: i })),
-        snapshot: { type: 'issuesChanged', issues },
       }),
     },
   }

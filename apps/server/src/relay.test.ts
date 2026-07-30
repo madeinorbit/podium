@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { SOLE_USER_ID, asSessionId, type AgentPhase, type AgentRuntimeState, type SessionId } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import type { IssueWire } from '@podium/model'
+import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
@@ -557,21 +559,43 @@ describe('SessionRegistry', () => {
     expect(reg.modules.sessions.listSessions()[0]?.agentKind).toBe('claude-code')
   })
 
-  it('still sends welcome + sessions when the issues payload build throws', () => {
+  it('still sends welcome + the world when the issues payload build throws', () => {
     // The issues list is DERIVED (allWire embeds member sessions). If building it
-    // throws (e.g. a poison issue row), it must NOT abort the attach / broadcast and
-    // take sessions + the whole connection down with it. Degrade issues to [] + log.
+    // throws (e.g. a poison issue row), it must NOT abort the attach and take the
+    // whole connection down with it.
+    //
+    // THE ATTACH NO LONGER TOUCHES `allWire` AT ALL (POD-1203), and that is a
+    // stronger form of the same resilience rather than a weaker test: the world a
+    // connection is served comes from the feed, whose rows were serialized at
+    // their write, so a projection that throws TODAY cannot reach the bootstrap
+    // at all. The degradation path it used to exercise is asserted directly
+    // below, where it still lives.
+    const reg = new SessionRegistry()
+    ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
+      throw new Error('boom')
+    }
+    const sent: ServerMessage[] = []
+    expect(() => reg.clientGateway.attachClient((m) => sent.push(m))).not.toThrow()
+    reg.modules.funnel.flushDeltas()
+    expect(sent.some((m) => m.type === 'welcome')).toBe(true)
+    expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
+  })
+
+  it('a throwing issues projection degrades to an empty list and logs', () => {
+    // The other half of the case above, at the site that still owns it: the
+    // publisher swallows the throw, publishes nothing, and says so. Without this
+    // the degradation would have no test at all after the attach stopped
+    // building the list.
     const reg = new SessionRegistry()
     ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
       throw new Error('boom')
     }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const sent: ServerMessage[] = []
-    expect(() => reg.clientGateway.attachClient((m) => sent.push(m))).not.toThrow()
-    expect(sent.some((m) => m.type === 'welcome')).toBe(true)
-    expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
-    const issues = sent.find((m) => m.type === 'issuesChanged')
-    expect(issues?.type === 'issuesChanged' && issues.issues).toEqual([])
+    const publisher = new IssuePublisher({
+      allWire: () => (reg.issues as unknown as { allWire: () => IssueWire[] }).allWire(),
+      publishIssueList: () => {},
+    })
+    expect(publisher.safeIssuesList()).toEqual([])
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
@@ -1116,6 +1140,11 @@ describe('SessionRegistry', () => {
       conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
       diagnostics: [],
     })
+    // SERVING IS COALESCED (POD-1203): the commit enters the funnel's ordered
+    // pipe and leaves on the microtask boundary, so a synchronous assertion here
+    // would see nothing. This is the same deterministic seam the delta tests
+    // already used; what changed is that the legacy list rides it too.
+    reg.modules.funnel.flushDeltas()
 
     expect(c.sent).toEqual([
       {

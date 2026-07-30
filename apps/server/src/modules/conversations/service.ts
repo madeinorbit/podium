@@ -82,10 +82,16 @@ export interface LakeReadSession {
 export class ConversationsService {
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
-  // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
-  // their last serialization so cap clients still get a snapshot when ONLY diagnostics
-  // changed (rare: scan problems), without re-sending the list on every conversation delta.
-  private lastDiagnosticsBroadcast = ''
+  // Diagnostics are not feed content — track their last serialization so a
+  // re-serve happens when ONLY they changed (rare: scan problems), and not on
+  // every conversation delta.
+  //
+  // SEEDED WITH THE EMPTY STATE, not ''. An unseeded marker makes the FIRST scan
+  // "a diagnostics change" even when there are no diagnostics at all, so a v1
+  // peer received the conversation list twice on the first scan of every boot:
+  // once as the feed's translation and once as the advisory that followed it.
+  // "Nothing to report" is a value, and it is the value this starts at.
+  private lastDiagnosticsBroadcast = JSON.stringify([])
   private readonly pendingMirrorReads = new Map<
     string,
     (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void

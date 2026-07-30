@@ -34,6 +34,10 @@ describe('SessionRegistry conversation registry', () => {
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],
       diagnostics: [],
     })
+    // Serving is coalesced onto the microtask boundary (POD-1203); this is the
+    // deterministic seam. Without it the last `conversationsChanged` in the inbox
+    // is still the one the ATTACH produced, before the scan committed anything.
+    registry.modules.funnel.flushDeltas()
     const msg = inbox.filter((m) => m.type === 'conversationsChanged').at(-1)
     if (msg?.type !== 'conversationsChanged') throw new Error('no conversationsChanged')
     const byId = new Map(msg.conversations.map((c) => [c.id, c]))

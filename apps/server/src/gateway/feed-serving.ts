@@ -228,7 +228,14 @@ export class FeedServing {
    * for expiring debt is supposed to have.
    */
   publishAdvisory(kind: LegacyAdvisoryKind): void {
-    this.edge.publishAdvisory(kind)
+    // AFTER the pending feed flush, never before it. An advisory is not feed
+    // content and must not overtake it: the write that moved the diagnostics has
+    // usually just committed rows too, those rows are still in the funnel's
+    // microtask-coalesced batch, and a v1 peer served the advisory first would
+    // see a list built from the projection as it was BEFORE them — a momentary
+    // empty or stale render, corrected a tick later. Deferring by one microtask
+    // puts it behind a flush that is already scheduled.
+    queueMicrotask(() => this.edge.publishAdvisory(kind))
   }
 
   /** Connected-peer version telemetry — the rollout's "may I raise the floor". */

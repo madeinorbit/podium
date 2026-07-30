@@ -294,9 +294,13 @@ function deliverToEveryClient(
 ): void {
   const sessions = registry.modules.sessions as unknown as {
     deliverEntityMessage: (conn: unknown, msg: unknown) => void
+    onFeedPublished: (seq: number) => void
     clients: { values(): IterableIterator<unknown> }
   }
   const seq = changes[changes.length - 1]?.seq ?? 0
+  // Position first, delivery second — the funnel's order, and the reason a
+  // scoped client's worker has a range to publish at all.
+  sessions.onFeedPublished(seq)
   for (const conn of [...sessions.clients.values()]) {
     sessions.deliverEntityMessage(conn, { type: 'metadataDelta', seq, changes })
   }

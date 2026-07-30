@@ -148,19 +148,34 @@ describe('SessionStore changes table', () => {
     )
     const folded = store.sync.latestChangeStates()
     expect(folded).toHaveLength(3)
+    // `seq` is part of the row since POD-1203 — the fold is the bootstrap read
+    // now, and a bootstrap row carries its position in the one global sequence.
+    // Asserted rather than stripped: a fold that returned the FIRST row per key
+    // instead of the latest would still carry the right payload for i1 (both
+    // writes upsert it) and the wrong seq.
     expect(folded).toContainEqual({
+      seq: 3,
       entity: 'issue',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"v":2}',
     })
-    expect(folded).toContainEqual({ entity: 'issue', entityId: 'i2', op: 'remove', payload: null })
+    expect(folded).toContainEqual({
+      seq: 4,
+      entity: 'issue',
+      entityId: 'i2',
+      op: 'remove',
+      payload: null,
+    })
     // Same id under a different entity is a distinct key, not a collision.
     expect(folded).toContainEqual({
+      seq: 5,
       entity: 'session',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"s":1}',
     })
+    // In seq order, which is what a bootstrap installs in.
+    expect(folded.map((row) => row.seq)).toEqual([...folded.map((row) => row.seq)].sort((a, b) => a - b))
   })
 })
