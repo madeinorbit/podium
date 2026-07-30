@@ -1,9 +1,11 @@
 import {
   IssueIdField,
-  type IssueWire,
+  IssueWire,
+  RepoIdField,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
+import type { z } from 'zod'
 import { SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { normalizeUpstreamUrl } from './upstream'
@@ -86,22 +88,63 @@ export function isDefinitiveRejection(err: unknown): boolean {
  * patch — pendingSync still shows, the value waits for hub truth.
  */
 /**
- * The BRANDED id keys an `update` patch can carry. `input` is an untyped tRPC
- * payload, so every one of these is PARSED with its shared field schema rather
- * than cast: a blind `as Partial<IssueWire>` over the whole patch would launder a
- * raw string straight into a branded field, which is exactly what the brand
- * exists to prevent. Field schemas (brand-only, no `.min(1)`) so a payload that
- * parses today still parses — see `packages/model/src/ids/brands.test.ts`.
+ * The BRANDED id keys an `update` patch can carry, DERIVED from `IssueWire`
+ * rather than listed.
  *
- * `machineId` is deliberately absent: it is carved out of the flip until POD-318
- * (ADR 1 Amendment 2 D16.2), so it stays a plain string here on purpose.
+ * `input` is an untyped tRPC payload, so every one of these is PARSED with its
+ * shared field schema. A blind `as Partial<IssueWire>` over the whole patch
+ * would launder a raw string straight into a branded field, which is exactly
+ * what the brand exists to prevent.
+ *
+ * WHY DERIVED. A hand-written list is one `git blame` away from being wrong:
+ * add a fifth branded id to the issue vocabulary and a literal list silently
+ * stops covering it, so the new key is laundered and nothing fails. This walks
+ * `IssueWire.shape` and keeps the keys whose unwrapped field schema IS one of
+ * the shared brand fields — INSTANCE identity (`===`), not a name match, so a
+ * restated look-alike is not mistaken for the real one. `rearch-audit`'s
+ * issue-shapes detector flagged the hand-written version, and it was right to.
+ *
+ * `machineId` cannot appear here by construction: it is carved out of the flip
+ * until POD-318 (ADR 1 Amendment 2 D16.2) and so carries no brand field to match.
+ *
+ * EXPORTED for its test only: asserting on `IssueWire.shape` proves something
+ * about the model, not about this derivation. A mutant that matched brands by
+ * CONSTRUCTOR instead of identity — mapping every branded key to whichever brand
+ * field happens to be listed first — survived until the test pinned THIS map
+ * per key.
  */
-const PATCH_ID_FIELDS = {
-  parentId: IssueIdField,
-  supersededBy: IssueIdField,
-  duplicateOf: IssueIdField,
-  assignee: UserIdField,
-} as const
+const BRAND_FIELDS: readonly z.ZodType[] = [IssueIdField, SessionIdField, UserIdField, RepoIdField]
+
+/**
+ * The shared brand field a schema wraps, or undefined.
+ *
+ * Checks identity at EVERY level rather than only at the innermost, because
+ * `ZodBranded` itself exposes `.unwrap()` — a loop that peels until it can peel
+ * no further sails straight PAST the brand and lands on the bare `z.string()`,
+ * matching nothing. That is not hypothetical: it is what this function did on
+ * its first draft, and the per-key identity assertions in
+ * `upstream-forwarder.brand-identity.test.ts` are what caught it. The
+ * value-preservation tests all PASSED against the broken version, because a
+ * derivation that finds nothing passes everything through unchanged.
+ */
+function brandFieldOf(schema: unknown): z.ZodType | undefined {
+  let cur = schema
+  for (let i = 0; i < 8; i++) {
+    const match = BRAND_FIELDS.find((f) => (f as unknown) === cur)
+    if (match) return match
+    const c = cur as { unwrap?: () => unknown }
+    if (typeof c?.unwrap !== 'function') break
+    cur = c.unwrap()
+  }
+  return undefined
+}
+
+export const PATCH_ID_FIELDS: Readonly<Record<string, z.ZodType>> = Object.fromEntries(
+  Object.entries(IssueWire.shape).flatMap(([key, field]) => {
+    const match = brandFieldOf(field)
+    return match ? [[key, match] as const] : []
+  }),
+)
 
 export function optimisticIssuePatch(
   proc: string,
