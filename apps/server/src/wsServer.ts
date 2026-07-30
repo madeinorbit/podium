@@ -1,17 +1,18 @@
 import type { IncomingMessage, Server } from 'node:http'
 import {
   type ControlMessage,
-  type DaemonHandshake,
   type DaemonHandshakeReply,
   encode,
+  type PeerHelloReply,
   type PortableCredentialBundle,
   parseClientMessage,
-  parseDaemonHandshake,
   parseDaemonMessage,
   versionSupport,
   WIRE_VERSION,
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
+import { createDaemonAcceptor, receiveDaemonFrame } from './gateway/peer-handshake'
+import type { PairingGrant } from './modules/machines/service'
 import type { PublicationAuthority, Send } from './modules/sessions/session'
 import type { SessionRegistry } from './relay'
 
@@ -121,6 +122,16 @@ function warnDroppedFrame(kind: 'client' | 'daemon', err: unknown): void {
   console.warn(`[podium] dropped malformed ${kind} frame:`, err)
 }
 
+// The DEVICE half of a machine principal is the connection it arrived on (ADR 3
+// Amendment 1 D14.1), so each daemon socket gets a process-local id. It is not
+// persisted and not an identity — a reconnect is the same machine on a new
+// binding, which is precisely what "device" means here.
+let daemonConnectionSeq = 0
+const nextDaemonConnectionId = (): number => {
+  daemonConnectionSeq += 1
+  return daemonConnectionSeq
+}
+
 /** Minimal slice of a `ws` socket {@link safeSend} needs (kept tiny for tests). */
 export interface SendSocket {
   readyState: number
@@ -217,43 +228,44 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
   // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
-  const reply = (msg: DaemonHandshakeReply): void => ws.send(encode(msg))
+  const reply = (msg: DaemonHandshakeReply | PeerHelloReply): void =>
+    ws.send(encode(msg as DaemonHandshakeReply))
+  // The shared framing (ADR 5 D3) does the version negotiation, the role
+  // resolution, the ORDER enforcement and the strategy selection; this socket
+  // supplies the transport facts and does what the step says. The machine
+  // credentials are three separate strategy modules behind it (D5), reached
+  // through `MachineDirectory` — not an `if (frame.type === 'pair')` here.
+  const acceptor = createDaemonAcceptor({
+    machines: registry.modules.machines,
+    connectionId: `daemon-${nextDaemonConnectionId()}`,
+  })
   ws.on('message', (raw: import('ws').RawData) => {
     if (machineId === undefined) {
-      let frame: DaemonHandshake
-      try {
-        frame = parseDaemonHandshake(raw.toString())
-      } catch {
-        return // first frame must be a handshake; ignore anything else (pre-auth)
-      }
-      // One auth path for every daemon, local or remote: a `hello` is verified against
-      // the machine's stored credential, a `pair` redeems a code + mints one. The local
-      // machine is pre-registered at startup (ensureLocalMachine) with a server-owned
-      // credential, so its same-host daemon authenticates here too.
-      const auth = registry.modules.machines.authenticateDaemon(frame)
-      if (!auth.ok) {
-        reply({
-          type: frame.type === 'pair' ? 'pairRejected' : 'helloRejected',
-          reason: auth.reason,
-        })
+      const outcome = receiveDaemonFrame(acceptor, raw.toString())
+      // A pre-auth frame that is not a handshake is dropped on the floor: it never
+      // reaches the registry and no principal exists (unchanged behaviour).
+      if (outcome.kind === 'ignored') return
+      if (outcome.kind === 'rejected') {
+        // Terminal at the daemon (`daemon.ts` treats helloRejected / pairRejected as
+        // blocked, with no reconnect loop), and terminal here: the acceptor refuses
+        // every later frame on this socket rather than letting a peer retry into a
+        // usable connection.
+        reply(outcome.reply)
         return
       }
-      machineId = auth.machineId
+      if (outcome.kind !== 'established') return
+      machineId = outcome.machineId
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.
-      // `authenticateDaemon` only returns a token on the pair branch.
-      if (frame.type === 'pair' && auth.token !== undefined) {
-        reply({ type: 'paired', token: auth.token, machineId, name: auth.name })
-      } else {
-        reply({ type: 'helloOk', name: auth.name })
-      }
+      reply(outcome.reply)
       // Send the handshake reply BEFORE attaching. attachDaemon synchronously flushes
       // any buffered control frames and calls pushPriorities(), which would otherwise
       // reach the daemon ahead of helloOk — on a server with live sessions to prioritize
       // the daemon's first-frame handshake parse then sees a sessionPriority frame, fails
       // ("malformed reply"), and refuses, looping forever. The successful `paired` or
-      // `helloOk` reply must be the first frame.
+      // `helloOk` reply must be the first frame. (The daemon end now NAMES that
+      // failure — `traffic-before-ack` in the shared dialer — instead of looping.)
       send = (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES)
       registry.modules.sessions.attachDaemon(machineId, send)
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
@@ -273,9 +285,19 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
         clearInterval(settle)
         clearTimeout(stopSettle)
       })
-      if (auth.pairingGrant?.copyAgentCredentials) {
+      // The pairing grant rides back as the directory's opaque context: the
+      // handshake carries it and never interprets it (see `directoryContext`).
+      if ((outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials) {
         void relayAgentCredentials(registry, machineId)
       }
+      return
+    }
+    // Post-handshake: the acceptor is asked FIRST, so a hello arriving on a live
+    // connection is refused as an ordering violation rather than being parsed as
+    // application traffic (a re-handshake would be a principal-swap primitive).
+    const routed = receiveDaemonFrame(acceptor, raw.toString())
+    if (routed.kind === 'rejected') {
+      reply(routed.reply)
       return
     }
     try {

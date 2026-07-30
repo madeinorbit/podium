@@ -1,0 +1,51 @@
+/**
+ * STRATEGY SELECTION — ADR 5 D3's "Forbidden" clause, made structural.
+ *
+ * D3 forbids "a single conditional god state machine that mixes auth, identity
+ * and feature dispatch with `if (isDaemon) … else if (isClient) … else if
+ * (isNode)` in one module". So selection is a LOOKUP, not a branch: strategies
+ * register themselves under `(role, credentialKind)` and the acceptor asks the
+ * map. Adding a role adds a module and a registration; it edits no conditional.
+ *
+ * Two dimensions rather than one because ADR 5 D5 gives the `machine` role THREE
+ * credential rows (local secret, pair code, machine token) that must not share an
+ * implementation — a shared one is how "holds the daemon secret" would drift into
+ * meaning the same thing as "redeemed a pair code".
+ */
+
+import type { AuthRole, CredentialKind } from '../envelope'
+import type { PeerAuthStrategy } from './types'
+
+const keyOf = (role: AuthRole, kind: CredentialKind): string => `${role}::${kind}`
+
+export interface AuthStrategyRegistry {
+  /** `null` when no module claims this pair — the acceptor then fails closed. */
+  lookup(role: AuthRole, kind: CredentialKind): PeerAuthStrategy | null
+  /** Registered pairs, for the totality tests and for operator-facing reporting. */
+  entries(): readonly { role: AuthRole; credentialKind: CredentialKind; name: string }[]
+}
+
+export const createAuthStrategyRegistry = (
+  // biome-ignore lint/suspicious/noExplicitAny: each member narrows its own credential; the map is heterogeneous by design.
+  strategies: readonly PeerAuthStrategy<any>[],
+): AuthStrategyRegistry => {
+  const map = new Map<string, PeerAuthStrategy>()
+  for (const strategy of strategies) {
+    const key = keyOf(strategy.role, strategy.credentialKind)
+    const existing = map.get(key)
+    if (existing !== undefined)
+      throw new Error(
+        `duplicate auth strategy for (${strategy.role}, ${strategy.credentialKind}): ${existing.name} vs ${strategy.name}`,
+      )
+    map.set(key, strategy as PeerAuthStrategy)
+  }
+  return {
+    lookup: (role, kind) => map.get(keyOf(role, kind)) ?? null,
+    entries: () =>
+      [...map.values()].map((s) => ({
+        role: s.role,
+        credentialKind: s.credentialKind,
+        name: s.name,
+      })),
+  }
+}

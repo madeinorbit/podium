@@ -56,8 +56,15 @@
  *     historical failure mode (a subpath import creeping into apps/web, or a
  *     barrel re-export widening from type-only to a value). The barrel's own
  *     doc comment still carries the discipline in prose for anyone editing it.
+ *  9. Host edge vs agent command relay (ADR 7 D2, the named port rule in
+ *     `packages/protocol/src/planes/port-rule.ts`): the daemon's agent-relay
+ *     handler and its host-edge handlers (hook ingest, codex/grok hooks,
+ *     browser-open) may not import each other — the relay bakes session
+ *     identity into its URL path, so crossing the channels re-homes identity.
+ *     Composition roots that wire both are fine; a handler reaching across is
+ *     not.
  *
- * Alongside these eight sits the ARCHITECTURE MANIFEST (POD-296,
+ * Alongside these nine sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
  * derived from them. The two families coexist until POD-335 retires each legacy
  * rule against an equivalent manifest constraint.
@@ -322,6 +329,72 @@ function checkWebRuntimeSubpath(file: string, ref: ImportRef): Violation | null 
     specifier: ref.specifier,
     rule: 'runtime-browser-safety',
     message: `${file}: apps/web may not import a @podium/runtime subpath ('${ref.specifier}') — every subpath is node-only by convention; only the browser-safe root barrel ('@podium/runtime') is allowed here`,
+  }
+}
+
+// ---- Rule 9 — host edge vs agent command relay (ADR 7 D2) -------------------
+//
+// The NAMED port rule of `packages/protocol/src/planes/port-rule.ts`, enforced
+// on the import graph as ADR 7's POD-387 item 4 requires: "agent-relay handler
+// must not import host-hook handlers or vice versa". The relay bakes session
+// identity into its URL path, so a host callback that reaches for relay code
+// (or a relay that reaches for hook code) re-homes identity, confuses authz and
+// breaks `PODIUM_NO_RELAY` hermetic tests — the failure [spec:SP-b85a],
+// [spec:SP-fccf] and [spec:SP-a43e] each re-derived independently.
+//
+// Both sets are deliberately narrow: the handler modules themselves, not their
+// composition roots. `apps/daemon/src/daemon.ts` wires both and is not a
+// violation — assembling two separated channels is what a composition root is
+// for.
+const AGENT_RELAY_MODULES = new Set<string>(['apps/daemon/src/agent-relay.ts'])
+
+const HOST_EDGE_MODULES = new Set<string>([
+  'apps/daemon/src/hook-ingest.ts',
+  'apps/daemon/src/codex-hooks.ts',
+  'apps/daemon/src/grok-hooks.ts',
+  'apps/daemon/src/browser-open.ts',
+])
+
+const hostEdgeSideOf = (file: string): 'agent-relay' | 'host' | null =>
+  AGENT_RELAY_MODULES.has(file) ? 'agent-relay' : HOST_EDGE_MODULES.has(file) ? 'host' : null
+
+/**
+ * Runs over the two module sets rather than per-file like most rules (same
+ * shape as rule 8b): the sets are small and named, and reading them directly
+ * keeps the rule's subject obvious to anyone who edits it.
+ */
+export function checkHostEdgeSeparationAll(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const file of [...AGENT_RELAY_MODULES, ...HOST_EDGE_MODULES]) {
+    let source: string
+    try {
+      source = readFileSync(join(repoRoot, file), 'utf8')
+    } catch {
+      // A renamed module is a stale rule entry, not a violation; the ratchet
+      // catches drift the other way (a new cross-import) which is what matters.
+      continue
+    }
+    for (const ref of extractImports(source)) {
+      const violation = hostEdgeCrossImport(repoRoot, file, ref)
+      if (violation) violations.push(violation)
+    }
+  }
+  return violations
+}
+
+function hostEdgeCrossImport(repoRoot: string, file: string, ref: ImportRef): Violation | null {
+  const from = hostEdgeSideOf(file)
+  if (from === null || !ref.specifier.startsWith('.')) return null
+  const targetAbs = resolveTsSibling(repoRoot, file, ref.specifier)
+  if (!targetAbs) return null
+  const target = relative(repoRoot, targetAbs).split(sep).join('/')
+  const to = hostEdgeSideOf(target)
+  if (to === null || to === from) return null
+  return {
+    file,
+    specifier: ref.specifier,
+    rule: 'host-edge-separation',
+    message: `${file}: the ${from} channel must not import the ${to} channel ('${ref.specifier}' → ${target}) — ADR 7 D2 keeps host↔server traffic separate from the agent command relay ([spec:SP-b85a], [spec:SP-fccf], [spec:SP-a43e]); give the host feature its own typed frames instead`,
   }
 }
 
@@ -653,6 +726,7 @@ export function runCheck(repoRoot: string): {
     }
   }
   violations.push(...checkRuntimeBarrelPurity(repoRoot))
+  violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(
     (f) => !agentBridgeImporters.has(f),

@@ -1,10 +1,12 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   checkFile,
   checkPrincipalFree,
+  checkHostEdgeSeparationAll,
   checkRuntimeBarrelPurity,
   clauseIsTypeOnly,
   extractImports,
@@ -517,5 +519,49 @@ describe('checkPrincipalFree', () => {
       checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),
     )
     expect(violations).toEqual([])
+  })
+})
+
+describe('rule 9 — host edge vs agent command relay (ADR 7 D2)', () => {
+  it('passes clean against the real repo: neither channel imports the other', () => {
+    const repoRoot = new URL('..', import.meta.url).pathname
+    expect(checkHostEdgeSeparationAll(repoRoot)).toEqual([])
+  })
+
+  it('flags a host-hook handler that reaches for the agent relay', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-boundaries-'))
+    mkdirSync(join(root, 'apps/daemon/src'), { recursive: true })
+    writeFileSync(join(root, 'apps/daemon/src/agent-relay.ts'), 'export const relay = 1\n')
+    writeFileSync(
+      join(root, 'apps/daemon/src/hook-ingest.ts'),
+      "import { relay } from './agent-relay.js'\nexport const use = relay\n",
+    )
+    const violations = checkHostEdgeSeparationAll(root)
+    expect(violations).toHaveLength(1)
+    expect(violations[0].rule).toBe('host-edge-separation')
+    expect(violations[0].message).toContain('must not import')
+  })
+
+  it('flags the crossing in the other direction too', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-boundaries-'))
+    mkdirSync(join(root, 'apps/daemon/src'), { recursive: true })
+    writeFileSync(join(root, 'apps/daemon/src/browser-open.ts'), 'export const open = 1\n')
+    writeFileSync(
+      join(root, 'apps/daemon/src/agent-relay.ts'),
+      "import { open } from './browser-open.js'\nexport const use = open\n",
+    )
+    expect(checkHostEdgeSeparationAll(root).map((v) => v.rule)).toEqual(['host-edge-separation'])
+  })
+
+  it('leaves same-side imports and unrelated siblings alone', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-boundaries-'))
+    mkdirSync(join(root, 'apps/daemon/src'), { recursive: true })
+    writeFileSync(join(root, 'apps/daemon/src/codex-hooks.ts'), 'export const c = 1\n')
+    writeFileSync(join(root, 'apps/daemon/src/util.ts'), 'export const u = 1\n')
+    writeFileSync(
+      join(root, 'apps/daemon/src/hook-ingest.ts'),
+      "import { c } from './codex-hooks.js'\nimport { u } from './util.js'\nexport const use = [c, u]\n",
+    )
+    expect(checkHostEdgeSeparationAll(root)).toEqual([])
   })
 })
