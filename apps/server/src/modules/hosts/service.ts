@@ -6,7 +6,7 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import { LOCAL_PLACEHOLDER } from '../../local-machine'
+import { LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 import type { EventBus } from '../bus'
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */

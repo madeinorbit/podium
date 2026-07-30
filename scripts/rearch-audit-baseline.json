@@ -17,7 +17,7 @@
     "panel-mode-duality": 3,
     "per-user-singletons": 8,
     "publish-computed-fanout": 13,
-    "reexport-shims": 23,
+    "reexport-shims": 22,
     "representation-registry-rot": 0,
     "router-triple-access": 101,
     "send-turn-duplicate": 1,

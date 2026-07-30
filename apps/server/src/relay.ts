@@ -8,7 +8,7 @@ import { formatIssueRef, isExposedOn, sessionCommandPlane, sessionTitleRule } fr
 import { Ledger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
-import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
+import { LOCAL_PLACEHOLDER, stateDir } from '@podium/runtime/local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'

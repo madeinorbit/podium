@@ -2,7 +2,7 @@ import { SOLE_USER_ID, asSessionId, type SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LOCAL_MACHINE_ID } from './local-machine'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
