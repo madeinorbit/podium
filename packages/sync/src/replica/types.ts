@@ -90,6 +90,23 @@ export interface DeltaFrame {
   readonly fromSeq: number
   /** Inclusive upper bound. */
   readonly seq: number
+  /**
+   * ADR 2 D5 — the lowest seq the authority still RETAINS, advertised on every
+   * frame "so a replica can tell 'I need to re-bootstrap'" without spending a
+   * round trip to be told.
+   *
+   * REQUIRED, and that is the decision rather than an oversight. An optional
+   * field here would be read as `?? 0` at every use site, and `0` is precisely
+   * the value that says "nothing has been pruned, your cursor is fine" — so an
+   * authority that forgot to publish it would be indistinguishable from one whose
+   * log is complete, and rung 2 would silently never fire. That is the
+   * fails-OPEN shape this run has paid for three times: the check is present, its
+   * refusing arm is unreachable, and deleting it changes nothing. Making the
+   * field required moves "the authority publishes this" from a hope to a compile
+   * error, and `validateFrame` rejects a non-integer or out-of-range value so a
+   * hand-built frame cannot slip past the type either.
+   */
+  readonly minAvailableSeq: number
   /** Every change in `(fromSeq, seq]` this principal may see, in seq order. MAY be empty. */
   readonly changes: readonly ChangeEnvelope[]
 }

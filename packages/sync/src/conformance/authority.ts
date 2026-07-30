@@ -38,6 +38,13 @@
  */
 
 import type { MutationId } from '@podium/protocol'
+import {
+  BoundedSendQueue,
+  FeedIdentityRegistry,
+  type EpochBumpCause,
+  type FeedIdentity,
+  type FeedIdentityStore,
+} from '../feed'
 import type { OutboxAttribution, UserRef } from '../outbox/records'
 import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
 import type { AuthorityReadPort } from '../replica/ports'
@@ -47,10 +54,34 @@ import type {
   ChangesSinceReply,
   Cursor,
   DeltaFrame,
+  ResyncRequiredFrame,
 } from '../replica/types'
 
 export const FEED_ID = 'conformance-feed'
-export const FIRST_EPOCH = 'epoch-1'
+
+/**
+ * Opaque epochs, in the order this fixture mints them (ADR 2 D1).
+ *
+ * ULIDs and not `'epoch-1'`, `'epoch-2'`, because the SHIPPED
+ * `assertOpaqueEpoch` refuses a decimal counter and this fixture now goes through
+ * it. A suite whose fixture could not satisfy the shipped guard would be a suite
+ * exercising a different rule from the product.
+ */
+const EPOCHS = [
+  '01JQ0Q1ZERO0FIRSTEPOCHAAAA',
+  '01JQ0Q2ZONE1SECONDEPOCHBBB',
+  '01JQ0Q3ZTWO2THIRDEPOCHCCCC',
+  '01JQ0Q4ZTRE3FOURTHEPOCHDDD',
+] as const
+
+/**
+ * The first epoch this fixture publishes.
+ *
+ * Exported for the suite's assertions, and DERIVED from the mint sequence rather
+ * than declared beside it: two constants that must agree is one constant and a
+ * convention, and the convention is what rots.
+ */
+export const FIRST_EPOCH: string = EPOCHS[0]
 
 /** `entity:entityId`. The unit visibility is granted over in this stub. */
 export type EntityKey = string
@@ -181,8 +212,52 @@ export interface ApplyReceipt {
 }
 
 export class ConformanceAuthority {
-  readonly feedId = FEED_ID
-  epoch: string = FIRST_EPOCH
+  /**
+   * FEED IDENTITY COMES FROM THE SHIPPED REGISTRY, NOT FROM THIS FIXTURE.
+   *
+   * This is the binding POD-305 used on the ownership matrix, applied to the other
+   * half of the phase. Before it, `feedId` and `epoch` were two fields on this
+   * class and `bumpEpoch` took the next epoch as a STRING ARGUMENT — so the D1
+   * gate proved that a Replica compares two strings a test handed it, and proved
+   * nothing about whether any authority in this system can mint a fresh epoch.
+   * The suite was certifying the fixture.
+   *
+   * Now the fixture owns the LOG and the visibility policy (its legitimate
+   * territory, since POD-1077 owns real scoping) and delegates identity to
+   * `FeedIdentityRegistry`. `conformance-binding.test.ts` asserts the delegation
+   * by object identity, and fails FIRST if it is absent — so this file cannot
+   * quietly drift back to two fields without the guard going red.
+   */
+  private readonly identityStore: FeedIdentityStore & { held: FeedIdentity | null } = {
+    held: null,
+    readIdentity() {
+      return this.held
+    },
+    writeIdentity(identity) {
+      this.held = identity
+    },
+  }
+  private mintIndex = 0
+  readonly identity = new FeedIdentityRegistry(this.identityStore, () => {
+    // The feedId is minted first and is stable; epochs come from the sequence.
+    if (this.mintIndex === 0) {
+      this.mintIndex += 1
+      return FEED_ID
+    }
+    const epoch = EPOCHS[this.mintIndex - 1]
+    if (epoch === undefined) throw new Error('conformance fixture ran out of epochs')
+    this.mintIndex += 1
+    return epoch
+  })
+
+  get feedId(): string {
+    return this.identity.current().feedId
+  }
+
+  get epoch(): string {
+    return this.identity.current().epoch
+  }
+
   readonly policy = new StubVisibilityPolicy()
   /** ADR 2 D5 — below this, a heal is refused and the ladder goes to rung 2. */
   minAvailableSeq = 0
@@ -275,9 +350,53 @@ export class ConformanceAuthority {
     return this.seqCounter
   }
 
-  /** ADR 2 D1 — a restore mints a NEW never-reused epoch. Compared by equality only. */
-  bumpEpoch(next: string): void {
-    this.epoch = next
+  /**
+   * ADR 2 D1 — a restore mints a NEW never-reused epoch. Compared by equality only.
+   *
+   * Takes a CAUSE and returns the epoch it minted. It used to take the epoch, and
+   * the difference is the whole point of the re-homing: a caller supplying the new
+   * value proves nothing about minting, and a test asserting `toBe('epoch-2')`
+   * asserts that its own literal came back. Now the suite must ask what was
+   * minted, which is a question only a working mint can answer.
+   */
+  bumpEpoch(cause: EpochBumpCause): string {
+    return this.identity.bump(cause).epoch
+  }
+
+  /**
+   * ADR 2 D9 — the BOUNDED OUTBOUND QUEUE, per principal, and the demotion that
+   * falls out of overflowing it.
+   *
+   * Reached rather than requested. The slow-consumer gate used to hand the Replica
+   * a `resync-required` literal it had written itself, so it certified that the
+   * Replica converges FROM a demotion while nothing in the system could produce
+   * one — "green against a server serving nothing", one layer up. Driving a real
+   * `BoundedSendQueue` past its bound means the gate now fails if the queue stops
+   * demoting, which is the property it was always credited with testing.
+   *
+   * The bound is deliberately tiny: this fixture is proving that the mechanism
+   * fires and that the replica converges afterwards, not that any particular
+   * number of bytes is the right bound. ADR 2 D9 leaves the number to deployment.
+   */
+  private readonly sendQueues = new Map<UserRef, BoundedSendQueue>()
+
+  sendQueueFor(user: UserRef): BoundedSendQueue {
+    const existing = this.sendQueues.get(user)
+    if (existing !== undefined) return existing
+    const queue = new BoundedSendQueue({ maxBytes: 2, sizeOf: () => 1 })
+    this.sendQueues.set(user, queue)
+    return queue
+  }
+
+  /**
+   * Offer a frame to one principal's outbound queue, exactly as a transport would.
+   *
+   * Returns the control frame when the offer demoted the connection, so a case can
+   * feed the replica what the AUTHORITY produced instead of what the case imagined.
+   */
+  offerTo(user: UserRef, frame: DeltaFrame): ResyncRequiredFrame | null {
+    const admission = this.sendQueueFor(user).offer(frame)
+    return admission.kind === 'demoted' ? admission.frame : null
   }
 
   /** ADR 2 D5 — head-prune. A cursor below this cannot heal (rung 2). */
@@ -309,7 +428,20 @@ export class ConformanceAuthority {
     const changes = this.rows
       .filter((row) => row.seq > fromSeq && row.seq <= upTo && this.mayDeliver(principal, row))
       .map((row) => row.change)
-    return { kind: 'delta', feedId: this.feedId, epoch: this.epoch, fromSeq, seq: upTo, changes }
+    // ADR 2 D5 — the floor this fixture actually prunes to, not a constant. It is
+    // read from the same field `changesSince` refuses below, so a case that moves
+    // the floor moves BOTH the proactive signal and the reactive refusal, and a
+    // replica that ignored the published floor would still be caught by the
+    // refusal (and vice versa) rather than by neither.
+    return {
+      kind: 'delta',
+      feedId: this.feedId,
+      epoch: this.epoch,
+      fromSeq,
+      seq: upTo,
+      minAvailableSeq: this.minAvailableSeq,
+      changes,
+    }
   }
 
   /** The read port ONE principal sees. There is no principal parameter on the port itself. */

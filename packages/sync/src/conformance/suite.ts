@@ -35,12 +35,13 @@
 import { describe, expect, it, afterAll, beforeEach } from 'vitest'
 import { normalizeRefusal, recoveryPlanFor } from '../outbox/reasons'
 import { isDelegated } from '../outbox/records'
-import type { Cursor } from '../replica/types'
+import type { Cursor, ServerFrame } from '../replica/types'
 import {
   ConformanceAuthority,
   type ConformancePrincipal,
   FIRST_EPOCH,
   attributionOf,
+  humanOf,
   keyOf,
 } from './authority'
 import { GateLedger, assertGatesCovered } from './gates'
@@ -676,7 +677,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // A BACKUP RESTORE. The authority comes back on a new epoch and re-issues the
         // very same seq numbers for DIFFERENT content — which is why D1 says a counter
         // re-collides across repeated restores and identity must be compared by equality.
-        authority.bumpEpoch('epoch-2-after-restore')
+        // The authority MINTS the new epoch; the case does not supply it. That is
+        // the difference between proving a replica compares two strings a test
+        // handed it and proving an authority can produce a fresh generation id.
+        const restoredEpoch = authority.bumpEpoch('restore')
+        expect(restoredEpoch).not.toBe(cursorBefore.epoch)
         authority.append({ entity: 'issue', entityId: 'ADA-1', op: 'upsert', payload: { post: 1 } })
 
         // The stale client's cursor seq is still valid-looking. Only the epoch differs.
@@ -691,7 +696,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         expect(
           ada.replicaEvents.some((e) => e.type === 'heal' && e.cause === 'epoch-mismatch'),
         ).toBe(true)
-        expect(ada.replica.cursor?.epoch).toBe('epoch-2-after-restore')
+        expect(ada.replica.cursor?.epoch).toBe(restoredEpoch)
         expect(ada.replica.view('issue', 'ADA-1')).toEqual({ post: 1 })
 
         // COUNTERFACTUAL: a frame on the SAME epoch at the same seq is applied, so the
@@ -761,10 +766,10 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await ada.outbox.drain() // unreachable: both stay queued
 
         // THE EPOCH BUMP. The cache is worthless; the queue is not.
-        authority.bumpEpoch('epoch-2')
+        const bumpedEpoch = authority.bumpEpoch('log-reset')
         ada.replica.connect()
         await ada.settle()
-        expect(ada.replica.cursor?.epoch).toBe('epoch-2')
+        expect(ada.replica.cursor?.epoch).toBe(bumpedEpoch)
         transport.offline = false
         backoffElapsed()
 
@@ -794,12 +799,24 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const behind = ada.replica.cursor?.seq as number
         expect(behind).toBeLessThan(authority.head())
 
-        ada.replica.receive({
-          kind: 'resync-required',
-          feedId: authority.feedId,
-          epoch: authority.epoch,
-          reason: 'outbound queue full',
-        })
+        // REACH the demotion, do not write it. The frame the replica receives is
+        // the one a REAL `BoundedSendQueue` produced by overflowing, so this case
+        // now fails if the queue stops demoting — the property it was always
+        // credited with testing and never had. Offering frames the slow consumer
+        // never drains is exactly what a slow consumer does.
+        const slowQueue = authority.sendQueueFor(humanOf(ADA))
+        let demotion: ServerFrame | null = null
+        for (let i = 0; demotion === null && i < 10; i += 1) {
+          demotion = authority.offerTo(humanOf(ADA), authority.frameFor(ADA, behind + i))
+        }
+        expect(demotion).not.toBeNull()
+        expect(slowQueue.isDemoted()).toBe(true)
+        expect(slowQueue.overflowCount()).toBeGreaterThan(0)
+        // Nothing was kept: a partial range delivered alongside a demotion is the
+        // silent-divergence option wearing the appearance of a working one.
+        expect(slowQueue.queuedBytes()).toBe(0)
+
+        ada.replica.receive(demotion as ServerFrame)
         await ada.settle()
 
         // CONVERGENCE, asserted on content and cursor — not "posture is live".

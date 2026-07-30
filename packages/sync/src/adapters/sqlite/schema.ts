@@ -104,6 +104,42 @@ export const changes = sqliteTable(
  * replays as a fresh command — and the covered procedures include `sendText`,
  * where a replay types into a live agent's terminal twice.
  */
+/**
+ * FEED IDENTITY — `(feedId, epoch)`, persisted ALONGSIDE the log (ADR 2 D1).
+ *
+ * "Alongside the log" is the load-bearing phrase and the reason this table lives
+ * here rather than in a config file or an env var. D1's whole argument is about
+ * BACKUP RESTORE: the epoch must travel with the data it describes, so that
+ * restoring `podium.db` restores the epoch that was true of those seqs. An epoch
+ * kept anywhere else would survive a restore unchanged while the seqs underneath
+ * it rolled back — a feed whose identity says "same generation" over content that
+ * is a different timeline, which is worse than no epoch because it LOOKS checked.
+ *
+ * ONE ROW, pinned by a constant primary key rather than by convention. A `singleton`
+ * column with a CHECK-shaped default is how "there is exactly one feed identity"
+ * becomes a property of the schema instead of a rule every writer must remember;
+ * a second row here would mean two answers to "which generation is this?", and
+ * whichever one a query happened to return would be the one clients trusted.
+ *
+ * NOT NULL on both columns: an identity with a missing epoch is the fails-open
+ * value the kernel's `assertOpaqueEpoch` exists to refuse, and letting NULL into
+ * the column would put that value one `?? ''` away from being published.
+ *
+ * D1's hard part, restated so nobody looks for the hook: THERE IS NO RESTORE CODE
+ * PATH. A restore is an operator copying a file, so nothing runs and nothing can
+ * bump the epoch automatically. This table makes the epoch RESTORABLE and
+ * INSPECTABLE; the bump itself is an operator action from [spec:SP-4428]'s
+ * runbook, and `FeedIdentityRegistry.bump` is what that action calls.
+ */
+export const feedIdentity = sqliteTable('feed_identity', {
+  /** Always 1. The schema's way of saying "there is exactly one of these". */
+  singleton: integer().primaryKey(),
+  feedId: text('feed_id').notNull(),
+  epoch: text().notNull(),
+  /** When this generation began. Diagnostics only — never compared, never ordered. */
+  mintedAt: integer('minted_at').notNull(),
+})
+
 export const appliedMutations = sqliteTable('applied_mutations', {
   mutationId: text('mutation_id').primaryKey(),
   proc: text().notNull(),
