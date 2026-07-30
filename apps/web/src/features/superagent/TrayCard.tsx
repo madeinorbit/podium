@@ -147,17 +147,21 @@ export function TrayCard({
   const hex = flowHex ?? TRAY_NEUTRAL
   const colored = flowHex !== undefined
   // An offer belongs to a SPECIFIC session; question cards fall back to the
-  // issue's first live agent session for the name chip.
+  // issue's first live agent session for the name chip. Pick in
+  // memberSessionIds order (the server-declared membership order), not the
+  // client store's session order.
   const agentSession =
     item.kind === 'offer'
       ? item.session
-      : sessions.find(
-          (s) =>
-            (issue.memberSessionIds ?? []).includes(s.sessionId) &&
-            !s.archived &&
-            s.agentKind !== 'shell' &&
-            s.headless !== true,
-        )
+      : (issue.memberSessionIds ?? [])
+          .map((id) => sessions.find((s) => s.sessionId === id))
+          .find(
+            (s) =>
+              s !== undefined &&
+              !s.archived &&
+              s.agentKind !== 'shell' &&
+              s.headless !== true,
+          )
   const ago = relativeTime(item.since, now)
   // §2.3-v3 tint tiers: offer/review 16%/.55, question 9%/.38.
   const tier =

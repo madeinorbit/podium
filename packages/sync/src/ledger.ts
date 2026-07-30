@@ -53,13 +53,13 @@ import {
  * durable state back and leaves the baseline untouched.
  */
 
-/** One declared entity change: what a write did, stated by the writer.
- *  `value` is the entity's WIRE shape (present iff op === 'upsert'). */
 /** Collision-free overlay key without a literal NUL byte in source [POD-758]. */
 export function entityOverlayKey(entity: string, id: string): string {
   return `${entity}\u0000${id}`
 }
 
+/** One declared entity change: what a write did, stated by the writer.
+ *  `value` is the entity's WIRE shape (present iff op === 'upsert'). */
 export interface EntityChangeSpec {
   entity: MetadataEntityKind
   id: string

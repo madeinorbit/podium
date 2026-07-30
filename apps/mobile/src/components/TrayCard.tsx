@@ -57,16 +57,20 @@ export function TrayCard({
   const [feedback, setFeedback] = useState('')
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
   const hex = flowHex ?? FLOW_SLATE
+  // Pick in memberSessionIds order (the server-declared membership order),
+  // not the client store's session order.
   const session =
     item.kind === 'offer'
       ? item.session
-      : sessions.find(
-          (s) =>
-            (issue.memberSessionIds ?? []).includes(s.sessionId) &&
-            !s.archived &&
-            s.agentKind !== 'shell' &&
-            s.headless !== true,
-        )
+      : (issue.memberSessionIds ?? [])
+          .map((id) => sessions.find((s) => s.sessionId === id))
+          .find(
+            (s) =>
+              s !== undefined &&
+              !s.archived &&
+              s.agentKind !== 'shell' &&
+              s.headless !== true,
+          )
   const ago = relativeTime(item.since, now)
   const squareHex = issueColorHex(issue.color)
 
