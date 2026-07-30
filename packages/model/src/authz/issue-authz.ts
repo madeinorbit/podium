@@ -43,6 +43,7 @@
  */
 
 import { assertUnreachable } from '../exhaustive'
+import type { UserId } from '../ids/brands'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
 
@@ -127,21 +128,56 @@ export interface Capability {
    *  made FOR (the same person for a human caller, the delegating human for an
    *  agent, and absent — never defaulted — for a machine or a system job).
    *
-   *  Structural `string` on purpose: model is the zero-dependency L0 leaf, so the
-   *  branded `UserId` these carry lives in @podium/protocol's principal module
-   *  today and lands here with POD-1075. The pair is never collapsed into one
-   *  field: "did a person or an agent do this?" and "which person was it for?" are
-   *  two questions ([spec:SP-eb60] nameSource, humanQuestionAskedBy). */
+   *  ONLY `onBehalfOf` IS BRANDED, AND THE ASYMMETRY IS A FINDING (POD-1075).
+   *
+   *  POD-361 asked for both: they were structural `string` with a comment saying
+   *  `UserId` was not reachable at L0, and it is reachable now. Branding
+   *  `onBehalfOf` was clean — the on-behalf-of half is ALWAYS a person (ADR 9
+   *  D5 A3), so the brand states exactly what the field means, and being
+   *  compile-time it changes nothing that parses.
+   *
+   *  Branding `actorUser` did not compile, and what it caught is a real defect
+   *  rather than a typing inconvenience. `gateway/principal-capability.ts`
+   *  assigns a `MachineId` to it on the machine arm — under a comment that says
+   *  *"a machine is not a person"* — and a bare job string on the system arm. So
+   *  `actorUser` is not the person slot its name claims: it is the collapsed
+   *  "actor that is not an agent session" slot, holding a person, a machine or a
+   *  job. Branding it would have been a well-typed lie at two live sites, and
+   *  casting past the error would have laundered the very confusion the brand
+   *  exists to expose.
+   *
+   *  Fixing it properly means splitting the slot by principal kind at the
+   *  capability layer, which is POD-388/POD-389 territory and beyond this
+   *  issue's model-and-schema scope. The durable shape that already does NOT
+   *  collapse them is `fields/attribution.ts`'s `ActorRef` — a discriminated
+   *  union over ADR 9 D1's four kinds — and re-pointing this reader at it is the
+   *  end state `fields/attribution.ts` names. Reported, not papered over.
+   *
+   *  The pair is never collapsed into one field: "did a person or an agent do
+   *  this?" and "which person was it for?" are two questions ([spec:SP-eb60]
+   *  nameSource, humanQuestionAskedBy).
+   *
+   *  `actorSessionId` above stays unbranded for a different and simpler reason:
+   *  it holds an agent SESSION id, so branding it `UserId` would name the wrong
+   *  id space. */
   actorUser?: string
-  onBehalfOf?: string
+  onBehalfOf?: UserId
 }
 
 /** ADR 3 Amendment 1 D17's pair, read off a capability. `null` is a representable
  *  "none" for machine and system callers — never defaulted to an operator or to a
  *  row's owner. */
 export interface AttributionPair {
+  /** UNBRANDED, and deliberately: this slot collapses `actorSessionId` (an agent
+   *  session) and `actorUser` (a person) into one value, so it names two id
+   *  spaces and can be branded as neither. `@podium/commands`' handoff contract
+   *  records the same thing from the other side — it carries the actor KIND
+   *  alongside, precisely because this helper collapses them and "did a person or
+   *  an agent move this session?" must stay answerable. The durable shape that
+   *  does NOT collapse them is `fields/attribution.ts`'s `ActorRef`. */
   actor: string | null
-  onBehalfOf: string | null
+  /** Branded: the on-behalf-of half is ALWAYS a person (ADR 9 D5 A3). */
+  onBehalfOf: UserId | null
 }
 
 /** Named `capabilityAttribution`, not `attributionOf`: @podium/protocol's principal
