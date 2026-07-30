@@ -1,4 +1,4 @@
-import { AgentKind, HarnessAgent, SessionIdField } from '@podium/model'
+import { AgentKind, HarnessAgent, SessionIdField, ThreadIdField } from '@podium/model'
 import { z } from 'zod'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
@@ -53,7 +53,7 @@ export const HeadlessTurnRequestMessage = z.object({
   turnId: z.string(),
   sessionId: SessionIdField,
   /** Superagent thread this turn belongs to (opaque to the daemon). */
-  threadId: z.string(),
+  threadId: ThreadIdField,
   agent: HarnessAgent,
   model: z.string().optional(),
   effort: z.string().optional(),

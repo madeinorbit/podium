@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+// A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
+// value was minted by this system and written by it, so the brand is asserted
+// here rather than re-validated. This is the one place these casts belong.
+import { asAutomationId, asIssueId, asSessionId } from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationFireObservation,
@@ -7,19 +11,18 @@ import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
   CHANGE_PRUNE_BATCH_ROWS,
-  changeLogPruneRunKey,
   type ChangeLogPruneObservation,
   type ConnectScanObservation,
+  changeLogPruneRunKey,
   connectScanRunKey,
   EVENT_PRUNE_BATCH_ROWS,
   EVENT_RETENTION_MAX_AGE_DAYS,
   EVENT_RETENTION_MAX_ROWS,
-  eventLogPruneRunKey,
   type EventLogPruneObservation,
+  type MessageExpiryObservation as ExpiryObservation,
+  eventLogPruneRunKey,
   type IssueAutoArchiveObservation,
   issueAutoArchiveRunKey,
-  type SessionAutoArchiveObservation,
-  sessionAutoArchiveRunKey,
   MAINTENANCE_COMMAND_MAX_AGE_MS,
   MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
   MAINTENANCE_PROTOCOL_VERSION,
@@ -29,11 +32,12 @@ import {
   type MaintenanceCommandsPruneObservation,
   type MaintenanceHandshake,
   MaintenanceHandshakeReply,
-  maintenanceCommandsPruneRunKey,
-  type MessageExpiryObservation as ExpiryObservation,
   MessageExpiryObservation,
+  maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  type SessionAutoArchiveObservation,
   type StewardPollObservation,
+  sessionAutoArchiveRunKey,
   stewardPollRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
@@ -782,8 +786,8 @@ export class SessionAutoArchiveReader {
       )
       .all(input.cutoffReadAt, input.cutoffReadAt, input.limit)
       .map((row: any) => ({
-        sessionId: row.id,
-        issueId: row.issue_id,
+        sessionId: asSessionId(row.id),
+        issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
         stoppedAt: row.stopped_at,
         readAt: row.read_at,
         archived: false as const,
@@ -829,7 +833,7 @@ export class IssueAutoArchiveReader {
       }>
       for (const row of rows) {
         candidates.push({
-          issueId: row.id,
+          issueId: asIssueId(row.id),
           stage: row.stage,
           closedReason: row.closed_reason,
           readAt: row.read_at,
@@ -867,7 +871,7 @@ export class AutomationDueReader {
       next_run_at: string
     }>
     return rows.map((row) => ({
-      automationId: row.id,
+      automationId: asAutomationId(row.id),
       enabled: true as const,
       nextRunAt: row.next_run_at,
       scheduleKind: row.schedule_kind,

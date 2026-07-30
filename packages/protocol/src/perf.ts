@@ -13,6 +13,7 @@
  * recorded baselines.
  */
 
+import { IssueIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /** One named point in a client switch trace, offset from gesture t0. */
@@ -31,8 +32,8 @@ export const clientSwitchTraceSchema = z.object({
   switchId: z.string().max(64),
   /** Epoch ms of the initiating gesture. */
   startedAt: z.number(),
-  sessionId: z.string().max(128),
-  issueId: z.string().max(128).nullish(),
+  sessionId: z.string().max(128).pipe(SessionIdField),
+  issueId: z.string().max(128).pipe(IssueIdField).nullish(),
   /** Which view the panel landed in when the trace completed. */
   mode: z.enum(['chat', 'native', 'unknown']),
   /** True when the panel had to mount cold (not in the warm set). */

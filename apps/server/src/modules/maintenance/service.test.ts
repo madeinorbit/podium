@@ -269,7 +269,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const lease = handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
-      issueId: 'iss_1',
+      issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
       readAt: '2026-07-01T00:00:00.000Z',
@@ -290,7 +290,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     tryAutoArchiveObserved.mockReturnValueOnce('not-due')
     const second = {
       ...observed,
-      issueId: 'iss_2',
+      issueId: asIssueId('iss_2'),
       readAt: '2026-07-17T00:00:00.000Z',
     }
     expect(

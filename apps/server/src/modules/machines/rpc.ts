@@ -1,5 +1,20 @@
 import { isAbsolute, join } from 'node:path'
-import type { AgentKind, AgentQuotaWire, ConversationDiagnosticWire, ConversationSummaryWire, DirectoryListingWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineQuotaWire, ResumeRef, SessionId, TranscriptItem, UsageBucketWire } from '@podium/model'
+import type {
+  AgentKind,
+  AgentQuotaWire,
+  ConversationDiagnosticWire,
+  ConversationSummaryWire,
+  DirectoryListingWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  IssueId,
+  MachineQuotaWire,
+  RepoId,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+  UsageBucketWire,
+} from '@podium/model'
 import type {
   BrowseDirsResultMessage,
   ControlMessage,
@@ -390,9 +405,9 @@ export class DaemonRpcService {
       resume: { kind: string; value: string }
       branch: string
       baseShas: string[]
-      repoId: string
+      repoId: RepoId
       title?: string
-      issueId?: string
+      issueId?: IssueId
       sourceMachineId: string
     },
     machineId: string,
@@ -475,7 +490,7 @@ export class DaemonRpcService {
       fetchId: string
       cwd: string
       baseShas: string[]
-      repoId: string
+      repoId: RepoId
       sourceMachineId: string
     },
     machineId: string,
@@ -682,7 +697,9 @@ export class DaemonRpcService {
   }
 
   readFile(
-    input: { sessionId: SessionId; path: string } | { machineId?: string; root: string; path: string },
+    input:
+      | { sessionId: SessionId; path: string }
+      | { machineId?: string; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)

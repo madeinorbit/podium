@@ -6,7 +6,14 @@ import {
 } from '@podium/client-core/perf'
 import { createReplica, memoryStorage } from '@podium/client-core/replica'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
-import { ISSUE_STAGES, asSessionId, type GitRepositoryWire, type IssueWire, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  type GitRepositoryWire,
+  ISSUE_STAGES,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import type { ClientSwitchTrace } from '@podium/protocol'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -347,7 +354,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     const traces: ClientSwitchTrace[] = []
     setSwitchTraceReporter((trace) => traces.push(trace))
 
-    beginSwitch({ sessionId: asSessionId('session-0001'), issueId: 'issue-0001' })
+    beginSwitch({ sessionId: asSessionId('session-0001'), issueId: asIssueId('issue-0001') })
     now = 12
     markSwitch(asSessionId('session-0001'), 'viewstate:sent')
     now = 28

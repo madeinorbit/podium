@@ -1,7 +1,5 @@
-import { SOLE_USER_ID, asSessionId, type TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, SOLE_USER_ID, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionRegistry } from './relay'
-import { RepoRegistry } from './repo-registry'
 import {
   buildBtwDelta,
   buildBtwRecap,
@@ -12,6 +10,8 @@ import {
   SuperagentService,
   transcriptDelta,
 } from './modules/superagent'
+import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -68,7 +68,12 @@ describe('buildBtwSeed', () => {
     item({ id: 'u2', role: 'user', text: 'next thing', ts: '2026-06-16T07:02:00Z' }),
   ]
   const seed = buildBtwSeed({
-    session: { sessionId: asSessionId('s1'), name: 'feat-x', agentKind: 'claude-code', cwd: '/repo' },
+    session: {
+      sessionId: asSessionId('s1'),
+      name: 'feat-x',
+      agentKind: 'claude-code',
+      cwd: '/repo',
+    },
     summary: 'Working on X.',
     items,
     maxChars: 20_000,
@@ -89,7 +94,9 @@ describe('buildBtwSeed', () => {
     expect(seed).not.toContain('x'.repeat(1000))
   })
   it('omits the summary line when none is given', () => {
-    expect(buildBtwSeed({ session: { sessionId: asSessionId('s1') }, items })).not.toContain('Summary:')
+    expect(buildBtwSeed({ session: { sessionId: asSessionId('s1') }, items })).not.toContain(
+      'Summary:',
+    )
   })
 })
 
@@ -169,11 +176,12 @@ describe('start_agent tool wiring (issue #60)', () => {
   it('tags spawnedBy with the executing thread when known', async () => {
     const { registry, sa } = harness()
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
+      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: string }
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
-      'superagent:btw_s1',
-    )
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
+        ?.spawnedBy,
+    ).toBe('superagent:btw_s1')
   })
 
   it("issueId on a started issue spawns in the issue's worktree", async () => {
@@ -206,7 +214,7 @@ describe('start_agent tool wiring (issue #60)', () => {
           issueId: issue.id,
           confirmed: true,
         },
-        'btw_parent',
+        asThreadId('btw_parent'),
       ),
     ) as { sessionId?: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
@@ -229,9 +237,9 @@ describe('start_agent tool wiring (issue #60)', () => {
       }),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
-      '/r/.worktrees/issue-1-x',
-    )
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd,
+    ).toBe('/r/.worktrees/issue-1-x')
   })
 
   it('rejects a call with neither cwd nor issueId, spawning nothing', async () => {
@@ -259,19 +267,20 @@ describe('start_agent tool wiring (issue #60)', () => {
   it('does not gate start-capable tools on known non-concierge threads', async () => {
     const { registry, sa } = harness()
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'global'),
+      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('global')),
     ) as { sessionId: string }
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
-      'superagent:global',
-    )
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
+        ?.spawnedBy,
+    ).toBe('superagent:global')
   })
 
   it('mints stable opaque per-thread MCP tokens and resolves them back', () => {
     const { sa } = harness()
-    const tok = sa.mcpThreadToken('concierge_abc')
+    const tok = sa.mcpThreadToken(asThreadId('concierge_abc'))
     expect(tok).not.toContain('concierge_abc') // opaque, not the raw threadId
-    expect(sa.mcpThreadToken('concierge_abc')).toBe(tok) // stable per thread
-    expect(sa.mcpThreadToken('btw_s1')).not.toBe(tok)
+    expect(sa.mcpThreadToken(asThreadId('concierge_abc'))).toBe(tok) // stable per thread
+    expect(sa.mcpThreadToken(asThreadId('btw_s1'))).not.toBe(tok)
     expect(sa.threadForMcpToken(tok)).toBe('concierge_abc')
     expect(sa.threadForMcpToken('no-such-token')).toBeUndefined()
   })
@@ -352,7 +361,10 @@ describe('session-steering tool belt (issue #62)', () => {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
     const spawn = (live = false): string => {
-      const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
       if (live)
         registry.gateway.routeDaemonFrame('local', {
           type: 'bind',
@@ -364,7 +376,8 @@ describe('session-steering tool belt (issue #62)', () => {
         })
       return sessionId
     }
-    const metaOf = (id: string) => registry.modules.sessions.listSessions().find((s) => s.sessionId === id)
+    const metaOf = (id: string) =>
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === id)
     return { registry, sa, inputs, spawn, metaOf }
   }
 
@@ -415,7 +428,11 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: st('working'),
+    })
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })
     expect(out).toBe('no pending question (phase=working)')
     expect(h.inputs).toEqual([]) // zero PTY input
@@ -480,9 +497,9 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('answer_question rejects an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('answer_question', { sessionId: asSessionId('nope'), answer: '1' })).toBe(
-      'unknown session',
-    )
+    expect(
+      await h.sa.callMcpTool('answer_question', { sessionId: asSessionId('nope'), answer: '1' }),
+    ).toBe('unknown session')
   })
 
   it('resume_and_send accepts a message for a not-yet-live session (durable queue)', async () => {
@@ -495,19 +512,27 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('resume_and_send fails on an unknown session', async () => {
     const h = harness()
-    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' })).toBe(
-      'failed: unknown session',
-    )
+    expect(
+      await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' }),
+    ).toBe('failed: unknown session')
   })
 
   it("continue_session types 'continue' into an errored live session only", async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('errored') })
+    h.registry.gateway.routeDaemonFrame('local', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: st('errored'),
+    })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
     expect(h.inputs).toContain('continue\r')
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('idle') })
+    h.registry.gateway.routeDaemonFrame('local', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: st('idle'),
+    })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
   })
 
@@ -563,9 +588,14 @@ describe('session-steering tool belt (issue #62)', () => {
     )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
     expect(
-      await h.sa.callMcpTool('snooze_session', { sessionId: asSessionId('nope'), until: 'next-message' }),
+      await h.sa.callMcpTool('snooze_session', {
+        sessionId: asSessionId('nope'),
+        until: 'next-message',
+      }),
     ).toBe('unknown session')
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: asSessionId('nope') })).toBe('unknown session')
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: asSessionId('nope') })).toBe(
+      'unknown session',
+    )
   })
 
   it('rename_session sets the user-facing name', async () => {
@@ -575,9 +605,9 @@ describe('session-steering tool belt (issue #62)', () => {
       'renamed',
     )
     expect(h.metaOf(sessionId)?.name).toBe('auth fix')
-    expect(await h.sa.callMcpTool('rename_session', { sessionId: asSessionId('nope'), name: 'x' })).toBe(
-      'unknown session',
-    )
+    expect(
+      await h.sa.callMcpTool('rename_session', { sessionId: asSessionId('nope'), name: 'x' }),
+    ).toBe('unknown session')
   })
 
   it('set_work_state validates against the protocol WorkState enum', async () => {
@@ -591,16 +621,23 @@ describe('session-steering tool belt (issue #62)', () => {
       /invalid workState/,
     )
     expect(h.metaOf(sessionId)?.workState).toBe('testing') // unchanged
-    expect(await h.sa.callMcpTool('set_work_state', { sessionId: asSessionId('nope'), workState: 'done' })).toBe(
-      'unknown session',
-    )
+    expect(
+      await h.sa.callMcpTool('set_work_state', {
+        sessionId: asSessionId('nope'),
+        workState: 'done',
+      }),
+    ).toBe('unknown session')
   })
 
   it('wait_for_session resolves early on the next phase event, with the verdict', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: st('working'),
+    })
     const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
     h.registry.gateway.routeDaemonFrame('local', {
@@ -628,7 +665,11 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
-    h.registry.gateway.routeDaemonFrame('local', { type: 'agentState', sessionId: asSessionId(sessionId), state: st('working') })
+    h.registry.gateway.routeDaemonFrame('local', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: st('working'),
+    })
     expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
       'timeout after 0s (session still working)',
     )
@@ -649,9 +690,9 @@ describe('session-steering tool belt (issue #62)', () => {
       spawnedBy: 'user',
     })
     h.registry.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
-    const rows = JSON.parse(await h.sa.callMcpTool('list_sessions', {}, 'btw_x')) as Array<
-      Record<string, unknown>
-    >
+    const rows = JSON.parse(
+      await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_x')),
+    ) as Array<Record<string, unknown>>
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })
 })

@@ -1,4 +1,4 @@
-import { SessionIdField } from '@podium/model'
+import { AccountIdField, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 /** Instruction-first workflows. Markdown remains the primary contract; the
@@ -62,7 +62,7 @@ export type WorkflowBindingWire = z.infer<typeof WorkflowBindingWire>
 export const ExecutionProfileWire = z.object({
   id: z.string(),
   name: z.string(),
-  accountId: z.string(),
+  accountId: AccountIdField,
   machineId: z.string().nullable(),
   harness: z.string(),
   model: z.string(),

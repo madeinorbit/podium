@@ -1,6 +1,15 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { type AgentKind, asIssueId, asSessionId, type IssueColorSlot, type IssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  type AgentKind,
+  asIssueId,
+  asSessionId,
+  type IssueColorSlot,
+  type IssueId,
+  type IssueWire,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -79,6 +88,7 @@ import {
   type UnifiedWorkRow,
   unifiedWorkList,
 } from '@/lib/derive'
+import { relativeTime } from '@/lib/home'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import {
   PhaseTimer,
@@ -88,7 +98,6 @@ import {
   usePhaseMorph,
   useRowTransitions,
 } from '@/lib/motion'
-import { relativeTime } from '@/lib/home'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
@@ -732,7 +741,9 @@ function FoldedWorkRow({
       </span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-[#828ba6]">{issue.title}</span>
       <span className="flex flex-none items-center gap-1.5 font-mono text-[8.5px]">
-        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-[#525c78]')}>{marker}</span>
+        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-[#525c78]')}>
+          {marker}
+        </span>
         {ago && <span className="tabular-nums text-[#6c7690]">{ago}</span>}
       </span>
     </button>
@@ -946,7 +957,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
   // starts a trace at t0. Skipped for no-op switches (target already in pane A)
   // and for file-tab targets (`file:…` — no session to trace).
-  const traceSwitchTo = (target: SessionId | null, issueId: string | null) => {
+  const traceSwitchTo = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== paneA && !target.startsWith('file:')) {
       // The `file:` prefix is excluded above, so what remains is a session id.
       beginSwitch({ sessionId: asSessionId(target), issueId })
@@ -1757,9 +1768,7 @@ function WorkRowShell({
             initial={reduceMotion ? false : { opacity: 0, x: 12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
+              reduceMotion ? { duration: 0 } : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
             }
             // Full content-height (POD-293): the control stretches to align with
             // the top of the square and the bottom of the status line, reading as
@@ -1951,13 +1960,7 @@ function UnifiedIssueRow({
       size={30}
       // The ask wins the corner (amber dot); otherwise a working row shows the
       // blue spinner badge on the square itself (POD-293), not beside line 2.
-      badge={
-        waitingCount > 0
-          ? { kind: 'dot' }
-          : phase === 'working'
-            ? { kind: 'spinner' }
-            : null
-      }
+      badge={waitingCount > 0 ? { kind: 'dot' } : phase === 'working' ? { kind: 'spinner' } : null}
       onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
   )

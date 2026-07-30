@@ -62,6 +62,7 @@ import {
   IssueStage,
   IssueType,
   isSortKey,
+  MutationIdField,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
@@ -119,11 +120,17 @@ export const childrenInput = z.object({ id: z.string(), recursive: z.boolean().o
 
 export const treeInput = byId
 
-export const depReportInput = z.object({ id: z.string().optional(), repoPath: z.string().optional() })
+export const depReportInput = z.object({
+  id: z.string().optional(),
+  repoPath: z.string().optional(),
+})
 
 export const closeEligibleEpicsInput = repoScoped
 
-export const findDuplicatesInput = z.object({ repoPath: z.string().optional(), threshold: z.number().optional() })
+export const findDuplicatesInput = z.object({
+  repoPath: z.string().optional(),
+  threshold: z.number().optional(),
+})
 
 export const staleInput = z.object({ repoPath: z.string().optional(), days: z.number().optional() })
 
@@ -212,7 +219,7 @@ export const createInput = z.object({
   // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
   // caller (operator vs constrained agent), so provenance cannot be forged.
   audience: z.enum(['human', 'agent']).optional(),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const startInput = z.object({
@@ -252,7 +259,7 @@ export const updateInput = z.object({
     color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const promoteInput = z.object({ id: z.string() })
@@ -305,25 +312,39 @@ export const addCommentInput = z.object({
   id: z.string(),
   author: z.string(),
   body: z.string().min(1),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
-export const depAddInput = z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() })
+export const depAddInput = z.object({
+  fromId: z.string(),
+  toId: z.string(),
+  type: z.string().optional(),
+})
 
-export const depRemoveInput = z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() })
+export const depRemoveInput = z.object({
+  fromId: z.string(),
+  toId: z.string(),
+  type: z.string().optional(),
+})
 
 export const deferInput = z.object({ id: z.string(), until: z.string().nullable() })
 
 export const undeferInput = byId
 
-export const markReadInput = z.object({ id: z.string(), mutationId: z.string().max(128).optional() })
+export const markReadInput = z.object({
+  id: z.string(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
-export const markUnreadInput = z.object({ id: z.string(), mutationId: z.string().max(128).optional() })
+export const markUnreadInput = z.object({
+  id: z.string(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
 
 export const setTuckedInput = z.object({
   id: z.string(),
   tucked: z.boolean(),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const setNeedsHumanInput = z.object({
@@ -354,7 +375,7 @@ export const setCoordinatorInput = z.object({
 export const closeInput = z.object({
   id: z.string(),
   reason: z.string().optional(),
-  mutationId: z.string().max(128).optional(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
 export const supersedeInput = z.object({ oldId: z.string(), newId: z.string() })
@@ -375,9 +396,7 @@ export const subscriptionAddInput = z.object({
     kind: z.enum(['relationship', 'issue', 'session']),
     ref: z.string().min(1),
   }),
-  deliver: z
-    .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
-    .optional(),
+  deliver: z.object({ nudge: z.boolean().optional(), notify: z.boolean().optional() }).optional(),
   // Operator-only (#129 Phase C): the Automations UI creates a subscription for an
   // explicit subscriber (which issue/session to notify). Ignored for constrained
   // agents, who always subscribe themselves via deriveSubscriber.
@@ -389,7 +408,6 @@ export const subscriptionRemoveInput = byId
 export const subscriptionSetEnabledInput = z.object({ id: z.string(), enabled: z.boolean() })
 
 export const subscriptionListInput = z.void()
-
 
 // -------------------------------------------------------------------------
 // READS — 24 queries, role-gated only
@@ -818,10 +836,13 @@ export const issuePanelApplyContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['artifact'], 'parent', 
-        'The `artifact-add` op snapshots files onto the issue, and ADR 1\'s `artifacts` row inherits ' +
-        'whatever it hangs on — here, the issue. The todo and deferred ops mint nothing; the row is ' +
-        'declared for the union because a contract states what the command CAN create.'),
+  ownership: owns(
+    ['artifact'],
+    'parent',
+    "The `artifact-add` op snapshots files onto the issue, and ADR 1's `artifacts` row inherits " +
+      'whatever it hangs on — here, the issue. The todo and deferred ops mint nothing; the row is ' +
+      'declared for the union because a contract states what the command CAN create.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -835,10 +856,13 @@ export const issueStartContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['session'], 'parent', 
-        'Starting work mints a session bound to the issue; readiness §3.1.2 makes the session inherit the ' +
-        'ISSUE, not the agent that started it. The session\'s own `use` decision on the machine is the ' +
-        'sessions feature\'s contract, not this one.'),
+  ownership: owns(
+    ['session'],
+    'parent',
+    'Starting work mints a session bound to the issue; readiness §3.1.2 makes the session inherit the ' +
+      "ISSUE, not the agent that started it. The session's own `use` decision on the machine is the " +
+      "sessions feature's contract, not this one.",
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -950,7 +974,11 @@ export const issueAddSessionContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['session'], 'parent', 'As `start`: the new session inherits the ISSUE it is added to, never the caller.'),
+  ownership: owns(
+    ['session'],
+    'parent',
+    'As `start`: the new session inherits the ISSUE it is added to, never the caller.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -964,7 +992,11 @@ export const issueAddShellContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['session'], 'parent', 'As `start`: the shell session inherits the ISSUE it is added to, never the caller.'),
+  ownership: owns(
+    ['session'],
+    'parent',
+    'As `start`: the shell session inherits the ISSUE it is added to, never the caller.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1020,10 +1052,13 @@ export const issueAddCommentContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['issue-comment'], 'parent', 
-        'A comment inherits its ISSUE\'s owner and grants — ADR 1\'s `issueComments` row inherits ' +
-        '`issueCore` — not the commenter\'s. Otherwise a shared issue would fragment into per-commenter ' +
-        'ownership one reply at a time. The caller-supplied `author` is display text, not the owner.'),
+  ownership: owns(
+    ['issue-comment'],
+    'parent',
+    "A comment inherits its ISSUE's owner and grants — ADR 1's `issueComments` row inherits " +
+      "`issueCore` — not the commenter's. Otherwise a shared issue would fragment into per-commenter " +
+      'ownership one reply at a time. The caller-supplied `author` is display text, not the owner.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1269,11 +1304,14 @@ export const issueCreateContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['issue'], 'on-behalf-of-human', 
-        'A new issue is owned by the creating principal\'s on-behalf-of human — ADR 1\'s `issueCore` row, ' +
-        'whose `inheritanceOnCreate` is DECLARED `on-behalf-of-human` because a top-level issue has no ' +
-        'parent to inherit from. A `parentId` makes a sub-issue, which ADR 1 records as a graph EDGE and ' +
-        'not a containment, so the parent does not become the owner.'),
+  ownership: owns(
+    ['issue'],
+    'on-behalf-of-human',
+    "A new issue is owned by the creating principal's on-behalf-of human — ADR 1's `issueCore` row, " +
+      'whose `inheritanceOnCreate` is DECLARED `on-behalf-of-human` because a top-level issue has no ' +
+      'parent to inherit from. A `parentId` makes a sub-issue, which ADR 1 records as a graph EDGE and ' +
+      'not a containment, so the parent does not become the owner.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1287,11 +1325,14 @@ export const issueAttachSessionContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['issue'], 'parent', 
-        'Attaching may MINT an issue: `newSubissue` files one under the target and it inherits that ' +
-        'issue; `newSpinoff` files a top-level one carrying only a `discovered-from` edge. `origin` is ' +
-        'derived from the caller and never accepted from payload ([spec:SP-a859]), so the provenance ' +
-        'stamped on the new row cannot be forged.'),
+  ownership: owns(
+    ['issue'],
+    'parent',
+    'Attaching may MINT an issue: `newSubissue` files one under the target and it inherits that ' +
+      'issue; `newSpinoff` files a top-level one carrying only a `discovered-from` edge. `origin` is ' +
+      'derived from the caller and never accepted from payload ([spec:SP-a859]), so the provenance ' +
+      'stamped on the new row cannot be forged.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1305,10 +1346,13 @@ export const issueMailSendContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['issue-message'], 'parent', 
-        'A message inherits the issue it is addressed to (ADR 1\'s `issueMessages` inherits `issueCore`). ' +
-        'The SENDER is the attribution pair, stamped by `messageSender()` from the capability — a ' +
-        'different fact from ownership, and the one that must not be substituted for it.'),
+  ownership: owns(
+    ['issue-message'],
+    'parent',
+    "A message inherits the issue it is addressed to (ADR 1's `issueMessages` inherits `issueCore`). " +
+      'The SENDER is the attribution pair, stamped by `messageSender()` from the capability — a ' +
+      'different fact from ownership, and the one that must not be substituted for it.',
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1322,10 +1366,13 @@ export const issueSubscriptionAddContract = {
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,
-  ownership: owns(['event-subscription'], 'on-behalf-of-human', 
-        'A subscription belongs to its SUBSCRIBER, which for a constrained agent is always itself: ' +
-        '`deriveSubscriber()` resolves the caller\'s own session or subtree root, and an agent-supplied ' +
-        '`subscriber` is ignored rather than refused. Only the operator may name someone else\'s.'),
+  ownership: owns(
+    ['event-subscription'],
+    'on-behalf-of-human',
+    'A subscription belongs to its SUBSCRIBER, which for a constrained agent is always itself: ' +
+      "`deriveSubscriber()` resolves the caller's own session or subtree root, and an agent-supplied " +
+      "`subscriber` is ignored rather than refused. Only the operator may name someone else's.",
+  ),
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
@@ -1357,7 +1404,6 @@ export const issueSubscriptionSetEnabledContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
 } as const satisfies CommandContract
-
 
 // ---------------------------------------------------------------------------
 // THE TWO THAT ARE THEIR OWN CLASS
@@ -1570,7 +1616,9 @@ export type IssueContractName = keyof typeof ISSUE_CONTRACTS
  * Sorted, because the protocol list was sorted and something downstream may reasonably
  * have depended on the order being stable.
  */
-export const ISSUE_COMMAND_NAMES = Object.keys(ISSUE_CONTRACTS).sort() as readonly IssueContractName[]
+export const ISSUE_COMMAND_NAMES = Object.keys(
+  ISSUE_CONTRACTS,
+).sort() as readonly IssueContractName[]
 
 /** Every issue contract as a flat list — what the classification lint and the audit
  *  iterate. */

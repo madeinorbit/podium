@@ -11,7 +11,13 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
-import { HarnessAgent, type IssueWire, type SessionId } from '@podium/model'
+import {
+  asThreadId,
+  HarnessAgent,
+  type IssueWire,
+  type SessionId,
+  type ThreadId,
+} from '@podium/model'
 import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
@@ -22,12 +28,7 @@ import type {
   SuperagentMessageRow,
   SuperagentThreadRow,
 } from '../../store'
-import {
-  buildBtwDelta,
-  buildBtwSeed,
-  buildHandoffSeed,
-  transcriptDelta,
-} from './btw'
+import { buildBtwDelta, buildBtwSeed, buildHandoffSeed, transcriptDelta } from './btw'
 import {
   buildConciergeDelta,
   buildConciergeSeed,
@@ -173,7 +174,7 @@ export class SuperagentService {
   private readonly dispatchedTurnIds = new Set<string>()
   private readonly preparingInputs = new Map<
     string,
-    Promise<{ threadId: string; podiumSessionId: SessionId }>
+    Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
   >()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
@@ -181,7 +182,7 @@ export class SuperagentService {
   // Opaque per-thread MCP tokens (issue #67): minted when a harness turn wires its
   // mcp-config, resolved by the HTTP MCP route back to the threadId. In-memory only —
   // the config is rebuilt every invocation, so a restart just mints fresh tokens.
-  private readonly mcpTokenToThread = new Map<string, string>()
+  private readonly mcpTokenToThread = new Map<string, ThreadId>()
   private readonly mcpThreadToToken = new Map<string, string>()
   // Issue-tracker tools (issue-mcp's IssueToolProvider) bridged into the tool
   // belt. Set by the server once the in-process issue client exists. Note: this is
@@ -222,7 +223,7 @@ export class SuperagentService {
 
   /** Mint (or reuse) the opaque MCP token identifying `threadId` to the HTTP MCP
    *  route. Stable per thread so mid-turn config rebuilds keep working. */
-  mcpThreadToken(threadId: string): string {
+  mcpThreadToken(threadId: ThreadId): string {
     const existing = this.mcpThreadToToken.get(threadId)
     if (existing) return existing
     const token = randomUUID()
@@ -233,7 +234,7 @@ export class SuperagentService {
 
   /** Resolve an opaque per-thread MCP token back to its threadId (undefined for
    *  unknown tokens — the call then runs thread-blind). */
-  threadForMcpToken(token: string): string | undefined {
+  threadForMcpToken(token: string): ThreadId | undefined {
     return this.mcpTokenToThread.get(token)
   }
 
@@ -251,7 +252,7 @@ export class SuperagentService {
    *  thread-blind callers (else schema-strict harness clients strip the flag
    *  and the gate can never be satisfied). */
   mcpToolSpecs(
-    threadId?: string,
+    threadId?: ThreadId,
   ): Array<{ name: string; description: string; inputSchema: unknown }> {
     return this.tools(threadId).map((t) => ({
       name: t.spec.name,
@@ -268,14 +269,14 @@ export class SuperagentService {
   async callMcpTool(
     name: string,
     args: Record<string, unknown>,
-    threadId?: string,
+    threadId?: ThreadId,
   ): Promise<string> {
     const tool = this.tools(threadId).find((t) => t.spec.name === name)
     if (!tool) throw new Error(`unknown tool: ${name}`)
     return tool.run(args as Args)
   }
 
-  private tools(threadId?: string) {
+  private tools(threadId?: ThreadId) {
     return buildSuperagentTools(
       {
         modules: this.modules,
@@ -292,7 +293,7 @@ export class SuperagentService {
 
   /** Legacy buffered thread history (superagent_messages) — frozen for new
    *  turns; still read so old conversations stay visible. */
-  history(threadId = 'global'): SuperagentMessageRow[] {
+  history(threadId: ThreadId = asThreadId('global')): SuperagentMessageRow[] {
     return this.store.superagent.loadSuperagentMessages(threadId)
   }
 
@@ -313,7 +314,7 @@ export class SuperagentService {
    * left to protect against. (Refusing here would strand the user on a thread
    * they can neither chat with nor reset.) The PTY session itself lives on.
    */
-  clear(threadId = 'global'): void {
+  clear(threadId: ThreadId = asThreadId('global')): void {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is running on this thread — wait for it to finish')
@@ -368,11 +369,11 @@ export class SuperagentService {
     text,
     focus,
   }: {
-    threadId: string
+    threadId: ThreadId
     text: string
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: SuperagentUserFocus
-  }): Promise<{ threadId: string; podiumSessionId: SessionId }> {
+  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -400,7 +401,7 @@ export class SuperagentService {
   private prepareQueuedInput(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp = false,
-  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const existing = this.preparingInputs.get(queued.inputId)
     if (existing) return existing
     const preparing = this.prepareQueuedInputInner(queued, allowWithoutMcp).finally(() => {
@@ -413,7 +414,7 @@ export class SuperagentService {
   private async prepareQueuedInputInner(
     queued: QueuedSuperagentInputRow,
     allowWithoutMcp: boolean,
-  ): Promise<{ threadId: string; podiumSessionId: SessionId }> {
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const { inputId, threadId, text, focus } = queued
     let thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
@@ -654,7 +655,7 @@ export class SuperagentService {
    *  (#199). Recovery escape hatch for a wedged/stale harness — keeps the thread
    *  and its history; a deliberate reset starts the new session cold (unlike an
    *  automatic harness switch, which hands off context). */
-  restartThread({ threadId }: { threadId: string }): void {
+  restartThread({ threadId }: { threadId: ThreadId }): void {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -670,7 +671,7 @@ export class SuperagentService {
 
   /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
    *  own result broadcasts the turn-end). */
-  interruptTurn({ threadId }: { threadId: string }): void {
+  interruptTurn({ threadId }: { threadId: ThreadId }): void {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread?.podiumSessionId) throw new Error(`no headless session for thread: ${threadId}`)
     this.modules.headless.headlessInterrupt(thread.podiumSessionId)
@@ -682,7 +683,7 @@ export class SuperagentService {
    * one writer at a time. sendTurn rejects while the terminal session is live;
    * the lock clears lazily once that session exits.
    */
-  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: SessionId }> {
+  async openInTerminal({ threadId }: { threadId: ThreadId }): Promise<{ sessionId: SessionId }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -715,7 +716,7 @@ export class SuperagentService {
     repoPath: string
     text: string
     focus?: SuperagentUserFocus
-  }): Promise<{ threadId: string; podiumSessionId: SessionId; isNew: boolean }> {
+  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
@@ -739,8 +740,8 @@ export class SuperagentService {
    * thread) or origin-transcript delta (re-open) is prepended to the user's
    * next sendTurn by composeContext, so the harness gets it exactly once.
    */
-  startBtwTurn({ sessionId }: { sessionId: SessionId }): { threadId: string; isNew: boolean } {
-    const threadId = `btw_${sessionId}`
+  startBtwTurn({ sessionId }: { sessionId: SessionId }): { threadId: ThreadId; isNew: boolean } {
+    const threadId = asThreadId(`btw_${sessionId}`)
     const existing = this.store.superagent.getSuperagentThread(threadId)
     if (existing?.kind === 'btw') return { threadId, isNew: false }
     const info = this.listSessions().find((s) => s.sessionId === sessionId)
@@ -754,7 +755,10 @@ export class SuperagentService {
   }
 
   /** Ensure the repo's concierge intake thread exists (no turn). */
-  ensureConciergeThread({ repoPath }: { repoPath: string }): { threadId: string; isNew: boolean } {
+  ensureConciergeThread({ repoPath }: { repoPath: string }): {
+    threadId: ThreadId
+    isNew: boolean
+  } {
     const threadId = conciergeThreadId(repoPath)
     const existing = this.store.superagent.getSuperagentThread(threadId)
     if (existing?.kind === 'concierge') return { threadId, isNew: false }
@@ -1072,7 +1076,7 @@ export class SuperagentService {
 
   /** The MCP mount for a headless turn. Empty when the server hasn't published
    *  its MCP endpoint yet. */
-  private harnessMcp(threadId: string): { mcpConfig?: string; allowedTools?: string[] } {
+  private harnessMcp(threadId: ThreadId): { mcpConfig?: string; allowedTools?: string[] } {
     if (!this.mcpEndpoint) return {}
     return {
       mcpConfig: JSON.stringify({

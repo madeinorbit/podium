@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
@@ -108,7 +108,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     ).toBe('event-log-prune')
 
     const archiveObs = {
-      issueId: 'iss_1',
+      issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
       readAt: '2026-07-01T00:00:00.000Z',
@@ -208,7 +208,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
 describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
   const valid = {
     sessionId: asSessionId('ses_1'),
-    issueId: 'iss_1',
+    issueId: asIssueId('iss_1'),
     stoppedAt: '2026-07-01T00:00:00.000Z',
     readAt: '2026-07-01T00:00:00.000Z',
     archived: false as const,
@@ -239,7 +239,9 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
   })
 
   it('refuses an empty sessionId, and one past the 256-char input bound', () => {
-    expect(() => MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('') }))).toThrow()
+    expect(() =>
+      MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('') })),
+    ).toThrow()
     expect(() =>
       MaintenanceCommand.parse(command({ ...valid, sessionId: asSessionId('x').repeat(257) })),
     ).toThrow()
@@ -275,7 +277,7 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
  */
 describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
   const valid = {
-    issueId: 'iss_a',
+    issueId: asIssueId('iss_a'),
     stage: 'done',
     closedReason: 'shipped',
     readAt: '2026-07-30T00:00:00.000Z',

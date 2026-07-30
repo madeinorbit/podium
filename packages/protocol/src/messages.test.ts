@@ -1,4 +1,18 @@
-import { AgentKind, AgentRuntimeState, ConversationSummaryWire, GitRepositoryWire, MachineWire, ResumeRef, SessionMeta, SessionStatus, asAutomationId, asAutomationRunId, asSessionId, type SessionId } from '@podium/model'
+import {
+  AgentKind,
+  AgentRuntimeState,
+  asAutomationId,
+  asAutomationRunId,
+  asSessionId,
+  asThreadId,
+  ConversationSummaryWire,
+  GitRepositoryWire,
+  MachineWire,
+  ResumeRef,
+  type SessionId,
+  SessionMeta,
+  SessionStatus,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   AgentQuotaResultMessage,
@@ -246,7 +260,9 @@ describe('ClientMessage', () => {
   })
   it('rejects resize with non-positive cols', () => {
     expect(() =>
-      parseClientMessage(JSON.stringify({ type: 'resize', sessionId: asSessionId('s1'), cols: 0, rows: 24 })),
+      parseClientMessage(
+        JSON.stringify({ type: 'resize', sessionId: asSessionId('s1'), cols: 0, rows: 24 }),
+      ),
     ).toThrow()
   })
 })
@@ -520,8 +536,22 @@ describe('DaemonMessage (daemon -> server)', () => {
     resume: { kind: 'grok-session', value: 'conv-1' },
   }
   const cases: DaemonMessage[] = [
-    { type: 'bind', sessionId: asSessionId('s1'), cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
-    { type: 'bind', sessionId: asSessionId('s-grok'), cmd: 'grok', cwd: '/w', agentKind: 'grok', geometry },
+    {
+      type: 'bind',
+      sessionId: asSessionId('s1'),
+      cmd: 'claude',
+      cwd: '/w',
+      agentKind: 'claude-code',
+      geometry,
+    },
+    {
+      type: 'bind',
+      sessionId: asSessionId('s-grok'),
+      cmd: 'grok',
+      cwd: '/w',
+      agentKind: 'grok',
+      geometry,
+    },
     { type: 'agentFrame', sessionId: asSessionId('s1'), seq: 0, data: 'eA==' },
     { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
     {
@@ -638,7 +668,11 @@ describe('Layer 3 reattach messages', () => {
   })
 
   it('round-trips a reattachFailed daemon message', () => {
-    const msg = { type: 'reattachFailed' as const, sessionId: asSessionId('s1'), reason: 'no tmux session' }
+    const msg = {
+      type: 'reattachFailed' as const,
+      sessionId: asSessionId('s1'),
+      reason: 'no tmux session',
+    }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })
@@ -773,12 +807,20 @@ describe('versioned draft messages (POD-859)', () => {
   })
 
   it('parses nativeDraft (daemon -> server)', () => {
-    const m = { type: 'nativeDraft', sessionId: asSessionId('s'), text: 'scraped from native' } as const
+    const m = {
+      type: 'nativeDraft',
+      sessionId: asSessionId('s'),
+      text: 'scraped from native',
+    } as const
     expect(parseDaemonMessage(encode(m))).toEqual(m)
   })
 
   it('parses draftTarget (server -> daemon)', () => {
-    const m = { type: 'draftTarget', sessionId: asSessionId('s'), text: 'inject me into native' } as const
+    const m = {
+      type: 'draftTarget',
+      sessionId: asSessionId('s'),
+      text: 'inject me into native',
+    } as const
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
 })
@@ -865,7 +907,11 @@ describe('agent runtime state', () => {
   })
 
   it('rejects an unknown phase', () => {
-    const bad = { type: 'agentState', sessionId: asSessionId('s1'), state: { ...state, phase: 'napping' } }
+    const bad = {
+      type: 'agentState',
+      sessionId: asSessionId('s1'),
+      state: { ...state, phase: 'napping' },
+    }
     expect(() => parseDaemonMessage(JSON.stringify(bad))).toThrow()
   })
 
@@ -1006,7 +1052,11 @@ describe('output-scheduling protocol', () => {
   it('round-trips agentFrameBatch (daemon→server)', () => {
     // Per-field `as const` (not whole-object) keeps `frames` a mutable string[] so it
     // matches encode()'s AnyMessage param — whole-object `as const` makes it readonly.
-    const m = { type: 'agentFrameBatch' as const, sessionId: asSessionId('s1'), frames: ['YQ==', 'Yg=='] }
+    const m = {
+      type: 'agentFrameBatch' as const,
+      sessionId: asSessionId('s1'),
+      frames: ['YQ==', 'Yg=='],
+    }
     expect(parseDaemonMessage(encode(m))).toEqual(m)
   })
   it('round-trips viewState (client→server), focused nullable', () => {
@@ -1083,7 +1133,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       requestId: 'ht1',
       turnId: 'turn-1',
       sessionId: asSessionId('s1'),
-      threadId: 'concierge',
+      threadId: asThreadId('concierge'),
       agent: 'claude-code',
       model: 'opus',
       effort: 'low',
@@ -1105,7 +1155,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
       requestId: 'ht2',
       turnId: 'turn-2',
       sessionId: asSessionId('s1'),
-      threadId: 'btw_x',
+      threadId: asThreadId('btw_x'),
       agent: 'codex',
       cwd: '/repo',
       prompt: 'continue',

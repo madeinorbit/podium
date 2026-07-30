@@ -1,3 +1,4 @@
+import { asThreadId } from '@podium/model'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { type McpToolProvider, registerMcpRoute } from './mcp-route'
@@ -123,7 +124,7 @@ describe('registerMcpRoute thread identity', () => {
         },
       },
       TOKEN,
-      { resolveThread: (tok) => (tok === 'tok-1' ? 'concierge_abc' : undefined) },
+      { resolveThread: (tok) => (tok === 'tok-1' ? asThreadId('concierge_abc') : undefined) },
     )
     const call = (headers: Record<string, string>) =>
       a.request('/mcp', {
