@@ -16,6 +16,7 @@ import {
 } from '@podium/protocol'
 import { z } from 'zod'
 import type { Capability } from '../../issue-authz'
+import type { IssueRow } from '../../store/types'
 import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
 
 const actorInput = z.object({}).passthrough()
@@ -123,12 +124,23 @@ interface SessionInfo {
   machineId?: string
 }
 
-interface IssueInfo {
-  id: string
-  repoId?: string
-  repoPath: string
-  worktreePath: string | null
-}
+/**
+ * What this service needs to know about an issue: its expected worktree, so a
+ * step's observed worktree can be checked against it. A narrow R5 port, composed
+ * from {@link IssueRow} rather than restated (POD-367).
+ *
+ * POD-364's inventory (#14) called this a drifted duplicate of `FocusIssueInfo`
+ * and section 6.4 said it deletes in favour of it. It is neither. `FocusIssueInfo`
+ * is `{seq,title,stage,repoPath}` for a superagent prompt line; this is a
+ * worktree-placement check. They share `repoPath` and nothing else, and ADR 4
+ * keeps narrow ports distinct rather than collapsing them into one shape that
+ * carries members neither caller needs. So both are re-derived as `Pick`s and
+ * neither is deleted; the inventory verdict is corrected, not followed.
+ *
+ * The three members that WERE here — `id`, `repoId`, `repoPath` — had no reader
+ * at any call site and are gone with the wiring that supplied them.
+ */
+type IssueInfo = Pick<IssueRow, 'worktreePath'>
 
 export interface WorkflowServiceDeps {
   store: WorkflowsRepository

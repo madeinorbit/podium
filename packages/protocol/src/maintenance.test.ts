@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
+  IssueAutoArchiveObservation,
   issueAutoArchiveRunKey,
   MAINTENANCE_SCHEMA_VERSION,
   MaintenanceCommand,
@@ -256,5 +257,74 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
   it('refuses timestamps that are strings but not datetimes', () => {
     expect(() => MaintenanceCommand.parse(command({ ...valid, stoppedAt: 'yesterday' }))).toThrow()
     expect(() => MaintenanceCommand.parse(command({ ...valid, readAt: '2026-07-01' }))).toThrow()
+  })
+})
+
+/**
+ * The auto-archive observation is DECLARED LEGITIMATE against the representation
+ * audit (POD-367, inventory #16): it must NOT be composed from the issue
+ * aggregate, because its divergences are a validation gate over untrusted input
+ * rather than a restatement of issue fields.
+ *
+ * Before these tests that exemption was prose and nothing enforced it — the
+ * schema had NO coverage at all, so composing it away would have passed every
+ * lane while converting a gate that refuses a bad payload into one that accepts
+ * it. Each case below mutates exactly ONE field of a payload that is otherwise
+ * valid, so what fails is the constraint the test names and not the fixture.
+ */
+describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
+  const valid = {
+    issueId: 'iss_a',
+    stage: 'done',
+    closedReason: 'shipped',
+    readAt: '2026-07-30T00:00:00.000Z',
+    archived: false as const,
+    deletedAt: null,
+  }
+
+  it('accepts the valid observation (the counterfactual for every case below)', () => {
+    expect(IssueAutoArchiveObservation.safeParse(valid).success).toBe(true)
+  })
+
+  it('refuses an ALREADY-ARCHIVED issue — archived is a precondition, not a field', () => {
+    // The aggregate types this `boolean`. Composing it from there would accept
+    // exactly the payload this schema exists to reject.
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, archived: true }).success).toBe(false)
+  })
+
+  it('refuses a DELETED issue — deletedAt is a precondition, not an optional string', () => {
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, deletedAt: '2026-07-30T00:00:00.000Z' })
+        .success,
+    ).toBe(false)
+  })
+
+  it('enforces input bounds on the untrusted ids and stage, from BOTH sides', () => {
+    // The accepted side is asserted AT THE BOUNDARY, not just somewhere inside it.
+    // Without it this test is satisfied by a parser that refuses everything — and
+    // the valid fixture above does not rescue it, because its issueId is 5 chars,
+    // so a bound wrongly tightened to .max(6) would pass every other case here.
+    // (POD-366's general form: an "it refuses bad input" test needs the instrument
+    // to be shown saying YES before its NO means anything.)
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, issueId: 'i'.repeat(256) }).success,
+    ).toBe(true)
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, stage: 's'.repeat(64) }).success).toBe(
+      true,
+    )
+
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, issueId: '' }).success).toBe(false)
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, issueId: 'i'.repeat(257) }).success,
+    ).toBe(false)
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, stage: 's'.repeat(65) }).success).toBe(
+      false,
+    )
+  })
+
+  it('requires readAt to be a real timestamp, which is stricter than the entity string', () => {
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, readAt: 'yesterday' }).success).toBe(
+      false,
+    )
   })
 })

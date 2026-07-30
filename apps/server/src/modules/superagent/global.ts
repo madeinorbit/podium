@@ -3,6 +3,7 @@
  * the cross-repo digest that opens a fresh 'global' thread, and the
  * client-reported "what's on screen" block prepended to every turn.
  */
+import type { IssueWire } from '@podium/model'
 import { z } from 'zod'
 import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
 
@@ -105,12 +106,16 @@ export interface FocusSessionInfo extends ConciergeSessionInfo {
   status?: string
 }
 
-export interface FocusIssueInfo {
-  seq: number
-  title: string
-  stage?: string
-  repoPath?: string
-}
+/**
+ * The issue members the superagent's focus block renders. Composed from
+ * `IssueWire` (POD-367) — `seq` and `title` are always known to the caller,
+ * `stage` and `repoPath` are optional because a lean focus payload may omit them.
+ *
+ * The `stage` type tightens as a side effect of composing: it was a bare `string`
+ * here and is `IssueStage` on the aggregate. That is the drift this removes.
+ */
+export type FocusIssueInfo = Pick<IssueWire, 'seq' | 'title'> &
+  Partial<Pick<IssueWire, 'stage' | 'repoPath'>>
 
 const focusSessionLine = (s: FocusSessionInfo): string =>
   `${s.name ?? s.sessionId} · ${s.agentKind ?? '?'} · ${s.phase ?? s.status ?? '?'}` +

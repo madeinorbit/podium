@@ -10,46 +10,60 @@
  * without React or the store.
  */
 
-import type { IssueStage } from '@podium/model'
+import type { IssuePanelArtifact, IssuePanelTodo, IssueWire } from '@podium/model'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
- * The issue shape the resolver needs and the miniview card renders (a
- * structural subset of IssueWire, #517). Identity fields are required; the
- * at-a-glance fields are optional so lean fixtures/legacy rows still fit.
+ * The issue shape the resolver needs and the miniview card renders — COMPOSED
+ * from `IssueWire` rather than restated (POD-367; POD-364's inventory #12 called
+ * this the largest client-side restatement in the repo, 22 keys).
+ *
+ * Identity is required; the at-a-glance fields stay optional, which is the one
+ * thing this projection legitimately changes about them — a lean fixture or a
+ * legacy row must still fit. That is `Partial<Pick<…>>`, so the optionality is
+ * declared once here instead of field by field, and every field's TYPE now comes
+ * from the aggregate: when `IssueWire.stage` gains a stage or `id` gains a brand,
+ * this shape follows instead of drifting.
  */
-export interface RefIssueLike {
-  id: string
-  prefix?: string
-  seq: number
-  displayRef?: string
-  title: string
-  stage?: IssueStage
-  priority?: number
-  assignee?: string
-  ready?: boolean
-  blocked?: boolean
-  blockedBy?: readonly string[]
-  childCount?: number
-  childDoneCount?: number
-  parentId?: string
-  /** The short human summary — shown in the miniview when present. */
-  description?: string
-  activityNotes?: string
-  /** When `activityNotes` was last posted — the update box's timestamp. */
-  notesUpdatedAt?: string
-  commentCount?: number
-  panel?: {
-    todos?: readonly { text: string; done: boolean }[]
-    artifacts?: readonly { path: string; title?: string }[]
+export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
+  Partial<
+    Pick<
+      IssueWire,
+      | 'prefix'
+      | 'displayRef'
+      | 'stage'
+      | 'priority'
+      | 'assignee'
+      | 'ready'
+      | 'blocked'
+      | 'blockedBy'
+      | 'childCount'
+      | 'childDoneCount'
+      | 'parentId'
+      | 'description'
+      | 'activityNotes'
+      | 'notesUpdatedAt'
+      | 'commentCount'
+      // Startability fields for the card's "Run now" action (POD-110) — the same
+      // structural subset `isIssueStartable` reads off IssueWire.
+      | 'worktreePath'
+      | 'closedReason'
+      | 'archived'
+      | 'deletedAt'
+    >
+  > & {
+    /**
+     * The card renders a genuinely NARROWER panel than the wire carries — two of
+     * the three groups, and only two members of an artifact. That narrowing is
+     * legitimate (ADR 4: a projection reads what it renders), so it stays; what
+     * does not stay is restating `{ text, done }` and `{ path, title }` by hand.
+     * The member types come from the panel group itself.
+     */
+    panel?: {
+      todos?: readonly IssuePanelTodo[]
+      artifacts?: readonly Pick<IssuePanelArtifact, 'path' | 'title'>[]
+    }
   }
-  // Startability fields for the card's "Run now" action (POD-110) — the same
-  // structural subset `isIssueStartable` reads off IssueWire.
-  worktreePath?: string | null
-  closedReason?: string | null
-  archived?: boolean
-  deletedAt?: string | null
-}
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
 export interface RefSessionLike {

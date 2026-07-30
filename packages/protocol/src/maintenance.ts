@@ -104,6 +104,34 @@ export type MaintenanceCommandsPruneObservation = z.infer<
   typeof MaintenanceCommandsPruneObservation
 >
 
+/**
+ * DECLARED LEGITIMATE — do NOT compose this from the issue aggregate (POD-367,
+ * inventory #16). It resembles a restatement of issue fields and is not one.
+ *
+ * Divergence class: **a validation gate over untrusted input.** Every difference
+ * from the canonical issue vocabulary is load-bearing, and composing them away
+ * converts a gate that REFUSES a bad payload into one that accepts it — fail-open,
+ * while a diff reads as tidying and every instrument stays green:
+ *  - `archived: z.literal(false)` and `deletedAt: z.null()` are PRECONDITIONS, not
+ *    field types. They are the point of the schema: it refuses an observation
+ *    claiming an already-archived or deleted issue. As the aggregate's `boolean`
+ *    and optional string, the gate would accept exactly what it exists to reject.
+ *  - `.min(1).max(256)` / `.max(64)` are INPUT BOUNDS on a steward-supplied
+ *    payload, not properties of the issue's fields.
+ *  - `.datetime()` is STRICTER than the entity's plain string; composing loosens
+ *    the parse.
+ *
+ * The reason is recorded here, next to the exemption, deliberately: an unexplained
+ * exemption is indistinguishable from someone silencing a detector. If a
+ * representation audit counts this shape, it must count it as declared-legitimate
+ * WITH this reason, not as debt to be cleared — "not yet composed" and "composing
+ * would be wrong" have opposite correct actions.
+ *
+ * `SessionAutoArchiveObservation` below is the same class (POD-366's #23).
+ *
+ * Separately open: `readAt` is per-user state under POD-1076, so "archive it
+ * because it was read" needs a "read by whom?" answer — POD-1136.
+ */
 export const IssueAutoArchiveObservation = z.object({
   issueId: z.string().min(1).max(256),
   stage: z.string().min(1).max(64),
