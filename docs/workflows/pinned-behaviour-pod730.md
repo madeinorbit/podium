@@ -17,6 +17,23 @@ This is an oracle for a migration, **not a specification of the target**. Rows a
 Error messages are asserted **verbatim**, and every assertion also pins that there is
 **no error `code`** on this surface — only a bare `Error` with a message.
 
+## Governing ADRs
+
+POD-730 pins today's single-operator behaviour; it does **not** implement these. Each ARTEFACT row
+below is traceable to the decision that replaces it, so POD-731 can be reviewed against the ADR
+rather than against taste.
+
+| Decision | What it means for this surface |
+| --- | --- |
+| **ADR 9 D1.5** | `OPERATOR` — role `admin`, scope `all` — **is the single-operator vocabulary ADR 9 replaces.** It survives only as a migration artefact: the first account of an upgraded instance. "Code that constructs an unconstrained capability from *someone authenticated* is out of compliance once D1 lands." That sentence describes `workflowCaller()` exactly (§1). |
+| **ADR 9 D1** | A principal is `(user, device, capability)`, derived from the **authenticated transport only**; payload identity is inert. Today this surface has no user at all. |
+| **ADR 3 Am.1 / ADR 9 D5 A1** | Apply-time re-auth resolving the delegation chain **live** — never a capability snapshot. Note the tension with §4: a run pins an **immutable execution-profile snapshot**, which is correct for *reproducibility* but must not become the model for *authorization*. |
+| **ADR 9 D5 A3** | Attribution is a **pair** — actor plus on-behalf-of — not a substitution. §9 pins today's single identity so the widening is visible. |
+| **ADR 9 D5 A2** | The human is a **ceiling**, not the default grant. Every ARTEFACT in §1 is a missing ceiling. |
+| **ADR 9 D6 M1–M2** | Machines are owned compute with `see` / `use` / `manage`; **`use` is a code-execution boundary, not a privacy boundary**. §4 pins that today there is no reachability concept at all to distinguish a use-grant refusal from. |
+| **ADR 9 D3 / D4** | Five visibility classes, **default-closed with a totality test**. §10's existence leaks and §2's "any caller may create and revise global content" are the default-open holes. |
+| **ADR 1 D5** | **Not multi-tenancy** — no `instance_id`. Where this document says "every run in the instance", that is the single-tenant reading. |
+
 ---
 
 ## 1. The eleven mutations, and where authorization is decided
@@ -48,12 +65,20 @@ Authorization is decided at 16 sites in `service.ts`. All 16 are pinned. Enumera
 Three of these (`bindings`, `runs`, `runFor`) sit in **queries, not mutations**, and are the
 easiest to miss. They become cross-user reads the moment there is a second human.
 
-**Transport edge.** `workflowCaller()` in `apps/server/src/router.ts` maps *any* caller with no
-`actorSessionId` to `{ actor: { kind: 'operator', id: null }, protectedWrite: true }`
-unconditionally. "Operator" today means *not an agent* — there is no owner, no admin role, and no
-human principal. This is the artefact POD-731 replaces with an owner-or-admin check
-(`docs/multi-user-readiness.md` 3.1.3). Not directly testable here (the function is unexported);
-recorded so the reviewer can check it moved.
+**Transport edge — the compliance question for POD-731.** `workflowCaller()` in
+`apps/server/src/router.ts` maps *any* caller with no `actorSessionId` to
+`{ actor: { kind: 'operator', id: null }, protectedWrite: true }` unconditionally. "Operator"
+today means *not an agent* — there is no owner, no admin role, and no human principal.
+
+This is **literally the construct ADR 9 D1.5 names as out of compliance**: an unconstrained
+capability built from "someone authenticated". Replacing it is the point of POD-731, and every
+ARTEFACT row above is downstream of it — the sixteen guards are unconstrained *because* the
+principal handed to them already is. A reviewer checking POD-731 should start here: if
+`workflowCaller()` still mints an unconstrained capability, the guards below cannot have been
+fixed no matter what they now say.
+
+Not directly testable from this suite (the function is unexported and the service takes an
+already-built `WorkflowCaller`), so it is recorded rather than pinned. Worth a reviewer's eye.
 
 ## 2. Library CRUD
 
@@ -93,7 +118,7 @@ recorded so the reviewer can check it moved.
 | `profileSave` upserts by supplied id and emits **no workflow event at all** — profile changes leave no audit trail | PIN |
 | a run pins an **immutable snapshot**; the live profile may drift away from it. `executionProfileForLaunch` with run+step returns the snapshot, without them the live row | PIN |
 | an **unreachable / mismatched machine is a non-blocking WARNING**, never a refusal; the checkpoint succeeds | PIN |
-| a session with no `machineId` produces **no warning at all** — indistinguishable from a machine that exists but is unreachable. `docs/multi-user-readiness.md` 3.1.4 M5 needs a use-grant check distinguishable from unreachable; today there is no reachability concept to distinguish it from. | ARTEFACT |
+| a session with no `machineId` produces **no warning at all** — indistinguishable from a machine that exists but is unreachable. **ADR 9 D6 M5** needs a use-grant refusal distinguishable from unreachable; today there is no reachability concept to distinguish it from, and per **M2** `use` is a code-execution boundary — so this arm has to become a **refusal**, not the warning it is now. | ARTEFACT |
 | a missing snapshot warns and does not block | PIN |
 
 ## 5. Run advances — state machine, persistence, ordering
@@ -164,14 +189,17 @@ There is **no mutation id, no idempotency key and no state precondition** on any
 | no `completedBy` on a step — the assignee is the only identity a step carries | ARTEFACT |
 | `workflow_events` is **WRITE-ONLY**: `appendEvent` is the only event method on the repository and there is **no reader anywhere in the product**. Run history is reachable only by raw SQL. POD-731 must not drop the appends on the assumption nothing reads them — they are the only durable audit trail this surface has. | PIN |
 
-`docs/multi-user-readiness.md` 3.1.3 A3 widens attribution to an actor + on-behalf-of pair. The
-single-identity rows above are what makes that widening visible in the diff.
+**ADR 9 D5 A3** (readiness 3.1.3) makes attribution a **pair** — actor plus on-behalf-of — not a
+substitution. The single-identity rows above are what makes that widening visible in the diff.
+**ADR 9 D5 A4** additionally makes agent output owned by the delegating human: note that workflows,
+revisions and runs have **no owner column at all** today, so A4 needs a schema change here, not
+just an attribution change.
 
 ## 10. Error shape — the existence leak
 
 3.1.5 requires an id the caller may not see to be **indistinguishable** from an id that does not
-exist. Today they differ on every path, and the suite asserts the **divergence** so POD-731's
-convergence is documented rather than silent.
+exist — the read side of **ADR 9 D4**'s default-closed rule. Today they differ on every path, and
+the suite asserts the **divergence** so POD-731's convergence is documented rather than silent.
 
 | Path | unknown id | out-of-scope id | in-scope id |
 | --- | --- | --- | --- |

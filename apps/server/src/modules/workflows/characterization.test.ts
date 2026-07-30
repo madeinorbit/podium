@@ -21,7 +21,27 @@
  * brittle: every convergence POD-731 makes should show up as a failing pin,
  * never as a silent change.
  *
- * References: docs/multi-user-readiness.md (sections cited inline),
+ * GOVERNING ADRs. This suite pins today's single-operator behaviour; it does not
+ * implement these, and every ARTEFACT below is traceable to the decision that
+ * replaces it:
+ *
+ *   ADR 9 D1.5  — `OPERATOR` (role admin, scope all) IS the single-operator
+ *                 vocabulary ADR 9 replaces; it survives only as a migration
+ *                 artefact. "Code that constructs an unconstrained capability
+ *                 from someone authenticated is out of compliance once D1
+ *                 lands" describes this surface exactly.
+ *   ADR 9 D5    — A1 live delegation (never a snapshot), A2 the human is a
+ *                 ceiling, A3 attribution is a PAIR, A4 agent output is owned
+ *                 by the delegating human.
+ *   ADR 9 D6    — machines are owned compute: see / use / manage; `use` is a
+ *                 code-execution boundary, not a privacy boundary.
+ *   ADR 9 D3/D4 — five visibility classes, default-closed with a totality test.
+ *   ADR 3 Am.1  — apply-time re-auth resolving the delegation chain live.
+ *   ADR 1 D5    — NOT multi-tenancy; no instance_id.
+ *
+ * References: docs/adr/0009-identity-ownership-sharing.md,
+ * docs/adr/0003-command-security-amendment-1.md,
+ * docs/multi-user-readiness.md (sections cited inline),
  * docs/workflows/pinned-behaviour-pod730.md (the pin table).
  */
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -41,8 +61,14 @@ import { type WorkflowCaller, WorkflowService, workflowInputs } from './service'
  * `actorSessionId` — `workflowCaller()` in apps/server/src/router.ts maps that
  * to `{ actor: { kind: 'operator', id: null }, protectedWrite: true }`
  * unconditionally. There is no human principal, no owner, and no admin role:
- * operator means "not an agent". POD-731 replaces this with a real user
- * principal (docs/multi-user-readiness.md 3.1.3).
+ * operator means "not an agent".
+ *
+ * This is the exact construct ADR 9 D1.5 names as out of compliance — an
+ * unconstrained capability built from "someone authenticated". Every operator
+ * ARTEFACT in this file is downstream of it: the sixteen guards are
+ * unconstrained BECAUSE the principal handed to them already is. POD-731
+ * replaces it with a real `(user, device, capability)` principal derived from
+ * the authenticated transport (ADR 9 D1).
  */
 const operator: WorkflowCaller = { actor: { kind: 'operator', id: null }, protectedWrite: true }
 
