@@ -67,7 +67,7 @@ async function harness() {
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
-  registry.modules.sessions.attachClient((m) => clientMsgs.push(m))
+  registry.clientGateway.attachClient((m) => clientMsgs.push(m))
   const activity = () => clientMsgs.flatMap((m) => (m.type === 'headlessActivity' ? [m] : []))
   const resolveTurn = (
     req: TurnReq,

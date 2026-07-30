@@ -52,17 +52,17 @@ describe('remote browser-open routing', () => {
     const { registry, sessionId } = setup()
     const first: ServerMessage[] = []
     const second: ServerMessage[] = []
-    const c0 = registry.modules.sessions.attachClient((message) => first.push(message))
-    const c1 = registry.modules.sessions.attachClient((message) => second.push(message))
+    const c0 = registry.clientGateway.attachClient((message) => first.push(message))
+    const c1 = registry.clientGateway.attachClient((message) => second.push(message))
     first.length = 0
     second.length = 0
 
-    registry.modules.sessions.onClientMessage(c0, {
+    registry.clientGateway.routeClientFrame(c0, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
     })
-    registry.modules.sessions.onClientMessage(c1, {
+    registry.clientGateway.routeClientFrame(c1, {
       type: 'viewState',
       visible: [sessionId],
       focused: null,
@@ -77,7 +77,7 @@ describe('remote browser-open routing', () => {
 
     first.length = 0
     second.length = 0
-    registry.modules.sessions.onClientMessage(c0, {
+    registry.clientGateway.routeClientFrame(c0, {
       type: 'viewState',
       visible: [],
       focused: null,
@@ -92,7 +92,7 @@ describe('remote browser-open routing', () => {
 
     first.length = 0
     second.length = 0
-    registry.modules.sessions.onClientMessage(c1, {
+    registry.clientGateway.routeClientFrame(c1, {
       type: 'viewState',
       visible: [],
       focused: null,
@@ -111,7 +111,7 @@ describe('remote browser-open routing', () => {
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
 
     const messages: ServerMessage[] = []
-    registry.modules.sessions.attachClient((message) => messages.push(message))
+    registry.clientGateway.attachClient((message) => messages.push(message))
     expect(messages).toContainEqual(
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-parked' }),
     )
@@ -120,11 +120,11 @@ describe('remote browser-open routing', () => {
   it('routes callback and dismissal only to the daemon that owns the pending session', () => {
     const { registry, sessionId, m1, m2 } = setup()
     const messages: ServerMessage[] = []
-    const clientId = registry.modules.sessions.attachClient((message) => messages.push(message))
+    const clientId = registry.clientGateway.attachClient((message) => messages.push(message))
     messages.length = 0
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-callback'))
 
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'sessionOpenUrlCallback',
       sessionId,
       requestId: 'open-callback',
@@ -138,7 +138,7 @@ describe('remote browser-open routing', () => {
     })
     expect(m2).toHaveLength(0)
 
-    registry.modules.sessions.onClientMessage(clientId, {
+    registry.clientGateway.routeClientFrame(clientId, {
       type: 'sessionOpenUrlDismiss',
       sessionId,
       requestId: 'open-callback',
@@ -159,7 +159,7 @@ describe('remote browser-open routing', () => {
   it('drops open intents forged by a daemon that does not own the session', () => {
     const { registry, sessionId } = setup()
     const messages: ServerMessage[] = []
-    registry.modules.sessions.attachClient((message) => messages.push(message))
+    registry.clientGateway.attachClient((message) => messages.push(message))
     messages.length = 0
 
     registry.gateway.routeDaemonFrame('m2', request(sessionId, 'open-forged'))

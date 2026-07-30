@@ -158,7 +158,7 @@ describe('oracle: read state', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
-    o.reg.modules.sessions.attachClient((m) => second.push(m))
+    o.reg.clientGateway.attachClient((m) => second.push(m))
 
     await o.call.sessions.markRead({ sessionId })
 
@@ -346,9 +346,9 @@ describe('oracle: composer drafts', () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const author: ServerMessage[] = []
-    const authorId = o.reg.modules.sessions.attachClient((m) => author.push(m))
+    const authorId = o.reg.clientGateway.attachClient((m) => author.push(m))
     const watcher: ServerMessage[] = []
-    o.reg.modules.sessions.attachClient((m) => watcher.push(m))
+    o.reg.clientGateway.attachClient((m) => watcher.push(m))
 
     o.reg.modules.sessions.setSessionDraft({ sessionId, text: 'half typed' }, authorId)
 

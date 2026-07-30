@@ -28,7 +28,7 @@ describe('SessionRegistry conversation registry', () => {
     const registry = makeRegistry()
     registry.gateway.attachDaemon('m1', () => {})
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     registry.gateway.routeDaemonFrame('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],

@@ -177,7 +177,7 @@ export function makeOracle(
       })
     }
   })
-  reg.modules.sessions.attachClient((msg) => client.push(msg))
+  reg.clientGateway.attachClient((msg) => client.push(msg))
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
   const call = appRouter.createCaller({

@@ -92,7 +92,7 @@ function stubForwarder(): IssueUpstreamForwarder & {
 /** The issue list a fresh client sees on attach (the wire's bootstrap snapshot). */
 function attachIssues(registry: SessionRegistry): IssueWire[] {
   const inbox: ServerMessage[] = []
-  registry.modules.sessions.attachClient((m) => inbox.push(m))
+  registry.clientGateway.attachClient((m) => inbox.push(m))
   const msg = inbox.find((m) => m.type === 'issuesChanged')
   return msg?.type === 'issuesChanged' ? msg.issues : []
 }
@@ -124,7 +124,7 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
     const { registry } = makeNode()
     registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     inbox.length = 0
     // A LOCAL mutation broadcast must still include the mirrored hub issue.
     await registry.issues.createAndMaybeStart({
@@ -310,7 +310,7 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     registry.modules.upstreamIssues.setForwarder(fwd)
     registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.clientGateway.attachClient((m) => inbox.push(m))
     inbox.length = 0
     await registry.modules.upstreamIssues.forwardIssueMutation('close', { id: 'iss_hub1' })
     const afterQueue = inbox.filter((m) => m.type === 'issuesChanged').pop()

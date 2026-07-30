@@ -112,7 +112,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           if (!sessionId) throw new Error('representative session fixture is empty')
           return sessionId
         })
-        const id = registry.modules.sessions.attachClient(() => {}, {
+        const id = registry.clientGateway.attachClient(() => {}, {
           sendPrepared: (bytes) => publications.push(bytes),
           principal: 'load-operator',
           scope: 'principal:load-operator',
@@ -126,7 +126,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           }),
         })
         clients.push({ id, publications, allowedSessionIds })
-        registry.modules.sessions.onClientMessage(id, {
+        registry.clientGateway.routeClientFrame(id, {
           type: 'hello',
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -159,7 +159,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         for (const type of ['attach', 'detach'] as const) {
           const publicationBefore = client.publications.length
           const startedAt = performance.now()
-          registry.modules.sessions.onClientMessage(client.id, { type, sessionId: targetSession })
+          registry.clientGateway.routeClientFrame(client.id, { type, sessionId: targetSession })
           registry.modules.sessions.flushBroadcasts()
           await until(() => client.publications.length > publicationBefore)
           interactionMs.push(performance.now() - startedAt)

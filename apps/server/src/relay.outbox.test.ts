@@ -293,8 +293,8 @@ describe('queueText (durable outbox sends)', () => {
     const sessionId = hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
-    const clientId = reg.modules.sessions.attachClient((m) => inbox.push(m))
-    reg.modules.sessions.onClientMessage(clientId, {
+    const clientId = reg.clientGateway.attachClient((m) => inbox.push(m))
+    reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },

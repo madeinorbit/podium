@@ -139,7 +139,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           autoContinue: { enabled: true, promptDismissed: true },
         }),
       )
-      registry.modules.sessions.attachClient((message) => web.push(message))
+      registry.clientGateway.attachClient((message) => web.push(message))
       const parentId = `parent-${provider}`
       const childId = `child-${provider}`
       registry.modules.sessions.createSession({
@@ -252,7 +252,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           store.close()
           store = new SessionStore(dbPath)
           registry = new SessionRegistry(store, { ntfy, telegram })
-          registry.modules.sessions.attachClient((message) => web.push(message))
+          registry.clientGateway.attachClient((message) => web.push(message))
           attach()
         }
         const generation = currentGeneration()

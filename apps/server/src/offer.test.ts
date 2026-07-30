@@ -184,11 +184,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // Pinned a minute after the offer: same-ms input would not count as "after"
     // (strictly-greater, matching the boot reconcile).
     function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
-      const clientId = reg.modules.sessions.attachClient(() => {})
-      reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+      const clientId = reg.clientGateway.attachClient(() => {})
+      reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
       const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
       try {
-        reg.modules.sessions.onClientMessage(clientId, {
+        reg.clientGateway.routeClientFrame(clientId, {
           type: 'input',
           sessionId,
           data: Buffer.from('fix it\r').toString('base64'),

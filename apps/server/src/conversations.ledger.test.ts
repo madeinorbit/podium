@@ -54,8 +54,8 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   function client(registry: SessionRegistry, caps: string[] = []): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.modules.sessions.attachClient((msg) => inbox.push(msg))
-    registry.modules.sessions.onClientMessage(id, {
+    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },

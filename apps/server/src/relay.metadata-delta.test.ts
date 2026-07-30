@@ -21,8 +21,8 @@ describe('SessionRegistry metadata deltas', () => {
 
   function client(registry: SessionRegistry, caps?: string[]): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.modules.sessions.attachClient((msg) => inbox.push(msg))
-    registry.modules.sessions.onClientMessage(id, {
+    const id = registry.clientGateway.attachClient((msg) => inbox.push(msg))
+    registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -196,7 +196,7 @@ describe('SessionRegistry metadata deltas', () => {
   it('a pre-hello client is legacy: bootstrap snapshots, no deltas', () => {
     const registry = makeRegistry()
     const inbox: ServerMessage[] = []
-    registry.modules.sessions.attachClient((msg) => inbox.push(msg)) // no hello at all
+    registry.clientGateway.attachClient((msg) => inbox.push(msg)) // no hello at all
     expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
     registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     flush(registry)

@@ -325,8 +325,8 @@ describe('oracle: sendText / resumeAndSend', () => {
     // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
     // that is not this caller — otherwise the test passes on a session nobody
     // controls and proves nothing about gating.
-    const controllerId = o.reg.modules.sessions.attachClient(() => {})
-    o.reg.modules.sessions.onClientMessage(controllerId, { type: 'attach', sessionId })
+    const controllerId = o.reg.clientGateway.attachClient(() => {})
+    o.reg.clientGateway.routeClientFrame(controllerId, { type: 'attach', sessionId })
     expect(o.meta(sessionId).controllerId).toBe(controllerId)
     o.daemon.length = 0
 
