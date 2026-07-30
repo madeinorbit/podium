@@ -18,9 +18,7 @@ describe('SessionRegistry model catalog wiring', () => {
     const registry = new SessionRegistry(undefined, undefined, { modelProbe })
     const snapshot = await registry.modules.settings.refreshModelCatalog()
     expect(snapshot.byAgent.grok?.[0]?.value).toBe('grok-build')
-    expect(registry.modules.settings.getModelCatalog().byAgent.cursor?.[0]?.value).toBe(
-      'composer-2.5',
-    )
+    expect(registry.modules.settings.getModelCatalog().byAgent.cursor?.[0]?.value).toBe('composer-2.5')
     expect(modelProbe).toHaveBeenCalledTimes(1)
     registry.dispose()
   })

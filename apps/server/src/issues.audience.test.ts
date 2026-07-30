@@ -227,7 +227,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       // Non-lifecycle fields stay editable by the agent.
       const renamed = asWire(
         await proposalWorker.issues.update({
-          id: proposal.id,
+        id: proposal.id,
           patch: { title: 'clarified proposal' },
         }),
       )
@@ -255,9 +255,9 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
         startNow: false,
         parentId: root.id,
       })
-      await expect(worker.issues.reparent({ id: sub.id, parentId: proposal.id })).rejects.toThrow(
-        /operator/i,
-      )
+      await expect(
+        worker.issues.reparent({ id: sub.id, parentId: proposal.id }),
+      ).rejects.toThrow(/operator/i)
     } finally {
       reg.dispose()
     }

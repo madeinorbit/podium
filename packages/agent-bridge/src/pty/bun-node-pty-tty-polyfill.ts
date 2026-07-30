@@ -16,8 +16,8 @@
  * the stream never closes the caller-owned fd. No-op under Node / when already patched.
  */
 
-import fs from 'node:fs'
 import { createRequire } from 'node:module'
+import fs from 'node:fs'
 import tty from 'node:tty'
 
 const POLYFILL_FLAG = Symbol.for('podium.bunNodePtyTtyPolyfill')
@@ -50,11 +50,7 @@ function createTtyReadStreamFs(): { state: PolyfillState; fs: typeof fs } {
         offset: number,
         length: number,
         position: number | null,
-        cb: (
-          err: NodeJS.ErrnoException | null,
-          bytesRead: number,
-          buffer: NodeJS.ArrayBufferView,
-        ) => void,
+        cb: (err: NodeJS.ErrnoException | null, bytesRead: number, buffer: NodeJS.ArrayBufferView) => void,
       ) {
         const retry = () => {
           state.retryTimer = null

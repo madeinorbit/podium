@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { startLoopMetrics } from './loop-metrics'
 
 describe('loop-metrics', () => {

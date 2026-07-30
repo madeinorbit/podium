@@ -26,8 +26,7 @@ test('keyboard, click and scroll round-trip to the agent (keyecho)', async ({ pa
   // the VISIBLE one (the active session, which __podium/screenText also refers to).
   const box = await page.evaluate(() => {
     const els = Array.from(document.querySelectorAll('.xterm-screen')) as HTMLElement[]
-    const el =
-      els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+    const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
     const r = el.getBoundingClientRect()
     return { x: r.x, y: r.y, w: r.width, h: r.height }
   })

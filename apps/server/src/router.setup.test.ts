@@ -6,10 +6,10 @@ import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { hasPassword, setPassword, verifyPassword } from './auth-store'
 import { OPERATOR } from './issue-authz'
-import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry()

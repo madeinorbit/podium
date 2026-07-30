@@ -49,8 +49,7 @@ const resourcesDir = `${desktopDir}src-tauri/resources`
 mkdirSync(resourcesDir, { recursive: true })
 // bundleNames: the compiled binary is podium.exe on Windows (see build-bun.ts).
 const podiumSrc = `${repoRoot}/dist-bun/${bundleNames().compiled}`
-if (!existsSync(podiumSrc))
-  throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
+if (!existsSync(podiumSrc)) throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
 const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
 cpSync(podiumSrc, podiumDst)
 chmodSync(podiumDst, 0o755)

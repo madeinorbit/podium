@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import {
-  AgentConversationLoadError,
-  loadAgentConversation,
-  scanAgentConversations,
-} from './index.js'
+import { AgentConversationLoadError, loadAgentConversation, scanAgentConversations } from './index.js'
 
 describe('public package exports', () => {
   test('exports conversation scanner runtime API from the package index', () => {

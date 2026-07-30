@@ -84,7 +84,9 @@ describe('SpecsService (modules/specs, pspec #135)', () => {
     const svc = new SpecsService({ repoRoots: () => [repo] })
     await expect(svc.invoke('list', { repoPath: repo })).resolves.toBeTruthy()
     await expect(svc.invoke('list', {})).rejects.toThrow() // zod: repoPath required
-    await expect(svc.invoke('list', { repoPath: '/elsewhere' })).rejects.toThrow(/known repository/)
+    await expect(svc.invoke('list', { repoPath: '/elsewhere' })).rejects.toThrow(
+      /known repository/,
+    )
     expect(svc.invoke('nope', {})).toBeUndefined() // unknown proc → gate shapes the reply
   })
 })

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
-  type IssueWire,
   isSortKey,
+  type IssueWire,
   normalizeClosedPatch,
   type SessionMeta,
   sortKeyBetween,

@@ -35,29 +35,26 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // end-to-end proof that complements the deterministic keyecho/fixture matrix. cwd=HOME
 // is a trusted dir so claude renders its composer instead of a trust prompt. We type a
 // char but never submit it, so no model call is made.
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)(
-  'real claude smoke (node-pty backend)',
-  () => {
-    it('boots, renders a substantial frame, and echoes a keystroke', async () => {
-      const s = spawnAgent(
-        { cmd: 'claude', args: [], cols: 100, rows: 30, cwd: process.env.HOME ?? homedir() },
-        nodePtyBackend(),
-      )
-      let buf = ''
-      s.onFrame((f) => {
-        buf += Buffer.from(f.data, 'base64').toString('utf8')
-      })
-      try {
-        for (let i = 0; i < 300 && buf.length < 500; i++) await wait(50)
-        expect(buf.length).toBeGreaterThan(500) // a real TUI rendered
-        const beforeKey = buf.length
-        s.write(Buffer.from('hello', 'utf8').toString('base64')) // typed, not submitted
-        for (let i = 0; i < 60 && buf.length <= beforeKey; i++) await wait(50)
-        expect(buf.length).toBeGreaterThan(beforeKey) // the keystroke caused a repaint
-        expect(buf.replace(ANSI, '')).toContain('hello') // and echoed into the composer
-      } finally {
-        s.dispose()
-      }
-    }, 30000)
-  },
-)
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)('real claude smoke (node-pty backend)', () => {
+  it('boots, renders a substantial frame, and echoes a keystroke', async () => {
+    const s = spawnAgent(
+      { cmd: 'claude', args: [], cols: 100, rows: 30, cwd: process.env.HOME ?? homedir() },
+      nodePtyBackend(),
+    )
+    let buf = ''
+    s.onFrame((f) => {
+      buf += Buffer.from(f.data, 'base64').toString('utf8')
+    })
+    try {
+      for (let i = 0; i < 300 && buf.length < 500; i++) await wait(50)
+      expect(buf.length).toBeGreaterThan(500) // a real TUI rendered
+      const beforeKey = buf.length
+      s.write(Buffer.from('hello', 'utf8').toString('base64')) // typed, not submitted
+      for (let i = 0; i < 60 && buf.length <= beforeKey; i++) await wait(50)
+      expect(buf.length).toBeGreaterThan(beforeKey) // the keystroke caused a repaint
+      expect(buf.replace(ANSI, '')).toContain('hello') // and echoed into the composer
+    } finally {
+      s.dispose()
+    }
+  }, 30000)
+})

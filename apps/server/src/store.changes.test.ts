@@ -77,9 +77,13 @@ describe('SessionStore changes table', () => {
       )
     }
 
-    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(
+      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+    ).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(3)
-    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(
+      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+    ).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(5)
   })
 
@@ -108,32 +112,17 @@ describe('SessionStore changes table', () => {
     // Out-of-order event times: row 2 is "old", rows 1 and 3 are "young". A naive
     // `WHERE event_time < cutoff` would punch a hole at seq 2; head-only pruning
     // must delete everything at-or-below the highest aged seq instead.
-    store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
-      9000,
-    )
-    store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
-      1000,
-    )
-    store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }],
-      9000,
-    )
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 9000)
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }], 9000)
     pruneChanges(store, { keepRows: 100, maxAgeMs: 1000, now: 5000 })
     expect(store.sync.minChangeSeq()).toBe(3)
   })
 
   it('keeps seq monotonic even after the whole table is pruned', () => {
     const store = new SessionStore(':memory:')
-    store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
-      1000,
-    )
-    store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
-      1000,
-    )
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1000)
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
     pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })
     expect(store.sync.minChangeSeq()).toBeNull()
     // A rewound seq here would silently corrupt every client cursor.

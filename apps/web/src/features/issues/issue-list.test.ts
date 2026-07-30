@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { makeIssue as issue } from '@/lib/test-issue'
 import { flattenGroups, groupIssuesByStage } from './issue-list'
+import { makeIssue as issue } from '@/lib/test-issue'
 
 describe('groupIssuesByStage', () => {
   it('returns all stages in order with ordered members', () => {

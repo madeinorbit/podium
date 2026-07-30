@@ -203,7 +203,7 @@ function helpText(): string {
     '  stop [<session-id>] [--force] [--outside-scope]',
     '      Cleanly end a session: stop its process, FREE the worktree, KEEP the branch',
     '      + transcript (reversible — resume recreates the worktree from the branch).',
-    "      No id = stop THIS session (an agent's last act when done). Refuses when the",
+    '      No id = stop THIS session (an agent\'s last act when done). Refuses when the',
     '      working tree has unsaved changes unless --force. Stopping a session outside',
     '      your issue subtree requires --outside-scope (human permission asserted).',
   ].join('\n')

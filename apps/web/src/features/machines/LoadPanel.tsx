@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/model'
 import { Loader2 } from 'lucide-react'
+import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'

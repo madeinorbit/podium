@@ -1,7 +1,7 @@
 import {
   type AgentKind,
-  type IssueWire,
   isSortKey,
+  type IssueWire,
   type SessionMeta,
   sortKeyBetween,
 } from '@podium/model'

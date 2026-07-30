@@ -10,13 +10,7 @@ export interface OutputSchedulerDeps {
   coalesceMaxBytes?: number
 }
 
-interface Pending {
-  frames: string[]
-  bytes: number
-  tier: Tier
-  timer: unknown
-  immediate: boolean
-}
+interface Pending { frames: string[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
 
 /**
  * Per-session PTY-frame relay scheduler. Collapses many per-frame sends into one
@@ -82,10 +76,7 @@ export class OutputScheduler {
   private flush(sessionId: string): void {
     const p = this.pending.get(sessionId)
     if (!p) return
-    if (p.timer !== undefined) {
-      this.clearTimer(p.timer)
-      p.timer = undefined
-    }
+    if (p.timer !== undefined) { this.clearTimer(p.timer); p.timer = undefined }
     p.immediate = false
     if (p.frames.length === 0) return
     const frames = p.frames

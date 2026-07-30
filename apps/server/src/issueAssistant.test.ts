@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseAssistantJson, suggestStage } from './issueAssistant'
 
 describe('suggestStage', () => {
-  const base = {
-    stage: 'planning' as const,
-    hasPlanArtifact: false,
-    anyWorking: false,
-    allIdleDone: false,
-    prOpen: false,
-    merged: false,
-  }
+  const base = { stage: 'planning' as const, hasPlanArtifact: false, anyWorking: false, allIdleDone: false, prOpen: false, merged: false }
   it('planning + plan artifact + idle -> in_progress', () => {
     expect(suggestStage({ ...base, hasPlanArtifact: true, allIdleDone: true })).toBe('in_progress')
   })
@@ -26,9 +19,7 @@ describe('suggestStage', () => {
 
 describe('parseAssistantJson', () => {
   it('parses a fenced JSON block', () => {
-    const r = parseAssistantJson(
-      '```json\n{"activityNotes":"ok","suggestedStage":"review","suggestedReason":"pr","blockedBy":[],"dependencyNote":""}\n```',
-    )
+    const r = parseAssistantJson('```json\n{"activityNotes":"ok","suggestedStage":"review","suggestedReason":"pr","blockedBy":[],"dependencyNote":""}\n```')
     expect(r?.activityNotes).toBe('ok')
     expect(r?.suggestedStage).toBe('review')
   })

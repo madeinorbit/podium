@@ -89,7 +89,9 @@ describe('groupSessionsByParent', () => {
 
 describe('sessionsNeedChildRows', () => {
   it('expands parent + single remote child', () => {
-    expect(sessionsNeedChildRows([sess('p'), sess('c', { spawnedBy: 'session:p' })])).toBe(true)
+    expect(
+      sessionsNeedChildRows([sess('p'), sess('c', { spawnedBy: 'session:p' })]),
+    ).toBe(true)
   })
 
   it('expands a lone parent with native subagents', () => {

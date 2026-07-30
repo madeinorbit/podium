@@ -6,12 +6,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
-import {
-  agentLaunchCommand,
-  ConversationDiscoveryCache,
-  type LaunchOptions,
-  type LaunchSpec,
-} from '@podium/agent-bridge'
+import { ConversationDiscoveryCache } from '@podium/agent-bridge'
+import { agentLaunchCommand, type LaunchOptions, type LaunchSpec } from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/model'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
@@ -43,11 +39,7 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
               for (const h of handlers) h({ id: job.id, ok: true, value })
             } catch (err) {
               for (const h of handlers)
-                h({
-                  id: job.id,
-                  ok: false,
-                  error: err instanceof Error ? err.message : String(err),
-                })
+                h({ id: job.id, ok: false, error: err instanceof Error ? err.message : String(err) })
             }
           })()
         },
@@ -76,11 +68,7 @@ async function main() {
   const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
     kind === 'shell'
       ? agentLaunchCommand(kind, opts)
-      : {
-          cmd: process.execPath,
-          args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'],
-          cwd: KEYECHO_PKG,
-        }
+      : { cmd: process.execPath, args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'], cwd: KEYECHO_PKG }
 
   const server = await startServer({ port: PORT })
   const daemon = await startDaemon({
@@ -102,9 +90,7 @@ async function main() {
   const page = await browser.newPage()
   page.on('pageerror', (e) => log('  page.error:', e.message))
   await page.addInitScript(() => localStorage.setItem('podium.sidebarLayout', 'unified'))
-  await page.goto(`http://localhost:${PORT}/?server=ws://localhost:${PORT}`, {
-    waitUntil: 'domcontentloaded',
-  })
+  await page.goto(`http://localhost:${PORT}/?server=ws://localhost:${PORT}`, { waitUntil: 'domcontentloaded' })
 
   const row = page.getByText('Original Title').first()
   await row.waitFor({ timeout: 30_000 })
@@ -124,9 +110,7 @@ async function main() {
   })
   const bold = weight && Number(weight.labelWeight) >= 600
   const fix1Pass = weight != null && !bold
-  log(
-    `FIX 1 selected≠bold: label fontWeight=${weight?.labelWeight} → ${fix1Pass ? 'PASS' : 'FAIL'}`,
-  )
+  log(`FIX 1 selected≠bold: label fontWeight=${weight?.labelWeight} → ${fix1Pass ? 'PASS' : 'FAIL'}`)
 
   // ── Fix 3: double-click → inline editor seeded+selected → type → Enter commits.
   await row.dblclick()
@@ -134,13 +118,7 @@ async function main() {
   const selInfo = await page.evaluate(() => {
     const i = document.activeElement as HTMLInputElement | null
     return i && i.tagName === 'INPUT'
-      ? {
-          focused: true,
-          start: i.selectionStart,
-          end: i.selectionEnd,
-          len: i.value.length,
-          value: i.value,
-        }
+      ? { focused: true, start: i.selectionStart, end: i.selectionEnd, len: i.value.length, value: i.value }
       : { focused: false }
   })
   // Focused with select-all → typing replaces the whole name, then Enter commits.

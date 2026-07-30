@@ -1,3 +1,4 @@
+import type { AppRouter } from '@podium/server'
 import {
   parseServer,
   parseServerOrigin,
@@ -5,7 +6,6 @@ import {
   type ServerConfig,
   type ServerOrigin,
 } from '@podium/client-core/transport'
-import type { AppRouter } from '@podium/server'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 export type { ServerConfig, ServerOrigin }

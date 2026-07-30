@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type ArrowDirection,
   ArrowSwipeEngine,
   candidatePassesSwitchGate,
   computeUsableMaxes,
@@ -9,6 +8,7 @@ import {
   firstRepeatDelayMs,
   isConstrainedDirection,
   repeatCps,
+  type ArrowDirection,
 } from './ArrowSwipeKey'
 
 describe('evaluateGeometry', () => {

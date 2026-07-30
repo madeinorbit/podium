@@ -145,7 +145,10 @@ test('issue context menu: right-click, stage flyout updates the card, escape/out
       .locator('div.w-\\[280px\\]')
       .filter({ has: page.getByRole('heading', { name, exact: true }) })
       .first()
-  const card = column('Backlog').locator('[data-issue-id]').filter({ hasText: title }).first()
+  const card = column('Backlog')
+    .locator('[data-issue-id]')
+    .filter({ hasText: title })
+    .first()
   await expect(card).toBeVisible({ timeout: 15_000 })
 
   // ---- Right-click opens the menu at the cursor ----
@@ -174,10 +177,7 @@ test('issue context menu: right-click, stage flyout updates the card, escape/out
   await page.screenshot({ path: `${SHOT}/ctxmenu-03-stage-updated.png` })
 
   // ---- Escape dismisses ----
-  const movedCard = column('In Progress')
-    .locator('[data-issue-id]')
-    .filter({ hasText: title })
-    .first()
+  const movedCard = column('In Progress').locator('[data-issue-id]').filter({ hasText: title }).first()
   await movedCard.click({ button: 'right' })
   await expect(menu).toBeVisible({ timeout: 10_000 })
   await page.keyboard.press('Escape')

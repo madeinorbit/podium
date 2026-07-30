@@ -95,9 +95,9 @@ export class ReposRepository {
 
   /** The prefix chosen for the logical repo `repoId` (or null). */
   prefixForRepoId(repoId: string): string | null {
-    const row = this.db.prepare('SELECT prefix FROM repo_prefixes WHERE repo_id = ?').get(repoId) as
-      | { prefix: string }
-      | undefined
+    const row = this.db
+      .prepare('SELECT prefix FROM repo_prefixes WHERE repo_id = ?')
+      .get(repoId) as { prefix: string } | undefined
     return row?.prefix ?? null
   }
 
@@ -108,9 +108,9 @@ export class ReposRepository {
 
   /** The registered repo owning `prefix` (its repoId + a representative path). */
   repoForPrefix(prefix: string): { repoId: string; path: string } | null {
-    const row = this.db.prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?').get(prefix) as
-      | { repo_id: string }
-      | undefined
+    const row = this.db
+      .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
+      .get(prefix) as { repo_id: string } | undefined
     if (!row) return null
     const pathRow = this.db
       .prepare('SELECT path FROM repos WHERE repo_id = ? LIMIT 1')

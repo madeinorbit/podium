@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { makeIssue } from '@/lib/test-issue'
 import { IssuePage } from './IssuePage'
+import { makeIssue } from '@/lib/test-issue'
 
 const addSession = vi.fn(async () => ({}))
 const addShell = vi.fn(async () => ({}))

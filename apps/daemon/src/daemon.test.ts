@@ -32,8 +32,8 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
-import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import { createSessionObservers, type ReattachControl } from './session-observers'
+import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's

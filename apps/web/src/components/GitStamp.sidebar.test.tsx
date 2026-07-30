@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
-
-import type { IssueGitState } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
+import type { IssueGitState } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitStamp } from './GitStamp'
 
@@ -43,7 +42,9 @@ describe('GitStamp sidebar exception grammar', () => {
     expect(container.textContent).not.toContain('Unpushed')
     expect(container.textContent).not.toContain('⇡')
     expect(container.querySelector('[data-testid^="git-stamp-dot-"]')).toBeNull()
-    rerender(<GitStamp issueBranch={base.branch} git={{ ...base, unpushed: 1 }} density="stamp" />)
+    rerender(
+      <GitStamp issueBranch={base.branch} git={{ ...base, unpushed: 1 }} density="stamp" />,
+    )
     expect(container.textContent).toBe('')
   })
 

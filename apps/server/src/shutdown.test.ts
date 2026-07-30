@@ -1,8 +1,8 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { connect } from 'node:net'
-import { type BootProc, bootProcess } from '@podium/runtime/boot'
 import { describe, expect, it, vi } from 'vitest'
+import { type BootProc, bootProcess } from '@podium/runtime/boot'
 import { closeServerFast } from './shutdown'
 
 /** Minimal server double: close() resolves immediately, records force-close. */

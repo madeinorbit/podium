@@ -6,12 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChainEntry } from './file-chain'
 import { fileIdFor } from './file-chain'
 import * as slice from './slice'
-import {
-  readTranscriptSlice,
-  readTranscriptSliceCached,
-  resetSliceCache,
-  sliceCacheStats,
-} from './slice'
+import { readTranscriptSlice, readTranscriptSliceCached, resetSliceCache, sliceCacheStats } from './slice'
 
 const rec = (uuid: string, text: string) =>
   JSON.stringify({
@@ -30,9 +25,7 @@ interface TestRecord {
 // One item per record carrying its index text; uuid = `u<i>`.
 const idxToItems = (r: unknown): TranscriptItem[] => {
   const t = r as TestRecord
-  return [
-    { id: t.uuid, role: t.type, text: t.message.content[0]?.text },
-  ] as unknown as TranscriptItem[]
+  return [{ id: t.uuid, role: t.type, text: t.message.content[0]?.text }] as unknown as TranscriptItem[]
 }
 
 /** Write a single-file chain with records 0..n-1. */
@@ -56,19 +49,13 @@ describe('readTranscriptSliceCached', () => {
     const { chain } = await oneFile(10)
     const spy = vi.spyOn(slice, 'readFileItems')
 
-    const first = await readTranscriptSliceCached(chain, idxToItems, {
-      direction: 'before',
-      limit: 3,
-    })
+    const first = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(spy).toHaveBeenCalled() // miss → real file parse
     expect(sliceCacheStats().misses).toBe(1)
     expect(sliceCacheStats().hits).toBe(0)
 
     spy.mockClear()
-    const second = await readTranscriptSliceCached(chain, idxToItems, {
-      direction: 'before',
-      limit: 3,
-    })
+    const second = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(spy).not.toHaveBeenCalled() // hit → NO file parse
     expect(second).toEqual(first)
     expect(sliceCacheStats().hits).toBe(1)
@@ -79,18 +66,12 @@ describe('readTranscriptSliceCached', () => {
     const { chain, path } = await oneFile(10)
     const spy = vi.spyOn(slice, 'readFileItems')
 
-    const before = await readTranscriptSliceCached(chain, idxToItems, {
-      direction: 'before',
-      limit: 3,
-    })
+    const before = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(before.items.map((i) => i.text)).toEqual(['7', '8', '9'])
 
     await appendFile(path, `${rec('u10', '10')}\n`)
     spy.mockClear()
-    const after = await readTranscriptSliceCached(chain, idxToItems, {
-      direction: 'before',
-      limit: 3,
-    })
+    const after = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(spy).toHaveBeenCalled() // grown tail MUST miss and re-read
     expect(after.items.map((i) => i.text)).toEqual(['8', '9', '10'])
     expect(sliceCacheStats().misses).toBe(2)
@@ -139,9 +120,7 @@ describe('readTranscriptSliceCached', () => {
 
   it('never caches when a chain file is missing (serves fresh, does not throw)', async () => {
     resetSliceCache()
-    const chain: ChainEntry[] = [
-      { path: join(tmpdir(), 'does-not-exist-xyz.jsonl'), fileId: 'NONE' },
-    ]
+    const chain: ChainEntry[] = [{ path: join(tmpdir(), 'does-not-exist-xyz.jsonl'), fileId: 'NONE' }]
     const r = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(r.items).toEqual([])
     expect(sliceCacheStats().entries).toBe(0)

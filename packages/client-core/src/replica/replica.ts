@@ -332,7 +332,8 @@ function jsonRowsEqual(left: unknown, right: unknown): boolean {
   const bKeys = Object.keys(b).filter((key) => b[key] !== undefined)
   if (aKeys.length !== bKeys.length) return false
   for (const key of aKeys) {
-    if (!Object.hasOwn(b, key) || !jsonRowsEqual(a[key], b[key])) return false
+    if (!Object.prototype.hasOwnProperty.call(b, key) || !jsonRowsEqual(a[key], b[key]))
+      return false
   }
   return true
 }

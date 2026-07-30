@@ -82,17 +82,8 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     const seq = /created #(\d+)/.exec(
       await runIssueCli(
         [
-          'create',
-          '--repoPath',
-          '/repo',
-          '--title',
-          'Model routing',
-          '--agent',
-          'codex',
-          '--model',
-          'gpt-5.2-codex',
-          '--effort',
-          'high',
+          'create', '--repoPath', '/repo', '--title', 'Model routing',
+          '--agent', 'codex', '--model', 'gpt-5.2-codex', '--effort', 'high',
         ],
         client,
       ),

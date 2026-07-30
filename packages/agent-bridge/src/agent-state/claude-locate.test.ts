@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -46,11 +46,7 @@ describe('locateClaudeSessionFile', () => {
     const home = await seedHome()
     const path = await seedTranscript(home, '/gone/worktree', 'sess-3')
     expect(
-      await locateClaudeSessionFile({
-        cwd: '/somewhere/else',
-        resumeValue: 'sess-3',
-        homeDir: home,
-      }),
+      await locateClaudeSessionFile({ cwd: '/somewhere/else', resumeValue: 'sess-3', homeDir: home }),
     ).toBe(path)
   })
 
@@ -60,9 +56,9 @@ describe('locateClaudeSessionFile', () => {
     const newer = await seedTranscript(home, '/b', 'sess-4')
     const past = new Date(Date.now() - 60_000)
     await utimes(older, past, past)
-    expect(await locateClaudeSessionFile({ cwd: '/c', resumeValue: 'sess-4', homeDir: home })).toBe(
-      newer,
-    )
+    expect(
+      await locateClaudeSessionFile({ cwd: '/c', resumeValue: 'sess-4', homeDir: home }),
+    ).toBe(newer)
   })
 
   it('a recorded pathHint short-circuits everything; a stale one falls through', async () => {

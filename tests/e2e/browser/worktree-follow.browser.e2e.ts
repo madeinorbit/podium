@@ -62,7 +62,9 @@ async function spawnShellTab(page: Page): Promise<string> {
   return mine
 }
 
-test('a visible-pane session that moves worktrees pulls the whole view along', async ({ page }) => {
+test('a visible-pane session that moves worktrees pulls the whole view along', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 820 })
   await openApp(page)
   await selectWorktree(page, 'main main', SCRATCH_REPO)
@@ -90,16 +92,9 @@ test('a background session move shows a toast and leaves the view alone', async 
   // The move (home → REPO_ROOT) fires while the user looks at SCRATCH_FEAT →
   // background policy: a toast announces it, the selection stays put.
   await expect
-    .poll(
-      () =>
-        page
-          .locator('[data-sonner-toast]')
-          .getByText(/moved to/)
-          .count(),
-      {
-        timeout: 15_000,
-      },
-    )
+    .poll(() => page.locator('[data-sonner-toast]').getByText(/moved to/).count(), {
+      timeout: 15_000,
+    })
     .toBeGreaterThan(0)
   expect(await selectedWorktree(page)).toBe(SCRATCH_FEAT)
 })

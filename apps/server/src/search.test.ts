@@ -2,12 +2,12 @@ import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { OPERATOR } from './issue-authz'
-import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { searchAll } from './search'
 import { SessionStore } from './store'
+import { SuperagentService } from './modules/superagent'
 
 // The search surface a registry exposes — listSessions moved to the sessions
 // module (#191); the issue reads stay on registry.issues.
@@ -34,10 +34,7 @@ describe('searchAll', () => {
     registry.modules.sessions.attachDaemon('m1', () => {})
 
     // Session named after the phrase.
-    const { sessionId } = registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/w',
-    })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
 
     // Issue with the phrase in the title; a second issue matching only via comment.
@@ -137,10 +134,7 @@ describe('searchAll', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', () => {
     const { store, registry } = seed()
-    const { sessionId } = registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/w',
-    })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -199,10 +193,7 @@ describe('search.query tRPC', () => {
 
   it('serves ranked results over the wire shape', async () => {
     const { registry, trpc } = caller()
-    const { sessionId } = registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/w',
-    })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)

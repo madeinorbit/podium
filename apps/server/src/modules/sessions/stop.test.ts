@@ -3,9 +3,9 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import type { ControlMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import type { ControlMessage } from '@podium/protocol'
 
 const registries: SessionRegistry[] = []
 

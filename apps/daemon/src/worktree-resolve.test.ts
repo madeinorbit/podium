@@ -66,10 +66,7 @@ describe('parseWorktreeInfo', () => {
       repoRoot: '/repo',
     })
     expect(
-      parseWorktreeInfo(
-        '/repo/.worktrees/feat',
-        '/repo/.worktrees/feat\n/repo/.git/worktrees/feat\n/repo/.git',
-      ),
+      parseWorktreeInfo('/repo/.worktrees/feat', '/repo/.worktrees/feat\n/repo/.git/worktrees/feat\n/repo/.git'),
     ).toEqual({ root: '/repo/.worktrees/feat', kind: 'worktree', repoRoot: '/repo' })
   })
 
@@ -144,6 +141,7 @@ describe('gitWorktree (real git)', () => {
     expect(await gitBranch(join(base, 'plain'))).toBeNull()
   })
 })
+
 
 describe('createSessionCwdTracker', () => {
   const make = (lookup: (cwd: string) => Promise<WorktreeInfo | null>) => {

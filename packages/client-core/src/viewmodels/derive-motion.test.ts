@@ -70,7 +70,9 @@ describe('motionPhase — the four phases of the motion grammar', () => {
       },
       agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
     })
-    expect(motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire)).toBe('done')
+    expect(
+      motionPhase(offered, { stage: 'done', closedReason: 'done' } as IssueWire),
+    ).toBe('done')
   })
 
   it('a finished run (idle done / ended) is done', () => {

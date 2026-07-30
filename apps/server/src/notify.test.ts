@@ -20,12 +20,7 @@ const waitFor = async (assertion: () => void | Promise<void>): Promise<void> => 
 const state = (
   phase: AgentRuntimeState['phase'],
   extra: Partial<AgentRuntimeState> = {},
-): AgentRuntimeState => ({
-  phase,
-  since: '2026-06-12T10:00:00.000Z',
-  nativeSubagentCount: 0,
-  ...extra,
-})
+): AgentRuntimeState => ({ phase, since: '2026-06-12T10:00:00.000Z', nativeSubagentCount: 0, ...extra })
 
 describe('attentionNotice', () => {
   it('fires on the transition into needs_user with the real question', () => {
@@ -82,14 +77,17 @@ describe('pushTelegram', () => {
     )
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce())
 
-    expect(fetch).toHaveBeenCalledWith('https://api.telegram.org/bot123456:secret/sendMessage', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: '-100123',
-        text: 'podium / keyboard needs you\n\nSQLite or Postgres?',
-      }),
-    })
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.telegram.org/bot123456:secret/sendMessage',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: '-100123',
+          text: 'podium / keyboard needs you\n\nSQLite or Postgres?',
+        }),
+      },
+    )
   })
 
   it('does nothing when either Telegram field is blank', async () => {

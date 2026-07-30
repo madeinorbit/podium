@@ -9,10 +9,9 @@
  * contents of the `.AppImage.sig` minisign detached signature; the updater verifies
  * it against the `pubkey` baked into tauri.conf.json before installing.
  */
-
+import { serve } from 'bun'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { serve } from 'bun'
 
 const [dir, version, portArg] = process.argv.slice(2)
 if (!dir || !version) {
@@ -48,6 +47,4 @@ serve({
     return new Response('not found', { status: 404 })
   },
 })
-console.error(
-  `update feed for v${version} on :${port} (artifact ${appImage.byteLength} bytes, sig ${sig.length} chars)`,
-)
+console.error(`update feed for v${version} on :${port} (artifact ${appImage.byteLength} bytes, sig ${sig.length} chars)`)

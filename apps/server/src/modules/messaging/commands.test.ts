@@ -1,4 +1,3 @@
-import type { IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssuesMessage,
@@ -11,6 +10,7 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
+import type { IssueWire } from '@podium/model'
 
 function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
   return {

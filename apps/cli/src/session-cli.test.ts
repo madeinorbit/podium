@@ -146,10 +146,13 @@ describe('podium session stop [spec:SP-9904]', () => {
   })
 
   it('surfaces a refused stop (unsaved work)', async () => {
-    const c = client({ ok: true }, ASK, { ok: true, name: 'x' }, STATUS, {
-      ok: false,
-      reason: 'refusing stop: unsaved changes',
-    })
+    const c = client(
+      { ok: true },
+      ASK,
+      { ok: true, name: 'x' },
+      STATUS,
+      { ok: false, reason: 'refusing stop: unsaved changes' },
+    )
     await expect(runSessionCli(['stop', 's1'], c)).rejects.toThrow(/unsaved changes/)
   })
 
@@ -311,22 +314,19 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
-  'podium session real-binary smoke',
-  () => {
-    it('renders help (status/read verbs included) without a server', () => {
-      const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
-      expect(out).toContain('podium session <command>')
-      expect(out).toContain('status <session-id|#issue>')
-      expect(out).toContain('read <session-id>')
-      expect(out).toContain('recap <session-id>')
-      expect(out).toContain('ask <session-id> --question')
-    })
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium session real-binary smoke', () => {
+  it('renders help (status/read verbs included) without a server', () => {
+    const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
+    expect(out).toContain('podium session <command>')
+    expect(out).toContain('status <session-id|#issue>')
+    expect(out).toContain('read <session-id>')
+    expect(out).toContain('recap <session-id>')
+    expect(out).toContain('ask <session-id> --question')
+  })
 
-    it('fails fast on an unknown session command', () => {
-      expect(() =>
-        execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-      ).toThrow()
-    })
-  },
-)
+  it('fails fast on an unknown session command', () => {
+    expect(() =>
+      execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+    ).toThrow()
+  })
+})

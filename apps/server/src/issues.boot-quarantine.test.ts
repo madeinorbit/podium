@@ -6,7 +6,7 @@ import { normalizeSettings } from '@podium/runtime'
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { type IssueDeps, IssueService } from './modules/issues/service'
+import { IssueService, type IssueDeps } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
@@ -16,11 +16,7 @@ function deps(store: SessionStore): IssueDeps {
     listSessions: () => [],
     getSettings: () =>
       normalizeSettings({
-        gitWorkflow: {
-          defaultParentBranch: '',
-          mergeStyle: 'ff-only',
-          autoRebaseBeforeMerge: true,
-        },
+        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),

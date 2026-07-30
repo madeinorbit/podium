@@ -1,9 +1,9 @@
 import {
   type HandoffAvailability,
+  handoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
-  handoffAvailability,
   type IssueWire,
   type SessionMeta,
 } from '@podium/model'

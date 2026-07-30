@@ -127,18 +127,16 @@ test('#3/#4 code-block copy button + external links open in a new tab', async ({
   let cwd = ''
   await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
   await expect
-    .poll(
-      async () => {
-        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
-        if (m) cwd = m[1].trim()
-        return cwd
-      },
-      { timeout: 15_000 },
-    )
+    .poll(async () => {
+      const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
+      if (m) cwd = m[1].trim()
+      return cwd
+    }, { timeout: 15_000 })
     .toMatch(/^\//)
 
   // A markdown file with a fenced code block and an external link.
-  const md = 'para with a [link](https://example.com)\\n\\n```sh\\nnpm run build\\n```\\n'
+  const md =
+    'para with a [link](https://example.com)\\n\\n```sh\\nnpm run build\\n```\\n'
   await sh(page, `printf '${md}' > ./e2e_codeblock.md`)
   const st = await page.evaluate(() => {
     const s = (

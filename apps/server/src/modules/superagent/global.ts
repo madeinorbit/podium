@@ -4,7 +4,7 @@
  * client-reported "what's on screen" block prepended to every turn.
  */
 import { z } from 'zod'
-import { type ConciergeEvent, type ConciergeSessionInfo, eventLine } from './concierge'
+import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------
 

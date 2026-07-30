@@ -43,9 +43,7 @@ describe('TelegramChannel.send MarkdownV2 fallback', () => {
     await channel.send({ channel: 'telegram', chatId: '42' }, '**hello**')
 
     expect(call).toBe(2)
-    const secondBody = JSON.parse(
-      String((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]![1]?.body),
-    )
+    const secondBody = JSON.parse(String((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]![1]?.body))
     expect(secondBody.parse_mode).toBeUndefined()
     expect(secondBody.text).toBe('hello')
   })

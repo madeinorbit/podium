@@ -173,12 +173,7 @@ describe('setup core', () => {
 
   describe('consumePairCode (#19)', () => {
     it('drops the exact consumed code, preserving the rest of the config', () => {
-      saveConfig({
-        mode: 'daemon',
-        serverUrl: 'wss://relay',
-        pairCode: 'P1',
-        persistence: 'systemd',
-      })
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P1', persistence: 'systemd' })
       consumePairCode('P1')
       expect(loadConfig()).toEqual({
         mode: 'daemon',

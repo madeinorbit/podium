@@ -9,8 +9,8 @@ import {
   computePriorities,
   type Geometry,
   type IssueWire,
-  type ResumeRef,
   repoNameFromOrigin,
+  type ResumeRef,
   type SessionMeta,
   type TranscriptItem,
   type WorkState,
@@ -18,10 +18,10 @@ import {
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
-  type ApprovalWire,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
+  type ApprovalWire,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
@@ -1796,11 +1796,7 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(
-    sessionId: string,
-    baselineUserTurns: number,
-    attempt: number,
-  ): void {
+  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return

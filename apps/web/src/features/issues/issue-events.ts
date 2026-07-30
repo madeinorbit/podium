@@ -65,8 +65,7 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
       return { icon: 'created', text: 'created' }
     case 'issue.stage_changed': {
       const to = typeof p.to === 'string' ? p.to : undefined
-      const label =
-        to && to in STAGE_LABELS ? STAGE_LABELS[to as IssueStage] : (to ?? 'a new stage')
+      const label = to && to in STAGE_LABELS ? STAGE_LABELS[to as IssueStage] : (to ?? 'a new stage')
       return { icon: 'moved', text: `moved to ${label}` }
     }
     case 'issue.closed': {

@@ -41,18 +41,9 @@ describe('IssueToolProvider', () => {
         tree: {
           query: vi.fn(async () => ({
             root: {
-              seq: 5,
-              title: 'Epic',
-              stage: 'backlog',
-              priority: 2,
-              needsHuman: false,
-              blocksDeps: [],
-              description: '',
-              closed: false,
-              blocked: false,
-              ready: true,
-              children: [],
-              omittedChildren: 0,
+              seq: 5, title: 'Epic', stage: 'backlog', priority: 2, needsHuman: false,
+              blocksDeps: [], description: '', closed: false, blocked: false, ready: true,
+              children: [], omittedChildren: 0,
             },
             totalNodes: 1,
             omitted: 0,

@@ -27,9 +27,7 @@ export function AppErrorPage({
   return (
     <main className="flex min-h-full items-center justify-center bg-background p-5">
       <section className="w-[min(520px,100%)] rounded-md border border-border bg-card p-5">
-        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-          ERROR
-        </div>
+        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">ERROR</div>
         <h1 className="my-2 text-[22px] font-medium text-foreground">{title}</h1>
         <p className="m-0 text-muted-foreground [overflow-wrap:anywhere]">{message}</p>
         <div className="mt-4 flex flex-wrap gap-2">

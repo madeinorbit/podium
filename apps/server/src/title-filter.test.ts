@@ -11,9 +11,9 @@ describe('isCommandWrapperText', () => {
   it('flags the slash-command wrappers Claude writes into the transcript', () => {
     expect(isCommandWrapperText('<command-name>/model</command-name>')).toBe(true)
     expect(isCommandWrapperText('<command-message>model</command-message>')).toBe(true)
-    expect(
-      isCommandWrapperText('<local-command-stdout>Set model to Opus</local-command-stdout>'),
-    ).toBe(true)
+    expect(isCommandWrapperText('<local-command-stdout>Set model to Opus</local-command-stdout>')).toBe(
+      true,
+    )
     // The real first turn of a `/model` session: leading newline, then the wrapper.
     expect(isCommandWrapperText('\n  <command-name>/effort</command-name>\n')).toBe(true)
   })

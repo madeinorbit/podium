@@ -69,7 +69,9 @@ describe('harness adapter registry', () => {
       claude.classifyBrowserOpen?.(new URL('https://claude.ai/oauth/authorize?client_id=x')),
     ).toEqual({ intent: 'login' })
     expect(
-      claude.classifyBrowserOpen?.(new URL('https://claude.ai/code/artifact/abc?via=auto_preview')),
+      claude.classifyBrowserOpen?.(
+        new URL('https://claude.ai/code/artifact/abc?via=auto_preview'),
+      ),
     ).toEqual({ intent: 'link' })
     expect(claude.classifyBrowserOpen?.(new URL('https://example.com/'))).toBeUndefined()
 

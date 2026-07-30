@@ -1,4 +1,4 @@
-import { IssueColor, IssueStage, IssueType, isSortKey, type SessionMeta } from '@podium/model'
+import { isSortKey, IssueColor, IssueStage, IssueType, type SessionMeta } from '@podium/model'
 import {
   type CommandDef,
   defineCommands,

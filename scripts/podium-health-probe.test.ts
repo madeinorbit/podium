@@ -84,8 +84,7 @@ exit "$(next_line "$FD/curl.seq")"`,
 
   return {
     dir,
-    log: () =>
-      existsSync(join(dir, 'calls.log')) ? readFileSync(join(dir, 'calls.log'), 'utf8') : '',
+    log: () => (existsSync(join(dir, 'calls.log')) ? readFileSync(join(dir, 'calls.log'), 'utf8') : ''),
     restarts: () =>
       existsSync(join(dir, 'restarts.log'))
         ? readFileSync(join(dir, 'restarts.log'), 'utf8').trim().split('\n')

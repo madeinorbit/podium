@@ -1427,7 +1427,9 @@ export const appRouter = t.router({
         return mods(ctx).rpc.repoOp('logPanel', input.root, undefined, input.machineId)
       }),
     diffFile: t.procedure
-      .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }))
+      .input(
+        z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
+      )
       .query(({ ctx, input }) => {
         if (!isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })

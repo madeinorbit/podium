@@ -405,7 +405,9 @@ export function SettingsView(): JSX.Element {
       className="settings-overlay fixed inset-x-0 top-11 bottom-0 z-40 flex flex-col bg-background"
       aria-label="Settings"
     >
-      <header className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5">
+      <header
+        className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5"
+      >
         <Button
           type="button"
           variant="ghost"

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  type AgentKind,
   agentCapabilityRejection,
+  type AgentKind,
   type Inventory,
   type MachineWire,
 } from '@podium/model'

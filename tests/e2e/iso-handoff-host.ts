@@ -15,9 +15,8 @@
  *   POST /handoff {sessionId,machineId} → sessions.handoffSession (awaited)
  *   POST /scan                          → RepoRegistry.scanReposAll()
  */
-
-import { writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   agentLaunchCommand,
@@ -123,9 +122,7 @@ const daemon = await startDaemon({
 
 const mods = server.registry.modules
 
-async function readBody(
-  req: import('node:http').IncomingMessage,
-): Promise<Record<string, unknown>> {
+async function readBody(req: import('node:http').IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
   const raw = Buffer.concat(chunks).toString('utf8')

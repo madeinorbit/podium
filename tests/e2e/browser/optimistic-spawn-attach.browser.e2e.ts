@@ -14,10 +14,7 @@ import { podium, RELAY } from './_harness'
  *
  * Desktop, native mode (the terminal path the bug lives in).
  */
-test.skip(
-  ({ isMobile }) => isMobile,
-  'desktop test (the unified switcher lives in the <aside> Sidebar)',
-)
+test.skip(({ isMobile }) => isMobile, 'desktop test (the unified switcher lives in the <aside> Sidebar)')
 
 async function openUnified(page: Page): Promise<ReturnType<Page['locator']>> {
   await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
@@ -45,13 +42,9 @@ test('optimistic spawn: the pane attaches on its own (no switch-away needed)', a
   await splitMain.click()
 
   // The pane mounts; wait for its test API. We do NOT switch panes.
-  await page.waitForFunction(
-    () => !!(window as unknown as { __podium?: unknown }).__podium,
-    undefined,
-    {
-      timeout: 25_000,
-    },
-  )
+  await page.waitForFunction(() => !!(window as unknown as { __podium?: unknown }).__podium, undefined, {
+    timeout: 25_000,
+  })
 
   // The terminal must bind on its own: bytes we send must echo back. Re-send each
   // poll tick so a byte sent before the bind isn't lost.

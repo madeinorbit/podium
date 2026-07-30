@@ -6,17 +6,17 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
-  type AgentKind,
   agentCapabilityRejection,
-  DEFER_NEXT_MESSAGE,
+  type AgentKind,
   dedupeSessionsByResume,
+  DEFER_NEXT_MESSAGE,
   type GitRepositoryWire,
   type HostMetricsWire,
-  type IssueWire,
   isHeadlessSession,
   isIssueDeferred,
   isSnoozed,
   issueReturnedFromDefer,
+  type IssueWire,
   lastUsedMachine,
   machinesForRepo,
   machinesForRepoOrClone,
@@ -1305,7 +1305,10 @@ function isClosedTopLevelIssue(issue: IssueWire): boolean {
 function issueHasUnmergedDelivery(issue: IssueWire): boolean {
   const git = issue.gitState
   return (
-    Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
+    Boolean(issue.branch) &&
+    git?.shared === false &&
+    git.merged !== true &&
+    (git.ahead ?? 0) > 0
   )
 }
 
@@ -2216,7 +2219,8 @@ export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   // drops historical stale offers so a closed row cannot keep demanding a
   // decision. Open review work still counts.
   if (attentionGroup(s) === 'needsYou') {
-    const finished = issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    const finished =
+      issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
   if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
@@ -2384,8 +2388,7 @@ export function branchRollup(
 export function deepAttentionSource(
   row: UnifiedIssueRow,
 ): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
-  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null =
-    null
+  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null = null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
     const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }

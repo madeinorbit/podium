@@ -1,12 +1,12 @@
 import {
   type Instant,
-  type IssueGitState,
-  IssuePanel,
-  type IssueWire,
   isIssueBlocked,
   isIssueClosed,
   isIssueColorSlot,
   isIssueDeferred,
+  type IssueGitState,
+  IssuePanel,
+  type IssueWire,
   requireInstant,
   type SessionMeta,
 } from '@podium/model'

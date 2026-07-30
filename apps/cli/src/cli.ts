@@ -14,8 +14,8 @@
 import { isAgentKind } from '@podium/model'
 import {
   type ApprovalOp,
-  FEATURES,
   type FeatureId,
+  FEATURES,
   type LocalDaemonLink,
   resolveFeatureState,
 } from '@podium/protocol'
@@ -697,11 +697,11 @@ export async function resolveCliFeatures(
   if (!client) {
     const { makeIssueClient, makeRelayIssueClient } = await import('@podium/issue-client')
     const relay = resolveAgentRelay(env)
-    client = (relay
-      ? makeRelayIssueClient(relay)
-      : makeIssueClient(
-          `http://localhost:${resolvePort(config, env)}`,
-        )) as unknown as CliFeaturesClient
+    client = (
+      relay
+        ? makeRelayIssueClient(relay)
+        : makeIssueClient(`http://localhost:${resolvePort(config, env)}`)
+    ) as unknown as CliFeaturesClient
   }
   try {
     const features = client.features

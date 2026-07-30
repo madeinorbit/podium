@@ -6,48 +6,17 @@ import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
 const base = () => ({
-  id: 'iss_1',
-  repoPath: '/r',
-  seq: 1,
-  title: 'Fix login',
-  description: 'desc',
-  stage: 'backlog',
-  worktreePath: null,
-  branch: null,
-  parentBranch: 'main',
-  defaultAgent: 'claude-code',
-  defaultModel: 'auto',
-  defaultEffort: 'auto',
-  linearId: null,
-  linearIdentifier: null,
-  linearUrl: null,
-  activityNotes: null,
-  notesUpdatedAt: null,
-  suggestedStage: null,
-  suggestedReason: null,
-  blockedBy: [] as string[],
-  dependencyNote: null,
-  prUrl: null,
-  priority: 2,
-  type: 'task',
-  assignee: null,
-  parentId: null,
-  design: null,
-  acceptance: null,
-  notes: null,
-  dueAt: null,
-  deferUntil: null,
-  closedReason: null,
-  closedAt: null,
-  supersededBy: null,
-  duplicateOf: null,
-  pinned: false,
-  estimateMin: null,
-  needsHuman: false,
-  humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
-  archived: false,
+  id: 'iss_1', repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
+  stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
+  defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
+  linearId: null, linearIdentifier: null, linearUrl: null,
+  activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
+  blockedBy: [] as string[], dependencyNote: null, prUrl: null,
+  priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
+  notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
+  duplicateOf: null, pinned: false, estimateMin: null,
+  needsHuman: false, humanQuestion: null,
+  createdAt: 't0', updatedAt: 't0', archived: false,
 })
 
 describe('store issues', () => {
@@ -64,13 +33,7 @@ describe('store issues', () => {
   it('updates on conflict and preserves JSON blockedBy', () => {
     const s = new SessionStore(':memory:')
     s.issues.upsertIssue(base())
-    s.issues.upsertIssue({
-      ...base(),
-      stage: 'planning',
-      worktreePath: '/r/wt',
-      branch: 'issue/1-x',
-      blockedBy: ['iss_2'],
-    })
+    s.issues.upsertIssue({ ...base(), stage: 'planning', worktreePath: '/r/wt', branch: 'issue/1-x', blockedBy: ['iss_2'] })
     const got = s.issues.getIssue('iss_1')
     expect(got?.stage).toBe('planning')
     expect(got?.worktreePath).toBe('/r/wt')
@@ -86,12 +49,7 @@ describe('store issues', () => {
     s.issues.upsertIssue({ ...base(), id: 'c', repoPath: '/other', seq: 1 })
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(3)
     expect(s.issues.nextIssueSeq(rid('/other'))).toBe(2)
-    expect(
-      s.issues
-        .listIssueRows('/r')
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual(['a', 'b'])
+    expect(s.issues.listIssueRows('/r').map((i) => i.id).sort()).toEqual(['a', 'b'])
     expect(s.issues.listIssueRows().length).toBe(3)
   })
 

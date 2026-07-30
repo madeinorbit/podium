@@ -19,7 +19,8 @@ function Probe({ keys }: { keys: readonly string[] }): JSX.Element {
   return <output data-arrivals={[...latest.arrivals].sort().join(',')} />
 }
 
-const arrivalsOf = (c: HTMLElement) => c.querySelector('output')!.getAttribute('data-arrivals')
+const arrivalsOf = (c: HTMLElement) =>
+  c.querySelector('output')!.getAttribute('data-arrivals')
 
 describe('useArrivals — mount latch for row arrivals', () => {
   it('marks nothing on a fresh mount, however many keys are present', () => {

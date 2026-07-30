@@ -314,6 +314,7 @@ describe('pin-aware navigation derivation', () => {
     expect(sections.pinnedRepos[0].worktrees).toEqual([])
     expect(sections.repos).toEqual([])
   })
+
 })
 
 describe('orderTabs', () => {
@@ -555,10 +556,7 @@ describe('returnedFromSnooze', () => {
 describe('chatActivity', () => {
   it('shows Working… while the agent phase is working', () => {
     expect(
-      chatActivity(
-        base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
-        false,
-      ),
+      chatActivity(base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }), false),
     ).toEqual({ label: 'Working…', tone: 'working' })
   })
   it('shows Compacting… while compacting', () => {
@@ -592,10 +590,7 @@ describe('chatActivity', () => {
   })
   it('shows Sending… optimistically right after submit, before any signal', () => {
     expect(
-      chatActivity(
-        base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }),
-        true,
-      ),
+      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), true),
     ).toEqual({ label: 'Sending…', tone: 'working' })
   })
   it('never shows Working… for a parked session with a preserved working phase (#161)', () => {
@@ -608,9 +603,7 @@ describe('chatActivity', () => {
       ).toBeNull()
     }
     // The PTY-busy fallback is parked-guarded too.
-    expect(
-      chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false),
-    ).toBeNull()
+    expect(chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false)).toBeNull()
   })
   it('keeps last-state attention labels on a hibernated session', () => {
     expect(
@@ -630,10 +623,7 @@ describe('chatActivity', () => {
   })
   it('shows nothing when idle and not just-sent', () => {
     expect(
-      chatActivity(
-        base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }),
-        false,
-      ),
+      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), false),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
   })
@@ -714,10 +704,7 @@ describe('sessionDotClass', () => {
 
   it('does not animate a hibernated dot even if its last tone was working', () => {
     const cls = sessionDotClass(
-      base({
-        status: 'hibernated',
-        agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
-      }),
+      base({ status: 'hibernated', agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
     )
     expect(cls).toContain('parked')
     expect(cls).not.toContain('dot-working')
@@ -739,12 +726,7 @@ describe('pinned panel ordering & co-location', () => {
   const needs = (cwd: string, id: string): SessionMeta => ({
     ...session(cwd),
     sessionId: id,
-    agentState: {
-      phase: 'needs_user',
-      since: '',
-      nativeSubagentCount: 0,
-      need: { kind: 'question' },
-    },
+    agentState: { phase: 'needs_user', since: '', nativeSubagentCount: 0, need: { kind: 'question' } },
   })
 
   it('derives no pinned-panels section — panel pins are inert (POD-169)', () => {

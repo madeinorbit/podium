@@ -230,14 +230,22 @@ describe('reduceAgentState', () => {
     expect(again).toBe(s)
 
     // Remove one; count matches remaining list.
-    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'ad7e66922f0d8ff7a' }, T1)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: -1, agentId: 'ad7e66922f0d8ff7a' },
+      T1,
+    )
     expect(s).toMatchObject({
       nativeSubagentCount: 1,
       nativeSubagents: [{ id: 'abb71646a07e32e0d', type: 'general-purpose' }],
     })
 
     // Last stop clears the list key.
-    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'abb71646a07e32e0d' }, T1)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: -1, agentId: 'abb71646a07e32e0d' },
+      T1,
+    )
     expect(s.nativeSubagentCount).toBe(0)
     expect(s.nativeSubagents).toBeUndefined()
   })
@@ -273,11 +281,7 @@ describe('reduceAgentState', () => {
     }
 
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
-    s = reduceAgentState(
-      s,
-      { kind: 'task_delta', delta: 1, agentId: 'A', agentType: 'Explore' },
-      T0,
-    )
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1, agentId: 'A', agentType: 'Explore' }, T0)
     expect(s).toMatchObject({
       nativeSubagentCount: 1,
       nativeSubagents: [{ id: 'A', type: 'Explore' }],

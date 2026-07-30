@@ -141,7 +141,9 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await expect(reviewRow.locator('[data-issue-row]')).toHaveAttribute('data-phase', 'waiting', {
     timeout: 30_000,
   })
-  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText('ready to merge · 1')
+  await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveText(
+    'ready to merge · 1',
+  )
 
   await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'done' } })
 

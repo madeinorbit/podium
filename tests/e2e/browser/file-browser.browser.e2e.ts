@@ -15,9 +15,7 @@ async function maybeShot(page: import('@playwright/test').Page, name: string): P
   if (SHOT) await page.screenshot({ path: `${SHOT}/${name}` })
 }
 
-test('worktree file browser: hover→browse→navigate→Up→open a file in the deck', async ({
-  page,
-}) => {
+test('worktree file browser: hover→browse→navigate→Up→open a file in the deck', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
 
@@ -33,9 +31,7 @@ test('worktree file browser: hover→browse→navigate→Up→open a file in the
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await expect(dialog.getByText(/^Files —/)).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'apps', exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(dialog.getByRole('button', { name: 'apps', exact: true })).toBeVisible({ timeout: 10_000 })
   await expect(dialog.getByRole('button', { name: 'package.json', exact: true })).toBeVisible()
   await maybeShot(page, 'fb-1-modal-list.png')
 
@@ -45,25 +41,19 @@ test('worktree file browser: hover→browse→navigate→Up→open a file in the
 
   // Navigate INTO a directory → lists that dir; Up becomes enabled.
   await dialog.getByRole('button', { name: 'apps', exact: true }).click()
-  await expect(dialog.getByRole('button', { name: 'web', exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(dialog.getByRole('button', { name: 'web', exact: true })).toBeVisible({ timeout: 10_000 })
   await expect(upBtn).toBeEnabled()
   await maybeShot(page, 'fb-2-navigated-apps.png')
 
   // Up → back to repo root (apps visible again, Up disabled).
   await upBtn.click()
-  await expect(dialog.getByRole('button', { name: 'apps', exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(dialog.getByRole('button', { name: 'apps', exact: true })).toBeVisible({ timeout: 10_000 })
   await expect(upBtn).toBeDisabled()
 
   // Click a file → modal closes and the file opens as a tab/panel in the deck.
   await dialog.getByRole('button', { name: 'package.json', exact: true }).click()
   await expect(dialog).toBeHidden({ timeout: 10_000 })
-  await expect(page.getByRole('button', { name: 'package.json' }).first()).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(page.getByRole('button', { name: 'package.json' }).first()).toBeVisible({ timeout: 10_000 })
   await expect(page.locator('.cm-content')).toBeVisible({ timeout: 10_000 })
   await expect(page.locator('.cm-content')).toContainText('@podium', { timeout: 10_000 })
   await maybeShot(page, 'fb-3-file-open-in-deck.png')

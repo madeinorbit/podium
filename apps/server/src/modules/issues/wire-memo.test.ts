@@ -1,9 +1,9 @@
 import type { SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { SessionStore } from '../../store'
 
 // POD-723: allWire() memoizes each issue's built wire payload, keyed by that
 // issue's own inputs (a generation counter bumped on any issue-side mutation +
@@ -17,11 +17,7 @@ function harness(sessions: SessionMeta[]) {
     listSessions: () => sessions,
     getSettings: () =>
       normalizeSettings({
-        gitWorkflow: {
-          defaultParentBranch: '',
-          mergeStyle: 'ff-only',
-          autoRebaseBeforeMerge: true,
-        },
+        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),

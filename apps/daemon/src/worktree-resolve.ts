@@ -217,7 +217,8 @@ export function createSessionCwdTracker(opts: {
     info: WorktreeInfo,
     explicit?: boolean,
   ): Promise<SessionCwdUpdate> => {
-    const branch = info.kind === 'worktree' ? await lookupBranch(info.root).catch(() => null) : null
+    const branch =
+      info.kind === 'worktree' ? await lookupBranch(info.root).catch(() => null) : null
     return {
       sessionId,
       cwd: info.root,

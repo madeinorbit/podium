@@ -10,23 +10,13 @@ import { SessionRegistry } from '../../relay'
 describe('POD-722 session broadcast skips issue republish when no issue field changed', () => {
   const G = { cols: 80, rows: 24 }
   const bind = (sessionId: string) =>
-    ({
-      type: 'bind',
-      sessionId,
-      cmd: 'claude',
-      cwd: '/repo/w',
-      agentKind: 'claude-code',
-      geometry: G,
-    }) as const
+    ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/repo/w', agentKind: 'claude-code', geometry: G }) as const
 
   function setup() {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})
     reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
-    const s1 = reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/repo/w',
-    }).sessionId
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/w' }).sessionId
     reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []

@@ -71,9 +71,7 @@ const done = traces.filter((t) => !t.timedOut)
 const timedOut = traces.length - done.length
 const totals = done.map((t) => t.totalMs).sort((a, b) => a - b)
 const pct = (q: number): number =>
-  totals.length === 0
-    ? 0
-    : Math.round(totals[Math.min(totals.length - 1, Math.floor(q * totals.length))]!)
+  totals.length === 0 ? 0 : Math.round(totals[Math.min(totals.length - 1, Math.floor(q * totals.length))]!)
 console.log(
   `traces=${traces.length} quiesced=${done.length} timedOut=${timedOut} ` +
     `p50=${pct(0.5)}ms p90=${pct(0.9)}ms max=${Math.round(totals[totals.length - 1] ?? 0)}ms → ${OUT}`,
