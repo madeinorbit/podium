@@ -47,7 +47,6 @@ function harness() {
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
-      publishComputed: (snapshot) => published.push({ snapshot }),
     },
     ledger,
     publishSpecs: plumbing.publishSpecs,
@@ -291,7 +290,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,
-        publishComputed: (snapshot) => published2.push({ snapshot }),
       },
       ledger: ledger2,
       publishSpecs: plumbing2.publishSpecs,

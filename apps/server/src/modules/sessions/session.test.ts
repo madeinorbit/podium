@@ -34,6 +34,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
+    wireVersion: 1,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

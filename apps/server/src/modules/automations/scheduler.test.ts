@@ -170,7 +170,6 @@ function harness(
     now: () => clock.getTime(),
     transact: (fn) => store.transact(fn),
   })
-  const funnel = { publishComputed: vi.fn() }
   const createSession = vi.fn((_input: { cwd: string }) => {
     if (opts.spawnThrows) throw new Error('no daemon for that machine')
     n += 1
@@ -185,7 +184,6 @@ function harness(
   const service = new AutomationsService({
     store: store.automations,
     ledger,
-    funnel,
     createSession,
     queueText,
     resumeAndSend,
@@ -198,7 +196,6 @@ function harness(
     store,
     service,
     ledger,
-    funnel,
     createSession,
     queueText,
     resumeAndSend,
@@ -447,10 +444,21 @@ describe('AutomationsService.tick — spawn', () => {
       ['automation', a.id, 'upsert'],
     ])
     expect(changes?.map((change) => change.seq)).toEqual([1, 2, 3, 4])
-    expect(h.funnel.publishComputed).toHaveBeenCalledWith({
-      type: 'automationRunsChanged',
-      automationRuns: [expect.objectContaining({ automationId: a.id, outcome: 'spawned' })],
-    })
+    // WAS: the `automationRunsChanged` snapshot this spawn also fanned out. The
+    // snapshot tail is deleted (POD-1203) and the assertion is replaced by its
+    // positive form rather than dropped — the run's VALUE is now carried by the
+    // change row above, which is what a client is served from. Asserting the
+    // payload here is strictly stronger than asserting a message was sent: a
+    // snapshot could have disagreed with the row, and that is the defect class
+    // the cutover removes.
+    // The LAST run row, not the first: the reservation lands before the spawn
+    // (rows 2 and 3 above), and the outcome under test is the final one.
+    const spawned = changes
+      ?.filter((change) => change.entity === 'automationRun' && change.op === 'upsert')
+      .at(-1)
+    expect(spawned && 'value' in spawned ? spawned.value : undefined).toEqual(
+      expect.objectContaining({ automationId: a.id, outcome: 'spawned' }),
+    )
   })
 
   it('[POD-925] reserved-but-unfinished occurrence resumes instead of losing the fire', () => {
@@ -599,7 +607,6 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const service = new AutomationsService({
       store: h.store.automations,
       ledger: h.ledger,
-      funnel: h.funnel,
       createSession: live.createSession,
       queueText: live.queueText,
       resumeAndSend: live.resumeAndSend,
