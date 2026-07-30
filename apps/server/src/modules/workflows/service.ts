@@ -379,6 +379,16 @@ export class WorkflowService implements WorkflowEngine {
       profile = this.deps.store.getProfile(input.profileId)
       if (!profile) throw new Error(`unknown execution profile: ${input.profileId}`)
     }
+    // PLACEMENT AT APPLY (readiness §3.1.4 M5, and the second half of the check
+    // `assignStep` / `profileSave` make at write time).
+    //
+    // BOTH are needed and neither is redundant. A run is long-lived and
+    // unattended: the grant that authorized the assignment can be revoked
+    // before the step is ever launched, and the snapshot pinned to the step is
+    // correct for REPRODUCIBILITY but must never become the model for
+    // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
+    // the current grants, every time work is actually placed.
+    this.access.assertMayPlaceOn(profile.machineId)
     const harness = AgentKind.safeParse(profile.harness)
     if (!harness.success) {
       throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
