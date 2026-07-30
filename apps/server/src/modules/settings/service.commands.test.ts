@@ -19,7 +19,8 @@
  *    own schema rejects, so "it wrote something" is not the only thing proved.
  */
 
-import { SERVER_SECRET_KEYS } from '@podium/model'
+import { asUserId, SERVER_SECRET_KEYS } from '@podium/model'
+import type { TelegramChatBinding, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
@@ -54,6 +55,12 @@ beforeEach(() => {
   store = makeStore()
   bus = new EventBus()
   service = new SettingsService(store, bus, {
+    // Required deps (POD-1080): where a redeemed binding is written, and the
+    // user a claim code is minted FOR. Both required rather than defaulted —
+    // a no-op writer would let the ceremony report success while binding
+    // nothing, and a default user would stamp one id for everybody.
+    telegramBindings: { upsert: () => {} },
+    mintingUser: () => asUserId('user:sole'),
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
     modelProbe: { list: vi.fn(async () => []) } as never,
@@ -203,5 +210,111 @@ describe('the preference patch applies by path and validates by model', () => {
       /server-owned secrets/,
     )
     expect(service.getSettings().apiKeys.openai).toBe('')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The binding ceremony (POD-1080, ADR 3 Amendment 1 D22)
+// ---------------------------------------------------------------------------
+
+describe('the binding names the MINTER, never whoever redeems', () => {
+  const ALICE = asUserId('user:alice')
+  const BOB = asUserId('user:bob')
+
+  /** A service whose minting user can CHANGE between mint and redeem — the only
+   *  way to tell "the binding follows the mint" apart from "the binding follows
+   *  whoever is around", which on a one-user instance look identical. */
+  function ceremony(): {
+    service: SettingsService
+    bound: TelegramChatBinding[]
+    setUser: (u: UserId) => void
+  } {
+    const st = makeStore()
+    st.setSettings(
+      normalizeSettings({
+        notifications: { telegramBotToken: 'bot:tok' },
+      } as never),
+    )
+    const bound: TelegramChatBinding[] = []
+    let current: UserId = ALICE
+    const service = new SettingsService(st, new EventBus(), {
+      telegramBindings: { upsert: (b) => bound.push(b) },
+      mintingUser: () => current,
+      generateTelegramSetupCode: () => 'PODIUM-CODE',
+      telegramSetup: {
+        getMe: async () => ({ username: 'bot' }),
+        getUpdates: async () => [
+          { updateId: 1, chatId: 555, chatType: 'private', text: '/start PODIUM-CODE' },
+        ],
+        sendMessage: async () => {},
+      },
+      fingerprintKey: () => FINGERPRINT_KEY,
+      now: () => Date.parse('2026-07-30T12:00:00.000Z'),
+      modelProbe: { list: vi.fn(async () => []) } as never,
+    })
+    return { service, bound, setUser: (u) => { current = u } }
+  }
+
+  it('binds the chat to the user who MINTED, with a different user now current', async () => {
+    // THE TEST THE WHOLE ISSUE TURNS ON. Alice mints; by redemption the service's
+    // idea of "the current user" is Bob; the binding must still say Alice,
+    // because the user travelled inside the mint. If it says Bob, ownership is
+    // flowing from the redeeming call — POD-1079's failure mode, where anyone
+    // holding a setupId completes someone else's ceremony and takes the chat.
+    const { service, bound, setUser } = ceremony()
+    const setup = await service.startTelegramSetup()
+    setUser(BOB)
+    const result = await service.pollTelegramSetup(setup.setupId)
+
+    expect(result.status).toBe('connected')
+    expect(bound).toHaveLength(1)
+    expect(bound[0]?.userId).toBe(ALICE)
+    expect(bound[0]?.boundBy.onBehalfOf).toBe(ALICE)
+  })
+
+  it('binds to BOB when BOB is the one who minted — the mint is read, not a constant', async () => {
+    // The positive control the previous test needs: without it, an
+    // implementation that hard-coded Alice would pass it perfectly.
+    const { service, bound, setUser } = ceremony()
+    setUser(BOB)
+    const setup = await service.startTelegramSetup()
+    setUser(ALICE)
+    await service.pollTelegramSetup(setup.setupId)
+
+    expect(bound[0]?.userId).toBe(BOB)
+  })
+
+  it('records the chat the claimant messaged from', async () => {
+    const { service, bound } = ceremony()
+    const setup = await service.startTelegramSetup()
+    await service.pollTelegramSetup(setup.setupId)
+    expect(bound[0]?.chatId).toBe('555')
+  })
+
+  it('writes NO binding when the ceremony does not complete', async () => {
+    // A mint on its own binds nothing: the code has to come back through
+    // Telegram. Without this, "the binding names the minter" could be satisfied
+    // by a service that binds at MINT time, which would let anyone who can start
+    // a ceremony bind a chat they do not control.
+    const { service, bound } = ceremony()
+    await service.startTelegramSetup()
+    expect(bound).toEqual([])
+  })
+
+  it('an unknown setupId is `expired`, indistinguishable from a stale one', async () => {
+    // The contract's error-consistency cell: telling them apart would say
+    // whether someone else's ceremony is currently open.
+    const { service, bound } = ceremony()
+    expect(await service.pollTelegramSetup('never-minted')).toEqual({ status: 'expired' })
+    expect(bound).toEqual([])
+  })
+
+  it('a redeemed mint is single-use — the second redemption is `expired`', async () => {
+    const { service, bound } = ceremony()
+    const setup = await service.startTelegramSetup()
+    expect((await service.pollTelegramSetup(setup.setupId)).status).toBe('connected')
+    expect(await service.pollTelegramSetup(setup.setupId)).toEqual({ status: 'expired' })
+    expect(bound).toHaveLength(1)
   })
 })

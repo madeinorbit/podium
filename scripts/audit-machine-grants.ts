@@ -104,6 +104,12 @@ export const SOLE_OWNER_ALLOWLIST: ReadonlySet<string> = new Set([
   'apps/server/src/machine-access.ts',
   // `ensureLocalMachine` — provisioned at boot with no principal in scope.
   'apps/server/src/modules/machines/service.ts',
+  // POD-1080: the user a Telegram claim code is minted FOR. Not a machine
+  // owner, and deliberately the same placeholder rather than a fourth spelling
+  // of "this build cannot tell two humans apart" — one name means one deletion
+  // when POD-315 lands, and this list is the census of what that deletion has
+  // to visit.
+  'apps/server/src/relay.ts',
 ])
 
 const SCANNED_DIRS = ['apps', 'packages', 'scripts'] as const

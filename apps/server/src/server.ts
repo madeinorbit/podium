@@ -269,6 +269,9 @@ export async function startServer(
       readTranscript: (input) => registry.modules.rpc.readTranscript(input),
     },
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
+    // The binding table, read live per message: an inbound chat resolves to the
+    // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
+    telegramBindings: store.telegramBindings,
   })
   messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()

@@ -592,11 +592,14 @@ export const appRouter = t.router({
    *    auto-continue dialog and the engine — and it now REFUSES a secret change
    *    (`assertNoSecretChange`), so the only way to write credential material is
    *    the online-sensitive, admin-grade, never-queued pair above.
-   *  - `telegramSetupStart` / `telegramSetupPoll` are a stateful pairing ceremony
-   *    over a third-party API, not a settings write with a payload.
    *
-   * `scripts/audit-settings-commands.ts` names those three exceptions BY KEY and
-   * fails on any other hand-written `.mutation(` here, in both directions.
+   * `telegramSetupStart` / `telegramSetupPoll` are NO LONGER exceptions: POD-1080
+   * contracted the binding ceremony (ADR 3 Amendment 1 D22) and they now arrive
+   * through `...settingsFamily` like every other classified write. Their wire
+   * keys are unchanged, so nothing client-side moved.
+   *
+   * `scripts/audit-settings-commands.ts` names the remaining exceptions BY KEY
+   * and fails on any other hand-written `.mutation(` here, in both directions.
    */
   settings: t.router({
     get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
@@ -606,10 +609,6 @@ export const appRouter = t.router({
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
     ...settingsFamily,
-    telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
-    telegramSetupPoll: t.procedure
-      .input(z.object({ setupId: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
   // Switch-latency instrumentation [POD-701]: rolling server-side timings
   // (every rpc via the trpc.ts middleware + named internal phases) and the

@@ -85,6 +85,26 @@ export const SETTINGS_COMMANDS_TRPC = {
       unknown
     >,
   },
+  // THE BINDING CEREMONY (POD-1080). These two were hand-written in `router.ts`
+  // and named as exceptions by the audit; joining them here is what removes the
+  // exception rather than documenting it. The handlers are one line each for the
+  // same reason the others are: the ceremony's logic — who the mint names, what
+  // redemption may read — is in the service and the model, where its refusing
+  // arms are testable without a transport.
+  'settings.telegramSetupStart': {
+    contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
+    handler: ((svc) => svc.startTelegramSetup()) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupStart']['input']>,
+      unknown
+    >,
+  },
+  'settings.telegramSetupPoll': {
+    contract: SETTINGS_CONTRACTS['settings.telegramSetupPoll'],
+    handler: ((svc, input) => svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupPoll']['input']>,
+      unknown
+    >,
+  },
 } as const satisfies Record<SettingsContractName, SettingsCommand>
 
 export type SettingsCommandName = keyof typeof SETTINGS_COMMANDS_TRPC

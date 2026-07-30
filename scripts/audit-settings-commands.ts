@@ -91,17 +91,18 @@ export const DERIVED_SPREAD = '...settingsFamily'
  *  - `set` — the legacy blob write. Still called by the sidebar, the
  *    auto-continue dialog and the engine, and it REFUSES a secret change
  *    (check 4). Retiring it belongs with POD-419's client scrub.
- *  - `telegramSetupStart` / `telegramSetupPoll` — a stateful pairing ceremony
- *    over a third-party API, not a settings write with a payload. Modelling a
- *    ceremony as a command contract is its own design question, and ADR 9 D8's
- *    note that the inbound Telegram edge becomes an AUTHENTICATION surface under
- *    multi-user says that question is bigger than this issue.
+ * `telegramSetupStart` / `telegramSetupPoll` WERE HERE AND ARE GONE, which is
+ * the direction this list is supposed to move. POD-420 deferred them —
+ * "modelling a ceremony as a command contract is its own design question, and
+ * ADR 9 D8's note that the inbound Telegram edge becomes an AUTHENTICATION
+ * surface under multi-user says that question is bigger than this issue" — and
+ * POD-1080 is that issue: they are contracted (ADR 3 Amendment 1 D22) and
+ * derived like every other classified write, under the same wire keys. The
+ * both-directions check is what makes their removal from this list mean
+ * something: if they were still hand-written in `router.ts`, dropping them here
+ * would fail check 1 rather than pass quietly.
  */
-export const ALLOWED_HAND_WRITTEN: readonly string[] = [
-  'set',
-  'telegramSetupStart',
-  'telegramSetupPoll',
-]
+export const ALLOWED_HAND_WRITTEN: readonly string[] = ['set']
 
 /**
  * Extract a `<name>: t.router({ … })` literal by BRACE MATCHING.
@@ -340,21 +341,22 @@ export function auditSettingsCommands(
 // --probe — every check must find its planted fixture
 // ---------------------------------------------------------------------------
 
-/** A clean fixture: the derived spread, the three named exceptions, and a
- *  nested `z.object` whose LAST FIELD would fool a column-anchored matcher into
- *  naming it as the procedure (POD-386's defect, planted deliberately). */
+/** A clean fixture: the derived spread, the one named exception, and a nested
+ *  `z.object` whose LAST FIELD would fool a column-anchored matcher into naming
+ *  it as the procedure (POD-386's defect, planted deliberately).
+ *
+ *  The decoy moved onto `set` when POD-1080 contracted the telegram ceremony and
+ *  the exception list shrank to one. It had to move rather than be dropped: the
+ *  POD-386 defect is about how a procedure KEY is chosen, and a fixture with no
+ *  nested object literal stops exercising it. */
 const PROBE_CLEAN_ROUTER = `
 export const appRouter = t.router({
   settings: t.router({
     get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
     set: t.procedure
-      .input(PodiumSettings)
+      .input(z.object({ values: PodiumSettings, decoy: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
     ...settingsFamily,
-    telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
-    telegramSetupPoll: t.procedure
-      .input(z.object({ setupId: z.string(), decoy: z.string() }))
-      .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
 })
 `
@@ -369,9 +371,12 @@ const PROBE_SMUGGLED_ROUTER = PROBE_CLEAN_ROUTER.replace(
       .mutation(({ ctx, input }) => mods(ctx).settings.smuggle(input)),`,
 )
 
-/** A fixture that lost a NAMED exception — the removal direction. */
+/** A fixture that lost a NAMED exception — the removal direction. An absorbed
+ *  surface reads as progress on every ratchet, so it must be a finding. */
 const PROBE_ABSORBED_ROUTER = PROBE_CLEAN_ROUTER.replace(
-  `    telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),\n`,
+  `    set: t.procedure
+      .input(z.object({ values: PodiumSettings, decoy: z.string() }))
+      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),\n`,
   '',
 )
 
@@ -440,11 +445,17 @@ export function probe(): Finding[] {
         'is what anchoring on columns rather than nesting depth produces',
     })
   }
-  if (keys.length !== 3) {
+  // DERIVED from the allowlist rather than a literal (was `3` until POD-1080
+  // shrank the list to one). The clean fixture is built to contain exactly the
+  // allowed keys, so deriving it means adding an exception without extending the
+  // fixture fires HERE — where a literal would just have to be re-typed. The
+  // `> 0` half is the original point: a parser that finds nothing passes every
+  // absence claim, and an empty allowlist must not make that vacuous.
+  if (keys.length !== ALLOWED_HAND_WRITTEN.length || keys.length === 0) {
     failures.push({
       check: 'instrument',
       where: at,
-      detail: `the depth parser found ${keys.length} mutations in a fixture that has 3 — a parser that finds none passes every absence claim`,
+      detail: `the depth parser found ${keys.length} mutations in a fixture built to have ${ALLOWED_HAND_WRITTEN.length} — a parser that finds none passes every absence claim`,
     })
   }
 

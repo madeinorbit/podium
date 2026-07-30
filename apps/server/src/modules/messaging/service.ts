@@ -1,4 +1,13 @@
-import type { AgentRuntimeState, IssueId, IssueWire, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  AgentRuntimeState,
+  IssueId,
+  IssueWire,
+  SessionId,
+  TelegramChatBinding,
+  TranscriptItem,
+  UserId,
+} from '@podium/model'
+import { resolveTelegramPrincipal } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
@@ -78,6 +87,16 @@ export interface MessagingDeps {
   now?: () => number
   /** True while the settings telegram-setup pairing window owns getUpdates. */
   telegramSetupPending?: () => boolean
+  /**
+   * THE BINDING TABLE — the ONLY thing an inbound chat id may be resolved
+   * against (ADR 3 Amendment 1 D22.1), and REQUIRED.
+   *
+   * Not optional with an empty-list default: an absent reader would make every
+   * chat unbound, which fails closed and is therefore invisible — the bridge
+   * would simply stop working with no error, and the obvious fix would be to
+   * make the gate permissive. A missing dependency is a compile error instead.
+   */
+  telegramBindings: { list(): TelegramChatBinding[] }
   /** Adapter factory — injected in tests. */
   createTelegram?: (config: { botToken: string; chatId: string }) => ChannelAdapter
   /** Telegram setMyCommands — injected in tests. */
@@ -323,7 +342,36 @@ export class MessagingService implements TelegramNoticePort {
     return `No agent session — messages here go to the ${issue.repoPath} concierge.`
   }
 
+  /**
+   * WHICH USER DOES THIS CHAT SPEAK AS — or nobody (ADR 3 Amendment 1 D22.2).
+   *
+   * Reads the binding table LIVE on every message. No cache: unbinding a chat
+   * has to take effect on the next message with no invalidation step to forget,
+   * which is the same reason grants are read per-decision rather than snapshot.
+   *
+   * There is no fallback branch. Not "fall back to the configured chat", not
+   * "fall back to the first admin" — D22.2 forbids both by name, and the reason
+   * is that either one turns knowledge of the bot's handle into an
+   * unauthenticated write path against the whole instance.
+   */
+  private resolveInboundUser(source: ConversationRef): UserId | undefined {
+    const resolution = resolveTelegramPrincipal(this.deps.telegramBindings.list(), source.chatId)
+    return resolution.ok ? resolution.userId : undefined
+  }
+
   private onInbound(msg: InboundChatMessage): void {
+    // THE GATE, BEFORE ANY EFFECT. Every inbound path below this line — slash
+    // commands, callbacks, plain turns — acts on the instance, so the check
+    // belongs at the one place all three pass through rather than on each.
+    //
+    // The refusal is SILENT: no reply, no error, nothing that distinguishes
+    // "this instance exists and you are not bound" from "nothing is here". D22.2
+    // — the refusal must not disclose more than an unbound chat already knows.
+    // A helpful "you are not authorised, run /start" would be an oracle for
+    // whether a Podium instance is behind this bot.
+    const boundUser = this.resolveInboundUser(msg.source)
+    if (!boundUser) return
+
     this.lastInboundRef = msg.source
     if (msg.callback) {
       void this.handleCallback(msg)
