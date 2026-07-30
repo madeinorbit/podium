@@ -183,7 +183,12 @@ export function strandedContractsReturned(
  * back into a literal to get a narrower type, which silently restores the drift.
  */
 export function nameListRestated(source: string, file: string): Finding[] {
-  const decl = /export const ISSUE_COMMAND_NAMES[^\n]*=\s*([^\n]*)/.exec(source)
+  // The declaration's text, NOT its first line. Anchoring on the line breaks the
+  // moment biome reflows a long declaration — which is exactly what happened when
+  // POD-301 added an import and pushed `Object.keys(ISSUE_CONTRACTS).sort()` onto
+  // three lines: the derivation was intact and this check reported it restated.
+  // `representation-audit.ts` documents the same trap for its own key matcher.
+  const decl = /export const ISSUE_COMMAND_NAMES[^=]*=\s*([\s\S]{0,240})/.exec(source)
   if (!decl) {
     return [
       {
@@ -195,7 +200,14 @@ export function nameListRestated(source: string, file: string): Finding[] {
       },
     ]
   }
-  if (!(decl[1] as string).includes('Object.keys(ISSUE_CONTRACTS)')) {
+  // Whitespace-normalized: the reflowed form splits `Object.keys(` from
+  // `ISSUE_CONTRACTS)` across lines, and a raw substring test cannot see through
+  // that. The check is about the DERIVATION being present, not its layout.
+  // Whitespace stripped AND the trailing comma dropped: biome's reflowed form is
+  // `Object.keys(\n  ISSUE_CONTRACTS,\n)`, so both the newlines and the magic
+  // comma sit between the two halves of the substring being tested.
+  const derivation = (decl[1] as string).replace(/\s+/g, '').replace(/,\)/g, ')')
+  if (!derivation.includes('Object.keys(ISSUE_CONTRACTS)')) {
     return [
       {
         check: 'derived-name-list',

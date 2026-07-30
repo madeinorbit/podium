@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*"
   },
