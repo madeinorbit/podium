@@ -10,7 +10,7 @@ import {
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
-  isIssueSnoozed,
+  isIssueDeferred,
   isSnoozed,
   issueReturnedFromDefer,
   lastUsedMachine,
@@ -27,7 +27,7 @@ import {
   snoozeUntilTomorrow5am,
   withoutHeadless,
   worktreeForCwd,
-} from '@podium/domain'
+} from '@podium/model'
 import {
   type AgentKind,
   type GitRepositoryWire,
@@ -39,7 +39,7 @@ import {
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
 
-// Entity-pure predicates live in @podium/domain (#194) — client-core imports
+// Entity-pure predicates live in @podium/model (#194) — client-core imports
 // them (above) rather than redefining them, and re-exports the same bindings
 // (not new `export const`/`export function` declarations — see
 // scripts/check-boundaries.ts rule 7, which flags exactly that shape) so
@@ -50,7 +50,7 @@ export {
   DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
-  isIssueSnoozed,
+  isIssueDeferred,
   isSnoozed,
   issueReturnedFromDefer,
   lastUsedMachine,
@@ -241,7 +241,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
 // machinesWithRepo/machinesForRepo/lastUsedMachine/resolveTargetMachine
 // (machine-affinity identity) and worktreeForCwd/isHeadlessSession/
 // withoutHeadless (worktree + session identity) are entity-pure — imported
-// from @podium/domain above and re-exported, not redefined here (#194).
+// from @podium/model above and re-exported, not redefined here (#194).
 
 /** Precomputed session ownership for one immutable sidebar snapshot. */
 export interface SessionOwnershipIndex {
@@ -487,9 +487,12 @@ export interface SidebarSections {
 export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 
 // isSnoozed/returnedFromSnooze/snoozeUntil1h/snoozeUntilTomorrow5am (session
-// snooze) and isIssueSnoozed/issueReturnedFromDefer (issue defer — dedupes
-// against @podium/domain's isIssueDeferred) are entity-pure — imported from
-// @podium/domain above and re-exported, not redefined here (#194).
+// snooze) and isIssueDeferred/issueReturnedFromDefer (issue defer) are
+// entity-pure — imported from @podium/model above and re-exported, not
+// redefined here (#194). All four take an `Instant` (epoch ms): POD-299
+// collapsed the ISO-string/epoch-ms twin predicates into one clock
+// representation, so `isIssueSnoozed` is gone and `isIssueDeferred` is the
+// single spelling for both the server and these viewmodels.
 
 /** A parent/epic's direct children, seq-ordered, INCLUDING archived ones (issue
  *  #133). The subissue list keeps archived children visible (the UI marks them
@@ -695,7 +698,7 @@ export function partitionWorkItems(
 }
 
 // dedupeSessionsByResume (collapsing duplicate rows for the same underlying
-// agent conversation) is entity-pure — imported from @podium/domain above and
+// agent conversation) is entity-pure — imported from @podium/model above and
 // re-exported, not redefined here (#194).
 
 /** A session is "stale" when it's been inactive longer than this. */
@@ -1680,7 +1683,7 @@ export function nestStartedByIssues(
 function unifiedRowBand(row: UnifiedWorkRow, now: number): number {
   if (row.kind === 'issue') {
     if (row.issue.pinned || issueReturnedFromDefer(row.issue, now)) return 0
-    if (isIssueSnoozed(row.issue, now)) return 2
+    if (isIssueDeferred(row.issue, now)) return 2
   }
   return 1
 }
@@ -1900,7 +1903,7 @@ export interface UnifiedWorkGroup {
  * been removed before grouping, and a returned-from-defer issue is not
  * currently snoozed, so both keep their existing top-of-list treatment. */
 export function rowInSnoozedFold(row: UnifiedWorkRow, now: number): row is UnifiedIssueRow {
-  return row.kind === 'issue' && isIssueSnoozed(row.issue, now)
+  return row.kind === 'issue' && isIssueDeferred(row.issue, now)
 }
 
 /** POD-183 / POD-293 fold membership. Live asks outrank structure: needs-you

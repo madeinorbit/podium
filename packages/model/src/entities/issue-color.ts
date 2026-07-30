@@ -12,8 +12,7 @@
  * confusable with a status); red is folded into rose; slate #94a3b8 is the
  * no-colour flow, not a pickable slot.
  *
- * Structural on purpose (no @podium/protocol import: domain is a zero-dependency
- * leaf). The wire enum in @podium/protocol mirrors this list; a drift test in
+ * Structural on purpose  * leaf). The wire enum in @podium/protocol mirrors this list; a drift test in
  * apps/server pins the two.
  */
 

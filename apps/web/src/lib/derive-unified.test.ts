@@ -6,7 +6,7 @@ import {
   branchRollup,
   deepAttentionSource,
   groupUnifiedWorkRows,
-  isIssueSnoozed,
+  isIssueDeferred,
   isRowUnread,
   issueReturnedFromDefer,
   issueVisibleInSidebar,
@@ -468,19 +468,19 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   })
 })
 
-describe('isIssueSnoozed / issueReturnedFromDefer', () => {
+describe('isIssueDeferred / issueReturnedFromDefer', () => {
   it('snoozed while deferUntil is in the future', () => {
     const future = new Date(NOW + HOUR).toISOString()
-    expect(isIssueSnoozed(issue({ deferUntil: future }), NOW)).toBe(true)
+    expect(isIssueDeferred(issue({ deferUntil: future }), NOW)).toBe(true)
     expect(issueReturnedFromDefer(issue({ deferUntil: future }), NOW)).toBe(false)
   })
   it('returned-from-defer once deferUntil has lapsed but is still set', () => {
     const past = new Date(NOW - HOUR).toISOString()
-    expect(isIssueSnoozed(issue({ deferUntil: past }), NOW)).toBe(false)
+    expect(isIssueDeferred(issue({ deferUntil: past }), NOW)).toBe(false)
     expect(issueReturnedFromDefer(issue({ deferUntil: past }), NOW)).toBe(true)
   })
   it('neither when deferUntil is unset', () => {
-    expect(isIssueSnoozed(issue(), NOW)).toBe(false)
+    expect(isIssueDeferred(issue(), NOW)).toBe(false)
     expect(issueReturnedFromDefer(issue(), NOW)).toBe(false)
   })
 })

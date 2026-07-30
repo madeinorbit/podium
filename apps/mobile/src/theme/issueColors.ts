@@ -1,10 +1,10 @@
-import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLATE, type IssueColorSlot } from '@podium/domain'
+import { ISSUE_COLOR_HEX, ISSUE_COLOR_SLATE, type IssueColorSlot } from '@podium/model'
 import { mix } from './mix'
 
 /**
  * The issue-accent "colour flow" for native surfaces. [spec:SP-b4d1]
  *
- * Palette slots and hexes come from @podium/domain (the same source the web
+ * Palette slots and hexes come from @podium/model (the same source the web
  * shell uses); this module adds the native-side derivations the web gets from
  * CSS `color-mix()` — see ./mix.ts. Tint percentages mirror the web's
  * issue-mix-* utilities so a surface recipe produces identical pixels on both

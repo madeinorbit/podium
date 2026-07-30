@@ -1,4 +1,4 @@
-import { repoNameFromOrigin } from '@podium/domain'
+import { repoNameFromOrigin } from '@podium/model'
 import type { MachineWire } from '@podium/protocol'
 import {
   Check,

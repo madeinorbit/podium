@@ -22,7 +22,7 @@
  */
 
 import type { Principal } from '@podium/protocol'
-import type { Capability, IssueRole, IssueScope } from '@podium/domain'
+import type { Capability, IssueRole, IssueScope } from '@podium/model'
 
 export interface CapabilityRequest {
   /** The role floor the policy layer minted for this principal (ADR 3 Am.1 D15). */

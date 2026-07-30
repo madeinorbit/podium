@@ -140,8 +140,8 @@ describe('checkManifestEdge — layer axiom', () => {
       checkManifestEdge(
         'packages/client-core/src/x.ts',
         'packages/client-core',
-        'packages/domain',
-        value('@podium/domain'),
+        'packages/model',
+        value('@podium/model'),
       ),
     ).toEqual([])
   })
@@ -191,8 +191,8 @@ describe('checkManifestEdge — layer axiom', () => {
     // ... and a type-only UPWARD edge is erased too.
     expect(
       checkManifestEdge(
-        'packages/domain/src/x.ts',
-        'packages/domain',
+        'packages/model/src/x.ts',
+        'packages/model',
         'apps/server',
         typeOnly('@podium/server'),
       ),
@@ -204,8 +204,8 @@ describe('checkManifestEdge — layer axiom', () => {
       checkManifestEdge(
         'packages/ghost/src/x.ts',
         'packages/ghost',
-        'packages/domain',
-        value('@podium/domain'),
+        'packages/model',
+        value('@podium/model'),
       ),
     ).toEqual([])
   })
@@ -227,8 +227,8 @@ describe('checkManifestEdge — test-file exemptions', () => {
 
   it('does NOT exempt a test file from the upward rule', () => {
     const v = checkManifestEdge(
-      'packages/domain/src/x.test.ts',
-      'packages/domain',
+      'packages/model/src/x.test.ts',
+      'packages/model',
       'apps/server',
       value('@podium/server'),
     )
@@ -761,7 +761,7 @@ describe('MANIFEST_RULES drift', () => {
       'leaf-package',
       'packages-no-apps',
       'restricted-package-deps',
-      'domain-single-home',
+      'model-single-home',
       'runtime-browser-safety',
       'server-role-tiers',
     ]) {

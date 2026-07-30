@@ -1,7 +1,7 @@
 /**
  * Attention-tier math for the daemon's PTY output scheduler (#194: moved from
  * apps/server/src/session-priority.ts — pure, platform-neutral, belongs in
- * domain alongside the other session-identity predicates).
+ * the model alongside the other session-identity predicates).
  */
 export interface PriorityClient {
   attached: ReadonlySet<string>

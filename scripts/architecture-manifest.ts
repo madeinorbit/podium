@@ -9,7 +9,7 @@
  * The tags:
  *
  *  - `layer` (L0–L5) — the ordinal dependency tier. Imports point DOWN:
- *      L0 model        (domain)
+ *      L0 model        (model)
  *      L1 wire/commands/contracts (protocol, issue-client)
  *      L2 kernels/ports (transcript, runtime, sync, agent-bridge, pty, terminal-client)
  *      L3 features/adapters/engine (client-core, terminal-client-react)
@@ -31,7 +31,7 @@
  *  - `features` — the concerns a workspace OWNS. Ownership is exclusive: two
  *    workspaces claiming the same feature is a manifest bug (asserted by the
  *    unit tests, see {@link duplicateFeatureOwners}). The enforcement arm today
- *    is legacy rule 7 (domain single-home); POD-335 generalises it over this tag.
+ *    is legacy rule 7 (model single-home); POD-335 generalises it over this tag.
  *
  * Plus one non-dependency axiom:
  *
@@ -183,11 +183,21 @@ export interface WorkspaceTags {
  * an allowlisted violation removed by POD-294.
  */
 export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
-  // L0 — model.
-  'packages/domain': {
+  // L0 — model. The zero-dependency root (POD-299): zod-only, importing no
+  // workspace package at all, which is what makes it the one definition site.
+  // Absorbed the deleted `packages/domain` wholesale, and owns that package's
+  // features plus the one clock representation (`Instant` + edge adapters).
+  'packages/model': {
     layer: 0,
     platform: 'browser-safe',
-    features: ['entity-predicates', 'issue-stage', 'issue-authz', 'session-dedup', 'git-identity'],
+    features: [
+      'entity-predicates',
+      'issue-stage',
+      'issue-authz',
+      'session-dedup',
+      'git-identity',
+      'clock',
+    ],
   },
 
   // L1 — wire / commands / contracts.

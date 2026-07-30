@@ -99,7 +99,7 @@ export type IssuePanel = z.infer<typeof IssuePanel>
 
 /** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
  *  as the slot NAME, never a hex (the palette maps slots to full colouring
- *  schemes client-side). Mirrors @podium/domain's ISSUE_COLOR_SLOTS (protocol
+ *  schemes client-side). Mirrors @podium/model's ISSUE_COLOR_SLOTS (protocol
  *  stays dependency-free; a drift test in apps/server pins the two lists). */
 export const IssueColor = z.enum([
   'rose',

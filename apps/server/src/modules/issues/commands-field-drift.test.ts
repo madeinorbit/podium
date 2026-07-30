@@ -1,4 +1,4 @@
-import { ISSUE_COLOR_SLOTS } from '@podium/domain'
+import { ISSUE_COLOR_SLOTS } from '@podium/model'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
 import { IssueColor } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'

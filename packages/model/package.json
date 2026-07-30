@@ -1,8 +1,8 @@
 {
-  "name": "@podium/domain",
+  "name": "@podium/model",
   "version": "0.0.0",
   "private": true,
-  "description": "Pure Podium domain logic: the issue closed/stage machine, ready/blocked/deferred derivation, the issue authorization policy (roles, scopes, authorize), session/issue snooze predicates, git remote identity, worktree/repo/machine-affinity identity, session dedup + attention-priority math, the phone-vs-desktop web entry decision. No IO, no sqlite, no node imports, no @podium/protocol dependency — a zero-dependency leaf package.",
+  "description": "The L0 zero-dependency root of the Podium model: every entity defined once. Branded ids, entity vocabularies, the issue closed/stage machine and ready/blocked/deferred derivation, the issue authorization policy (roles, scopes, authorize), one clock representation with edge adapters, session/issue snooze predicates, git remote identity, worktree/repo/machine-affinity and handoff-target selection, session dedup + attention-priority math, the phone-vs-desktop web entry decision. No IO, no sqlite, no node imports, no workspace dependencies — zod is the only dependency it may ever have.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,6 +28,9 @@
     "typecheck:tsc": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

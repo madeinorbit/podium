@@ -114,12 +114,12 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       // Resolve workspace source directly so a freshly pulled desktop checkout does not
-      // depend on a previously generated node_modules/@podium/domain symlink.
+      // depend on a previously generated node_modules/@podium/model symlink.
       '@podium/composer': fileURLToPath(
         new URL('../../packages/composer/src/index.ts', import.meta.url),
       ),
-      '@podium/domain': fileURLToPath(
-        new URL('../../packages/domain/src/index.ts', import.meta.url),
+      '@podium/model': fileURLToPath(
+        new URL('../../packages/model/src/index.ts', import.meta.url),
       ),
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),

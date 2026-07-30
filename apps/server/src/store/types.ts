@@ -3,7 +3,7 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { IssueColorSlot } from '@podium/domain'
+import type { IssueColorSlot } from '@podium/model'
 import type {
   Geometry,
   ObservationProvider,
@@ -266,7 +266,7 @@ export interface IssueRow {
    *  absent = legacy row (sorts after keyed siblings). */
   sortKey?: string | null
   /** User-assigned colour SLOT NAME [spec:SP-b4d1] ('rose' … 'lime', the palette
-   *  in @podium/domain); null/absent = no colour = the neutral slate flow.
+   *  in @podium/model); null/absent = no colour = the neutral slate flow.
    *  Optional so pre-existing row literals stay valid. */
   color?: IssueColorSlot | null
   estimateMin: number | null

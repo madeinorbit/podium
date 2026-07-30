@@ -1,5 +1,5 @@
 /** Pure machine-affinity and handoff target selection. */
-import { worktreeForCwd, worktreeSubpath } from './worktree'
+import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 
 export interface RepoMachines {
   machines?: { machineId: string; path: string }[]

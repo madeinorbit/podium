@@ -1,4 +1,4 @@
-import { DEFER_NEXT_MESSAGE } from '@podium/domain'
+import { DEFER_NEXT_MESSAGE } from '@podium/model'
 import {
   formatIssueRef,
   type IssueWire,

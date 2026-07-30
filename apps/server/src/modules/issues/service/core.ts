@@ -1,4 +1,11 @@
-import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
+import {
+  type Instant,
+  isIssueBlocked,
+  isIssueClosed,
+  isIssueColorSlot,
+  isIssueDeferred,
+  requireInstant,
+} from '@podium/model'
 import type { IssueGitState, IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
@@ -109,12 +116,19 @@ export abstract class IssueServiceCore {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
   }
 
+  /** The service's clock as the model's `Instant` (epoch ms) — the adapter at
+   *  this edge (POD-299). The service holds an ISO `now` because that is what it
+   *  stamps onto rows; the model's predicates compare instants, never strings. */
+  protected nowInstant(): Instant {
+    return requireInstant(this.now())
+  }
+
   protected isClosed(row: IssueRow): boolean {
     return !!row.deletedAt || isIssueClosed(row)
   }
 
   protected isDeferred(row: IssueRow): boolean {
-    return isIssueDeferred(row, this.now())
+    return isIssueDeferred(row, this.nowInstant())
   }
 
   /** Email-style unread (issue #124): there is activity the operator hasn't seen.

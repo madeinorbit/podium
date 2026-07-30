@@ -1,4 +1,4 @@
-import type { IssueColorSlot } from '@podium/domain'
+import type { IssueColorSlot } from '@podium/model'
 import type {
   IssueWire,
   MetadataChange,

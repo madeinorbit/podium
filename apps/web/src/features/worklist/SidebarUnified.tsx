@@ -1,6 +1,6 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueColorSlot } from '@podium/domain'
+import type { IssueColorSlot } from '@podium/model'
 import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -48,7 +48,7 @@ import {
   groupUnifiedWorkRows,
   isCoordinatorSession,
   isDraftAgentVessel,
-  isIssueSnoozed,
+  isIssueDeferred,
   issueReturnedFromDefer,
   lastUsedMaps,
   type MotionPhase,
@@ -1208,7 +1208,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     const folded = lane === 'closed' || lane === 'snoozed'
     const arriving = animate && item.phase === 'entering'
     const exiting = item.phase === 'exiting'
-    const draggable = row.kind === 'issue' && !isIssueSnoozed(row.issue, now)
+    const draggable = row.kind === 'issue' && !isIssueDeferred(row.issue, now)
     const inner =
       folded && row.kind === 'issue' ? (
         // Closed / suspended issues drop to one dim line (POD-293) — no chrome,
@@ -2091,7 +2091,7 @@ function UnifiedIssueRow({
         }
         domMark={issue.id}
         onGripDown={
-          onGripDown && !isIssueSnoozed(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
+          onGripDown && !isIssueDeferred(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
         }
         childDragScope={!capped && hasStartedBy ? `children:${issue.id}` : undefined}
         childrenTestId={!capped && hasStartedBy ? 'started-by-children' : undefined}
@@ -2129,7 +2129,7 @@ function UnifiedIssueRow({
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}
-            {isIssueSnoozed(issue, now) && (
+            {isIssueDeferred(issue, now) && (
               <AlarmClock
                 size={10}
                 className="flex-none text-muted-foreground"
@@ -2176,7 +2176,7 @@ function UnifiedIssueRow({
             <div
               key={`issue:${child.issue.id}`}
               className="ml-5 min-w-0"
-              {...(!isIssueSnoozed(child.issue, now) ? { 'data-drag-key': child.issue.id } : {})}
+              {...(!isIssueDeferred(child.issue, now) ? { 'data-drag-key': child.issue.id } : {})}
             >
               <UnifiedIssueRow
                 row={child}

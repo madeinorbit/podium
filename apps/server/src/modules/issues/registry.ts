@@ -1,4 +1,4 @@
-import { isSortKey } from '@podium/domain'
+import { isSortKey } from '@podium/model'
 import {
   type CommandDef,
   defineCommands,

@@ -2,7 +2,7 @@
  * Pure session-identity predicates: what counts as a "real" (generic-surface)
  * session vs. a headless shadow, and how duplicate rows for the same underlying
  * agent conversation collapse. Structural types (not @podium/protocol's
- * SessionMeta) — domain is a zero-dependency leaf.
+ * SessionMeta) — model is the L0 zero-dep root.
  */
 
 export interface HeadlessFields {

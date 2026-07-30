@@ -47,7 +47,7 @@ export const asThreadId = (s: string): ThreadId => s as ThreadId
 //
 // Structured replacements for the ad-hoc string concatenations scattered around
 // the codebase (packages/sync/src/mirror.ts `${machineId}\n${nativeId}`,
-// packages/domain/src/session-identity.ts `${resume.kind}:${resume.value}`).
+// packages/model/src/session-identity.ts `${resume.kind}:${resume.value}`).
 // Ad-hoc concatenation is injective only while the parts never contain the
 // separator; these helpers escape the separator (and the escape character), so
 // join∘parse round-trips for EVERY input — hostile parts included — and two

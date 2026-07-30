@@ -5,6 +5,8 @@
  * and one close/reopen normalization. No IO: callers pass rows and clocks in.
  */
 
+import { type Instant, toInstant } from '../clock'
+
 /** The minimal row shape the closed predicate reads. Structural on purpose —
  *  it matches IssueRow, IssueWire and hub-mirrored shapes alike. */
 export interface IssueClosedFields {
@@ -23,34 +25,35 @@ export function isIssueClosed(row: IssueClosedFields): boolean {
  *  when a member session enters an attention phase. */
 export const DEFER_NEXT_MESSAGE = 'next-message'
 
-/** Deferred = snoozed until a future instant (or until the next message).
- *  `nowIso` injected for testability (ISO-8601 strings compare
- *  lexicographically in timestamp order). */
-export function isIssueDeferred(row: { deferUntil?: string | null }, nowIso: string): boolean {
-  if (row.deferUntil === DEFER_NEXT_MESSAGE) return true
-  return row.deferUntil != null && row.deferUntil > nowIso
+/** The minimal row shape the defer predicates read. `deferUntil` is either the
+ *  {@link DEFER_NEXT_MESSAGE} sentinel or a timestamp — a bare `YYYY-MM-DD`
+ *  (the board's defer presets) or a full ISO instant. */
+export interface IssueDeferFields {
+  deferUntil?: string | null
 }
 
-/** The epoch-ms sibling of {@link isIssueDeferred} — same "deferred until a
- *  future instant" predicate, but taking a JS timestamp (`Date.now()`) rather
- *  than an ISO string. Server code holds an ISO "now" (oplog/service clocks);
- *  client viewmodels hold an epoch-ms "now" (`Date.now()` / a render tick) — both
- *  read the SAME `deferUntil` field, so this is the one other home for the
- *  predicate rather than a second reimplementation. `deferUntil` may be a bare
- *  date (`YYYY-MM-DD`, the board's defer presets) or a full ISO instant; both
- *  parse via `Date.parse`. */
-export function isIssueSnoozed(row: { deferUntil?: string | null }, now: number): boolean {
+/**
+ * THE deferred predicate: snoozed until a future instant, or until the next
+ * message. `now` is an {@link Instant} (epoch ms) — see clock.ts for why this
+ * is the one representation and why the ISO-string twin of this function
+ * (`isIssueSnoozed`, epoch; `isIssueDeferred`, lexicographic ISO) collapsed
+ * into it (POD-299).
+ */
+export function isIssueDeferred(row: IssueDeferFields, now: Instant): boolean {
   if (row.deferUntil === DEFER_NEXT_MESSAGE) return true
-  return row.deferUntil != null && Date.parse(row.deferUntil) > now
+  const until = toInstant(row.deferUntil)
+  return until !== null && until > now
 }
 
 /** Did a *timed* defer just lapse — its deadline has passed but it hasn't been
- *  cleared yet? The issue mirror of {@link isIssueSnoozed} going false: the
- *  sidebar marks such an issue "Unsnoozed" and floats it back to the top, and
- *  selecting it clears the stale defer (transient tag). */
-export function issueReturnedFromDefer(row: { deferUntil?: string | null }, now: number): boolean {
+ *  cleared yet? The mirror of {@link isIssueDeferred} going false: the sidebar
+ *  marks such an issue "Unsnoozed" and floats it back to the top, and selecting
+ *  it clears the stale defer (transient tag). `DEFER_NEXT_MESSAGE` never lapses
+ *  by time, so it is never "returned" this way. */
+export function issueReturnedFromDefer(row: IssueDeferFields, now: Instant): boolean {
   if (row.deferUntil === DEFER_NEXT_MESSAGE) return false // never lapses by time
-  return row.deferUntil != null && Date.parse(row.deferUntil) <= now
+  const until = toInstant(row.deferUntil)
+  return until !== null && until <= now
 }
 
 /**

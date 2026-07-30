@@ -120,7 +120,7 @@ Found a vulnerability? Please report it privately — see [SECURITY.md](./SECURI
 | `packages/agent-bridge` | Per-CLI harness adapters: launch/exec/headless flags, agent state, discovery. |
 | `packages/pty` | PTY kernel: backends, durable hosts (abduco/tmux), framing, redraw. Harness-agnostic. |
 | `packages/terminal-client` | Browser terminal presentation client. |
-| `packages/domain` | Pure domain logic (issue stages, authz, identity predicates). |
+| `packages/model` | Pure domain logic (issue stages, authz, identity predicates). |
 | `packages/runtime` | Runtime plumbing: config, sqlite, git identity, auth. |
 
 The `@podium/*` packages are consumed in-repo and are **not published to npm** (yet). See `ARCHITECTURE.md` for what-goes-where.

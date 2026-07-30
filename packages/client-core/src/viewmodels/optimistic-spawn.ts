@@ -1,4 +1,4 @@
-import { isSortKey, sortKeyBetween } from '@podium/domain'
+import { isSortKey, sortKeyBetween } from '@podium/model'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 
 /**

@@ -12,11 +12,11 @@
  *     them means driving real agent processes / PTYs, which is a host capability.
  *     Servers read transcripts via `@podium/transcript` instead.
  *     See {@link AGENT_HOST_CONSUMERS}.
- *  3. `@podium/protocol` and `@podium/domain` are leaf packages — they import
+ *  3. `@podium/protocol` and `@podium/model` are leaf packages — they import
  *     no other workspace package. `@podium/transcript` is a near-leaf: it may
  *     import only `@podium/protocol`. `@podium/runtime` is a near-leaf
  *     runtime-plumbing package: it may import only `@podium/protocol` and
- *     `@podium/domain` (e.g. domain's `normalizeOriginUrl`) — never another
+ *     `@podium/model` (e.g. the model's `normalizeOriginUrl`) — never another
  *     app or a non-leaf package.
  *  4. `packages/*` never import from `apps/*` (by name or by relative path).
  *  5. `apps/cli` is a normal app under rule 1: it must not import apps/server
@@ -27,14 +27,14 @@
  *     hub, and NOTHING imports cloud/ (the private module composes only via
  *     the plugins.ts seam). Composition roots (index/server/router.ts) and
  *     test files may import hub — never cloud.
- *  7. `@podium/domain` is the single home for the entity-pure predicates it
+ *  7. `@podium/model` is the single home for the entity-pure predicates it
  *     exports (issue stage/authz, snooze/defer, worktree/machine identity,
  *     session dedup + priority, git identity): no OTHER `packages/*` source
  *     file may declare a top-level `export function`/`export const` with the
  *     same name — that shape is a redefinition, the exact bug this rule
  *     catches (client-core's viewmodels used to hand-copy several of these).
- *     Re-exporting a domain binding (`export { x } from '@podium/domain'` or
- *     `export { x }` after `import { x } from '@podium/domain'`) is fine and
+ *     Re-exporting a model binding (`export { x } from '@podium/model'` or
+ *     `export { x }` after `import { x } from '@podium/model'`) is fine and
  *     encouraged; only a NEW declaration under the same name is flagged.
  *  8. `@podium/runtime` browser-safety is enforced two ways instead of being a
  *     purely hand-maintained barrel convention:
@@ -169,14 +169,14 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/domain'])
+const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/model'])
 
 /**
  * Near-leaf packages: may import ONLY the listed workspace packages (plus node
  * builtins/external deps). `@podium/transcript` is pure parsing/paging over
  * protocol types — it must never grow IO/harness dependencies. `@podium/runtime`
  * is node-runtime plumbing (config, sqlite shims, git, connectivity,
- * auth-store, …) — it may reach into the pure leaves (protocol, domain) but
+ * auth-store, …) — it may reach into the pure leaves (protocol, model) but
  * must never depend on another app or a non-leaf package.
  */
 const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
@@ -185,10 +185,10 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // injection, shared by the web fallback and the daemon engine. Must stay pure —
   // only protocol's AgentKind enum, never IO or harness packages.
   'packages/composer': new Set(['packages/protocol']),
-  'packages/runtime': new Set(['packages/protocol', 'packages/domain']),
+  'packages/runtime': new Set(['packages/protocol', 'packages/model']),
   // The issue-client seam (IssueTrpc + the shared command table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.
-  'packages/issue-client': new Set(['packages/protocol', 'packages/domain']),
+  'packages/issue-client': new Set(['packages/protocol', 'packages/model']),
   // The node⇄hub sync layer (issue #196: oplog, upstream dialer/forwarder,
   // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
   // apps/server injects its store repositories through narrow interfaces
@@ -246,62 +246,74 @@ function checkServerRoleTiers(file: string, ref: ImportRef): Violation | null {
   }
 }
 
-const DOMAIN_HOME = 'packages/domain'
+const MODEL_HOME = 'packages/model'
 
 /** Matches a top-level `export function NAME` / `export const NAME =`
  *  declaration. Deliberately does NOT match `export { NAME }` or
  *  `export { NAME } from '...'` — those re-export an existing binding rather
- *  than declaring a new one, which is exactly the pattern a domain consumer
- *  (e.g. client-core re-exporting a domain predicate under its original name
+ *  than declaring a new one, which is exactly the pattern a model consumer
+ *  (e.g. client-core re-exporting a model predicate under its original name
  *  for backward-compatible call sites) is expected to use. */
 const TOP_LEVEL_DECL_RE = /^export (?:function|const)\s+([A-Za-z_$][\w$]*)/gm
 
-/** Names @podium/domain exports as a top-level function/const (its entity
- *  predicates and pure logic) — read live from packages/domain/src so the set
+/** Names @podium/model exports as a top-level function/const (its entity
+ *  predicates and pure logic) — read live from packages/model/src so the set
  *  never drifts from the actual package. Returns an empty set (rule 7 no-op)
- *  if the directory can't be read (e.g. a unit test sandboxing the repo). */
-export function loadDomainExportNames(repoRoot: string): Set<string> {
+ *  if the directory can't be read (e.g. a unit test sandboxing the repo).
+ *
+ *  RECURSIVE on purpose (POD-299): model organises its sources into
+ *  entities/ ids/ identity/ authz/ predicates/ annotations/ user-state/, so a
+ *  top-level-only scan would have silently reduced this rule to the two files
+ *  that stayed at the root — a dark gate that reads as "no violations". */
+export function loadModelExportNames(repoRoot: string): Set<string> {
   const names = new Set<string>()
-  let entries: string[]
-  try {
-    entries = readdirSync(join(repoRoot, DOMAIN_HOME, 'src'))
-  } catch {
-    return names
-  }
-  for (const entry of entries) {
-    if (!/\.tsx?$/.test(entry) || isTestFile(entry)) continue
-    const source = readFileSync(join(repoRoot, DOMAIN_HOME, 'src', entry), 'utf8')
-    for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
-      const name = m[1]
-      if (name) names.add(name)
+  const walk = (dir: string): void => {
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!/\.tsx?$/.test(entry.name) || isTestFile(entry.name)) continue
+      for (const m of stripComments(readFileSync(full, 'utf8')).matchAll(TOP_LEVEL_DECL_RE)) {
+        const name = m[1]
+        if (name) names.add(name)
+      }
     }
   }
+  walk(join(repoRoot, MODEL_HOME, 'src'))
   return names
 }
 
 /**
- * Rule 7 — @podium/domain is the single home for the predicates it exports.
- * Any packages/* file outside @podium/domain itself (and outside tests, which
+ * Rule 7 — @podium/model is the single home for the predicates it exports.
+ * Any packages/* file outside @podium/model itself (and outside tests, which
  * legitimately construct fixture doubles) that DECLARES a top-level
  * function/const under the same name is almost certainly a redefinition.
  */
-function checkDomainRedefinition(
+function checkModelRedefinition(
   file: string,
   source: string,
-  domainExportNames: ReadonlySet<string>,
+  modelExportNames: ReadonlySet<string>,
 ): Violation[] {
-  if (domainExportNames.size === 0) return []
-  if (!file.startsWith('packages/') || file.startsWith(`${DOMAIN_HOME}/`)) return []
+  if (modelExportNames.size === 0) return []
+  if (!file.startsWith('packages/') || file.startsWith(`${MODEL_HOME}/`)) return []
   if (isTestFile(file)) return []
   const violations: Violation[] = []
   for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
     const name = m[1]
-    if (name && domainExportNames.has(name)) {
+    if (name && modelExportNames.has(name)) {
       violations.push({
         file,
         specifier: name,
-        rule: 'domain-single-home',
-        message: `${file}: redefines '${name}', which @podium/domain already exports — import it from '@podium/domain' instead (re-exporting the imported binding is fine; declaring a new one under the same name is not)`,
+        rule: 'model-single-home',
+        message: `${file}: redefines '${name}', which @podium/model already exports — import it from '@podium/model' instead (re-exporting the imported binding is fine; declaring a new one under the same name is not)`,
       })
     }
   }
@@ -538,14 +550,14 @@ function targetWorkspace(file: string, specifier: string): string | null {
 }
 
 /** Check one file's imports against all boundary rules. Pure — used by tests.
- *  `domainExportNames` (rule 7) defaults to empty, i.e. a no-op, so existing
+ *  `modelExportNames` (rule 7) defaults to empty, i.e. a no-op, so existing
  *  call sites (and most tests) that don't pass it are unaffected. */
 export function checkFile(
   file: string,
   source: string,
-  domainExportNames: ReadonlySet<string> = new Set(),
+  modelExportNames: ReadonlySet<string> = new Set(),
 ): Violation[] {
-  const violations: Violation[] = [...checkDomainRedefinition(file, source, domainExportNames)]
+  const violations: Violation[] = [...checkModelRedefinition(file, source, modelExportNames)]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
     // Rule 6 first: role tiers are same-workspace edges (apps/server internal),
@@ -711,14 +723,14 @@ export function runCheck(repoRoot: string): {
   const manifest: Violation[] = []
   const agentBridgeImporters = new Set<string>()
   const workspaces = new Set<string>()
-  const domainExportNames = loadDomainExportNames(repoRoot)
+  const modelExportNames = loadModelExportNames(repoRoot)
   const harnessLiterals = loadHarnessLiterals(repoRoot)
   for (const rootDir of ['apps', 'packages', 'scripts']) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
       const source = readFileSync(abs, 'utf8')
       workspaces.add(workspaceOf(file))
-      violations.push(...checkFile(file, source, domainExportNames))
+      violations.push(...checkFile(file, source, modelExportNames))
       violations.push(...checkPrincipalFree(file, source))
       manifest.push(...checkManifestFile(file, source, harnessLiterals))
       if (extractImports(source).some((r) => r.specifier.startsWith('@podium/agent-bridge')))

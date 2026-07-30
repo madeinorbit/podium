@@ -5,7 +5,7 @@
  * is ever defaulted.
  */
 
-import { authorize, capabilityAttribution, type IssueScope } from '@podium/domain'
+import { authorize, capabilityAttribution, type IssueScope } from '@podium/model'
 import {
   asAgentIdentityId,
   asCapabilityRef,

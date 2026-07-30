@@ -13,7 +13,7 @@
     "@podium/agent-bridge": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/runtime": "workspace:*",
-    "@podium/domain": "workspace:*",
+    "@podium/model": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/sync": "workspace:*",

@@ -9,7 +9,7 @@
     "@expo-google-fonts/geist-mono": "^0.4.3",
     "@expo/metro-runtime": "~57.0.3",
     "@podium/client-core": "workspace:*",
-    "@podium/domain": "workspace:*",
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@podium/terminal-client-react": "workspace:*",

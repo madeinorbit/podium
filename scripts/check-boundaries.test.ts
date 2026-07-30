@@ -10,7 +10,7 @@ import {
   checkRuntimeBarrelPurity,
   clauseIsTypeOnly,
   extractImports,
-  loadDomainExportNames,
+  loadModelExportNames,
 } from './check-boundaries'
 
 describe('extractImports', () => {
@@ -195,13 +195,13 @@ describe('checkFile rules', () => {
 
   it('keeps domain a leaf package', () => {
     const d = checkFile(
-      'packages/domain/src/issue-stage.ts',
+      'packages/model/src/issue-stage.ts',
       `import type { IssueWire } from '@podium/protocol'`,
     )
     expect(d).toHaveLength(1)
     expect(d[0].rule).toBe('leaf-package')
     expect(
-      checkFile('apps/server/src/issues.ts', `import { isIssueClosed } from '@podium/domain'`),
+      checkFile('apps/server/src/issues.ts', `import { isIssueClosed } from '@podium/model'`),
     ).toEqual([])
   })
 
@@ -219,7 +219,7 @@ describe('checkFile rules', () => {
     expect(
       checkFile(
         'packages/runtime/src/git.ts',
-        `export { normalizeOriginUrl } from '@podium/domain'`,
+        `export { normalizeOriginUrl } from '@podium/model'`,
       ),
     ).toEqual([])
     // Disallowed: any other workspace package.
@@ -333,7 +333,7 @@ describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)',
   })
 })
 
-describe('rule 7 — @podium/domain single-home for its predicates', () => {
+describe('rule 7 — @podium/model single-home for its predicates', () => {
   const domainNames = new Set(['isSnoozed', 'worktreeForCwd'])
 
   it('flags a packages/* file that REDECLARES a domain-exported name', () => {
@@ -343,7 +343,7 @@ describe('rule 7 — @podium/domain single-home for its predicates', () => {
       domainNames,
     )
     expect(v).toHaveLength(1)
-    expect(v[0].rule).toBe('domain-single-home')
+    expect(v[0].rule).toBe('model-single-home')
     expect(v[0].message).toContain('isSnoozed')
 
     const c = checkFile(
@@ -352,21 +352,21 @@ describe('rule 7 — @podium/domain single-home for its predicates', () => {
       domainNames,
     )
     expect(c).toHaveLength(1)
-    expect(c[0].rule).toBe('domain-single-home')
+    expect(c[0].rule).toBe('model-single-home')
   })
 
   it('allows re-exporting the imported binding under the same name', () => {
     expect(
       checkFile(
         'packages/client-core/src/viewmodels/derive.ts',
-        `import { isSnoozed } from '@podium/domain'\nexport { isSnoozed }`,
+        `import { isSnoozed } from '@podium/model'\nexport { isSnoozed }`,
         domainNames,
       ),
     ).toEqual([])
     expect(
       checkFile(
         'packages/client-core/src/viewmodels/derive.ts',
-        `export { isSnoozed } from '@podium/domain'`,
+        `export { isSnoozed } from '@podium/model'`,
         domainNames,
       ),
     ).toEqual([])
@@ -381,10 +381,10 @@ describe('rule 7 — @podium/domain single-home for its predicates', () => {
     ).toEqual([])
   })
 
-  it('exempts @podium/domain itself and test files', () => {
+  it('exempts @podium/model itself and test files', () => {
     expect(
       checkFile(
-        'packages/domain/src/snooze.ts',
+        'packages/model/src/snooze.ts',
         `export function isSnoozed(row, now) { return false }`,
         domainNames,
       ),
@@ -408,9 +408,9 @@ describe('rule 7 — @podium/domain single-home for its predicates', () => {
     ).toEqual([])
   })
 
-  it('loadDomainExportNames reads the real @podium/domain source', () => {
+  it('loadModelExportNames reads the real @podium/model source', () => {
     const repoRoot = new URL('..', import.meta.url).pathname
-    const names = loadDomainExportNames(repoRoot)
+    const names = loadModelExportNames(repoRoot)
     expect(names.has('isSnoozed')).toBe(true)
     expect(names.has('worktreeForCwd')).toBe(true)
     expect(names.has('isIssueClosed')).toBe(true)
