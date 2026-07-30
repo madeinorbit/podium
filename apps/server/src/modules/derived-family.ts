@@ -115,6 +115,13 @@ export interface FamilyState {
    * a router cutover's.
    */
   readonly store: SessionRegistry['sessionStore']
+  /**
+   * The hosted-runtime provider, absent on deployments with no cloud. On the
+   * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather
+   * than defaulted here, because `CloudService` substitutes the disabled provider
+   * at construction. Defaulting in two places is how the two diverge.
+   */
+  readonly cloud?: Context['cloud']
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +308,28 @@ function assertSurfaceMatchesDeclarations(
  * a procedure is to remove its declaration. That is the property the whole phase
  * is buying, and it is why this function takes tables rather than a list of names.
  */
+/**
+ * THE ONE PLACE A REQUEST CONTEXT BECOMES FAMILY STATE.
+ *
+ * Every derived procedure in every family built through this file goes through
+ * this function, and it is the only line in the server that reads `ctx.registry`
+ * on behalf of a derived transport. That is what the "one documented access
+ * pattern" criterion means operationally: not that reach-through is forbidden by
+ * convention, but that there is exactly one function to audit, and a family that
+ * wanted more would have to widen `FamilyState` in a diff a reviewer sees.
+ *
+ * It was two identical literals for about ten minutes, which is precisely how
+ * these things drift — one gains a member and the other does not, and the reads
+ * and the writes of the same family start seeing different state.
+ */
+const familyState = (ctx: Context): FamilyState => ({
+  modules: mods(ctx),
+  repos: ctx.repos,
+  telemetry: ctx.telemetry,
+  store: ctx.registry.sessionStore,
+  cloud: ctx.cloud,
+})
+
 export function derivedFamilyProcedures<
   Svc,
   C extends Record<string, AnyDerivedCommand>,
@@ -316,32 +345,14 @@ export function derivedFamilyProcedures<
       // the handler, and the handler never sees a ctx. `input` is erased at this
       // point because the table is heterogeneous — each pairing is checked where
       // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) =>
-        command.handler(
-          spec.service({
-            modules: mods(ctx),
-            repos: ctx.repos,
-            telemetry: ctx.telemetry,
-            store: ctx.registry.sessionStore,
-          }),
-          input,
-        ),
-      )
+      .mutation(({ ctx, input }) => command.handler(spec.service(familyState(ctx)), input))
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
-    built[name] = t.procedure.input(query.input).query(({ ctx, input }) =>
-      query.run(
-        spec.service({
-          modules: mods(ctx),
-          repos: ctx.repos,
-          telemetry: ctx.telemetry,
-          store: ctx.registry.sessionStore,
-        }),
-        input,
-      ),
-    )
+    built[name] = t.procedure
+      .input(query.input)
+      .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
   }
 
   assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)

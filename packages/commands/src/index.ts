@@ -69,6 +69,25 @@ export {
   SCHEDULE_FLOOR_MESSAGE,
 } from './automations/cron'
 export {
+  CLOUD_CONTRACT_NAMES,
+  CLOUD_CONTRACTS,
+  type CloudContractName,
+  cloudCreateAgentContract,
+  cloudCreateAgentInput,
+  cloudCreateMachineContract,
+  cloudCreateMachineInput,
+  cloudMoveSessionContract,
+  cloudMoveSessionInput,
+  cloudRepoInput,
+  cloudRuntimeIdInput,
+  cloudRuntimeSizeInput,
+  cloudSourceSessionInput,
+  cloudStopContract,
+  cloudStopInput,
+  cloudWakeContract,
+  cloudWakeInput,
+} from './cloud/contracts'
+export {
   type AnyCommandContract,
   type AttributionPolicy,
   type AuthoredAttribution,

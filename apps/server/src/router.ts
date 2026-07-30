@@ -52,6 +52,7 @@ import { buildJoinCommand } from './hub/machines-join'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
+import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
 import { fileFamilyProcedures } from './modules/files/trpc'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
@@ -337,99 +338,14 @@ function cloudError(error: unknown): never {
 }
 
 export const appRouter = t.router({
-  cloud: t.router({
-    capabilities: t.procedure.query(({ ctx }) => cloudProvider(ctx).capabilities()),
-    createMachine: t.procedure.input(cloudMachineInput).mutation(async ({ ctx, input }) => {
-      try {
-        return await cloudProvider(ctx).createCloudMachine(input)
-      } catch (error) {
-        cloudError(error)
-      }
-    }),
-    createAgent: t.procedure.input(cloudAgentInput).mutation(async ({ ctx, input }) => {
-      try {
-        return await cloudProvider(ctx).createCloudAgent(input)
-      } catch (error) {
-        cloudError(error)
-      }
-    }),
-    moveSession: t.procedure.input(cloudMoveSessionInput).mutation(async ({ ctx, input }) => {
-      const session = mods(ctx)
-        .sessions.listSessions()
-        .find((s) => s.sessionId === input.sessionId)
-      if (!session) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
-      }
-      const agent = cloudAgentKind(session.agentKind)
-      if (!session.resume?.value) {
-        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'session has no resume ref' })
-      }
-      if (input.hibernateLocal) {
-        if (session.status !== 'live') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'local session cannot be hibernated: not running',
-          })
-        }
-        const phase = session.agentState?.phase
-        if (phase === 'working' || phase === 'compacting') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'local session cannot be hibernated: agent is working',
-          })
-        }
-      }
-
-      try {
-        const runtime = await cloudProvider(ctx).createCloudAgent({
-          tenantId: input.tenantId,
-          displayName: session.name?.trim() || session.title || `${agent} session`,
-          ...(input.size ? { size: input.size } : {}),
-          repo: input.repo ?? inferCloudRepoForSession(ctx, session),
-          ...(session.issueId ? { issueId: session.issueId } : {}),
-          purpose: 'move-session',
-          sourceSession: toCloudAgentSourceSession({
-            sessionId: session.sessionId,
-            agent,
-            resume: session.resume,
-            cwd: session.cwd,
-            ...(session.machineId ? { machineId: session.machineId } : {}),
-          }),
-        })
-
-        if (input.hibernateLocal) {
-          const parked = mods(ctx).sessions.hibernateSession({ sessionId: session.sessionId })
-          if (!parked.ok) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: `local session could not be hibernated: ${parked.reason ?? 'unknown reason'}`,
-            })
-          }
-        }
-
-        return runtime
-      } catch (error) {
-        cloudError(error)
-      }
-    }),
-    runtime: t.procedure
-      .input(cloudRuntimeIdInput)
-      .query(({ ctx, input }) => cloudProvider(ctx).getRuntime(input.id)),
-    stop: t.procedure.input(cloudRuntimeIdInput).mutation(async ({ ctx, input }) => {
-      try {
-        return await cloudProvider(ctx).stopRuntime(input.id)
-      } catch (error) {
-        cloudError(error)
-      }
-    }),
-    wake: t.procedure.input(cloudRuntimeIdInput).mutation(async ({ ctx, input }) => {
-      try {
-        return await cloudProvider(ctx).wakeRuntime(input.id)
-      } catch (error) {
-        cloudError(error)
-      }
-    }),
-  }),
+  /**
+   * THE CLOUD SURFACE IS DERIVED (POD-314) — provisioning and lifecycle for
+   * HOSTED runtimes. The ~150 lines of `moveSession` logic that used to sit
+   * inline here now live in `modules/cloud/service.ts`, where the ORDER of its
+   * six decisions is documented and reachable by a test without standing up a
+   * tRPC caller.
+   */
+  cloud: t.router(cloudFamilyProcedures()),
   sessions: t.router({
     // ---- WRITES: THE DERIVED SURFACE (POD-382) ----
     //
