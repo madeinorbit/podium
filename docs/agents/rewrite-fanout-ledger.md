@@ -1997,3 +1997,25 @@ redaction. Their contract is always two-sided — remove exactly X, preserve exa
 and only the second half is at risk from a faulty rebuild. Seed values the walker might not recognise
 (`Date`, `Map`, `Set`, TypedArray, nested arrays), and assert they survive BYTE-IDENTICAL alongside the
 removal you were actually testing.
+
+### `bun build --target=browser` does NOT fail on a Node builtin
+
+POD-307 measured it while building the browser-reach guard: the bundler **substitutes an empty object**
+— `var {readFileSync} = (() => ({}))` — so the build SUCCEEDS, the exit code is 0, and no `node:`
+string survives in the output to grep for. The client crashes at runtime instead.
+
+**So an audit written as "bundle it and check the exit code" is green against exactly the defect it
+exists for.** This run's dominant class, found in a TOOL rather than in a test — and the reason its
+guard is two instruments: a manifest rule walking each entrypoint's full transitive closure (one hop is
+satisfied by an entrypoint that re-exports the offender), plus a real bundler with a resolver plugin
+that sees the npm graph the manifest cannot.
+
+**The companion measurement, and the more transferable half:** its first non-vacuity floor ("at least 2
+modules loaded") FAILED a legitimate entrypoint that has no imports. Its conclusion is the rule —
+**"a floor a correct tree cannot meet gets lowered until it means nothing."** It derived the floor from
+the entrypoint's own count of distinct specifiers instead. A non-vacuity check that fires on correct
+code will be weakened until it fires on nothing.
+
+**And the control that makes the whole guard meaningful:** a declared entrypoint on the real repo must
+stay SILENT, "because a rule that refused everything would prove browser-safety by making the adapters
+unreachable again."
