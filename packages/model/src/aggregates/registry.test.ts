@@ -5,7 +5,7 @@ import { ROW } from '../annotations/matrix'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import { IssueAggregate } from './issue'
-import { SessionAggregate } from './session'
+import { SESSION_IMMUTABLE_AFTER_CREATE, SessionAggregate } from './session'
 import {
   type CanonicalAggregate,
   CANONICAL_AGGREGATES,
@@ -263,6 +263,52 @@ describe('live-only and derived fields stay OFF the durable aggregate', () => {
   it('excludes IssueWire.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
     expect(IssueAggregate.shape).not.toHaveProperty('sessions')
     expect(IssueAggregate.shape).not.toHaveProperty('sessionSummary')
+  })
+})
+
+/**
+ * `SESSION_IMMUTABLE_AFTER_CREATE` — the SEMANTIC half its `satisfies` clause
+ * cannot check.
+ *
+ * The `satisfies readonly (keyof SessionAggregate)[]` clause already binds the
+ * constant to the aggregate at COMPILE time: POD-366 mutation-tested it
+ * (`refDraft` → `refDraftTYPO` ⇒ TS2820, `packages/model` exits 1), so the
+ * constant cannot silently go stale while it waits for its consumer.
+ *
+ * What that clause does NOT check is that the list means anything. A constant
+ * naming EVERY key of the aggregate would satisfy the type and be nonsense —
+ * "nothing about a session may ever change" is not a claim anyone intends. These
+ * two assertions are the semantic half, so the constant is judged as an enforced
+ * invariant awaiting its consumer rather than as an unused export.
+ */
+describe('SESSION_IMMUTABLE_AFTER_CREATE is a meaningful subset', () => {
+  it('names only keys that exist on the aggregate — at RUNTIME, not just in the type', () => {
+    const notKeys = SESSION_IMMUTABLE_AFTER_CREATE.filter((k) => !(k in SessionAggregate.shape))
+    expect(notKeys).toEqual([])
+  })
+
+  it('leaves a NON-EMPTY mutable complement — it is a subset, not the whole aggregate', () => {
+    // The assertion the `satisfies` clause cannot make. Without it, a list of
+    // every key typechecks and asserts that a session is frozen at birth.
+    const mutable = Object.keys(SessionAggregate.shape).filter(
+      (k) => !(SESSION_IMMUTABLE_AFTER_CREATE as readonly string[]).includes(k),
+    )
+
+    expect(mutable.length).toBeGreaterThan(0)
+    // Named members of the complement, so the test fails if the constant grows
+    // to swallow fields the product changes on every write. `status` and
+    // `lastActiveAt` are the two most obviously mutable things a session has.
+    expect(mutable).toContain('status')
+    expect(mutable).toContain('lastActiveAt')
+  })
+
+  it('holds the fields whose mutability would be a correctness bug', () => {
+    // The judgement the constant exists to preserve (POD-366: "four lines of
+    // JUDGEMENT, not four lines of code"). `spawnedBy` and `createdBy` quietly
+    // becoming mutable is the failure nobody notices because nothing fails.
+    for (const key of ['sessionId', 'createdAt', 'spawnedBy', 'createdBy', 'origin']) {
+      expect(SESSION_IMMUTABLE_AFTER_CREATE).toContain(key)
+    }
   })
 })
 
