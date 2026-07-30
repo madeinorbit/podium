@@ -1188,7 +1188,12 @@ export class SessionRegistry {
       mirrorMarkIssueMailRead: (issueId, ids) =>
         funnel.run({
           write: () =>
-            this.store.issues.markIssueMessagesRead(issueId, ids, new Date().toISOString()),
+            this.store.issues.markIssueMessagesRead(
+              FIRST_ADMIN_USER_ID,
+              issueId,
+              ids,
+              new Date().toISOString(),
+            ),
         }),
       transact: (fn) => this.store.transact(fn),
       // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake

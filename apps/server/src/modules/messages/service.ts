@@ -968,7 +968,6 @@ export class MessageDeliveryService {
         createdAt: message.createdAt,
         status: 'unread',
         claimedBy: null,
-        readAt: null,
         claimedAt: null,
       }
       this.deps.mirrorIssueMail?.(legacy)

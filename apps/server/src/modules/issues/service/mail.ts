@@ -24,7 +24,6 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
       createdAt: this.now(),
       status: 'unread',
       claimedBy: null,
-      readAt: null,
       claimedAt: null,
     }
     this.deps.funnel.run({ write: () => this.deps.store.issues.addIssueMessage(message) })
@@ -52,7 +51,14 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
     if (unreadIds.length) {
       this.deps.funnel.run({
         write: () => {
-          this.deps.store.issues.markIssueMessagesRead(id, unreadIds, this.now())
+          // PER-USER read markers (POD-1076): `status` is the mail's shared
+          // delivery state, `read_at` is a fact about THIS reader.
+          this.deps.store.issues.markIssueMessagesRead(
+            this.broadcastViewer(),
+            id,
+            unreadIds,
+            this.now(),
+          )
           // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
           // a recipient read consumes the queued status on BOTH tables, so the
           // stop-hook/prime pending count (new source) stops nagging too.

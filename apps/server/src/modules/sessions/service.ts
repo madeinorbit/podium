@@ -40,7 +40,13 @@ import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
-import { computePriorities, OPERATOR, repoNameFromOrigin, SOLE_USER_ID } from '@podium/model'
+import {
+  computePriorities,
+  FIRST_ADMIN_USER_ID,
+  OPERATOR,
+  repoNameFromOrigin,
+  type SessionUserOverlay,
+} from '@podium/model'
 import {
   AGENT_CAPABILITIES,
   type AgentInstruction,
@@ -795,9 +801,59 @@ export class SessionsService {
    */
   private sessionWire(session: Session, _forPrincipal?: SessionWirePrincipal): SessionMeta {
     return this.stampRef(session, {
-      ...session.toMeta(),
+      // PER-USER STATE (POD-1076): `readAt` and `snoozedUntil` are facts about a
+      // reader, so the projection is given one. `_forPrincipal` is the seam that
+      // will carry the real principal when POD-1077 scopes the feed; until then
+      // the broadcast serves one named viewer.
+      ...session.toMeta(this.viewerOverlay(session.sessionId)),
       machineName: this.machines.machineName(session.machineId),
     })
+  }
+
+  /**
+   * WHOSE per-user session markers the broadcast carries (POD-1076).
+   *
+   * `FIRST_ADMIN_USER_ID` spelled out, never a default: an unidentified principal
+   * fails CLOSED rather than resolving to an operator identity (readiness
+   * §3.1.6 S4). POD-1077 replaces the body with the request's principal.
+   */
+  private broadcastViewer(): string {
+    return FIRST_ADMIN_USER_ID
+  }
+
+  /**
+   * One session's markers for the broadcast viewer, read from a lazily-loaded
+   * cache of that user's two per-user tables.
+   *
+   * A CACHE, not a mirror on the session: it is keyed by session id and thrown
+   * away wholesale, so there is no field on a shared object that a second user's
+   * projection could read by accident — which is exactly what the ratchet counted
+   * before this issue.
+   */
+  private viewerReadAt: Record<string, string | null> | null = null
+  private viewerSnoozes: Record<string, string | null> | null = null
+
+  private viewerOverlay(sessionId: SessionId): SessionUserOverlay {
+    this.viewerReadAt ??= this.store.sessions.listReadAt(this.broadcastViewer())
+    this.viewerSnoozes ??= this.store.sessions.listSnoozes(this.broadcastViewer())
+    return {
+      readAt: this.viewerReadAt[sessionId] ?? null,
+      // `undefined` = no snooze row; `null` = until-next-message. Two different
+      // facts, and collapsing them un-snoozes every open-ended snooze.
+      snoozedUntil: sessionId in this.viewerSnoozes ? this.viewerSnoozes[sessionId] : undefined,
+    }
+  }
+
+  /** True iff the broadcast viewer has a snooze row for this session. */
+  private viewerIsSnoozed(sessionId: SessionId): boolean {
+    return this.viewerOverlay(sessionId).snoozedUntil !== undefined
+  }
+
+  /** Drop the cached overlay so the next projection re-reads it. Called by every
+   *  per-user write below, and on boot. */
+  private invalidateViewerOverlay(): void {
+    this.viewerReadAt = null
+    this.viewerSnoozes = null
   }
 
   /**
@@ -954,7 +1010,6 @@ export class SessionsService {
       ...(r.workflowStepId ? { workflowStepId: r.workflowStepId } : {}),
       ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
       archived: r.archived,
-      readAt: r.readAt ?? null,
       stoppedAt: r.stoppedAt ?? null,
       stopReason: r.stopReason ?? null,
       ...(Session.parseWorkState(r.workState)
@@ -969,7 +1024,6 @@ export class SessionsService {
 
   private installStoredSession(
     session: Session,
-    snoozes: Record<string, string | null>,
     draftTimes: Record<string, string>,
     drafts: Record<string, string>,
     offers: Record<
@@ -978,7 +1032,6 @@ export class SessionsService {
     >,
   ): void {
     this.sessions.set(session.sessionId, session)
-    if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
     if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
     // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
     // offer was posted means the conversation moved past it while we were down —
@@ -1038,15 +1091,16 @@ export class SessionsService {
       })
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
-    // BOOT SEED. The live `Session.snoozedUntil` mirror feeds the UNSCOPED
-    // broadcast projection, so it can only carry one user's value; SOLE_USER_ID is
-    // spelled out rather than defaulted so POD-1077 can find every such site.
-    const snoozes = this.store.sessions.listSnoozes(SOLE_USER_ID)
+    // No snooze/read SEED any more (POD-1076). Both are per-user rows read at
+    // PROJECTION time via `viewerOverlay`, so boot has nothing to copy onto the
+    // session objects — which is the whole point: a seeded field is an
+    // instance-wide singleton however per-user the table behind it is.
+    this.invalidateViewerOverlay()
     const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
     for (const r of this.store.sessions.loadSessions()) {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
-      this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
+      this.installStoredSession(session, draftTimes, drafts, offers)
       const checkpoint = this.observationLeases.get(r.id)?.checkpoint
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
@@ -1422,11 +1476,10 @@ export class SessionsService {
    * `(userId, sessionId)`; `userId` is required so no caller can write a row
    * without saying whose it is.
    *
-   * The live `session.snoozedUntil` mirror it also sets is the value the BROADCAST
-   * session projection carries, and that projection is still unscoped (ADR 2 D2),
-   * so it necessarily reflects one user. Until POD-1077 makes fan-out
-   * per-principal, the mirror is only correct for SOLE_USER_ID — the durable rows
-   * are already per-user, and `snoozes.list` already answers per-principal.
+   * There is no live mirror any more (POD-1076): the broadcast projection reads
+   * `viewerOverlay`, so the only thing this writes is the durable row. The
+   * projection is still unscoped (ADR 2 D2) and therefore still serves one named
+   * viewer, but that choice now lives in ONE method instead of on every session.
    */
   setSnooze({
     userId,
@@ -1440,22 +1493,25 @@ export class SessionsService {
     const session = this.sessions.get(sessionId)
     if (!session) {
       this.store.sessions.setSnooze(userId, sessionId, until)
+      this.invalidateViewerOverlay()
       this.broadcastSessions()
       return
     }
-    session.snoozedUntil = until
     this.persist(session, () => this.store.sessions.setSnooze(userId, sessionId, until))
+    this.invalidateViewerOverlay()
     this.broadcastSessions()
   }
 
   clearSnooze(userId: string, sessionId: SessionId): void {
     const session = this.sessions.get(sessionId)
-    if (!session || !session.clearSnooze()) {
+    if (!session) {
       this.store.sessions.clearSnooze(userId, sessionId)
+      this.invalidateViewerOverlay()
       this.broadcastSessions()
       return
     }
     this.persist(session, () => this.store.sessions.clearSnooze(userId, sessionId))
+    this.invalidateViewerOverlay()
     this.broadcastSessions()
   }
 
@@ -1472,7 +1528,7 @@ export class SessionsService {
    */
   sessionOwner(sessionId: SessionId): { owner: string | null; grants: string[] } | undefined {
     if (!this.sessions.has(sessionId)) return undefined
-    return { owner: SOLE_USER_ID, grants: [] }
+    return { owner: FIRST_ADMIN_USER_ID, grants: [] }
   }
 
   /**
@@ -1926,7 +1982,7 @@ export class SessionsService {
     }
     // A submitted message re-engages the session — drop any snooze so it returns
     // to the normal attention flow (covers chat send + resumeAndSend paths).
-    if (session.snoozedUntil !== undefined) this.clearSnooze(SOLE_USER_ID, sessionId)
+    if (this.viewerIsSnoozed(sessionId)) this.clearSnooze(this.broadcastViewer(), sessionId)
     // The outgoing message transits the composer; suppress republishing it as a
     // native draft while it's in flight (POD-859 reviewer fix 5).
     if (this.draftSyncEnabled()) {
@@ -2381,7 +2437,7 @@ export class SessionsService {
       )
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
-      if (session.snoozedUntil !== undefined) this.clearSnooze(SOLE_USER_ID, sessionId)
+      if (this.viewerIsSnoozed(sessionId)) this.clearSnooze(this.broadcastViewer(), sessionId)
       // ...and consume any pending agent action offer [spec:SP-c7f1].
       if (session.offer !== undefined) this.clearOffer(sessionId)
       this.broadcastSessions()
@@ -2628,12 +2684,12 @@ export class SessionsService {
     if (
       (session.issueId ?? null) !== observed.issueId ||
       session.stoppedAt !== observed.stoppedAt ||
-      session.readAt !== observed.readAt
+      this.viewerOverlay(observed.sessionId).readAt !== observed.readAt
     ) {
       return 'precondition'
     }
     const stoppedMs = Date.parse(session.stoppedAt ?? '')
-    const readMs = Date.parse(session.readAt ?? '')
+    const readMs = Date.parse(this.viewerOverlay(observed.sessionId).readAt ?? '')
     if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
       return 'precondition'
     }
@@ -2646,26 +2702,46 @@ export class SessionsService {
     return 'applied'
   }
 
-  /** Mark a session read (issue #124): stamp read_at = now, persist + broadcast. The
-   *  derived `unread` in the session meta flips to false immediately (read_at is now the
-   *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
-   *  single-operator, no per-user row. No-op for an unknown session. */
+  /** Mark a session read (issue #124): stamp readAt = now on the ACTOR's own
+   *  `(userId, sessionId)` row (POD-1076), then broadcast. The derived `unread`
+   *  flips to false immediately (readAt is now the latest timestamp) and re-arms
+   *  on the next activity. No-op for an unknown session. */
   markSessionRead(sessionId: SessionId): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
-      // lexical unread compare both require it (this.now() is epoch ms).
-      session.readAt = new Date(this.now()).toISOString()
-    })
+    if (!this.sessions.has(sessionId)) return
+    // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
+    // lexical unread compare both require it (this.now() is epoch ms).
+    this.store.sessions.markSessionRead(
+      this.broadcastViewer(),
+      sessionId,
+      new Date(this.now()).toISOString(),
+    )
+    this.invalidateViewerOverlay()
+    this.broadcastSessions()
   }
 
   /** Mark this session UNREAD again (issue #138, the email-style inverse of
-   *  markSessionRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
-   *  flips back to true, persist + broadcast. Read state stays GLOBAL —
-   *  single-operator, no per-user row. No-op for an unknown session. */
+   *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
+   *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
+   *  never touches yours. No-op for an unknown session. */
   markSessionUnread(sessionId: SessionId): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      session.readAt = null
-    })
+    if (!this.sessions.has(sessionId)) return
+    this.store.sessions.markSessionUnread(this.broadcastViewer(), sessionId)
+    this.invalidateViewerOverlay()
+    this.broadcastSessions()
+  }
+
+  /**
+   * Re-arm unread for EVERY reader of a session (POD-1076).
+   *
+   * A terminal transition used to null the one `read_at` column, which re-armed
+   * unread for the whole instance because there was only one marker. Per-user
+   * that is a delete across every reader's row, which is what this does — the
+   * behaviour is unchanged; what changed is that it is now a statement about all
+   * readers rather than an accident of there being one.
+   */
+  private rearmUnread(sessionId: SessionId): void {
+    this.store.sessions.clearAllReadAt(sessionId)
+    this.invalidateViewerOverlay()
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
@@ -2772,7 +2848,7 @@ export class SessionsService {
       session.stopReason = input.force
         ? 'forced'
         : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
-      session.readAt = null
+      this.rearmUnread(input.sessionId)
       this.persist(session, () =>
         this.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
@@ -3650,7 +3726,9 @@ export class SessionsService {
    *  commits `write` + `changes` together with the issue tombstone, then invokes
    *  `apply` only after that durable transaction succeeds. */
   prepareIssueSessionDelete(issueId: string, worktreePath: string | null): SessionDeletePlan {
-    const localMetas = [...this.sessions.values()].map((s) => s.toMeta())
+    const localMetas = [...this.sessions.values()].map((s) =>
+      s.toMeta(this.viewerOverlay(s.sessionId)),
+    )
     const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
     const deletedAt = new Date(this.now()).toISOString()
     return {
@@ -3690,12 +3768,12 @@ export class SessionsService {
       apply: (changes, ledgerCursor) => {
         const drafts = this.store.sessions.loadDrafts()
         const draftTimes = this.store.sessions.loadDraftTimes()
-        // Same reasoning as the boot seed above (unscoped broadcast projection).
-        const snoozes = this.store.sessions.listSnoozes(SOLE_USER_ID)
         const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
         for (const { session } of restored) {
-          this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
+          this.installStoredSession(session, draftTimes, drafts, offers)
         }
+        // Restored sessions may carry per-user rows; the overlay is read fresh.
+        this.invalidateViewerOverlay()
         this.publishSessionProjection(changes, ledgerCursor)
       },
     }
@@ -4802,11 +4880,11 @@ export class SessionsService {
           observation,
         })
         if (
-          session.snoozedUntil !== undefined &&
+          this.viewerIsSnoozed(session.sessionId) &&
           SessionsService.isAttentionPhase(prev) &&
           !SessionsService.isAttentionPhase(next)
         ) {
-          this.clearSnooze(SOLE_USER_ID, session.sessionId)
+          this.clearSnooze(this.broadcastViewer(), session.sessionId)
         }
         if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(session.sessionId)
@@ -4876,11 +4954,11 @@ export class SessionsService {
         // as the old direct notifyAttention call.
         this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next })
         if (
-          session.snoozedUntil !== undefined &&
+          this.viewerIsSnoozed(msg.sessionId) &&
           SessionsService.isAttentionPhase(prev) &&
           !SessionsService.isAttentionPhase(next)
         ) {
-          this.clearSnooze(SOLE_USER_ID, msg.sessionId)
+          this.clearSnooze(this.broadcastViewer(), msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.

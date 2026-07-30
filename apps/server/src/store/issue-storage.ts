@@ -48,16 +48,14 @@
  *     {@link StoredAsked}.
  *
  *   **R3 columns R1 deliberately excludes** (`toStorage`'s second argument):
- *   - `readAt`, `tuckedAt`, `pinned` — per-user state. POD-1076 moves them to
- *     `(userId, issueId)` rows and `aggregates/registry.test.ts` FAILS if one
- *     reappears on the aggregate, so they cannot simply be added back.
  *   - `repoPath` — derived from the repo registry (inventory D-1: four stored
  *     spellings of one repo-relative fact). It lives on `IssueDerived`, not R1.
  *
  * The consequence for callers, stated plainly: this pair is enough to decode a
  * row for PROJECTION and to encode a freshly-built issue for INSERT. It is NOT
- * enough to make `IssueAggregate` the service's in-memory type — that needs
- * POD-1075 (attribution/ownership columns) and POD-1076 (per-user rows) first.
+ * enough to make `IssueAggregate` the service's in-memory type — that still needs
+ * POD-1075's attribution/ownership COLUMNS. POD-1076's half is done: the per-user
+ * markers are no longer on this row at all, for any user.
  *
  * ---------------------------------------------------------------------------
  * DECODER, NOT VALIDATION GATE
@@ -298,21 +296,22 @@ export function fromStorage(row: IssueRow): StoredIssue {
 export function toStorage(
   issue: StoredIssue,
   /**
-   * The R3-ONLY columns, spelled as a `Pick` of the row and deliberately NOT
-   * given a name of their own.
+   * The one R3-ONLY column, spelled as a `Pick` of the row and deliberately NOT
+   * given a name of its own.
    *
-   * `readAt`, `tuckedAt` and `pinned` are per-user state (POD-1076's to re-key
-   * onto `(userId, issueId)` rows) and `repoPath` is derived from the repo
-   * registry (inventory D-1). Neither belongs on R1 — the aggregate's
-   * `registry.test.ts` fails if one reappears there.
+   * `repoPath` is DERIVED from the repo registry (inventory D-1), so it does not
+   * belong on R1 — the aggregate's `registry.test.ts` fails if it reappears there.
+   * Its three former companions (`readAt`, `tuckedAt`, `pinned`) are gone
+   * entirely: POD-1076 re-keyed them onto `(userId, issueId)` rows, so they are
+   * not a column of this row for any user and cannot be passed through here.
    *
    * Naming this shape was the first design here and it was WRONG, caught by
    * `scripts/rearch-audit.ts`: `per-user-singletons` is a RATCHET with no
-   * registry escape, and a second declaration spelling those three keys grows
-   * POD-1076's debt while claiming to collapse POD-302's. A `Pick` in argument
-   * position keeps `IssueRow` as their ONE declaration.
+   * registry escape, and a second declaration spelling those keys would have
+   * grown POD-1076's debt while claiming to collapse POD-302's. A `Pick` in
+   * argument position keeps `IssueRow` as the ONE declaration.
    */
-  storage: Pick<IssueRow, 'repoPath' | 'readAt' | 'tuckedAt' | 'pinned'>,
+  storage: Pick<IssueRow, 'repoPath'>,
 ): IssueRow {
   const asked = issue.asked ?? issue.askedLegacy
   return {
@@ -400,10 +399,6 @@ export function toStorage(
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
 
-    // --- R3's own, passed through untouched ---------------------------------
-    readAt: storage.readAt ?? null,
-    tuckedAt: storage.tuckedAt ?? null,
-    pinned: storage.pinned,
   }
 }
 

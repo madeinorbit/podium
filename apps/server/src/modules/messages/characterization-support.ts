@@ -23,7 +23,8 @@
  */
 
 import type { HumanCeiling } from '@podium/commands'
-import { asSessionId, type AgentPhase, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID, asSessionId, type AgentPhase, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { SessionStore } from '../../store'
@@ -229,7 +230,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     // the read-consumption semantics both run through them.
     mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: (issueId, ids) =>
-      store.issues.markIssueMessagesRead(issueId, ids, now()),
+      store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     transact: (fn) => store.transact(fn),
     ...(opts?.omitSpawnOnWake

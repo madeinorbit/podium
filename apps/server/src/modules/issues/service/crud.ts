@@ -234,7 +234,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     for (const child of this.rows.values()) {
       if (child.parentId !== parentId || child.archived || child.deletedAt) continue
       if (!this.isClosed(child)) continue // open work is never swept by a parent close
-      if (child.readAt == null) {
+      // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
+      // which is what "the operator has seen it" meant when this was a column.
+      if (this.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
       }
@@ -267,7 +269,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       const sameScope = parentId
         ? r.parentId === parentId
         : r.parentId == null &&
-          !r.pinned &&
+          !this.issueOverlay(r.id).pinned &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (!sameScope) continue
       const k = r.sortKey
@@ -343,14 +345,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         ? { startedBySession: asSessionId(input.startedBySession) }
         : {}),
     }
-    // The R3-only quartet is not R1's to hold (see IssueStorageOnly): a fresh
-    // issue is unread, untucked, unpinned, and its repo spelling is the registry's.
-    const row: IssueRow = toStorage(issue, {
-      repoPath: input.repoPath,
-      readAt: null,
-      tuckedAt: null,
-      pinned: false,
-    })
+    // The one R3-only column is not R1's to hold (see IssueStorageOnly): the repo
+    // spelling is the registry's. A fresh issue is unread, untucked and unpinned
+    // FOR EVERY USER, which after POD-1076 is expressed by writing no per-user row
+    // rather than by three nulls on the shared row.
+    const row: IssueRow = toStorage(issue, { repoPath: input.repoPath })
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.rows first so wouldCycle/rowOrThrow work.
     let wire = this.persist(row)
@@ -392,17 +391,28 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = row.pinned
+    const prevPinned = this.issueOverlay(row.id).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     // Naming a draft promotes it to a real issue (issue-as-workspace).
     if (row.draft && typeof patch.title === 'string' && patch.title.trim()) row.draft = false
-    if ('parentId' in patch) {
-      this.setParent(row, patch.parentId == null ? null : this.resolveRef(patch.parentId))
-      const { parentId: _ignored, ...rest } = patch
+    // `pinned` is PER-USER (POD-1076) and must never reach `Object.assign` — that
+    // is exactly how one person's pin became the issue's. It is split out first so
+    // both branches below are assigning shared-row fields only.
+    const { pinned: pinnedPatch, ...rowPatch } = patch
+    if (pinnedPatch !== undefined) {
+      // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
+      const prevPinnedAt = this.issueUserState(row.id)?.pinnedAt ?? null
+      this.writeIssueUserState(row.id, {
+        pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.now()) : null,
+      })
+    }
+    if ('parentId' in rowPatch) {
+      this.setParent(row, rowPatch.parentId == null ? null : this.resolveRef(rowPatch.parentId))
+      const { parentId: _ignored, ...rest } = rowPatch
       Object.assign(row, rest)
     } else {
-      Object.assign(row, patch)
+      Object.assign(row, rowPatch)
     }
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart
@@ -415,7 +425,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       // itself away without the operator ever seeing it. A later close offers
       // Tuck away again. Cleared here — on the closed-predicate flip itself — so
       // every client converges on it through the same broadcast.
-      row.tuckedAt = null
+      this.writeIssueUserState(row.id, { tuckedAt: null })
     }
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
@@ -470,8 +480,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    if (row.pinned !== prevPinned) {
-      this.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: row.pinned })
+    const nowPinned = this.issueOverlay(row.id).pinned
+    if (nowPinned !== prevPinned) {
+      this.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
     }
     if (row.archived !== prevArchived && row.archived) {
       this.emitEvent('issue.archived', row.id, { seq: row.seq })
@@ -489,24 +500,26 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Mark this issue read (issue #124): stamp read_at = now, persist + broadcast, and
    *  log issue.read. Derived `unread` in the wire flips to false immediately (readAt is
-   *  now the latest timestamp). Read state is GLOBAL — single-operator, no per-user row. */
+   *  now the latest timestamp). PER-USER STATE (POD-1076): the marker is written to
+   *  the actor's `(userId, issueId)` row, not to the issue. */
   markIssueRead(id: string): IssueWire {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    row.readAt = this.now()
+    this.writeIssueUserState(row.id, { readAt: this.now() })
     const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 
   /** Mark this issue UNREAD again (issue #138, the email-style inverse of
-   *  markIssueRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
+   *  markIssueRead): clear the marker so the derived `unread` (readAt null ⇒ unread)
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
-   *  markIssueRead exactly; read state stays GLOBAL (single-operator, no per-user row). */
+   *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
+   *  marking MY copy unread never touches yours. */
   markIssueUnread(id: string): IssueWire {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
-    row.readAt = null
+    this.writeIssueUserState(row.id, { readAt: null })
     const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
@@ -528,7 +541,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     if (tucked && !this.isClosed(row)) throw new Error(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
-    row.tuckedAt = tucked ? (row.tuckedAt ?? this.now()) : null
+    // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
+    const prev = this.issueOverlay(row.id).tuckedAt
+    this.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.now()) : null })
     return this.persist(row, { touch: false })
   }
 

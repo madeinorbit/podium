@@ -246,8 +246,13 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     for (const row of this.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
-      if (row.readAt == null) continue // never read → still unread, leave it
-      const readMs = Date.parse(row.readAt)
+      // "Read" is now a fact about a READER, so the sweep asks the broadcast
+      // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
+      // open question "auto-archived because WHO read it?" is POD-1136's, and it
+      // is now askable because the value has an owner.
+      const viewerReadAt = this.issueOverlay(row.id).readAt
+      if (viewerReadAt == null) continue // never read → still unread, leave it
+      const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
@@ -281,9 +286,10 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
       return 'precondition'
     }
-    if (row.readAt !== observed.readAt) return 'precondition'
+    const viewerReadAt = this.issueOverlay(row.id).readAt
+    if (viewerReadAt !== observed.readAt) return 'precondition'
     if (!this.isClosed(row) || row.parentId) return 'precondition'
-    const readMs = Date.parse(row.readAt ?? '')
+    const readMs = Date.parse(viewerReadAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
@@ -300,7 +306,10 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   private autoArchive(row: IssueRow): IssueWire {
     row.archived = true
     const wire = this.persist(row)
-    this.emitEvent('issue.auto_archived', row.id, { seq: row.seq, readAt: row.readAt })
+    this.emitEvent('issue.auto_archived', row.id, {
+      seq: row.seq,
+      readAt: this.issueOverlay(row.id).readAt,
+    })
     // Cascade onto member sessions (issue #133): the sweep must not leave a
     // session-less worktree row behind, same as the manual archive path.
     this.cascadeArchiveSessions(row)

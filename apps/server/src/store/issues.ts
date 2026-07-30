@@ -17,8 +17,13 @@ import {
 } from '@podium/model'
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { parseStringArray } from './helpers'
-import type { IssueCommentRow, IssueMessageRow, IssueRow } from './types'
+import { parseStringArray, requireUserId } from './helpers'
+import type {
+  IssueCommentRow,
+  IssueMessageRow,
+  IssueRow,
+  StoredIssueUserState,
+} from './types'
 
 export class IssuesRepository {
   /** Rows skipped by the last {@link listIssueRows} because they were
@@ -52,12 +57,12 @@ export class IssuesRepository {
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, closed_at, tucked_at, superseded_by, duplicate_of, pinned, sort_key, color, estimate_min,
+            defer_until, closed_reason, closed_at, superseded_by, duplicate_of, sort_key, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
-            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at,
+            created_at, updated_at, archived, origin, audience, draft, deleted_at,
             coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
@@ -74,9 +79,9 @@ export class IssuesRepository {
            parent_id = excluded.parent_id, design = excluded.design,
            acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
-           closed_at = excluded.closed_at, tucked_at = excluded.tucked_at,
+           closed_at = excluded.closed_at,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
-           pinned = excluded.pinned, sort_key = excluded.sort_key, color = excluded.color,
+           sort_key = excluded.sort_key, color = excluded.color,
            estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
            human_question_options = excluded.human_question_options,
@@ -85,7 +90,7 @@ export class IssuesRepository {
            panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
-           draft = excluded.draft, read_at = excluded.read_at,
+           draft = excluded.draft,
            deleted_at = excluded.deleted_at,
            coordinator_session_id = excluded.coordinator_session_id,
            started_by_session = excluded.started_by_session`,
@@ -127,10 +132,8 @@ export class IssuesRepository {
         row.deferUntil,
         row.closedReason,
         row.closedAt ?? null,
-        row.tuckedAt ?? null,
         row.supersededBy,
         row.duplicateOf,
-        row.pinned ? 1 : 0,
         row.sortKey ?? null,
         row.color ?? null,
         row.estimateMin,
@@ -146,7 +149,6 @@ export class IssuesRepository {
         row.origin ?? 'human',
         row.audience ?? 'human',
         row.draft ? 1 : 0,
-        row.readAt ?? null,
         row.deletedAt ?? null,
         row.coordinatorSessionId ?? null,
         row.startedBySession ?? null,
@@ -198,10 +200,8 @@ export class IssuesRepository {
       deferUntil: (r.defer_until as string | null) ?? null,
       closedReason: (r.closed_reason as string | null) ?? null,
       closedAt: (r.closed_at as string | null) ?? null,
-      tuckedAt: (r.tucked_at as string | null) ?? null,
       supersededBy: (r.superseded_by as IssueId | null) ?? null,
       duplicateOf: (r.duplicate_of as IssueId | null) ?? null,
-      pinned: r.pinned === 1,
       sortKey: (r.sort_key as string | null) ?? null,
       color: isIssueColorSlot(r.color) ? r.color : null,
       estimateMin: (r.estimate_min as number | null) ?? null,
@@ -228,7 +228,6 @@ export class IssuesRepository {
       origin: (r.origin as string | null) ?? 'human',
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,
-      readAt: (r.read_at as string | null) ?? null,
       coordinatorSessionId: (r.coordinator_session_id as SessionId | null) ?? null,
       startedBySession: (r.started_by_session as SessionId | null) ?? null,
     }
@@ -594,7 +593,6 @@ export class IssuesRepository {
       createdAt: r.created_at as string,
       status: r.status as IssueMessageRow['status'],
       claimedBy: (r.claimed_by as string | null) ?? null,
-      readAt: (r.read_at as string | null) ?? null,
       claimedAt: (r.claimed_at as string | null) ?? null,
     }
   }
@@ -603,8 +601,8 @@ export class IssuesRepository {
     this.db
       .prepare(
         `INSERT INTO issue_messages
-           (id, issue_id, from_author, body, created_at, status, claimed_by, read_at, claimed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, issue_id, from_author, body, created_at, status, claimed_by, claimed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -614,7 +612,6 @@ export class IssuesRepository {
         m.createdAt,
         m.status,
         m.claimedBy,
-        m.readAt,
         m.claimedAt,
       )
   }
@@ -653,14 +650,132 @@ export class IssuesRepository {
     return r.n
   }
 
-  /** Mark the given messages read. Only flips 'unread' rows (idempotent; never
-   *  regresses a 'claimed' message back to 'read'). */
-  markIssueMessagesRead(issueId: string, ids: string[], readAt: string): void {
+  /**
+   * Mark the given messages read FOR ONE USER.
+   *
+   * TWO WRITES, TWO CLASSES, and keeping them apart is the point (POD-1076).
+   * `status` is the mail's DELIVERY state — a shared fact about the message, so
+   * it stays on the message row and still only flips `unread` (idempotent; never
+   * regresses a `claimed` message back to `read`). `read_at` is a fact about a
+   * READER, so it lands in `issue_message_user_state` keyed `(user_id, id)`, and
+   * it is written for EVERY named message rather than only the unread ones: my
+   * having read a message somebody else already claimed is still true.
+   */
+  markIssueMessagesRead(userId: string, issueId: string, ids: string[], readAt: string): void {
+    requireUserId(userId)
     const upd = this.db.prepare(
-      `UPDATE issue_messages SET status = 'read', read_at = ?
+      `UPDATE issue_messages SET status = 'read'
        WHERE issue_id = ? AND id = ? AND status = 'unread'`,
     )
-    for (const id of ids) upd.run(readAt, issueId, id)
+    const mark = this.db.prepare(
+      `INSERT INTO issue_message_user_state (user_id, issue_message_id, read_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id, issue_message_id) DO UPDATE SET read_at = excluded.read_at`,
+    )
+    for (const id of ids) {
+      upd.run(issueId, id)
+      mark.run(userId, id, readAt)
+    }
+  }
+
+  /** One user's tracker-mail read markers, `issueMessageId → readAt`. */
+  listIssueMessageReadAt(userId: string): Record<string, string | null> {
+    requireUserId(userId)
+    const rows = this.db
+      .prepare('SELECT issue_message_id, read_at FROM issue_message_user_state WHERE user_id = ?')
+      .all(userId) as { issue_message_id: string; read_at: string | null }[]
+    const out: Record<string, string | null> = {}
+    for (const r of rows) out[r.issue_message_id] = r.read_at
+    return out
+  }
+
+  // ---- per-user issue state (POD-1076): read, tuck-away, pin ----
+  /**
+   * One user's markers for every issue they have touched, `issueId → row`.
+   * ADR 9 D3 rule 4's class: `issues.read_at` / `tucked_at` / `pinned` were
+   * singleton columns until POD-1076 and are now keyed `(user_id, issue_id)`.
+   *
+   * An absent key means this person has done nothing to that issue. Rows with
+   * all three markers null are deleted rather than kept (see {@link setIssueUserState}),
+   * so absence is the only spelling.
+   */
+  listIssueUserState(userId: string): Map<string, StoredIssueUserState> {
+    requireUserId(userId)
+    const rows = this.db
+      .prepare(
+        'SELECT issue_id, read_at, tucked_at, pinned_at FROM issue_user_state WHERE user_id = ?',
+      )
+      .all(userId) as {
+      issue_id: string
+      read_at: string | null
+      tucked_at: string | null
+      pinned_at: string | null
+    }[]
+    const out = new Map<string, StoredIssueUserState>()
+    for (const r of rows) {
+      out.set(r.issue_id, { readAt: r.read_at, tuckedAt: r.tucked_at, pinnedAt: r.pinned_at })
+    }
+    return out
+  }
+
+  getIssueUserState(userId: string, issueId: string): StoredIssueUserState | undefined {
+    requireUserId(userId)
+    const r = this.db
+      .prepare(
+        'SELECT read_at, tucked_at, pinned_at FROM issue_user_state WHERE user_id = ? AND issue_id = ?',
+      )
+      .get(userId, issueId) as
+      | { read_at: string | null; tucked_at: string | null; pinned_at: string | null }
+      | undefined
+    return r ? { readAt: r.read_at, tuckedAt: r.tucked_at, pinnedAt: r.pinned_at } : undefined
+  }
+
+  /**
+   * Write one user's markers for one issue. A PARTIAL patch: an absent key leaves
+   * the stored value alone, so `setIssueUserState(u, i, { readAt: t })` cannot
+   * silently un-pin an issue — the failure a whole-row upsert would make easy.
+   *
+   * A row whose three markers all end up null is DELETED, so the table holds only
+   * issues a person has actually touched and "absent" keeps its single meaning.
+   */
+  setIssueUserState(
+    userId: string,
+    issueId: string,
+    patch: Partial<StoredIssueUserState>,
+  ): void {
+    requireUserId(userId)
+    if (!issueId) throw new Error('issue user-state issue id is empty')
+    const current = this.getIssueUserState(userId, issueId) ?? {
+      readAt: null,
+      tuckedAt: null,
+      pinnedAt: null,
+    }
+    const next: StoredIssueUserState = {
+      readAt: patch.readAt !== undefined ? patch.readAt : current.readAt,
+      tuckedAt: patch.tuckedAt !== undefined ? patch.tuckedAt : current.tuckedAt,
+      pinnedAt: patch.pinnedAt !== undefined ? patch.pinnedAt : current.pinnedAt,
+    }
+    if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
+      this.db
+        .prepare('DELETE FROM issue_user_state WHERE user_id = ? AND issue_id = ?')
+        .run(userId, issueId)
+      return
+    }
+    this.db
+      .prepare(
+        `INSERT INTO issue_user_state (user_id, issue_id, read_at, tucked_at, pinned_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, issue_id) DO UPDATE SET
+           read_at = excluded.read_at, tucked_at = excluded.tucked_at,
+           pinned_at = excluded.pinned_at`,
+      )
+      .run(userId, issueId, next.readAt, next.tuckedAt, next.pinnedAt)
+  }
+
+  /** Drop every user's per-user rows for an issue. Called from the issue's own
+   *  purge path: the rows are not the issue's (they follow the USER), but a
+   *  hard-deleted issue leaves them addressing nothing. */
+  purgeIssueUserState(issueId: string): void {
+    this.db.prepare('DELETE FROM issue_user_state WHERE issue_id = ?').run(issueId)
   }
 
   /** Atomic claim: exactly one caller wins; a second claim on the same message
