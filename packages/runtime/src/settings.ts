@@ -1,4 +1,24 @@
-import { type AccountId, AccountIdField, asAccountId, HarnessAgent } from '@podium/model'
+import {
+  type AccountId,
+  AccountIdField,
+  ApiKeySecrets,
+  asAccountId,
+  AutoContinuePreferences,
+  CodingRole,
+  ExperimentalFlags,
+  GitWorkflowPolicy,
+  HarnessAgent,
+  HibernationPolicy,
+  IntegrationSecrets,
+  IssueAssistantPolicy,
+  NotificationRouting,
+  NotificationSecrets,
+  RoleBackend,
+  type RoleName,
+  Roles,
+  Sidebar,
+  StewardPolicy,
+} from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -9,6 +29,31 @@ import { z } from 'zod'
  *
  * "auto" for any agent/model choice means *leave it to the agent/harness* — the
  * spawn layer passes no flag and the CLI uses whatever the user configured there.
+ *
+ * ---------------------------------------------------------------------------
+ * THE BLOB IS NOW COMPOSED, NOT DECLARED (POD-418)
+ * ---------------------------------------------------------------------------
+ *
+ * ADR 1's matrix puts this one object on THREE rows — `preferences-personal`
+ * (`per-user-state`), `preferences-instance` (`deployment-substrate`) and
+ * `server-secrets` (`secret`) — and the split now exists as shapes in
+ * `@podium/model` (`settings/preferences.ts`, `settings/secrets.ts`).
+ * {@link PodiumSettings} COMPOSES those groups; it does not redeclare them, and
+ * this file re-exports the bindings rather than restating them, the way
+ * `HarnessAgent` already moved at POD-300.
+ *
+ * That direction is the point. A parallel set of "split" shapes beside a
+ * composite that still owned its own leaves would be two definitions of one
+ * vocabulary, and the drift between them would surface only when a scrub
+ * migration read the wrong one. `settings.classification.test.ts` reconciles the
+ * leaves of this blob against the model's classification IN BOTH DIRECTIONS, so
+ * a field added here and to no tier is a test failure rather than an
+ * unclassified leaf that the default-closed backstop answers for silently.
+ *
+ * WHAT IS STILL WRONG HERE, ON PURPOSE: the secret values are still IN the blob
+ * and still round-trip to clients. POD-419 owns the client scrub migration and
+ * POD-420 the command contracts. What POD-418 landed is the model they both
+ * read; nothing about the storage or the wire moved.
  */
 
 /** Auto-continue backoff: first cooldown after a `continue` nudge, doubling each
@@ -21,6 +66,42 @@ export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
  *  L0 package did not carry it before. Same members, same order — the settings
  *  wire is unchanged. */
 export { HarnessAgent }
+
+/**
+ * Re-exported, not redeclared (POD-418) — `@podium/model` owns the settings
+ * vocabulary, split by matrix row:
+ *
+ *   - `preferences-personal`: {@link Roles}, {@link RoleBackend},
+ *     {@link CodingRole}, {@link Sidebar}, {@link AutoContinuePreferences},
+ *     {@link NotificationRouting}
+ *   - `preferences-instance`: {@link HibernationPolicy},
+ *     {@link GitWorkflowPolicy}, {@link IssueAssistantPolicy},
+ *     {@link StewardPolicy}, {@link ExperimentalFlags}
+ *   - `server-secrets`: {@link ApiKeySecrets}, {@link IntegrationSecrets},
+ *     {@link NotificationSecrets}
+ *
+ * Same members, same order, same defaults — the settings wire is unchanged, and
+ * `settings.test.ts` asserts each composed member is the model's schema INSTANCE
+ * (`toBe`), because a restatement is byte-identical and only object identity
+ * sees the fork (POD-305).
+ */
+export {
+  ApiKeySecrets,
+  AutoContinuePreferences,
+  CodingRole,
+  ExperimentalFlags,
+  GitWorkflowPolicy,
+  HibernationPolicy,
+  IntegrationSecrets,
+  IssueAssistantPolicy,
+  NotificationRouting,
+  NotificationSecrets,
+  RoleBackend,
+  type RoleName,
+  Roles,
+  Sidebar,
+  StewardPolicy,
+}
 
 /**
  * The one capability matrix (issue #84): which harness CLIs can mount Podium's
@@ -160,53 +241,6 @@ export const Account = z.object({
 })
 export type Account = z.infer<typeof Account>
 
-/** One role's backend over a single shape (the unified model — SP-6454 B3).
- *  `accountId` names the auth source (a synthetic derived id today, e.g.
- *  'native:claude-code' or 'managed:anthropic'; '' = the role's default). The
- *  account determines execution (harness vs api) + provider/harness; `model` +
- *  `effort` layer on top. `harness` makes that choice explicit for persisted UI
- *  selections and can later select a harness for a managed credential; native
- *  superagent accounts imply their harness even on older settings blobs. */
-export const RoleBackend = z.object({
-  /** `AccountIdField` (brand-only), NOT the `.min(1)` `AccountId` schema: '' is a
-   *  DOCUMENTED value here meaning "the role's default", so a validating schema
-   *  would reject settings blobs that parse today (POD-362). */
-  accountId: AccountIdField.default(asAccountId('')),
-  model: z.string().default('auto'),
-  effort: z.string().default('auto'),
-  harness: HarnessAgent.optional(),
-})
-export type RoleBackend = z.infer<typeof RoleBackend>
-
-/** The coding-session role: a backend plus session-only preferences that don't
- *  apply to the one-shot/orchestrator roles. */
-export const CodingRole = RoleBackend.extend({
-  /** Model for the harness's own subagents ('auto' = no override). */
-  subagentModel: z.string().default('auto'),
-  /** How subagents run: 'builtin' (harness's own) or 'podium' (coming soon). */
-  subagentStrategy: z.enum(['builtin', 'podium']).default('builtin'),
-  /** Which panel a new session opens on. */
-  startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
-  /** Seed spawned agent CLIs with per-session OFFICIAL theme flags so their
-   *  rendering follows the terminal's issue-tinted colours (Claude Code
-   *  `--settings {"theme":"auto"}`, Codex `-c tui.theme=ansi`). Default ON;
-   *  off = no flags at all, the CLI's own theme behaviour is untouched. Podium
-   *  never edits a user's global CLI config either way. [spec:SP-a04d] */
-  seedCliTheme: z.boolean().default(true),
-})
-export type CodingRole = z.infer<typeof CodingRole>
-
-/** Every LLM/agent role, one shape each. `coding` = new interactive sessions,
- *  `superagent` = the orchestrator, `background` = one-shot work (issue
- *  assistant, title generation, summaries). */
-export const Roles = z.object({
-  coding: CodingRole.default({}),
-  superagent: RoleBackend.default({}),
-  background: RoleBackend.default({ model: 'google/gemini-2.5-flash' }),
-})
-export type Roles = z.infer<typeof Roles>
-export type RoleName = keyof Roles
-
 const HARNESS_ACCOUNT = 'native:' as const
 const MANAGED_ACCOUNT = 'managed:' as const
 
@@ -256,103 +290,70 @@ export function credentialEnv(c: ManagedCredential): Record<string, string> {
   return name ? { [name]: c.credential } : {}
 }
 
-export const Sidebar = z.object({
-  repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
-  repoOrder: z.array(z.string()).default([]),
-  groupByRepo: z.boolean().default(false),
+/**
+ * The legacy `notifications` object: ROUTING (per-user preference) and the bot
+ * TOKEN (server-owned secret) in one nested shape, on two matrix rows.
+ *
+ * Assembled member-by-member from the two model groups rather than by
+ * `.extend()`, so the historical key ORDER survives the split — `telegramChatId`
+ * has always followed `telegramBotToken` in a serialized blob, and a reordering
+ * would be an invisible change to every persisted settings row's JSON. Each
+ * member is the model's field INSTANCE; nothing here is a second declaration.
+ *
+ * POD-419 removes the secret half from what a client holds. Until then the seam
+ * is drawn in the model and honoured here.
+ */
+const NotificationSettings = z.object({
+  web: NotificationRouting.shape.web,
+  ntfyTopic: NotificationRouting.shape.ntfyTopic,
+  telegramBotToken: NotificationSecrets.shape.telegramBotToken,
+  telegramChatId: NotificationRouting.shape.telegramChatId,
 })
-export type Sidebar = z.infer<typeof Sidebar>
 
+/**
+ * The blob, COMPOSED from the three classified halves (POD-418). Key order is
+ * the historical one; every value is the model's schema instance.
+ *
+ * Reading the tiers off this object: `roles` / `sidebar` / `autoContinue` and
+ * three of four `notifications` members are `preferences-personal`;
+ * `hibernation` / `gitWorkflow` / `issues` / `steward` / `experimental` are
+ * `preferences-instance`; `apiKeys` / `integrations` /
+ * `notifications.telegramBotToken` are `server-secrets`. That mapping is not
+ * documentation — it is `SETTINGS_CLASSIFICATION` in `@podium/model`, and
+ * `settings.classification.test.ts` fails if this object and that table
+ * disagree in either direction.
+ */
 export const PodiumSettings = z.object({
   /** Every LLM/agent role on one unified shape (SP-6454 B3). Migrated from the
    *  legacy sessionDefaults/superagent/workLlm fields by `normalizeSettings`. */
   roles: Roles.default({}),
   /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
-   *  domain as the shell the agents already run in. */
-  apiKeys: z
-    .object({
-      openrouter: z.string().default(''),
-      anthropic: z.string().default(''),
-      openai: z.string().default(''),
-    })
-    .default({}),
-  integrations: z
-    .object({
-      linearApiKey: z.string().default(''),
-    })
-    .default({}),
-  hibernation: z
-    .object({
-      enabled: z.boolean().default(true),
-      /** Hibernate idle sessions once host memory use crosses this percentage. */
-      memoryPct: z.number().int().min(50).max(95).default(80),
-      /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
-       * unlimited; zero is valid and parks every session that passes the safety
-       * gates. */
-      maxIdleSessions: z.number().int().min(0).nullable().default(30),
-      /** A session counts as idle after this many minutes without activity. */
-      idleMinutes: z
-        .number()
-        .int()
-        .min(1)
-        .max(24 * 60)
-        .default(30),
-    })
-    .default({}),
-  notifications: z
-    .object({
-      web: z.boolean().default(true),
-      /** ntfy.sh topic for mobile push (empty = off). */
-      ntfyTopic: z.string().default(''),
-      /** Telegram bot token for global server push (empty = off). */
-      telegramBotToken: z.string().default(''),
-      /** Telegram chat id or @channelusername for global server push (empty = off). */
-      telegramChatId: z.string().default(''),
-    })
-    .default({}),
+   *  domain as the shell the agents already run in. `server-secrets`: never
+   *  replicated and never enqueued once POD-419/POD-420 land. */
+  apiKeys: ApiKeySecrets.default({}),
+  integrations: IntegrationSecrets.default({}),
+  hibernation: HibernationPolicy.default({}),
+  notifications: NotificationSettings.default({}),
   sidebar: Sidebar.default({}),
-  gitWorkflow: z
-    .object({
-      /** Parent branch for new issue worktrees + merge target. '' = auto-detect repo default. */
-      defaultParentBranch: z.string().default(''),
-      mergeStyle: z.enum(['ff-only', 'pr', 'ask']).default('ff-only'),
-      autoRebaseBeforeMerge: z.boolean().default(true),
-    })
-    .default({}),
-  issues: z
-    .object({
-      assistantEnabled: z.boolean().default(true),
-    })
-    .default({}),
+  gitWorkflow: GitWorkflowPolicy.default({}),
+  issues: IssueAssistantPolicy.default({}),
   /** The steward: the orchestrator's trigger queue over the durable event log
    *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db]:
    *  the feature has been live long enough to be trusted, and the dark default
    *  only broke NEW installs — their Notification triggers silently never fired.
    *  Existing installs are unaffected (the persisted `meta` value wins). */
-  steward: z
-    .object({
-      enabled: z.boolean().default(true),
-    })
-    .default({}),
+  steward: StewardPolicy.default({}),
   /** When enabled, the server re-sends `continue` to any session stopped on a
    *  retryable error, on an escalating backoff up to 5 min. `promptDismissed`
    *  suppresses the one-time opt-in popup once the user has answered it. */
-  autoContinue: z
-    .object({
-      enabled: z.boolean().default(false),
-      promptDismissed: z.boolean().default(false),
-    })
-    .default({}),
+  autoContinue: AutoContinuePreferences.default({}),
   /**
-   * User toggles for experimental features [spec:SP-f4b9]. Keys are feature ids
-   * from the protocol registry; unknown ids are kept (a flag may exist in a
-   * newer/older build) and are harmless. Honored only while the flag is listed
-   * for this install — see `resolveFeatureState`.
+   * User toggles for experimental features [spec:SP-f4b9].
    *
    * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
    * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
    */
-  experimental: z.record(z.string(), z.boolean()).default({}),
+  experimental: ExperimentalFlags.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 
