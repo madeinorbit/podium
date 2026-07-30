@@ -142,7 +142,7 @@ describe('the advance partition', () => {
     for (const name of WORKFLOW_ADVANCE_NAMES) {
       const advance = workflowAdvanceOf(name)
       expect([name, advance?.resourceScope]).toEqual([name, 'run'])
-      expect([name, advance?.refusesUnnamedDelivery]).toEqual([name, true])
+      expect(advance?.targetNamedBy === 'step' || advance?.targetNamedBy === 'run').toBe(true)
       expect(advance?.rationale.length).toBeGreaterThan(40)
     }
   })
@@ -165,17 +165,34 @@ describe('the advance partition', () => {
 })
 
 describe('run-scoped idempotency', () => {
+  const stepped = { targetNamedBy: 'step', targetHasSteps: true } as const
+
   it('refuses the one frame whose duplicate is undetectable', () => {
-    expect(() => assertAdvanceIsDeliverable({})).toThrow(AMBIGUOUS_ADVANCE_MESSAGE)
+    expect(() => assertAdvanceIsDeliverable({ ...stepped })).toThrow(AMBIGUOUS_ADVANCE_MESSAGE)
   })
 
   it('accepts a frame that names its step, and one that carries a mutation id', () => {
     // The counterfactual for the refusal above: both single-absence frames are
     // ACCEPTED, so the check is the intersection it claims to be and not a
     // blanket requirement wearing a narrower name.
-    expect(() => assertAdvanceIsDeliverable({ stepId: 's1' })).not.toThrow()
-    expect(() => assertAdvanceIsDeliverable({ mutationId: 'm1' })).not.toThrow()
-    expect(() => assertAdvanceIsDeliverable({ stepId: 's1', mutationId: 'm1' })).not.toThrow()
+    expect(() => assertAdvanceIsDeliverable({ ...stepped, stepId: 's1' })).not.toThrow()
+    expect(() => assertAdvanceIsDeliverable({ ...stepped, mutationId: 'm1' })).not.toThrow()
+    expect(() =>
+      assertAdvanceIsDeliverable({ ...stepped, stepId: 's1', mutationId: 'm1' }),
+    ).not.toThrow()
+  })
+
+  it('does not refuse a frame that has NO step it could name', () => {
+    // A prompt-only run and a run-targeted advance have no step, so the remedy
+    // the message offers does not exist for them — and neither does the defect:
+    // their target does not move between deliveries. Refusing them would be a
+    // rule punishing callers who cannot comply.
+    expect(() =>
+      assertAdvanceIsDeliverable({ targetNamedBy: 'step', targetHasSteps: false }),
+    ).not.toThrow()
+    expect(() =>
+      assertAdvanceIsDeliverable({ targetNamedBy: 'run', targetHasSteps: true }),
+    ).not.toThrow()
   })
 
   it('scopes the ledger key to the RUN, so one mutation id cannot cross runs', () => {

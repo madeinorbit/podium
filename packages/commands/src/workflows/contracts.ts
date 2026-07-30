@@ -59,7 +59,7 @@ import type {
   RedactionPolicy,
   TransportTag,
 } from '../contract'
-import type { WorkflowAdvanceIdempotency } from './idempotency'
+import type { AdvanceTarget, WorkflowAdvanceIdempotency } from './idempotency'
 
 // ---------------------------------------------------------------------------
 // A workflow contract is a command contract plus, for the five advances, the
@@ -496,9 +496,12 @@ export const workflowProfileSaveContract = {
 // RUN ADVANCES — the five that carry the run-id resource scope
 // ---------------------------------------------------------------------------
 
-const advanceIdempotency = (rationale: string): WorkflowAdvanceIdempotency => ({
+const advanceIdempotency = (
+  targetNamedBy: AdvanceTarget,
+  rationale: string,
+): WorkflowAdvanceIdempotency => ({
   resourceScope: 'run',
-  refusesUnnamedDelivery: true,
+  targetNamedBy,
   rationale,
 })
 
@@ -561,6 +564,7 @@ export const workflowCheckpointContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   advance: advanceIdempotency(
+    'step',
     'THE case the framework exists for. POD-730 §6: a checkpoint with no `stepId` re-resolves the ' +
       'current step, so a duplicate delivery completes the NEXT step with the FIRST delivery’s summary ' +
       'and evidence, and a third finishes the run. A frame that names neither a step nor a mutation id ' +
@@ -598,6 +602,7 @@ export const workflowAssignStepContract = {
     note: 'Run and step ids follow D20.2. The MACHINE the assignee sits on follows M5 instead: denied and unreachable stay distinguishable, because placing code on someone’s hardware is a code-execution boundary and an operator must be able to tell a permissions problem from a dead machine.',
   },
   advance: advanceIdempotency(
+    'step',
     'Idempotent in effect today (POD-730 §6), which is a property of assignment being a SET rather ' +
       'than a guarantee of the delivery path. Declared so the framework rule holds if the handler ' +
       'ever stops being a pure set.',
@@ -627,6 +632,7 @@ export const workflowSkipContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   advance: advanceIdempotency(
+    'step',
     'A duplicate is already refused by the only-current-step guard, since the first skip moved the ' +
       'step out of current. `stepId` is REQUIRED on this input, so the ambiguous frame is unreachable ' +
       'by construction — the declaration records that it was decided, not that it was needed.',
@@ -655,6 +661,7 @@ export const workflowRetryContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   advance: advanceIdempotency(
+    'step',
     'The one advance whose duplicate is NOT refused today: each delivery bumps `attempt` (POD-730 §6). ' +
       '`stepId` is required so the ambiguous frame cannot occur, and a mutation id makes the replay ' +
       'return the first result instead of a second attempt.',
@@ -691,10 +698,13 @@ export const workflowAdoptContract = {
   attribution: ATTRIBUTION,
   errorConsistency: CONSISTENT_ERRORS,
   advance: advanceIdempotency(
-    'A duplicate adopt would supersede the run the FIRST adopt created and start a third — the same ' +
-      'shape as the checkpoint double-advance and the reason this class is declared per command ' +
-      'rather than only on checkpoint. `startStepId` is not a step NAME in the linear-guard sense, so ' +
-      'a mutation id is the only close here; see the registry’s advance-identity mapping.',
+    'run',
+    'THE TARGET IS THE RUN, so there is no step to name and the unnamed-frame refusal does not apply. ' +
+      'Its duplicate is a real hazard all the same — a second adopt supersedes the run the FIRST one ' +
+      'created and starts a third — and the close for it is the mutation-id ledger alone. That is ' +
+      'RECORDED rather than fixed here: POD-730 did not pin adopt’s duplicate as a defect, this ' +
+      'issue’s criterion is the checkpoint double-advance, and refusing every adopt that carries no ' +
+      'mutation id would break six behaviours POD-730 pinned for a hazard nobody has hit.',
   ),
   cli: { positional: ['revisionId'], summary: 'Adopt a revision mid-run' },
 } as const satisfies WorkflowCommandContract

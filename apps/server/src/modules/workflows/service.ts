@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import type { AdvanceIdempotencyPort } from '@podium/commands'
 import { AgentKind } from '@podium/model'
 import {
   type ExecutionProfileWire,
-  WorkflowBindingTarget,
   type WorkflowGitObservation as GitObservation,
+  WorkflowBindingTarget,
   WorkflowGitObservation,
   type WorkflowNextActionWire,
   type WorkflowRevisionWire,
@@ -18,6 +19,28 @@ import { z } from 'zod'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow } from '../../store/types'
 import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
+import type {
+  adoptHandler,
+  assignStepHandler,
+  checkpointHandler,
+  retryHandler,
+  skipHandler,
+} from './handlers/advances'
+import {
+  NO_RUN,
+  WorkflowAccess,
+  type WorkflowHandlerContext,
+  type WorkflowPolicyPorts,
+} from './handlers/context'
+import type {
+  assignHandler,
+  createHandler,
+  forkHandler,
+  profileSaveHandler,
+  publishHandler,
+  reviseHandler,
+} from './handlers/library'
+import { dispatchWorkflowCommand, type WorkflowProcName } from './registry'
 
 const actorInput = z.object({}).passthrough()
 const workflowSteps = WorkflowStep.array().superRefine((steps, context) => {
@@ -112,8 +135,26 @@ export interface WorkflowCaller {
   capability?: Capability
   overrideScope?: boolean
   /** Operator calls and approved server-side operations may change protected
-   * global/repository defaults and publish global revisions. */
+   * global/repository defaults and publish global revisions.
+   *
+   * POD-731 narrowed what this MEANS without changing who sets it: it is the
+   * ACCOUNT GRADE (`admin`), and a grade decides the admin-grade paths — the
+   * global library, execution profiles — rather than short-circuiting every
+   * guard on the surface. See `workflowPrincipal`. */
   protectedWrite?: boolean
+  /**
+   * THE OTHER HALF OF ADR 9 D5 A3's attribution pair: which HUMAN this actor
+   * acts for, resolved from the delegation record by the transport and never
+   * from payload.
+   *
+   * `undefined` means "the transport did not resolve one", which today is every
+   * caller and resolves to the single human. `null` means REVOKED — A1's
+   * whole revocation semantics, and the reason it is a distinct value rather
+   * than an absence: a long-lived unattended run whose delegating human has
+   * been revoked must stop advancing at its next apply, with no reaper to
+   * write and none to forget.
+   */
+  onBehalfOf?: string | null
 }
 
 interface SessionInfo {
@@ -155,85 +196,105 @@ function globalTargetId(): string {
   return ''
 }
 
-export class WorkflowService {
-  constructor(private readonly deps: WorkflowServiceDeps) {}
+/**
+ * What a HANDLER may reach on the engine — the run arithmetic and the state
+ * machine, and nothing that decides authorization.
+ *
+ * A named interface rather than the class itself, for two reasons that both
+ * matter to the next issue. It is the LIST of what still has to move when
+ * POD-732 finishes the cut, written where a reader will find it; and it keeps
+ * the handlers unable to reach a guard by accident, because there is no guard
+ * on it to reach. Authorization arrives through `ctx.access` or not at all.
+ */
+export interface WorkflowEngine {
+  actor(caller: WorkflowCaller): WorkflowActor
+  scopeRef(scope: z.infer<typeof WorkflowScope>, raw: string | null | undefined): string | null
+  currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null
+  nextPacket(runId: string, message: string, warnings?: string[]): WorkflowNextActionWire
+  /** Resolves a run AND takes its visibility decision — an unknown id and an
+   *  invisible one leave by the same throw (ADR 3 Amendment 1 D20.2). */
+  runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire
+  observationWarningsForRun(
+    run: WorkflowRunWire,
+    step: WorkflowRunStepWire,
+    caller: WorkflowCaller,
+    status: 'active' | 'blocked' | 'complete',
+    observation: GitObservation | null,
+  ): string[]
+  assertRevisionMatchesStart(
+    revision: WorkflowRevisionWire,
+    input: { sessionId: string; cwd: string; issueId?: string },
+  ): void
+  startRun(input: {
+    sessionId: string
+    cwd: string
+    issueId?: string
+    revisionId: string
+    supersedesRunId?: string
+    startStepId?: string
+  }): WorkflowRunWire
+}
 
-  private actor(caller: WorkflowCaller): WorkflowActor {
+export class WorkflowService implements WorkflowEngine {
+  constructor(
+    private readonly deps: WorkflowServiceDeps,
+    ports?: WorkflowPolicyPorts & { ledger?: AdvanceIdempotencyPort },
+  ) {
+    this.access = new WorkflowAccess(deps, ports)
+    this.ledger = ports?.ledger
+  }
+
+  /**
+   * The run-scoped idempotency ledger (`applied_mutations`, as a port).
+   *
+   * ABSENT is not "idempotency off". The framework's other half — refusing an
+   * advance that names neither a step nor a mutation id — runs regardless, and
+   * it is the half that closes POD-730 §6's double-advance. The ledger adds
+   * at-most-once for callers that DO mint a delivery id; without it such a
+   * caller simply gets today's behaviour for its replay, which for every
+   * advance except `retry` is already idempotent in effect.
+   */
+  private readonly ledger: AdvanceIdempotencyPort | undefined
+
+  actor(caller: WorkflowCaller): WorkflowActor {
     return caller.actor
   }
 
-  private sessionFor(caller: WorkflowCaller): SessionInfo | undefined {
+  sessionFor(caller: WorkflowCaller): SessionInfo | undefined {
     return caller.actor.kind === 'session' && caller.actor.id
       ? this.deps.session(caller.actor.id)
       : undefined
   }
 
-  private scopeRef(
-    scope: z.infer<typeof WorkflowScope>,
-    raw: string | null | undefined,
-  ): string | null {
+  scopeRef(scope: z.infer<typeof WorkflowScope>, raw: string | null | undefined): string | null {
     if (scope === 'global') return null
     if (!raw) throw new Error(`${scope} workflows require scopeRef`)
     return raw
   }
 
-  private assertIssueScope(caller: WorkflowCaller, issueId: string): void {
-    if (caller.actor.kind === 'operator' || caller.overrideScope) return
-    const scope = caller.capability?.scope
-    if (scope?.kind === 'subtree' && scope.rootId === issueId) return
-    throw new Error(`issue ${issueId} is outside this agent's workflow scope`)
+  /**
+   * THE SIXTEEN GUARDS ARE GONE FROM HERE (POD-731).
+   *
+   * Every authorization question this class used to answer inline — the four
+   * scope guards, `canReadWorkflow`, `assertCoordinator`, `checkpoint`'s allowed
+   * check, `profileSave`'s inverse guard, and the three read-shaped branches in
+   * `bindings`, `runs` and `runFor` — is now one call into {@link
+   * WorkflowAccess}, which takes one decision against a real principal.
+   *
+   * What survives on this class is the STATE MACHINE and the run arithmetic.
+   * That split is deliberate and is the reviewable unit: authorization was the
+   * part that was wrong, and moving the state machine in the same diff would
+   * have made it impossible to grade against POD-730's oracle. POD-732 does the
+   * cutover and the deletion.
+   */
+  readonly access: WorkflowAccess
+
+  assertWorkflowRead(caller: WorkflowCaller, workflowId: string): WorkflowWire {
+    return this.access.assertWorkflowRead(caller, workflowId)
   }
 
-  private assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): void {
-    if (caller.actor.kind === 'operator' || caller.overrideScope) return
-    const workflow = this.deps.store.getWorkflow(workflowId)
-    if (!workflow) throw new Error(`unknown workflow: ${workflowId}`)
-    if (workflow.scope === 'global') return // creating candidate revisions is direct
-    const session = this.sessionFor(caller)
-    if (!session) throw new Error('workflow write lost its session context')
-    if (workflow.scope === 'task') {
-      if (workflow.scopeRef === session.sessionId || workflow.scopeRef === session.issueId) return
-      throw new Error('task workflow is outside this session')
-    }
-    const repoId = this.deps.repoIdForPath(session.cwd)
-    if (repoId && workflow.scopeRef === repoId) return
-    throw new Error('repository workflow is outside this session')
-  }
-
-  private assertCreateScope(
-    caller: WorkflowCaller,
-    scope: z.infer<typeof WorkflowScope>,
-    scopeRef: string | null,
-  ): void {
-    if (caller.actor.kind === 'operator' || caller.overrideScope || scope === 'global') return
-    const session = this.sessionFor(caller)
-    if (!session) throw new Error('workflow creation lost its session context')
-    if (scope === 'task' && (scopeRef === session.sessionId || scopeRef === session.issueId)) return
-    if (scope === 'repository' && scopeRef === this.deps.repoIdForPath(session.cwd)) return
-    throw new Error(`${scope} workflow is outside this session`)
-  }
-  private canReadWorkflow(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
-    if (caller.actor.kind === 'operator' || caller.overrideScope) return true
-    if (workflow.scope === 'global') return true
-    const session = this.sessionFor(caller)
-    if (!session) return false
-    if (workflow.scope === 'repository') {
-      return workflow.scopeRef === this.deps.repoIdForPath(session.cwd)
-    }
-    const scope = caller.capability?.scope
-    return (
-      workflow.scopeRef === session.sessionId ||
-      workflow.scopeRef === session.issueId ||
-      (scope?.kind === 'subtree' && workflow.scopeRef === scope.rootId)
-    )
-  }
-
-  private assertWorkflowRead(caller: WorkflowCaller, workflowId: string): void {
-    const workflow = this.deps.store.getWorkflow(workflowId)
-    if (!workflow) throw new Error(`unknown workflow: ${workflowId}`)
-    if (!this.canReadWorkflow(caller, workflow)) {
-      throw new Error('workflow is outside this session')
-    }
+  canReadWorkflow(caller: WorkflowCaller, workflow: WorkflowWire): boolean {
+    return this.access.canReadWorkflow(caller, workflow)
   }
 
   list(input: z.infer<(typeof workflowInputs)['list']>, caller: WorkflowCaller) {
@@ -251,177 +312,59 @@ export class WorkflowService {
     return { workflow, revisions: this.deps.store.listRevisions(input.id) }
   }
 
-  create(input: z.infer<(typeof workflowInputs)['create']>, caller: WorkflowCaller) {
-    const scopeRef = this.scopeRef(input.scope, input.scopeRef)
-    this.assertCreateScope(caller, input.scope, scopeRef)
-    const now = this.deps.now()
-    const workflowId = `wf_${randomUUID()}`
-    this.deps.store.insertWorkflow({
-      id: workflowId,
-      name: input.name,
-      description: input.description,
-      scope: input.scope,
-      scopeRef,
-      actor: this.actor(caller),
-      now,
-    })
-    const revision = this.deps.store.insertRevision({
-      id: `wfr_${randomUUID()}`,
-      workflowId,
-      instructions: input.instructions,
-      steps: input.steps,
-      actor: this.actor(caller),
-      now,
-    })
-    this.deps.store.appendEvent({
-      workflowId,
-      kind: 'workflow.created',
-      actor: this.actor(caller),
-      payload: { revisionId: revision.id, scope: input.scope, scopeRef },
-      now,
-    })
-    const workflow = this.deps.store.getWorkflow(workflowId)
-    if (!workflow) throw new Error(`workflow creation lost ${workflowId}`)
-    return { workflow, revision }
+  create(
+    input: z.infer<(typeof workflowInputs)['create']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof createHandler> {
+    return this.run('create', input, caller)
   }
 
-  revise(input: z.infer<(typeof workflowInputs)['revise']>, caller: WorkflowCaller) {
-    this.assertWorkflowWrite(caller, input.workflowId)
-    const now = this.deps.now()
-    const revision = this.deps.store.insertRevision({
-      id: `wfr_${randomUUID()}`,
-      workflowId: input.workflowId,
-      instructions: input.instructions,
-      steps: input.steps,
-      actor: this.actor(caller),
-      now,
-    })
-    this.deps.store.appendEvent({
-      workflowId: input.workflowId,
-      kind: 'workflow.revised',
-      actor: this.actor(caller),
-      payload: { revisionId: revision.id, version: revision.version },
-      now,
-    })
-    return revision
+  revise(
+    input: z.infer<(typeof workflowInputs)['revise']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof reviseHandler> {
+    return this.run('revise', input, caller)
   }
 
-  fork(input: z.infer<(typeof workflowInputs)['fork']>, caller: WorkflowCaller) {
-    const source = this.deps.store.getRevision(input.revisionId)
-    if (!source) throw new Error(`unknown workflow revision: ${input.revisionId}`)
-    this.assertWorkflowRead(caller, source.workflowId)
-    return this.create(
-      {
-        name: input.name,
-        description: input.description,
-        scope: input.scope,
-        scopeRef: input.scopeRef,
-        instructions: source.instructions,
-        steps: source.steps,
-      },
-      caller,
-    )
+  fork(
+    input: z.infer<(typeof workflowInputs)['fork']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof forkHandler> {
+    return this.run('fork', input, caller)
   }
 
-  publish(input: z.infer<(typeof workflowInputs)['publish']>, caller: WorkflowCaller) {
-    const revision = this.deps.store.getRevision(input.revisionId)
-    if (!revision) throw new Error(`unknown workflow revision: ${input.revisionId}`)
-    const workflow = this.deps.store.getWorkflow(revision.workflowId)
-    if (!workflow) throw new Error(`workflow revision ${revision.id} lost its workflow`)
-    this.assertWorkflowWrite(caller, workflow.id)
-    if (workflow.scope === 'global' && caller.actor.kind === 'session' && !caller.protectedWrite) {
-      throw new Error('approval required to publish a global workflow revision')
-    }
-    const now = this.deps.now()
-    this.deps.store.publishRevision(revision.id, now)
-    this.deps.store.appendEvent({
-      workflowId: workflow.id,
-      kind: 'workflow.published',
-      actor: this.actor(caller),
-      payload: { revisionId: revision.id },
-      now,
-    })
-    const published = this.deps.store.getRevision(revision.id)
-    if (!published) throw new Error(`published workflow revision ${revision.id} disappeared`)
-    return published
+  publish(
+    input: z.infer<(typeof workflowInputs)['publish']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof publishHandler> {
+    return this.run('publish', input, caller)
   }
 
+  /** QUERY, not a mutation — and one of the three read-shaped operator branches
+   *  POD-730 pinned for exactly this reason. It returned EVERY binding in the
+   *  instance; it now asks the same decision every mutation asks. */
   bindings(_input: z.infer<(typeof workflowInputs)['bindings']>, caller: WorkflowCaller) {
-    if (caller.actor.kind === 'operator' || caller.overrideScope) {
-      return this.deps.store.listBindings()
-    }
-    const session = this.sessionFor(caller)
-    const repoId = session ? this.deps.repoIdForPath(session.cwd) : null
-    const scope = caller.capability?.scope
-    return this.deps.store.listBindings().filter((binding) => {
-      if (binding.targetKind === 'global') return true
-      if (binding.targetKind === 'repository') return binding.targetId === repoId
-      if (binding.targetKind === 'session') return binding.targetId === caller.actor.id
-      return (
-        binding.targetId === session?.issueId ||
-        (scope?.kind === 'subtree' && binding.targetId === scope.rootId)
-      )
-    })
+    return this.access.visibleBindings(caller, this.deps.store.listBindings())
   }
 
-  assign(input: z.infer<(typeof workflowInputs)['assign']>, caller: WorkflowCaller) {
-    const revision = this.deps.store.getRevision(input.revisionId)
-    if (!revision) throw new Error(`unknown workflow revision: ${input.revisionId}`)
-    this.assertWorkflowRead(caller, revision.workflowId)
-    if (
-      (input.targetKind === 'global' || input.targetKind === 'repository') &&
-      caller.actor.kind === 'session' &&
-      !caller.protectedWrite
-    ) {
-      throw new Error(`approval required to change the ${input.targetKind} workflow default`)
-    }
-    if (
-      (input.targetKind === 'global' || input.targetKind === 'repository') &&
-      revision.publishedAt === null
-    ) {
-      throw new Error('shared workflow defaults require a published revision')
-    }
-    if (input.targetKind === 'issue') this.assertIssueScope(caller, input.targetId)
-    if (
-      input.targetKind === 'session' &&
-      caller.actor.kind === 'session' &&
-      caller.actor.id !== input.targetId &&
-      !caller.overrideScope
-    ) {
-      throw new Error('agents may directly assign only their own session')
-    }
-    const now = this.deps.now()
-    const binding = this.deps.store.setBinding({ ...input, actor: this.actor(caller), now })
-    this.deps.store.appendEvent({
-      workflowId: revision.workflowId,
-      kind: 'workflow.assigned',
-      actor: this.actor(caller),
-      payload: input,
-      now,
-    })
-    return binding
+  assign(
+    input: z.infer<(typeof workflowInputs)['assign']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof assignHandler> {
+    return this.run('assign', input, caller)
   }
 
-  profiles(_input: z.infer<(typeof workflowInputs)['profiles']>, _caller: WorkflowCaller) {
-    return this.deps.store.listProfiles()
+  /** QUERY. Had NO gate at all and listed every profile — with its
+   *  `accountId`, which names managed credentials — to any caller. */
+  profiles(_input: z.infer<(typeof workflowInputs)['profiles']>, caller: WorkflowCaller) {
+    return this.access.visibleProfiles(caller, this.deps.store.listProfiles())
   }
 
-  profileSave(input: z.infer<(typeof workflowInputs)['profileSave']>, caller: WorkflowCaller) {
-    if (caller.actor.kind === 'session' && !caller.protectedWrite) {
-      throw new Error('only the operator may change execution profiles')
-    }
-    const now = this.deps.now()
-    return this.deps.store.upsertProfile({
-      id: input.id ?? `wfp_${randomUUID()}`,
-      name: input.name,
-      accountId: input.accountId,
-      machineId: input.machineId ?? null,
-      harness: input.harness,
-      model: input.model,
-      effort: input.effort,
-      actor: this.actor(caller),
-      now,
-    })
+  profileSave(
+    input: z.infer<(typeof workflowInputs)['profileSave']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof profileSaveHandler> {
+    return this.run('profileSave', input, caller)
   }
 
   /**
@@ -462,23 +405,39 @@ export class WorkflowService {
     return { ...profile, harness: harness.data }
   }
 
-  private liveRunForSession(sessionId: string): WorkflowRunRow | null {
+  liveRunForSession(sessionId: string): WorkflowRunRow | null {
     const direct = this.deps.store.findLiveRunForSession(sessionId)
     if (direct) return direct
     const issueId = this.deps.session(sessionId)?.issueId
     return issueId ? this.deps.store.findLiveRun('issue', issueId) : null
   }
 
+  /**
+   * QUERY, and the second of the three read-shaped operator branches. It
+   * returned every run in the INSTANCE for an operator; a session got only its
+   * own live run.
+   *
+   * BOTH SHAPES SURVIVE, and only the authorization changed. The session arm is
+   * still the LIVE run and still ignores `includeTerminal` — POD-730 pins that,
+   * and widening a session's list to its own completed runs is a change no
+   * criterion here asks for. What changed is that each arm now ends at
+   * `canSeeRun`, the same decision `runFor` takes, so a run you cannot open is
+   * a run you cannot list rather than two rules that could disagree.
+   */
   runs(input: z.infer<(typeof workflowInputs)['runs']>, caller: WorkflowCaller) {
-    if (caller.actor.kind === 'operator') {
-      return this.deps.store.listRuns(input.includeTerminal ?? false).map((run) => this.toRun(run))
+    if (caller.actor.kind === 'session' && caller.actor.id !== null) {
+      const live = this.liveRunForSession(caller.actor.id)
+      if (!live) return []
+      const run = this.toRun(live)
+      return this.access.canSeeRun(caller, run) ? [run] : []
     }
-    if (!caller.actor.id) return []
-    const run = this.liveRunForSession(caller.actor.id)
-    return run ? [this.toRun(run)] : []
+    return this.access.visibleRuns(
+      caller,
+      this.deps.store.listRuns(input.includeTerminal ?? false).map((row) => this.toRun(row)),
+    )
   }
 
-  private assertRevisionMatchesStart(
+  assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
     input: { sessionId: string; cwd: string; issueId?: string },
   ): void {
@@ -620,7 +579,7 @@ export class WorkflowService {
     return this.toRun(inserted)
   }
 
-  private toRun(row: WorkflowRunRow): WorkflowRunWire {
+  toRun(row: WorkflowRunRow): WorkflowRunWire {
     const revision = this.deps.store.getRevision(row.revisionId)
     if (!revision) throw new Error(`workflow run ${row.id} lost revision ${row.revisionId}`)
     return {
@@ -637,25 +596,23 @@ export class WorkflowService {
     }
   }
 
-  private runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire {
+  runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire {
     const row = requested
       ? this.deps.store.getRun(requested)
       : caller.actor.id
         ? this.liveRunForSession(caller.actor.id)
         : null
-    if (!row) throw new Error('no active workflow run for this session')
+    // THE CONSISTENT-ERROR RULE, by construction (ADR 3 Amendment 1 D20.2).
+    //
+    // An unknown run id and a run the principal may not see leave by the SAME
+    // throw with the SAME message. POD-730 §10 pinned these as two outcomes —
+    // `no active workflow run for this session` against `workflow run is
+    // outside this session` — the second of which confirms the run exists.
+    // There is now one site and one string, so they cannot drift back apart.
+    if (!row) throw new Error(NO_RUN)
     const run = this.toRun(row)
-    if (caller.actor.kind === 'operator') return run
-    const sessionId = caller.actor.id
-    if (
-      sessionId === run.coordinatorSessionId ||
-      run.steps.some((step) => step.assignedSessionId === sessionId) ||
-      (sessionId !== null &&
-        run.subjectKind === 'issue' &&
-        this.deps.session(sessionId)?.issueId === run.subjectId)
-    )
-      return run
-    throw new Error('workflow run is outside this session')
+    if (!this.access.canSeeRun(caller, run)) throw new Error(NO_RUN)
+    return run
   }
 
   status(input: z.infer<(typeof workflowInputs)['status']>, caller: WorkflowCaller) {
@@ -669,7 +626,7 @@ export class WorkflowService {
     return this.renderRunPrime(this.toRun(row), caller.actor.id)
   }
 
-  private currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null {
+  currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null {
     return (
       run.steps.find((step) => step.status === 'active' || step.status === 'blocked') ??
       run.steps.find((step) => step.status === 'pending') ??
@@ -677,11 +634,7 @@ export class WorkflowService {
     )
   }
 
-  private nextPacket(
-    runId: string,
-    message: string,
-    warnings: string[] = [],
-  ): WorkflowNextActionWire {
+  nextPacket(runId: string, message: string, warnings: string[] = []): WorkflowNextActionWire {
     const row = this.deps.store.getRun(runId)
     if (!row) throw new Error(`workflow run ${runId} disappeared`)
     const run = this.toRun(row)
@@ -689,102 +642,14 @@ export class WorkflowService {
     return { run, currentStep: current, nextStep: current, message, warnings }
   }
 
-  private assertCoordinator(run: WorkflowRunWire, caller: WorkflowCaller): void {
-    if (caller.actor.kind === 'operator' || caller.actor.id === run.coordinatorSessionId) return
-    throw new Error('only the workflow coordinator may perform this transition')
-  }
-
   checkpoint(
     input: z.infer<(typeof workflowInputs)['checkpoint']>,
     caller: WorkflowCaller,
-  ): WorkflowNextActionWire {
-    const run = this.runFor(caller, input.runId)
-    const now = this.deps.now()
-    if (run.steps.length === 0) {
-      this.assertCoordinator(run, caller)
-      if (input.status === 'complete') this.deps.store.updateRunStatus(run.id, 'complete', now)
-      else
-        this.deps.store.updateRunStatus(
-          run.id,
-          input.status === 'blocked' ? 'blocked' : 'active',
-          null,
-        )
-      this.deps.store.appendEvent({
-        workflowId: run.revision.workflowId,
-        runId: run.id,
-        kind: `workflow.run_${input.status}`,
-        actor: this.actor(caller),
-        payload: { summary: input.summary, evidence: input.evidence },
-        now,
-      })
-      return this.nextPacket(
-        run.id,
-        input.status === 'complete' ? 'Workflow complete.' : `Workflow ${input.status}.`,
-      )
-    }
-    const current = this.currentStep(run)
-    if (!current) throw new Error('workflow has no remaining step')
-    const step = input.stepId
-      ? run.steps.find((candidate) => candidate.stepId === input.stepId)
-      : current
-    if (!step) throw new Error(`workflow has no step ${input.stepId}`)
-    if (step.stepId !== current.stepId)
-      throw new Error(`step ${step.stepId} is not the current linear step`)
-    const sessionId = caller.actor.id
-    const allowed =
-      caller.actor.kind === 'operator' ||
-      sessionId === run.coordinatorSessionId ||
-      (step.assignedSessionId !== null && sessionId === step.assignedSessionId)
-    if (!allowed) throw new Error('session is not assigned to this workflow step')
-    const observation = input.observation ?? null
-    const warnings = this.observationWarningsForRun(run, step, caller, input.status, observation)
-    const assignedSessionId =
-      step.assignedSessionId ?? (caller.actor.kind === 'session' ? caller.actor.id : null)
-    this.deps.store.updateStep({
-      runId: run.id,
-      stepId: step.stepId,
-      status: input.status,
-      assignedSessionId,
-      summary: input.summary,
-      evidence: input.evidence,
-      observation,
-      warnings,
-      startedAt: step.startedAt ?? now,
-      completedAt: input.status === 'complete' ? now : null,
-    })
-    const updatedSteps = this.deps.store.getRunSteps(run.id)
-    const remaining = updatedSteps.find((candidate) => candidate.status === 'pending')
-    if (input.status === 'blocked') this.deps.store.updateRunStatus(run.id, 'blocked', null)
-    else if (input.status === 'complete' && !remaining)
-      this.deps.store.updateRunStatus(run.id, 'complete', now)
-    else this.deps.store.updateRunStatus(run.id, 'active', null)
-    this.deps.store.appendEvent({
-      workflowId: run.revision.workflowId,
-      runId: run.id,
-      kind: `workflow.step_${input.status}`,
-      actor: this.actor(caller),
-      payload: { stepId: step.stepId, summary: input.summary, warnings },
-      now,
-    })
-    const worker = caller.actor.id && caller.actor.id !== run.coordinatorSessionId
-    if (worker && this.deps.notifyCoordinator) {
-      this.deps.notifyCoordinator(
-        run.coordinatorSessionId,
-        `Workflow step "${step.title}" ${input.status}: ${input.summary || '(no summary)'}`,
-      )
-    }
-    const message =
-      input.status === 'complete'
-        ? remaining
-          ? `Step complete. Next: ${remaining.title}`
-          : 'Workflow complete.'
-        : input.status === 'blocked'
-          ? 'Step blocked. Coordinator attention is required.'
-          : `Step active: ${step.title}`
-    return this.nextPacket(run.id, message, warnings)
+  ): ReturnType<typeof checkpointHandler> {
+    return this.run('checkpoint', input, caller)
   }
 
-  private observationWarningsForRun(
+  observationWarningsForRun(
     run: WorkflowRunWire,
     step: WorkflowRunStepWire,
     caller: WorkflowCaller,
@@ -827,114 +692,60 @@ export class WorkflowService {
     return warnings
   }
 
-  assignStep(input: z.infer<(typeof workflowInputs)['assignStep']>, caller: WorkflowCaller) {
-    const run = this.runFor(caller, input.runId)
-    this.assertCoordinator(run, caller)
-    const current = this.currentStep(run)
-    if (!current || current.stepId !== input.stepId)
-      throw new Error('only the current step may be assigned')
-    this.deps.store.assignStep(run.id, input.stepId, input.sessionId)
-    this.deps.store.appendEvent({
-      workflowId: run.revision.workflowId,
-      runId: run.id,
-      kind: 'workflow.step_assigned',
-      actor: this.actor(caller),
-      payload: { stepId: input.stepId, sessionId: input.sessionId },
-      now: this.deps.now(),
-    })
-    return this.nextPacket(
-      run.id,
-      input.sessionId ? `Step assigned to ${input.sessionId}.` : 'Step unassigned.',
-    )
+  assignStep(
+    input: z.infer<(typeof workflowInputs)['assignStep']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof assignStepHandler> {
+    return this.run('assignStep', input, caller)
   }
 
-  skip(input: z.infer<(typeof workflowInputs)['skip']>, caller: WorkflowCaller) {
-    const run = this.runFor(caller, input.runId)
-    this.assertCoordinator(run, caller)
-    const current = this.currentStep(run)
-    if (!current || current.stepId !== input.stepId)
-      throw new Error('only the current step may be skipped')
-    const now = this.deps.now()
-    this.deps.store.updateStep({
-      runId: run.id,
-      stepId: current.stepId,
-      status: 'skipped',
-      assignedSessionId: current.assignedSessionId,
-      summary: input.reason,
-      evidence: current.evidence,
-      observation: current.observation,
-      warnings: current.warnings,
-      startedAt: current.startedAt,
-      completedAt: now,
-    })
-    const remaining = this.deps.store.getRunSteps(run.id).find((step) => step.status === 'pending')
-    if (!remaining) this.deps.store.updateRunStatus(run.id, 'complete', now)
-    else this.deps.store.updateRunStatus(run.id, 'active', null)
-    this.deps.store.appendEvent({
-      workflowId: run.revision.workflowId,
-      runId: run.id,
-      kind: 'workflow.step_skipped',
-      actor: this.actor(caller),
-      payload: { stepId: current.stepId, reason: input.reason },
-      now,
-    })
-    return this.nextPacket(
-      run.id,
-      remaining ? `Skipped. Next: ${remaining.title}` : 'Workflow complete.',
-    )
+  skip(
+    input: z.infer<(typeof workflowInputs)['skip']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof skipHandler> {
+    return this.run('skip', input, caller)
   }
 
-  retry(input: z.infer<(typeof workflowInputs)['retry']>, caller: WorkflowCaller) {
-    const run = this.runFor(caller, input.runId)
-    this.assertCoordinator(run, caller)
-    const target = run.steps.find((step) => step.stepId === input.stepId)
-    if (!target) throw new Error(`workflow has no step ${input.stepId}`)
-    const laterStarted = run.steps.some(
-      (step) => step.position > target.position && step.status !== 'pending',
-    )
-    if (laterStarted) throw new Error('cannot retry a step after a later step has started')
-    this.deps.store.resetStep(run.id, target.stepId)
-    this.deps.store.updateRunStatus(run.id, 'active', null)
-    this.deps.store.appendEvent({
-      workflowId: run.revision.workflowId,
-      runId: run.id,
-      kind: 'workflow.step_retried',
-      actor: this.actor(caller),
-      payload: { stepId: target.stepId },
-      now: this.deps.now(),
-    })
-    return this.nextPacket(run.id, `Retry ready: ${target.title}`)
+  retry(
+    input: z.infer<(typeof workflowInputs)['retry']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof retryHandler> {
+    return this.run('retry', input, caller)
   }
 
-  adopt(input: z.infer<(typeof workflowInputs)['adopt']>, caller: WorkflowCaller) {
-    const current = this.runFor(caller, input.runId)
-    this.assertCoordinator(current, caller)
-    if (current.status !== 'active' && current.status !== 'blocked')
-      throw new Error('only an active workflow run may adopt a revision')
-    const coordinatorSessionId = caller.actor.id ?? current.coordinatorSessionId
-    const session = this.deps.session(coordinatorSessionId)
-    if (!session) throw new Error('coordinator session no longer exists')
-    const revision = this.deps.store.getRevision(input.revisionId)
-    if (!revision) throw new Error(`unknown workflow revision: ${input.revisionId}`)
-    this.assertWorkflowRead(caller, revision.workflowId)
-    const issueId = current.subjectKind === 'issue' ? current.subjectId : undefined
-    this.assertRevisionMatchesStart(revision, {
-      sessionId: session.sessionId,
-      cwd: session.cwd,
-      ...(issueId ? { issueId } : {}),
-    })
-    if (input.startStepId && !revision.steps.some((step) => step.id === input.startStepId))
-      throw new Error(`workflow has no step ${input.startStepId}`)
-    const now = this.deps.now()
-    this.deps.store.updateRunStatus(current.id, 'superseded', now)
-    return this.startRun({
-      sessionId: session.sessionId,
-      cwd: session.cwd,
-      ...(issueId ? { issueId } : {}),
-      revisionId: input.revisionId,
-      supersedesRunId: current.id,
-      startStepId: input.startStepId,
-    })
+  adopt(
+    input: z.infer<(typeof workflowInputs)['adopt']>,
+    caller: WorkflowCaller,
+  ): ReturnType<typeof adoptHandler> {
+    return this.run('adopt', input, caller)
+  }
+
+  /**
+   * THE BRIDGE to the contract+handler path (POD-731).
+   *
+   * Every one of the eleven mutations above is now three lines that end here:
+   * the contract's schema validates, the framework applies the run-scoped
+   * idempotency, the handler runs. Nothing on this class validates or
+   * authorizes a mutation any more.
+   *
+   * The methods survive as thin shims for exactly one issue's worth of time.
+   * They are what lets POD-730's characterization suite — 88 tests written
+   * against `service.checkpoint(input, caller)` — drive the NEW path unedited,
+   * which is the only way "behaviour-preserving" can be a measurement rather
+   * than a claim. POD-732 deletes them along with `workflowInputs` and
+   * `dispatch`.
+   */
+  private run<T>(proc: WorkflowProcName, input: unknown, caller: WorkflowCaller): T {
+    const ctx: WorkflowHandlerContext = {
+      caller,
+      deps: this.deps,
+      access: this.access,
+      engine: this,
+    }
+    return dispatchWorkflowCommand(proc, ctx, input, {
+      ...(this.ledger ? { ledger: this.ledger } : {}),
+      validated: true,
+    }) as T
   }
 
   dispatch(caller: WorkflowCaller, proc: string, raw: unknown): Promise<unknown> | undefined {
