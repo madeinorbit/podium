@@ -14,7 +14,7 @@
 |---|---|---|
 | model exports the canonical Session and Issue aggregates plus the shared field schemas named by POD-364's composition plan | **yes** | `SessionAggregate`, `IssueAggregate`, 15 session groups (§6.2), 13 issue groups (§6.3), and the cross-entity `Ownership` / `Attribution` / `PerUserKey`, all exported from `@podium/model`. The wire-golden corpus enumerates them: 123 new cases across 40 new schema names |
 | owner, visibility class and the actor/on-behalf-of pair each exist as exactly ONE shared field schema, composing POD-1075's types rather than redefining them | **yes** | §2 below |
-| No serializable effective-capability snapshot exists anywhere in the schema set | **yes** | No schema names a capability, scope or rights. Asserted over both aggregates' key sets in `aggregates/registry.test.ts`; POD-643's exported `findCapabilitySnapshotKeys` detector is the reusable form and is deliberately not duplicated |
+| No serializable effective-capability snapshot exists anywhere in the schema set | **yes** | §4.1 — two instruments that fail on *different* mistakes, proved rather than asserted |
 | Per-user-state members are absent from the canonical aggregates; the key shape uses POD-301's composite-key helpers | **yes** | §3 below |
 | Both canonical aggregates declare a visibility class and participate in the default-closed totality test; an unclassified fixture aggregate fails it | **yes** | §4 below |
 | No consumers changed; wire byte-identical for any field that was only re-typed | **yes** | §5 below |
@@ -146,6 +146,42 @@ flagged everything, or nothing, could not produce it.
 |---|---|
 | Delete the missing-matrix-row branch from `classificationViolations` | **killed** — "FAILS a fixture aggregate whose class was never declared on the matrix" reds (1 failed / 21) |
 | Drop `Ownership.shape` from `SessionAggregate` and restore `readAt` as a singleton | **killed** — 5 red, including "Session carries no per-user singleton" and "Session composes the Ownership group" (5 failed / 21) |
+| Smuggle a frozen grant set onto `SessionAggregate` under the innocent key `ctx` | **killed by the key-set pin only** — 1 red of 24; the name matcher passes, which is the point (§4.1) |
+
+### 4.1 No serializable capability — and a correction about how that is checked
+
+ADR 9 D5 A1: effective rights are an agent's own scope intersected with its human's **current**
+rights, resolved live at every apply. A snapshot survives the revocation of the person it came
+from, with no reaper to trigger.
+
+Two instruments cover this, and the second exists because the first was initially over-credited:
+
+1. **A name matcher** over the aggregates' keys (`capability`, `effectiverights`, `permissions`).
+   POD-643 read this as *"an exact key-set assertion [that] catches the innocent-name case my
+   name-matcher cannot"*. **It was not.** It was three substring tests — the same class of
+   instrument as POD-643's exported `findCapabilitySnapshotKeys`, with the same blind spot. The
+   two were corroborating each other, not complementing. Left uncorrected, a reviewer reading both
+   green would have concluded the innocent-name case was covered by somebody.
+
+2. **An exact key-set pin** — `SessionAggregate`'s 43 keys and `IssueAggregate`'s 57, sorted,
+   `toEqual`. This fails on **any** new key however innocently named, which is the only instrument
+   that can catch an authority-shaped value under a bland name (`meta`, `ctx`, `extra`) — the
+   realistic miss, rather than someone naming a field `capabilities`.
+
+**Mutant C** (mutate / run / revert as one unit): smuggle `ctx: { allowedVerbs: string[] }` — a
+frozen grant set — onto `SessionAggregate`. **Exactly one test reds: the pin.** The name-matcher
+test passes, which is the demonstration that the two fail on different mistakes. The innocent-key
+test asserts both halves (the pin reds **and** the name matcher returns zero hits on the same
+shape) so the pair cannot later be re-read as one check.
+
+POD-643's second caveat is recorded from this side too: `owner` / `actor` / `onBehalfOf` are
+deliberately **not** matched by either instrument. A clean result means *"no serialized authority
+decision"*, not *"no principal-bearing fields"* — and since ADR 9 D2 requires exactly those
+principal-bearing fields, a detector that flagged them would be wrong rather than strict.
+
+The pin is deliberately a chore to update. Those two lists are the canonical durable vocabulary of
+the product; growing one should be a deliberate act with a reviewer on the diff, not a side effect
+of extending a field group.
 
 ---
 
@@ -230,7 +266,7 @@ counterfactual in the fixture.
 | `bun run typecheck --force` | **22 successful, 22 total, 0 cached** — genuinely uncached, 1m42s |
 | `bun --bun vitest run` (unit lane, `CI=true`, isolated) | **456 files passed, 3 skipped; 6148 tests passed, 19 skipped; exit 0** |
 | `bun run test` (all three lanes) | exit 0 |
-| `bun --bun vitest run packages/protocol packages/model` | 53 files, 962 tests, all passed |
+| `bun --bun vitest run packages/protocol packages/model` | 53 files, 965 tests, all passed |
 | `bun scripts/check-no-nul-bytes.ts` | exit 0 |
 | `bun scripts/check-boundaries.ts` | exit 0 — 58 allowlisted, **0 new** |
 | `bun scripts/rearch-audit.ts` | exit 0 — 21 items, 261 sites, **baseline exact** |
