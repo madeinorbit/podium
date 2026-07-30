@@ -9,11 +9,14 @@ import {
   checkDeclaredDeps,
   checkFile,
   checkHostEdgeSeparationAll,
+  checkManifestFile,
   checkPrincipalFree,
   checkRuntimeBarrelPurity,
+  checkSyncBrowserGraphAll,
   clauseIsTypeOnly,
   extractImports,
   loadModelExportNames,
+  SYNC_BROWSER_ENTRYPOINTS,
 } from './check-boundaries'
 
 describe('extractImports', () => {
@@ -856,5 +859,164 @@ describe('rule 11: sync kernel purity', () => {
       `import { openDatabase } from '@podium/runtime/sqlite'`,
     )
     expect(v.map((x) => x.rule)).not.toContain('sync-kernel-purity')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Rule 12 — sync-browser-reach (POD-307)
+// ---------------------------------------------------------------------------
+//
+// The rule this suite guards is the one that makes `packages/sync`'s NEUTRAL tag
+// honest, so every case here is written to the standard the tag rests on: each
+// refusing arm is paired with the control proving the same instrument can say
+// YES. A gate that only ever refuses, or only ever passes, is evidence of
+// nothing.
+
+describe('rule 12a — browser-safe workspaces reach @podium/sync only through a declared entrypoint', () => {
+  it('refuses the BARE BARREL from a browser-safe workspace', () => {
+    // The barrel value-exports the Authority, the Ledger, mirror.ts and the
+    // SQLite repository. This is the exact edge the node-only tag used to refuse.
+    const v = checkManifestFile(
+      'apps/web/src/boot.ts',
+      `import { createIndexedDbReplicaStore } from '@podium/sync'`,
+    )
+    expect(v.map((x) => x.rule)).toEqual(['sync-browser-reach'])
+    expect(v[0]?.message).toContain('BARREL')
+  })
+
+  it('refuses an UNDECLARED subpath', () => {
+    const v = checkManifestFile(
+      'apps/mobile/src/boot.ts',
+      `import { Authority } from '@podium/sync/authority/index'`,
+    )
+    expect(v.map((x) => x.rule)).toEqual(['sync-browser-reach'])
+  })
+
+  it('ALLOWS every declared entrypoint — the control', () => {
+    // Without this the suite would pass against a rule that refuses everything,
+    // which would "prove" browser-safety by making the adapters unreachable
+    // again — the state POD-307 exists to end.
+    for (const specifier of SYNC_BROWSER_ENTRYPOINTS.keys()) {
+      const v = checkManifestFile('apps/web/src/boot.ts', `import { X } from '${specifier}'`)
+      expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+    }
+  })
+
+  it('does not fire for a node-only workspace — apps/server may use the barrel', () => {
+    const v = checkManifestFile(
+      'apps/server/src/boot.ts',
+      `import { Authority } from '@podium/sync'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+  })
+
+  it('exempts type-only imports, matching checkManifestEdge (erased at build)', () => {
+    const v = checkManifestFile(
+      'apps/web/src/boot.ts',
+      `import type { Authority } from '@podium/sync'`,
+    )
+    expect(v.map((x) => x.rule)).not.toContain('sync-browser-reach')
+  })
+
+  it('every declared entrypoint is resolvable — packages/sync/package.json exports it', () => {
+    // A rule that permits a specifier Node cannot resolve permits nothing. This
+    // is the check that would have caught declaring an entrypoint and forgetting
+    // the exports map, which fails at RUNTIME in the client and nowhere in CI.
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const pkg = JSON.parse(
+      readFileSync(join(repoRoot, 'packages/sync/package.json'), 'utf8'),
+    ) as { exports: Record<string, { import?: string }> }
+    for (const [specifier, entry] of SYNC_BROWSER_ENTRYPOINTS) {
+      const subpath = `.${specifier.slice('@podium/sync'.length)}`
+      expect(pkg.exports[subpath], `${specifier} missing from packages/sync exports`).toBeDefined()
+      expect(pkg.exports[subpath]?.import).toBe(`./${entry.slice('packages/sync/'.length)}`)
+    }
+  })
+})
+
+describe('rule 12b — a declared entrypoint\'s TRANSITIVE closure is Node-free', () => {
+  /** A synthetic repo containing only the files a case needs, so the refusing
+   *  arm is produced by the fixture rather than waited for. */
+  function plant(files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), 'sync-reach-'))
+    for (const [rel, source] of Object.entries(files)) {
+      const abs = join(root, rel)
+      mkdirSync(join(abs, '..'), { recursive: true })
+      writeFileSync(abs, source)
+    }
+    return root
+  }
+
+  /** Every declared entrypoint present and trivially clean — the baseline each
+   *  case mutates ONE file of. */
+  const CLEAN: Record<string, string> = Object.fromEntries(
+    [...SYNC_BROWSER_ENTRYPOINTS.values()].map((entry) => [entry, `export const x = 1\n`]),
+  )
+
+  it('says YES on a clean closure — the control', () => {
+    expect(checkSyncBrowserGraphAll(plant(CLEAN))).toEqual([])
+  })
+
+  it('says YES on the REAL repo — the control that matters', () => {
+    // The synthetic control above proves the walker can return empty; this one
+    // proves the actual entrypoints are actually clean today. Both are needed:
+    // the first can pass against a broken walker, the second can pass against a
+    // walker that reads nothing.
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    expect(checkSyncBrowserGraphAll(repoRoot)).toEqual([])
+  })
+
+  it('refuses a Node builtin ONE hop from the entrypoint', () => {
+    const root = plant({
+      ...CLEAN,
+      'packages/sync/src/replica/index.ts': `export * from './leaf'\n`,
+      'packages/sync/src/replica/leaf.ts': `import { readFileSync } from 'node:fs'\nexport const x = readFileSync\n`,
+    })
+    const v = checkSyncBrowserGraphAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['node:fs'])
+  })
+
+  it('refuses a Node builtin THREE hops away — the case a one-hop check cannot see', () => {
+    // Rule 8b stops at one hop by design. This rule does not, and that is the
+    // whole reason `neutral` is safe here: the tainted module is not named by the
+    // entrypoint, nor by anything the entrypoint names.
+    const root = plant({
+      ...CLEAN,
+      'packages/sync/src/replica/index.ts': `export * from './a'\n`,
+      'packages/sync/src/replica/a.ts': `export * from './b'\n`,
+      'packages/sync/src/replica/b.ts': `export * from './c'\n`,
+      'packages/sync/src/replica/c.ts': `import { Database } from 'bun:sqlite'\nexport const x = Database\n`,
+    })
+    const v = checkSyncBrowserGraphAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['bun:sqlite'])
+  })
+
+  it('refuses a node-only WORKSPACE package reached from the closure', () => {
+    const root = plant({
+      ...CLEAN,
+      'packages/sync/src/replica/index.ts': `import { openDatabase } from '@podium/runtime/sqlite'\nexport const x = openDatabase\n`,
+    })
+    expect(checkSyncBrowserGraphAll(root).map((x) => x.specifier)).toEqual(['@podium/runtime/sqlite'])
+  })
+
+  it('refuses an UNRESOLVABLE import — a truncated closure is green for the wrong reason', () => {
+    const root = plant({ ...CLEAN, 'packages/sync/src/span.ts': `export * from './gone'\n` })
+    const v = checkSyncBrowserGraphAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['./gone'])
+    expect(v[0]?.message).toContain('TRUNCATES')
+  })
+
+  it('refuses a MISSING entrypoint — an absent file makes the closure vacuously green', () => {
+    const { 'packages/sync/src/span.ts': _dropped, ...withoutSpan } = CLEAN
+    const v = checkSyncBrowserGraphAll(plant(withoutSpan))
+    expect(v.map((x) => x.specifier)).toEqual(['@podium/sync/span'])
+  })
+
+  it('does not fire on a type-only Node import (erased at build)', () => {
+    const root = plant({
+      ...CLEAN,
+      'packages/sync/src/replica/index.ts': `import type { Stats } from 'node:fs'\nexport type X = Stats\n`,
+    })
+    expect(checkSyncBrowserGraphAll(root)).toEqual([])
   })
 })

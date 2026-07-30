@@ -221,7 +221,39 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'neutral',
     features: ['config', 'sqlite', 'git-port', 'connectivity', 'auth-store', 'settings'],
   },
-  'packages/sync': { layer: 2, platform: 'node-only', features: ['oplog', 'upstream-sync'] },
+  // The sync kernel. NEUTRAL, and this is a CLASSIFICATION change rather than a
+  // code change (POD-307; the decision POD-374 and POD-375 both declined to make
+  // because it belongs to the issue that owns the CONSUMERS).
+  //
+  // What was wrong with `node-only`: the tag is one bit per workspace, and this
+  // workspace has always had two halves. The Authority write funnel, the Ledger,
+  // `mirror.ts` and the SQLite repository are node-only; the Replica and Outbox
+  // ROLES take storage and transport as injected ports and name no technology at
+  // all (rule 11 in scripts/check-boundaries.ts enforces exactly that), and ADR 6
+  // D1 puts the browser's and the phone's storage adapters in this package
+  // beside the SQLite one. Tagging the whole workspace node-only falsely accused
+  // `adapters/indexeddb` — which exists to run in a browser and cannot run
+  // anywhere else — and left apps/web and apps/mobile unable to import the
+  // adapters built for them (POD-1195, measured by both adapter issues).
+  //
+  // Why NEUTRAL and not a package split: ADR 8 D4's today→target table says
+  // `packages/sync` → `packages/sync` (Authority/Replica/Outbox), "reshape in
+  // place", and the end-state layer map lists no browser-side sibling. A split
+  // would also cut the conformance suite, which is parameterized by
+  // instantiation and must stay ONE suite across every adapter (ADR 6 D3).
+  // `packages/runtime` and `packages/telemetry` are the standing precedent for
+  // this exact shape, in this exact file: a browser-safe surface behind explicit
+  // subpaths, node-only concerns behind their own, and the tag saying `neutral`
+  // because one bit cannot say both.
+  //
+  // NEUTRAL IS UNCONSTRAINED HERE, so on its own it would be a hole: it would let
+  // apps/web import the bare barrel, which value-exports the Authority and the
+  // SQLite repository. That hole is closed in the same commit by rule 12
+  // (`sync-browser-reach`) in scripts/check-boundaries.ts, which names the
+  // browser-safe entrypoints and holds their transitive import closure to
+  // no-Node. Retagging without that rule would be trading a false accusation for
+  // a real one.
+  'packages/sync': { layer: 2, platform: 'neutral', features: ['oplog', 'upstream-sync'] },
   // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
   // and by the same construction: the barrel and the pure slices (schema,
   // example, scrub) are browser-safe — apps/web imports './example' for its
@@ -702,6 +734,11 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'manifest-role',
   'manifest-untagged',
   'harness-branching',
+  // Rule 12 (POD-307). A MANIFEST rule, not a legacy one, because it is the
+  // guard that replaces what `packages/sync`'s node-only tag used to provide:
+  // it has to run in `lint:architecture`, the BLOCKING step, or the retag would
+  // be protected only by a check CI is allowed to sail past.
+  'sync-browser-reach',
 ])
 
 /** Split one allowlist into [manifest entries, legacy entries]. */
