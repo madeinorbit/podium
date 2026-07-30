@@ -9,6 +9,7 @@
  */
 export * from './ledger'
 export * from './mirror'
+export * from './outbox'
 export * from './replica/index'
 export * from './sync-repository'
 export * from './upstream'
