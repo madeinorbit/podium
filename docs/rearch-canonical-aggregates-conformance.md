@@ -14,7 +14,7 @@
 |---|---|---|
 | model exports the canonical Session and Issue aggregates plus the shared field schemas named by POD-364's composition plan | **yes** | `SessionAggregate`, `IssueAggregate`, 15 session groups (§6.2), 13 issue groups (§6.3), and the cross-entity `Ownership` / `Attribution` / `PerUserKey`, all exported from `@podium/model`. The wire-golden corpus enumerates them: 123 new cases across 40 new schema names |
 | owner, visibility class and the actor/on-behalf-of pair each exist as exactly ONE shared field schema, composing POD-1075's types rather than redefining them | **yes** | §2 below |
-| No serializable effective-capability snapshot exists anywhere in the schema set | **yes** | No schema names a capability, scope or rights. Asserted over both aggregates' key sets in `aggregates/registry.test.ts`; POD-643's exported `findCapabilitySnapshotKeys` detector is the reusable form and is deliberately not duplicated |
+| No serializable effective-capability snapshot exists anywhere in the schema set | **yes** | §4.1 — two instruments that fail on *different* mistakes, proved rather than asserted |
 | Per-user-state members are absent from the canonical aggregates; the key shape uses POD-301's composite-key helpers | **yes** | §3 below |
 | Both canonical aggregates declare a visibility class and participate in the default-closed totality test; an unclassified fixture aggregate fails it | **yes** | §4 below |
 | No consumers changed; wire byte-identical for any field that was only re-typed | **yes** | §5 below |
@@ -140,12 +140,108 @@ practice — alongside the two correct aggregates, and requires the check to fla
 the correct aggregates in the same fixture set is what makes the result meaningful: a check that
 flagged everything, or nothing, could not produce it.
 
-**Mutation-tested, zero survivors** (mutate / run / revert as one unit):
+**Mutation-tested** (mutate / run / revert as one unit). Five mutants: four killed on the first
+attempt, one survived and was fixed (§4.2). A note on the method's own limits: mutants A–C were
+applied with a plain string replace and are verified **by their red** — a never-applied mutant goes
+green, so a red is self-certifying about application. Mutants D–E additionally assert the pattern
+matches exactly once, which is the half A–C lack: had a pattern occurred twice, both sites would
+have been mutated silently. That did not happen here (each was a unique literal in a freshly
+written file), but that is a fact about this diff rather than a property of the method.
 
 | Mutant | Result |
 |---|---|
 | Delete the missing-matrix-row branch from `classificationViolations` | **killed** — "FAILS a fixture aggregate whose class was never declared on the matrix" reds (1 failed / 21) |
 | Drop `Ownership.shape` from `SessionAggregate` and restore `readAt` as a singleton | **killed** — 5 red, including "Session carries no per-user singleton" and "Session composes the Ownership group" (5 failed / 21) |
+| Smuggle a frozen grant set onto `SessionAggregate` under the innocent key `ctx` | **killed by the key-set pin only** — 1 red of 24; the name matcher passes, which is the point (§4.1) |
+| Grow `SESSION_IMMUTABLE_AFTER_CREATE` to swallow `status` / `lastActiveAt` / … — the well-typed nonsense its `satisfies` clause permits | **killed** — 1 red of 27: "leaves a NON-EMPTY mutable complement" (§8.1) |
+| Delete the whole `Session` entry from `CANONICAL_AGGREGATES` | **SURVIVED on first run — found and fixed (§4.2).** Now killed: 1 red of 26 |
+| Delete the `Session` VALUE from the keyed registry | **killed at COMPILE time** — TS2741, property missing from the `Record` (§4.3) |
+| Delete `Session` from the NAME union only | **killed at COMPILE time** — TS2353 excess property (§4.3) |
+
+### 4.1 No serializable capability — and a correction about how that is checked
+
+ADR 9 D5 A1: effective rights are an agent's own scope intersected with its human's **current**
+rights, resolved live at every apply. A snapshot survives the revocation of the person it came
+from, with no reaper to trigger.
+
+Two instruments cover this, and the second exists because the first was initially over-credited:
+
+1. **A name matcher** over the aggregates' keys (`capability`, `effectiverights`, `permissions`).
+   POD-643 read this as *"an exact key-set assertion [that] catches the innocent-name case my
+   name-matcher cannot"*. **It was not.** It was three substring tests — the same class of
+   instrument as POD-643's exported `findCapabilitySnapshotKeys`, with the same blind spot. The
+   two were corroborating each other, not complementing. Left uncorrected, a reviewer reading both
+   green would have concluded the innocent-name case was covered by somebody.
+
+2. **An exact key-set pin** — `SessionAggregate`'s 43 keys and `IssueAggregate`'s 57, sorted,
+   `toEqual`. This fails on **any** new key however innocently named, which is the only instrument
+   that can catch an authority-shaped value under a bland name (`meta`, `ctx`, `extra`) — the
+   realistic miss, rather than someone naming a field `capabilities`.
+
+**Mutant C** (mutate / run / revert as one unit): smuggle `ctx: { allowedVerbs: string[] }` — a
+frozen grant set — onto `SessionAggregate`. **Exactly one test reds: the pin.** The name-matcher
+test passes, which is the demonstration that the two fail on different mistakes. The innocent-key
+test asserts both halves (the pin reds **and** the name matcher returns zero hits on the same
+shape) so the pair cannot later be re-read as one check.
+
+POD-643's second caveat is recorded from this side too: `owner` / `actor` / `onBehalfOf` are
+deliberately **not** matched by either instrument. A clean result means *"no serialized authority
+decision"*, not *"no principal-bearing fields"* — and since ADR 9 D2 requires exactly those
+principal-bearing fields, a detector that flagged them would be wrong rather than strict.
+
+The pin is deliberately a chore to update. Those two lists are the canonical durable vocabulary of
+the product; growing one should be a deliberate act with a reviewer on the diff, not a side effect
+of extending a field group.
+
+### 4.2 A survivor found in this suite, and fixed
+
+POD-367 generalised a rule mid-run: **prove the instrument can say YES before you believe it saying
+NO.** Applied to this suite rather than recorded, it found a survivor.
+
+**Mutant E** deletes the entire `Session` entry from `CANONICAL_AGGREGATES`. The suite stayed
+**green**. Two defects, both invisible:
+
+1. `aggregateVisibilityOf('Session') === 'personal'` is true *whether or not* `Session` is
+   registered, because the default-closed fallback answers `personal` for anything it has never
+   heard of. The assertion could not distinguish a correct declaration from a total absence — the
+   vacuous-preservation shape, where the expected value equals the default.
+2. The **test count silently fell 27 → 24**, because every `it.each(CANONICAL_AGGREGATES)`
+   iterated one fewer case. The per-user-state check, the ownership-composition check and the
+   attribution-pair check all stopped covering `Session` and nothing said so. Coverage evaporating
+   with no red is the worse half of the finding.
+
+Fixed with two assertions that make the registry's *contents* observable: a membership pin
+(`CANONICAL_AGGREGATES` names exactly `Issue` and `Session` — which also catches the `it.each`
+shrink), and a counterfactual proving `aggregateVisibilityOf` **reads the declaration** — over a
+registry declaring `deployment-substrate` it answers `deployment-substrate`, and still falls closed
+to `personal` for a name absent from that same registry.
+
+The pre-existing "classifies both as personal" test is kept, but is meaningful only alongside those
+two and its comment now says so. Its old comment claimed it was "not vacuous" because a *different*
+test showed `deployment-substrate` was reachable — which was wrong: reachability of the other value
+elsewhere says nothing about whether this lookup consulted the registry.
+
+### 4.3 Two instruments, because neither one is sufficient
+
+POD-367 drew a distinction that turned out to apply to this registry, unfavourably. For its command
+list, **typecheck** catches a deletion twice (TS2820 on the names under `satisfies
+IssueCommandName[]`, and again on the server's `satisfies Record<IssueCommandName, …>`); what was
+unguarded there was only the *iterated coverage*.
+
+Checked here, and this registry was strictly worse: re-running **mutant E against typecheck**,
+deleting the whole `Session` entry left `bunx tsgo --noEmit` **green**. An array literal has no
+opinion about which members it contains, so the runtime membership pin was the *sole* defence.
+
+Fixed by keying the registry rather than listing it — `Record<CanonicalAggregateName,
+Omit<CanonicalAggregate, 'name'>>`, with `CANONICAL_AGGREGATES` derived from it. `name` is now the
+key rather than a field, so a key/name mismatch is unrepresentable rather than merely untested.
+**Mutant F** (delete the value) reds with TS2741; **mutant G** (delete from the name union) reds
+with TS2353.
+
+The runtime pin **stays**, and the two are not redundant: a type can see an omitted **key**; only a
+runtime assertion can see the **coverage of a loop over that key set** shrinking. A vitest run
+alone would have said nothing; a typecheck alone would have caught the deletion but not the shrink
+of what the loops cover.
 
 ---
 
@@ -230,7 +326,7 @@ counterfactual in the fixture.
 | `bun run typecheck --force` | **22 successful, 22 total, 0 cached** — genuinely uncached, 1m42s |
 | `bun --bun vitest run` (unit lane, `CI=true`, isolated) | **456 files passed, 3 skipped; 6148 tests passed, 19 skipped; exit 0** |
 | `bun run test` (all three lanes) | exit 0 |
-| `bun --bun vitest run packages/protocol packages/model` | 53 files, 962 tests, all passed |
+| `bun --bun vitest run packages/protocol packages/model` | 53 files, 965 tests, all passed |
 | `bun scripts/check-no-nul-bytes.ts` | exit 0 |
 | `bun scripts/check-boundaries.ts` | exit 0 — 58 allowlisted, **0 new** |
 | `bun scripts/rearch-audit.ts` | exit 0 — 21 items, 261 sites, **baseline exact** |
@@ -245,7 +341,45 @@ also checked before its colour was believed.
 
 ---
 
-## 8. What this issue deliberately did NOT do
+## 8. One zero-caller export, judged rather than hidden
+
+`SESSION_IMMUTABLE_AFTER_CREATE` (`aggregates/session.ts`) **has no consumer today**. The fan-out
+protocol §7 says a new API with zero callers counts as *stopped short*, so it is named here rather
+than left for a reviewer to discover.
+
+### 8.1 Why it is not the thing that rule targets — verified, not asserted
+
+§7 targets **mechanism pretending to be a feature**: a flag nothing sets, a conformance suite that
+skips the failure path. This is a *derived constant whose derivation is compile-time pinned to its
+source*. POD-366 mutation-tested that binding rather than trusting it: `refDraft` → `refDraftTYPO`
+in the array makes `packages/model` exit 1 with **TS2820**, so the
+`satisfies readonly (keyof SessionAggregate)[]` clause genuinely binds. It cannot go stale while it
+waits.
+
+**Different is not exempt**, and POD-366 named the remaining gap precisely: the clause cannot check
+that the list *means* anything — a constant naming every key would typecheck and assert that a
+session is frozen at birth. Three assertions close it (runtime key membership; a non-empty mutable
+complement containing `status` and `lastActiveAt` by name; and the fields whose mutability would be
+a correctness bug held explicitly). **Mutant D** grows the constant to swallow the mutable fields:
+exactly one test reds.
+
+### 8.2 Why it was kept rather than deleted
+
+POD-366's call, recorded because the reasoning is the substantive part: *it is not four lines of
+code, it is four lines of judgement* about which session fields are immutable after create — made
+while the whole aggregate and every field group were freshly read. Deleted and reconstructed later
+by someone with less context, the likely failure is a list that is subtly wrong (`spawnedBy` or
+`createdBy` quietly becoming mutable), which is the class of error nobody notices because nothing
+fails.
+
+Its named consumer is POD-366's `SessionDurableState` work, reported outstanding for a stated
+reason: `SessionInit` is unbranded and mostly optional as a *constructor* input while
+`SessionAggregate` is branded and required, so the Pick changes brandedness and optionality at
+every construction site. In POD-366's words, *"it is size, not uncertainty."*
+
+---
+
+## 9. What this issue deliberately did NOT do
 
 | Not done | Owner |
 |---|---|

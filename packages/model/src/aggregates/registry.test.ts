@@ -5,7 +5,7 @@ import { ROW } from '../annotations/matrix'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import { IssueAggregate } from './issue'
-import { SessionAggregate } from './session'
+import { SESSION_IMMUTABLE_AFTER_CREATE, SessionAggregate } from './session'
 import {
   type CanonicalAggregate,
   CANONICAL_AGGREGATES,
@@ -69,10 +69,42 @@ describe('default-closed classification: an unclassified aggregate FAILS', () =>
     expect(aggregateVisibilityOf('FixtureWidget')).toBe('personal')
   })
 
+  /**
+   * THE REGISTRY MEMBERSHIP PIN — and the reason it exists.
+   *
+   * `aggregateVisibilityOf('Session') === 'personal'` is TRUE WHETHER OR NOT
+   * `Session` is registered, because the default-closed fallback returns
+   * `personal` for anything it has never heard of. So a test asserting only
+   * that could not tell a correct declaration from a total absence.
+   *
+   * Found by mutation (POD-367's rule: prove the instrument can say YES before
+   * believing it say NO). MUTANT E deleted the whole `Session` entry from
+   * `CANONICAL_AGGREGATES` and the suite stayed GREEN — and the test COUNT
+   * silently fell from 27 to 24, because every `it.each(CANONICAL_AGGREGATES)`
+   * quietly iterated one fewer case. Coverage evaporating without a red is the
+   * worse half of that finding.
+   */
+  it('actually REGISTERS both aggregates — not merely resolves them by default', () => {
+    expect(CANONICAL_AGGREGATES.map((a) => a.name).sort()).toEqual(['Issue', 'Session'])
+  })
+
+  it('reads the DECLARED class, not the default — shown with a non-personal one', () => {
+    // The counterfactual the default-closed fallback otherwise hides. If
+    // `aggregateVisibilityOf` ignored the registry and always returned the
+    // default, this would answer `personal` and fail.
+    const declaredSubstrate = [
+      { ...CANONICAL_AGGREGATES[0]!, name: 'Substrateish', visibility: 'deployment-substrate' },
+    ] as const
+
+    expect(aggregateVisibilityOf('Substrateish', declaredSubstrate)).toBe('deployment-substrate')
+    // …and the same lookup still falls closed for a name that is not in it.
+    expect(aggregateVisibilityOf('Session', declaredSubstrate)).toBe('personal')
+  })
+
   it('classifies both canonical aggregates as personal, not substrate', () => {
-    // Both alternatives exist in the vocabulary the check reads, so this is not
-    // vacuous: the previous test shows `deployment-substrate` is reachable and
-    // rejected for these rows.
+    // Meaningful only alongside the two tests above: the membership pin proves
+    // they are registered, and the counterfactual proves the function reads the
+    // declaration rather than returning the default regardless.
     expect(aggregateVisibilityOf('Session')).toBe('personal')
     expect(aggregateVisibilityOf('Issue')).toBe('personal')
   })
@@ -136,9 +168,16 @@ describe('the aggregates carry ownership and attribution, and not their alternat
     }
   })
 
-  it('carries NO serializable effective capability (ADR 9 D5 A1)', () => {
+  it('carries NO obviously-named effective capability (ADR 9 D5 A1)', () => {
     // Rights are resolved LIVE at apply time; a snapshot survives the
     // revocation of the person it came from, with no reaper to trigger.
+    //
+    // A NAME MATCHER, and only that — the same class of instrument as
+    // POD-643's exported `findCapabilitySnapshotKeys`, with the same blind
+    // spot: an authority-shaped value under an innocent key (`meta`, `ctx`,
+    // `extra`) is invisible to both. It is kept for its failure MESSAGE, which
+    // names the offending key; the key-set pin below is what actually closes
+    // the gap. Two instruments, and neither is the other's corroboration.
     for (const { schema } of CANONICAL_AGGREGATES) {
       for (const key of Object.keys(schema.shape)) {
         const k = key.toLowerCase()
@@ -147,6 +186,78 @@ describe('the aggregates carry ownership and attribution, and not their alternat
         expect(k).not.toContain('permissions')
       }
     }
+  })
+})
+
+/**
+ * THE EXACT KEY SETS, pinned.
+ *
+ * This is the instrument the name matchers above cannot be: it fails on ANY new
+ * key, however innocently named, so an authority-shaped value smuggled in as
+ * `meta` or `ctx` reds here even though no name-based detector would see it
+ * (POD-643's caveat on `findCapabilitySnapshotKeys`, adopted).
+ *
+ * It is deliberately a chore to update. These two lists are the canonical
+ * durable vocabulary of the whole product; growing one should be a deliberate
+ * act with a reviewer looking at the diff, not a side effect of extending a
+ * field group. When this test fails on an intended addition, the fix is to add
+ * the key here AND to satisfy yourself that it is durable truth — not live
+ * state (D3.7), not derived (D3.6), not per-user (D10), not provenance (D3.8),
+ * and not a snapshotted right (ADR 9 D5 A1).
+ */
+const SESSION_AGGREGATE_KEYS = [
+  'accountId', 'activityCount', 'agentKind', 'agentState', 'archived', 'createdAt',
+  'createdBy', 'cwd', 'deleted', 'durableLabel', 'effort', 'executionProfileId',
+  'exitCode', 'headless', 'inputCount', 'issueId', 'lastActiveAt', 'lastInputAt',
+  'lastOutputAt', 'lastResumedAt', 'machineId', 'model', 'name', 'nameSource',
+  'namedBy', 'origin', 'outputCount', 'owner', 'refDraft', 'refIssueId', 'refLetter',
+  'resume', 'sessionId', 'spawnFailure', 'spawnedBy', 'status', 'stopReason',
+  'stoppedAt', 'title', 'visibility', 'workState', 'workflowRunId', 'workflowStepId',
+]
+
+const ISSUE_AGGREGATE_KEYS = [
+  'acceptance', 'activityNotes', 'archived', 'asked', 'assignee', 'audience',
+  'blockedByNotes', 'branch', 'brief', 'closedAt', 'closedReason', 'color',
+  'coordinatorSessionId', 'createdAt', 'createdBy', 'defaultAgent', 'defaultEffort',
+  'defaultModel', 'deferUntil', 'deletedAt', 'dependencyNote', 'description', 'design',
+  'dueAt', 'duplicateOf', 'estimateMin', 'id', 'intentOrigin', 'isDraftVessel', 'labels',
+  'lastLifecycleActor', 'linearId', 'linearIdentifier', 'linearUrl', 'machineId',
+  'needsHuman', 'notes', 'notesUpdatedAt', 'owner', 'panel', 'parentBranch', 'parentId',
+  'prUrl', 'priority', 'repoId', 'seq', 'sortKey', 'stage', 'startedBySession',
+  'suggestedReason', 'suggestedStage', 'supersededBy', 'title', 'type', 'updatedAt',
+  'visibility', 'worktreePath',
+]
+
+describe('the canonical key sets are pinned exactly', () => {
+  it('SessionAggregate carries exactly these 43 keys and no others', () => {
+    expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
+  })
+
+  it('IssueAggregate carries exactly these 57 keys and no others', () => {
+    expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
+  })
+
+  it('catches an authority-shaped value hidden under an INNOCENT key', () => {
+    // The case neither name matcher can see, and the reason the pin exists.
+    // `meta` names nothing suspicious; its CONTENT is a frozen grant set, which
+    // is the privilege leak ADR 9 D5 A1 rejects.
+    const smuggled = SessionAggregate.extend({
+      meta: z.object({ allowedVerbs: z.array(z.string()), grantedBy: z.string() }),
+    })
+
+    expect(Object.keys(smuggled.shape).sort()).not.toEqual(SESSION_AGGREGATE_KEYS)
+
+    // …and prove the name matcher genuinely MISSES it, so the two instruments
+    // are demonstrably not corroborating each other.
+    const nameMatcherHits = Object.keys(smuggled.shape).filter((k) => {
+      const lower = k.toLowerCase()
+      return (
+        lower.includes('capability') ||
+        lower.includes('effectiverights') ||
+        lower.includes('permissions')
+      )
+    })
+    expect(nameMatcherHits).toEqual([])
   })
 })
 
@@ -184,6 +295,52 @@ describe('live-only and derived fields stay OFF the durable aggregate', () => {
   it('excludes IssueWire.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
     expect(IssueAggregate.shape).not.toHaveProperty('sessions')
     expect(IssueAggregate.shape).not.toHaveProperty('sessionSummary')
+  })
+})
+
+/**
+ * `SESSION_IMMUTABLE_AFTER_CREATE` — the SEMANTIC half its `satisfies` clause
+ * cannot check.
+ *
+ * The `satisfies readonly (keyof SessionAggregate)[]` clause already binds the
+ * constant to the aggregate at COMPILE time: POD-366 mutation-tested it
+ * (`refDraft` → `refDraftTYPO` ⇒ TS2820, `packages/model` exits 1), so the
+ * constant cannot silently go stale while it waits for its consumer.
+ *
+ * What that clause does NOT check is that the list means anything. A constant
+ * naming EVERY key of the aggregate would satisfy the type and be nonsense —
+ * "nothing about a session may ever change" is not a claim anyone intends. These
+ * two assertions are the semantic half, so the constant is judged as an enforced
+ * invariant awaiting its consumer rather than as an unused export.
+ */
+describe('SESSION_IMMUTABLE_AFTER_CREATE is a meaningful subset', () => {
+  it('names only keys that exist on the aggregate — at RUNTIME, not just in the type', () => {
+    const notKeys = SESSION_IMMUTABLE_AFTER_CREATE.filter((k) => !(k in SessionAggregate.shape))
+    expect(notKeys).toEqual([])
+  })
+
+  it('leaves a NON-EMPTY mutable complement — it is a subset, not the whole aggregate', () => {
+    // The assertion the `satisfies` clause cannot make. Without it, a list of
+    // every key typechecks and asserts that a session is frozen at birth.
+    const mutable = Object.keys(SessionAggregate.shape).filter(
+      (k) => !(SESSION_IMMUTABLE_AFTER_CREATE as readonly string[]).includes(k),
+    )
+
+    expect(mutable.length).toBeGreaterThan(0)
+    // Named members of the complement, so the test fails if the constant grows
+    // to swallow fields the product changes on every write. `status` and
+    // `lastActiveAt` are the two most obviously mutable things a session has.
+    expect(mutable).toContain('status')
+    expect(mutable).toContain('lastActiveAt')
+  })
+
+  it('holds the fields whose mutability would be a correctness bug', () => {
+    // The judgement the constant exists to preserve (POD-366: "four lines of
+    // JUDGEMENT, not four lines of code"). `spawnedBy` and `createdBy` quietly
+    // becoming mutable is the failure nobody notices because nothing fails.
+    for (const key of ['sessionId', 'createdAt', 'spawnedBy', 'createdBy', 'origin']) {
+      expect(SESSION_IMMUTABLE_AFTER_CREATE).toContain(key)
+    }
   })
 })
 
