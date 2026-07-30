@@ -445,19 +445,14 @@ describe('CLI exit codes', () => {
     return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
   }
 
-  it('reports the known main-side ratchet drift without normalizing it [POD-857/POD-279]', () => {
-    // router-triple-access and publish-computed-fanout are owned outside POD-797;
-    // keep the authoritative baseline untouched so their owners must reconcile it.
-    // Pin the failing SET, not just the exit code: exit 1 alone would let a
-    // FRESH regression in any other check hide behind the known drift (the
-    // POD-797 review's M1). Exactly one check may report GREW, and it must be
-    // router-triple-access; the fanout IMPROVEMENT prints its lock-the-win
-    // nudge without failing anything else.
+  it('pins the reconciled architecture baseline exact [POD-861/POD-1102]', () => {
+    // POD-861 reconciled the main-side router drift site-by-site and recorded
+    // the remaining debt as POD-1102. The baseline is authoritative again:
+    // any future GREW is a fresh regression, never tolerated as known drift.
     const { status, out } = runFull([])
-    expect(status).toBe(1)
-    const grewBlock = out.slice(out.indexOf('GREW'))
-    const grown = [...grewBlock.matchAll(/^ {2}([a-z0-9-]+) \(/gm)].map((m) => m[1])
-    expect(grown).toEqual(['router-triple-access'])
+    expect(status).toBe(0)
+    expect(out).not.toContain('GREW')
+    expect(out).toContain('baseline exact')
   })
 
   it('fails CLOSED on an unknown flag rather than silently running the ratchet', () => {

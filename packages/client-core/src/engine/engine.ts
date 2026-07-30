@@ -77,6 +77,7 @@ import {
   EMPTY_ID_SET,
   foldOverlays,
   insertOverlay,
+  legacyIssueReadOverlay,
   type OverlayEntity,
   overlayForOutboxEntry,
   type PendingOverlay,
@@ -956,11 +957,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  the outbox itself is the queued-overlay state, never a second copy. */
   private overlaysFor(entity: OverlayEntity): PendingOverlay[] {
     const out: PendingOverlay[] = []
-    for (const o of this.spawnOverlays) if (o.entity === entity) out.push(o)
-    for (const a of this.awaitingTruth) if (a.overlay.entity === entity) out.push(a.overlay)
-    for (const e of this.outbox.pending()) {
-      const o = overlayForOutboxEntry(e)
-      if (o && o.entity === entity) out.push(o)
+    const include = (overlay: PendingOverlay): void => {
+      if (overlay.entity === entity) out.push(overlay)
+      if (entity === 'issues') {
+        const compatibility = legacyIssueReadOverlay(overlay)
+        if (compatibility) out.push(compatibility)
+      }
+    }
+    for (const overlay of this.spawnOverlays) include(overlay)
+    for (const awaiting of this.awaitingTruth) include(awaiting.overlay)
+    for (const entry of this.outbox.pending()) {
+      const overlay = overlayForOutboxEntry(entry)
+      if (overlay) include(overlay)
     }
     return out
   }
@@ -1012,7 +1020,26 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private recomputeIssueProjections(): void {
     const base = this.baseIssueProjections
     const keyOf = (i: IssueProjection): string => i.id
-    this.retireCovered('issueProjections', base, keyOf)
+    // During the additive cutover a legacy row can arrive before its normalized
+    // projection. Keep a resolved read overlay alive against that row instead
+    // of treating the temporarily absent projection as deletion.
+    const normalizedIds = new Set(base.map(keyOf))
+    const retirementBase: IssueProjection[] = [
+      ...base,
+      ...this.baseIssues
+        .filter((issue) => !normalizedIds.has(issue.id))
+        .map(
+          (issue) =>
+            ({
+              id: issue.id,
+              readAt:
+                (issue as IssueWire & { unread?: boolean }).unread === true
+                  ? null
+                  : (issue.readAt ?? null),
+            }) as IssueProjection,
+        ),
+    ]
+    this.retireCovered('issueProjections', retirementBase, keyOf)
     const { rows } = foldOverlays(base, this.overlaysFor('issueProjections'), keyOf)
     this.apply({ issueProjections: rows })
   }
@@ -1020,7 +1047,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private recomputeFor(entity: OverlayEntity | undefined): void {
     if (entity === 'sessions') this.recomputeSessions()
     else if (entity === 'issues') this.recomputeIssues()
-    else if (entity === 'issueProjections') this.recomputeIssueProjections()
+    else if (entity === 'issueProjections') {
+      this.recomputeIssueProjections()
+      this.recomputeIssues()
+    }
   }
 
   /** Drain success (#263): hand the entry's overlay to the awaiting-truth
@@ -1036,7 +1066,20 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         ? this.baseSessions.find((s) => s.sessionId === overlay.id)
         : overlay.entity === 'issues'
           ? this.baseIssues.find((i) => i.id === overlay.id)
-          : this.baseIssueProjections.find((i) => i.id === overlay.id)
+          : (this.baseIssueProjections.find((i) => i.id === overlay.id) ??
+            this.baseIssues
+              .filter((i) => i.id === overlay.id)
+              .map(
+                (i) =>
+                  ({
+                    id: i.id,
+                    readAt:
+                      (i as IssueWire & { unread?: boolean }).unread === true
+                        ? null
+                        : (i.readAt ?? null),
+                  }) as IssueProjection,
+              )
+              .at(0))
     // Hold the overlay until covering truth lands. Nothing to hold when the
     // row is gone, already reflects the mutation (the broadcast echo raced
     // ahead of the response), or moved past the ENQUEUE-time baseline without
@@ -1218,7 +1261,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   // list is how a closed-over file stays reachable across the checkout.
   private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
     const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
-      `${e.worktreePath} ${e.path} ${e.artifact?.artifactId ?? ''}`
+      `${e.worktreePath}\u0000${e.path}\u0000${e.artifact?.artifactId ?? ''}`
     const k = key(entry)
     const rest = this.state.recentFiles.filter((e) => key(e) !== k)
     this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })

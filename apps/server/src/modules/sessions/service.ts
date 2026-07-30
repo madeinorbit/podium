@@ -1786,7 +1786,11 @@ export class SessionsService {
    * default, #473) or errored (nothing to submit into), or once the session is
    * no longer running.
    */
-  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+  private scheduleSubmitVerify(
+    sessionId: string,
+    baselineUserTurns: number,
+    attempt: number,
+  ): void {
     const timer = setTimeout(() => {
       const session = this.sessions.get(sessionId)
       if (!session || (session.status !== 'live' && session.status !== 'starting')) return
@@ -5243,9 +5247,15 @@ export class SessionsService {
       const hasMainEncodedReceivers = [...this.clients.values()].some(
         (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
       )
-      // Worker-only connection churn needs no legacy snapshot. Session changes
-      // never request issue projection work on the normalized path (ADR 4 D7).
-      const sessions = hasMainEncodedReceivers ? this.listSessions() : []
+      const hasSnapshotPublicationReceivers = [...this.clients.values()].some(
+        (client) => client.publication && !client.caps.has(CAP_METADATA_DELTA),
+      )
+      // Build at most one canonical session projection for every snapshot
+      // receiver group. The worker still applies the captured patch itself;
+      // this preserves main's one-projection fan-out contract without coupling
+      // session changes back to issue projection work (ADR 4 D7).
+      const sessions =
+        hasMainEncodedReceivers || hasSnapshotPublicationReceivers ? this.listSessions() : []
       const tList = performance.now()
       perf.record('phase', 'sessionsBroadcast.list', tList - t0)
       const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0

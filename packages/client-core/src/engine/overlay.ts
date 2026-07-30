@@ -277,6 +277,23 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
   }
 }
 
+/**
+ * The normalized issue projection owns readAt, but the transitional legacy
+ * issue collection remains in the engine snapshot until the old wire is
+ * deleted. Mirror only read/unread optimism onto that compatibility row;
+ * normalized consumers continue to use the projection overlay above.
+ */
+export function legacyIssueReadOverlay(overlay: PendingOverlay): PendingOverlay | null {
+  if (overlay.op !== 'patch' || overlay.entity !== 'issueProjections') return null
+  if (!Object.hasOwn(overlay.patch, 'readAt')) return null
+  const readAt = overlay.patch.readAt as string | null
+  const unread = readAt === null
+  return patchOverlay('issues', overlay.id, overlay.key, { readAt, unread }, (row) => {
+    const issue = row as IssueWire & { unread?: boolean }
+    return unread ? issue.unread === true : issue.unread === false && issue.readAt != null
+  })
+}
+
 export interface FoldResult<T> {
   rows: T[]
   /** Ids of insert overlays NOT yet confirmed by a base row — pendingSpawnIds. */
