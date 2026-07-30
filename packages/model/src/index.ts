@@ -23,6 +23,7 @@ export * from './clock'
 // only frames). Byte-identical to the pre-move wire; the golden fixtures in
 // packages/protocol/src/messages/wire-golden.json are the proof.
 export * from './entities/agent'
+export * from './entities/automation'
 export * from './entities/conversation'
 export * from './entities/handoff'
 export * from './entities/issue'

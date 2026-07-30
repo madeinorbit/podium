@@ -1,7 +1,12 @@
-import { AgentKind, isAgentKind, ResumeRef, WorkState } from '@podium/model'
 import {
+  AgentKind,
   AutomationScheduleKind,
   AutomationSessionMode,
+  isAgentKind,
+  ResumeRef,
+  WorkState,
+} from '@podium/model'
+import {
   agentSupportsCloud,
   clientSwitchTraceSchema,
   type FileReadResultMessage,

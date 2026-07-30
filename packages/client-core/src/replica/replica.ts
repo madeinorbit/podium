@@ -54,8 +54,14 @@
  *      cache — a null cursor just means one full snapshot fetch).
  */
 
-import type { ConversationSummaryWire, IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
-import type { AutomationRunWire, AutomationWire } from '@podium/protocol'
+import type {
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  IssueWire,
+  SessionMeta,
+  TranscriptItem,
+} from '@podium/model'
 import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 // TYPE-ONLY on purpose: the persistence packages must never enter the browser

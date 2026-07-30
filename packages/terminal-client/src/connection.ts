@@ -1,4 +1,6 @@
 import type {
+  AutomationRunWire,
+  AutomationWire,
   ConversationSummaryWire,
   HostMetricsWire,
   IssueWire,
@@ -8,8 +10,6 @@ import type {
 } from '@podium/model'
 import {
   type ApprovalWire,
-  type AutomationRunWire,
-  type AutomationWire,
   CAP_METADATA_DELTA,
   createDispatcher,
   encode,

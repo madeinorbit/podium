@@ -4,6 +4,8 @@ import { acceptAgentObservation } from '@podium/agent-bridge'
 import {
   AgentKind,
   type AgentRuntimeState,
+  type AutomationRunWire,
+  type AutomationWire,
   computePriorities,
   type Geometry,
   type IssueWire,
@@ -18,8 +20,6 @@ import {
   type AgentInstruction,
   type ApprovalWire,
   AUTO_ARCHIVE_READ_WINDOW_MS,
-  type AutomationRunWire,
-  type AutomationWire,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,

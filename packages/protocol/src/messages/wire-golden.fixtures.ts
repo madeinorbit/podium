@@ -28,6 +28,8 @@ import {
   AgentMemoryWire,
   AgentQuotaWire,
   AgentRuntimeState,
+  AutomationRunWire,
+  AutomationWire,
   ConversationDiagnosticWire,
   ConversationGit,
   ConversationSummaryWire,
@@ -63,7 +65,6 @@ import {
   UsageBucketWire,
 } from '@podium/model'
 import type { z } from 'zod'
-import { AutomationRunWire, AutomationWire } from './automations'
 import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'

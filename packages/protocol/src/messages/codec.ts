@@ -1,6 +1,12 @@
-import { ConversationSummaryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/model'
+import {
+  AutomationRunWire,
+  AutomationWire,
+  ConversationSummaryWire,
+  HostMetricsWire,
+  IssueWire,
+  SessionMeta,
+} from '@podium/model'
 import type { z } from 'zod'
-import { AutomationRunWire, AutomationWire } from './automations'
 import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'

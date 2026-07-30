@@ -5,7 +5,7 @@
  * missed/overlap/re-arm policy table-testable without a database or a PTY.
  */
 
-import type { AutomationScheduleKind } from '@podium/protocol'
+import type { AutomationScheduleKind } from '@podium/model'
 import { nextAfter, parseCron } from './cron'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as

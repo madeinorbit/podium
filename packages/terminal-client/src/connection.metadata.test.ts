@@ -1,10 +1,5 @@
-import type { IssueWire } from '@podium/model'
-import type {
-  AutomationRunWire,
-  AutomationWire,
-  SyncChangesSinceResult,
-  SyncChangesSinceResultLenient,
-} from '@podium/protocol'
+import type { AutomationRunWire, AutomationWire, IssueWire } from '@podium/model'
+import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
