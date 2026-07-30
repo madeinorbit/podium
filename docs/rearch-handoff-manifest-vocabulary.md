@@ -263,6 +263,37 @@ of the three arms, so dropping `unknown-target` was invisible to it. The arm who
 existence leak was the one an incomplete fixture set would have let through. A third fixture now
 pins it, and the mutant reds the golden suite too.
 
+### Every mutant re-verified against the false-green failure mode
+
+A mutant that **fails to apply** is indistinguishable from one that survives: both print a green
+suite, and the bias runs the wrong way — the most intricate code attracts the most fragile patterns,
+so "no survivors" and "my mutants never ran" look identical exactly where proof matters most
+(coordinator broadcast, found by POD-366).
+
+All five mutants above were therefore re-run under three assertions taken **before** believing any
+result: the pattern matched **exactly once** (not at-least-once — a pattern hitting a second field of
+the same name also reads as a survivor), the file **hash changed**, and the mutant text was **grepped
+back out** of the file. Each then ran, reverted, and the revert was verified with `git diff --quiet`
+before the next mutant, so mutate/run/revert stayed one unit and no failure could strand the product
+mutated.
+
+The first pass had asserted only that the file changed. Adding exactly-once matching changed no
+result — every kill and the one survivor held — but the earlier evidence could not have distinguished
+a pattern miss, and that is the point.
+
+| Mutant | Applied? | Outcome |
+|---|---|---|
+| A — rights snapshot under an authority-*named* key | ✅ ×1, hash changed, text present | Killed: capability audit + key lock + round-trip |
+| B — containment refinement stops rejecting `..` | ✅ | Killed: model negative test + golden refinement assertion |
+| C — rights snapshot under an *innocent* key | ✅ | Killed by the key lock **only**; the name-matcher stays silent |
+| D — reach past the group to the same brand | ✅ | **SURVIVED** (genuine, not a pattern miss) |
+| E — composed field → fresh `z.string()` | ✅ | Killed by exactly one test out of 185 |
+
+Note that C's claim — "the name-matching audit does not fire" — is **self-proving in the same run**:
+the key-set lock reddening is what demonstrates the mutation applied, so the name-matcher's silence
+cannot be a false green. A survivor-shaped claim next to a kill in the same run is the cheapest way to
+make it verifiable.
+
 **Lanes** (targeted; a full run needs the `test-lane` lease and this box has been swap-thrashed):
 
 - `packages/model` + `packages/protocol`: `bunx tsgo --noEmit` inside each package, **uncached**,
