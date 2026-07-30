@@ -17,6 +17,23 @@ import type { ClientFeaturePorts } from './client-ports'
 import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
 import { ClientRegistry } from './client-registry'
 
+/**
+ * The two lookups the gate ANDs together are independently forceable to `null`
+ * here. Both flags are false by default, so every other test in this file runs
+ * against the real tables; only the two divergence tests flip one, and each
+ * restores it in a `finally`.
+ */
+const forced = vi.hoisted(() => ({ plane: false, ports: false }))
+vi.mock('./client-frame-routing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client-frame-routing')>()
+  return {
+    ...actual,
+    clientPlaneClassFor: (type: string) =>
+      forced.plane ? null : actual.clientPlaneClassFor(type),
+    clientPortsFor: (type: string) => (forced.ports ? null : actual.clientPortsFor(type)),
+  }
+})
+
 function harness() {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
@@ -74,16 +91,42 @@ describe('the gate fails closed', () => {
     warn.mockRestore()
   })
 
-  it('refuses a frame classified by ADR 7 but UNOWNED by the port table', () => {
-    // The two lookups are independent on purpose. Simulating "classified but
-    // forgotten" proves the AND, not just that one lookup exists: `pong` is a
-    // real message type on the SERVER union and is deliberately absent from both
-    // client tables, so it stands in for a frame only one side knows.
+  it('refuses when the PLANE INVENTORY cannot classify it, though the port table can', () => {
+    // The two lookups are an AND on purpose, and no REAL frame can exercise that
+    // (the table above pins the two key sets identical). So the divergence is
+    // forced: this is the "frame classified in one table and forgotten in the
+    // other" case, and an OR here would let it through as a default.
     const h = harness()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    h.mux.routeClientFrame(h.id, { type: 'pong' } as unknown as ClientMessage)
+    forced.plane = true
+    try {
+      h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
+    } finally {
+      forced.plane = false
+    }
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
     warn.mockRestore()
+  })
+
+  it('refuses when the PORT TABLE cannot answer, though the plane inventory can', () => {
+    const h = harness()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    forced.ports = true
+    try {
+      h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
+    } finally {
+      forced.ports = false
+    }
+    expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('routes that SAME frame when neither lookup is forced — the forcing is real', () => {
+    // Non-vacuity for the two tests above: without it they would pass against a
+    // mock that refuses everything.
+    const h = harness()
+    h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
+    expect(h.ports.sessions.onSessionClientFrame).toHaveBeenCalledTimes(1)
   })
 
   it('drops a frame for a connection that is not registered', () => {
