@@ -35,6 +35,7 @@ import type {
 } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { SessionStore } from '../../store'
+import type { LakeReadSession } from '../conversations/service'
 import { perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
@@ -93,9 +94,15 @@ interface DaemonRpcDeps {
   onlineMachineIds(): string[]
   getSession(sessionId: string): RpcSessionView | undefined
   /** Lake-fallback transcript read (modules/conversations) — lazy: the
-   *  conversations service is constructed after this one. */
+   *  conversations service is constructed after this one.
+   *
+   *  Takes `LakeReadSession` by NAME rather than restating its three fields
+   *  inline. The inline copy was a second definition of the port (inventory
+   *  §6.5 rule 1) and it had already drifted from the one it mirrored, pinning
+   *  `resume` to `{ value: string }`. A `type`-only import adds no runtime
+   *  coupling, so the laziness this comment describes is unaffected (POD-366). */
   readTranscriptFromLake(
-    session: { machineId: string; agentKind: AgentKind; resume?: { value: string } },
+    session: LakeReadSession,
     input: { anchor?: string; direction: 'before' | 'after'; limit: number },
   ): Promise<TranscriptSlice | undefined>
 }
