@@ -500,4 +500,59 @@ describe('repos router', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
+
+  /**
+   * THE CRUD ROUND TRIP THROUGH THE DERIVED PROCEDURES (POD-735).
+   *
+   * `automation-cutover.audit.test.ts` proves the derived surface EXISTS with the
+   * right verbs and validates with the contracts' own schemas. This proves the
+   * derived procedures RUN — that each one still reaches the service method it
+   * always reached and still returns what the Automations tab reads. A derivation
+   * that built four perfectly-shaped procedures over the wrong handlers would pass
+   * every check in that file and fail here.
+   *
+   * Run history is asserted through `runs`, which is the read the cutover
+   * deliberately did NOT derive, so this also pins that the two halves of the
+   * router still talk about the same rows.
+   */
+  it('automations CRUD round-trips through the derived procedures, run history intact', async () => {
+    const { call } = caller()
+    const created = await call.automations.create({
+      name: 'Nightly sweep',
+      repoPath: '/repos/podium',
+      cron: '0 3 * * *',
+      agentKind: 'claude-code' as const,
+      prompt: 'sweep',
+      enabled: false,
+    })
+    expect(created).toMatchObject({ enabled: false, nextRunAt: null })
+
+    // update — the patch arm, including the edit that changes what an occurrence
+    // would RUN (prompt + agent), not just its schedule.
+    const updated = await call.automations.update({
+      id: created.id,
+      patch: { prompt: 'sweep harder', agentKind: 'codex' as const, cron: '0 4 * * *' },
+    })
+    expect(updated).toMatchObject({ prompt: 'sweep harder', agentKind: 'codex', cron: '0 4 * * *' })
+
+    // setEnabled — arming re-arms `nextRunAt`, disarming clears it. Both arms, so
+    // "it wrote something" cannot pass for "it wrote the right thing".
+    const armed = await call.automations.setEnabled({ id: created.id, enabled: true })
+    expect(armed.enabled).toBe(true)
+    expect(armed.nextRunAt).not.toBeNull()
+    const disarmed = await call.automations.setEnabled({ id: created.id, enabled: false })
+    expect(disarmed.enabled).toBe(false)
+    expect(disarmed.nextRunAt).toBeNull()
+
+    // runs — the query half, still reading the same rows.
+    expect(await call.automations.runs({ automationId: created.id })).toEqual([])
+
+    // remove — and the counterfactual: a second remove reports `false` rather than
+    // throwing, and an unknown id is indistinguishable from a removed one
+    // (Amendment 1 D20.2, which the contract declares).
+    expect(await call.automations.remove({ id: created.id })).toEqual({ removed: true })
+    expect(await call.automations.list()).toEqual([])
+    expect(await call.automations.remove({ id: created.id })).toEqual({ removed: false })
+    expect(await call.automations.remove({ id: 'aut_never_existed' })).toEqual({ removed: false })
+  })
 })
