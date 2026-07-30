@@ -326,10 +326,24 @@ Probed rather than assumed, with the probe deleted afterwards:
 Two consequences:
 
 1. **A mistyped optional key is silently dropped.** `cwdSubPath` instead of `cwdSubpath` produces no
-   type error (the literal is unconstrained), no runtime error (zod strips unknown keys rather than
-   rejecting), and a bundle that simply lacks the subpath — so the imported agent lands at the
-   worktree root instead of the directory it was working in. A silent behavioural regression with no
-   failing gate anywhere.
+   type error, no runtime error (zod strips unknown keys rather than rejecting), and a bundle that
+   simply lacks the subpath — so the imported agent lands at the worktree root instead of the
+   directory it was working in. A silent behavioural regression with no failing gate anywhere.
+
+   The compile-time half was **proved, not assumed**, with a three-case `tsgo` probe that proves
+   itself because one case must go red:
+
+   | Case | Result |
+   |---|---|
+   | Direct excess key under an **annotation** (`const a: M = {…, bogus: 1}`) | **`TS2353` error** — the checker is running |
+   | Direct excess key inside **`.parse({…})`** | no error |
+   | Mistyped optional key inside **`.parse({…})`** | no error |
+
+   So this is a **strictly worse rung** than the conditional-spread exposure: the coordinator's
+   narrowed rule establishes that directly-written keys *are* excess-checked under an annotation, and
+   that only an optional key supplied inside a conditional spread escapes. Passing the literal to
+   `.parse()` removes the annotation entirely, so **nothing** is checked — not even the direct keys
+   that clause would otherwise catch.
 2. **The safe rewrite is wire-safe only under a condition I first stated too broadly.**
    POD-366 corrected this and the correction matters, because the loose version would have shipped a
    silent wire change in its own mapper. The discriminator is *which* nullish form the rewrite uses:
