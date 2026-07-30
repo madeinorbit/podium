@@ -92,11 +92,10 @@ describe('classification totality — each negative is one mutation of the passi
       /must declare its verb/,
     ],
     [
-      'a machine verb on a non-machine resource',
-      mutate({ policy: { ...base.policy, machineVerb: 'use' } }),
-      /non-machine resource/,
-    ],
-    [
+      // M5 applies where the caller can NAME a machine, which is the `machine`
+      // resource. The second-axis case (a verb on a session/none resource) is the
+      // POSITIVE control below — it is legal, and asserting it here as an error is
+      // what POD-640 had to correct.
       'machine `use` that hides unauthorized behind unreachable',
       mutate({
         policy: { ...base.policy, resource: 'machine', machineVerb: 'use' },
@@ -152,6 +151,72 @@ describe('classification totality — each negative is one mutation of the passi
     const errs = classificationErrors(contract)
     expect(errs.length).toBeGreaterThan(0)
     expect(errs.join('\n')).toMatch(pattern)
+  })
+})
+
+/**
+ * THE SECOND AXIS (POD-640, closing POD-1179).
+ *
+ * `machineVerb` is a second axis on the policy, NOT a synonym for
+ * `resource: 'machine'` — `framework.ts` says so on `CommandPolicy.machineVerb`
+ * and the shipped session command plane depends on it (`sessions.sendText` is
+ * `resource: 'session'` AND `machineVerb: 'use'`). The lint used to reject that
+ * shape, which would have forced a command that both writes a row and executes on
+ * compute to lie about one of the two.
+ *
+ * These are POSITIVE controls, so they need the negatives beside them or they
+ * would pass against a lint that had simply been deleted — hence the third case,
+ * which proves the surviving direction still fires.
+ */
+describe('machineVerb is a SECOND axis, not a restatement of the resource', () => {
+  it('accepts `use` on a non-machine resource — the sessions-plane shape', () => {
+    expect(
+      classificationErrors(
+        mutate({ policy: { ...base.policy, resource: 'session', machineVerb: 'use' } }),
+      ),
+    ).toEqual([])
+  })
+
+  it('accepts `use` on a non-machine resource that does NOT distinguish unauthorized from unreachable', () => {
+    // The mail shape: D20.2 requires invisible to read as nonexistent, and M5
+    // must not contradict it where the caller cannot name a machine to probe.
+    expect(
+      classificationErrors(
+        mutate({
+          policy: { ...base.policy, resource: 'session', machineVerb: 'use' },
+          errorConsistency: {
+            callerSuppliedTargetId: true,
+            invisibleFailsAs: 'nonexistent',
+            distinguishesUnauthorizedFromUnreachable: false,
+            note: 'a probe',
+          },
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it('STILL requires a verb when the resource IS the machine — the direction that survives', () => {
+    // Without this, the two cases above would be equally satisfied by a lint with
+    // no machine rules at all.
+    expect(
+      classificationErrors(mutate({ policy: { ...base.policy, resource: 'machine' } })).join('\n'),
+    ).toMatch(/must declare its verb/)
+  })
+
+  it('STILL enforces M5 when the caller can name the machine', () => {
+    expect(
+      classificationErrors(
+        mutate({
+          policy: { ...base.policy, resource: 'machine', machineVerb: 'use' },
+          errorConsistency: {
+            callerSuppliedTargetId: true,
+            invisibleFailsAs: 'nonexistent',
+            distinguishesUnauthorizedFromUnreachable: false,
+            note: 'a probe',
+          },
+        }),
+      ).join('\n'),
+    ).toMatch(/distinguishable from unreachable/)
   })
 })
 
