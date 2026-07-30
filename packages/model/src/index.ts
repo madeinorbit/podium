@@ -87,6 +87,7 @@ export * from './identity/delegation'
 export * from './identity/git-identity'
 export * from './identity/grant'
 export * from './identity/session-identity'
+export * from './identity/telegram-binding'
 export * from './identity/user'
 export * from './identity/worktree'
 // Branded entity ids and the composite-key helpers (POD-361) — re-homed from
