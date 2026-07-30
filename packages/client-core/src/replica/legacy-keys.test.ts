@@ -22,8 +22,7 @@
  * writes before either direction is believed.
  */
 
-import type { IssueWire, SessionMeta } from '@podium/model'
-import type { TranscriptItem } from '@podium/protocol'
+import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import {
   LEGACY_CURSOR_KEY,
   LEGACY_ENTITY_KEYS,
