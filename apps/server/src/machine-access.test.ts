@@ -76,6 +76,38 @@ function ownershipTable(
 
 const grant = (subject: UserId, verb: MachineVerb): MachineGrant => ({ subject, verb })
 
+/**
+ * THE DERIVATION'S OWN INSTRUMENT CHECK (POD-642's rule, type-level half).
+ *
+ * `MachineOwnershipRow` is a `Pick` of the handshake's `ResolvedMachine` rather
+ * than a restatement of its four keys. A schema fork is caught by asserting
+ * instance identity with `toBe`; a TYPE fork cannot be, because there is no
+ * runtime value to compare — so the protection is the derivation, and a
+ * derivation needs proof it is not VACUOUS. One that resolved to `any` or to
+ * `string` would compile, would forbid nothing, and would be completely silent.
+ *
+ * These probes are self-verifying in both directions. If the derivation went
+ * vacuous, the `@ts-expect-error` lines would have nothing to suppress and the
+ * compiler reports TS2578 on them — the probe fails LOUDLY rather than passing
+ * empty. And the accepted row below proves it can still say yes.
+ */
+const _derivationIsNotVacuous: MachineOwnershipRow = {
+  machine: 'box' as MachineId,
+  owner: OWNER,
+  grants: [],
+}
+void _derivationIsNotVacuous
+
+// @ts-expect-error `owner` is a branded UserId, not any string — if the Pick
+// collapsed, this line would have nothing to suppress.
+const _ownerIsBranded: MachineOwnershipRow = { machine: 'box' as MachineId, owner: 'x', grants: [] }
+void _ownerIsBranded
+
+// @ts-expect-error `grants` is required — a Pick that lost the key would make
+// this object legal.
+const _grantsAreRequired: MachineOwnershipRow = { machine: 'box' as MachineId, owner: null }
+void _grantsAreRequired
+
 describe('the pre-accounts default preserves today: one account owns every paired machine', () => {
   it('the instance owner holds all three verbs, and a second human holds none', () => {
     const ownership = ownershipFromMachines({
