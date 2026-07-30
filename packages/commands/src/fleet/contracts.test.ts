@@ -154,8 +154,11 @@ describe('the ten fleet contracts', () => {
   })
 
   it('partitions `manage` from `use` exactly, and names no verb where nothing is placed', () => {
+    // Read through the ERASED type: the literal union has no `machineVerb` key
+    // on the pairing arm at all, which is the shape being asserted and is not
+    // something the reader should have to narrow around.
     const byVerb = Object.fromEntries(
-      Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.policy.machineVerb ?? null]),
+      contracts().map((c) => [c.name, c.policy.machineVerb ?? null]),
     )
     expect(byVerb).toEqual({
       'machines.rename': 'manage',
@@ -178,7 +181,8 @@ describe('the ten fleet contracts', () => {
    * reporting machine liveness on rows the caller cannot see.
    */
   it('keeps unauthorized distinguishable from unreachable on the `use` arm only', () => {
-    for (const [name, contract] of Object.entries(FLEET_CONTRACTS)) {
+    for (const contract of contracts()) {
+      const name = contract.name
       const errs = contract.errorConsistency
       if (!errs.callerSuppliedTargetId) continue
       expect([name, errs.distinguishesUnauthorizedFromUnreachable]).toEqual([
