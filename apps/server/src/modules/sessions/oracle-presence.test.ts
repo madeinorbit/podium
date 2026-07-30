@@ -9,6 +9,7 @@
  * for the must-not-change / will-change contract.
  */
 
+import { SOLE_USER_ID } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
@@ -147,7 +148,13 @@ describe('oracle: setArchived', () => {
 })
 
 describe('oracle: read state', () => {
-  it(`${willChange('POD-1076', 'readAt becomes per-user state keyed (userId, entityId)')}: readAt is ONE instance-wide value every client sees`, async () => {
+  // STILL will-change, and deliberately so: POD-380 re-keyed snooze/pins/tab order
+  // but NOT readAt. readAt has no query surface — its only read path is the
+  // BROADCAST session projection (ADR 2 D2's unscoped feed) — so a per-user readAt
+  // has nowhere correct to be delivered until POD-1077's scoped feed. Its command
+  // contract already declares `scope: 'self'`, so the remaining move is storage +
+  // projection only. See packages/model/src/user-state/session-state.ts.
+  it(`${willChange('POD-1076', 'readAt becomes per-user once POD-1077 makes fan-out per-principal; POD-380 left the row in place')}: readAt is ONE instance-wide value every client sees`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const second: ServerMessage[] = []
@@ -228,16 +235,26 @@ describe('oracle: setIssueId', () => {
 })
 
 describe('oracle: snoozes', () => {
-  it(`${willChange('POD-1076', 'snooze becomes per-user state, never shared')}: a snooze is instance-wide — every client reads the same snooze map`, async () => {
+  // RESOLVED by POD-380 (was: will-change POD-1076 "snooze becomes per-user
+  // state"). The characterization is REWRITTEN rather than duplicated: adding a
+  // per-user test beside the old one would leave the old one still asserting, and
+  // still NAMED for, instance-wide snooze.
+  it(`${MUST_NOT_CHANGE}: a snooze is stored against the WRITER's user id, and another user's slice does not contain it`, async () => {
     const o = makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const until = new Date(Date.now() + 60_000).toISOString()
 
     const returned = await o.call.snoozes.set({ sessionId, until })
 
+    // The caller's own view is unchanged from before the re-key — the wire shape
+    // and the returned map are byte-identical for the single-user case.
     expect(returned).toEqual({ [sessionId]: until })
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: until })
     expect(o.meta(sessionId).snoozedUntil).toBe(until)
+    // And the row is KEYED by user: a different principal's slice is empty. This
+    // is the assertion the old instance-wide characterization could not make.
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: until })
+    expect(o.store.sessions.listSnoozes('user:somebody-else')).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: until=null means "until next message" and never lapses by time`, async () => {
@@ -248,7 +265,7 @@ describe('oracle: snoozes', () => {
 
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: null })
     // Housekeeping only drops TIMED snoozes whose deadline passed.
-    expect(o.store.sessions.listSnoozes(Date.now() + 10 * 365 * 24 * 3_600_000)).toEqual({
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.now() + 10 * 365 * 24 * 3_600_000)).toEqual({
       [sessionId]: null,
     })
   })
@@ -259,9 +276,9 @@ describe('oracle: snoozes', () => {
     const until = new Date(Date.now() + 1_000).toISOString()
     await o.call.snoozes.set({ sessionId, until })
 
-    expect(o.store.sessions.listSnoozes(Date.parse(until) + 1)).toEqual({})
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.parse(until) + 1)).toEqual({})
     // The lazy delete is a real write: the row is gone on the next read too.
-    expect(o.store.sessions.listSnoozes(Date.parse(until) - 500)).toEqual({})
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID, Date.parse(until) - 500)).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: clear removes the row and the wire field`, async () => {
@@ -275,13 +292,19 @@ describe('oracle: snoozes', () => {
 })
 
 describe('oracle: pins', () => {
-  it(`${willChange('POD-1076', 'pins become per-user state, never shared')}: pins are one instance-wide list, keyed only by (kind, id)`, async () => {
+  // RESOLVED by POD-380 (was: will-change POD-1076 "pins become per-user state").
+  it(`${MUST_NOT_CHANGE}: a pin is keyed (userId, kind, id) — the writer sees it and another user's slice does not`, async () => {
     const o = makeOracle()
 
     const after = await o.call.pins.set({ kind: 'panel', id: 'sess-1', pinned: true })
 
     expect(after).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
     expect(await o.call.pins.list()).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
+    expect(o.store.sessions.listPins('user:somebody-else')).toEqual({
+      panels: [],
+      worktrees: [],
+      repos: [],
+    })
   })
 
   it(`${MUST_NOT_CHANGE}: pinning is insertion-ordered and idempotent; unpinning removes`, async () => {
@@ -299,13 +322,15 @@ describe('oracle: pins', () => {
 })
 
 describe('oracle: tab order', () => {
-  it(`${willChange('POD-1076', 'tab order becomes per-user state, never shared')}: tab order is one instance-wide map keyed by worktree path`, async () => {
+  // RESOLVED by POD-380 (was: will-change POD-1076 "tab order becomes per-user").
+  it(`${MUST_NOT_CHANGE}: tab order is keyed (userId, worktree) — the writer sees it and another user's slice does not`, async () => {
     const o = makeOracle()
 
     const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: ['b', 'a'] })
 
     expect(after).toEqual({ '/w': ['b', 'a'] })
     expect(await o.call.tabs.listOrders()).toEqual({ '/w': ['b', 'a'] })
+    expect(o.store.sessions.listTabOrders('user:somebody-else')).toEqual({})
   })
 
   it(`${MUST_NOT_CHANGE}: an empty sessionIds array DELETES the saved order rather than storing an empty one`, async () => {

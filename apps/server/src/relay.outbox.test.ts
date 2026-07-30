@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionMeta } from '@podium/model'
+import { type SessionMeta, SOLE_USER_ID } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -319,12 +319,12 @@ describe('queueText (durable outbox sends)', () => {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
     reg.modules.sessions.queueText({ sessionId, text: 'un-snooze' })
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })
 })
 

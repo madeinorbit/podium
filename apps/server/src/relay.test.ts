@@ -4,8 +4,7 @@ import { join } from 'node:path'
 import {
   asSessionId,
   type AgentPhase,
-  type AgentRuntimeState,
-} from '@podium/model'
+  type AgentRuntimeState, SOLE_USER_ID } from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -3373,12 +3372,12 @@ describe('SessionRegistry snooze', () => {
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
-    reg.modules.sessions.clearSnooze(sessionId)
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    reg.modules.sessions.clearSnooze(SOLE_USER_ID, sessionId)
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
     expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
   })
 
@@ -3390,10 +3389,10 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
     reg.modules.sessions.sendText({ sessionId, text: 'hi' })
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })
 
   it('leaving the attention phase clears it; staying in attention keeps it', () => {
@@ -3408,18 +3407,18 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ userId: SOLE_USER_ID, sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
     reg.modules.sessions.onDaemonMessageFrom(
       'local',
       agentState(sessionId, 'idle', { idle: { kind: 'question' } }),
     )
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [sessionId]: null })
 
     // -> working leaves attention: snooze clears.
     reg.modules.sessions.onDaemonMessageFrom('local', agentState(sessionId, 'working'))
-    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect(reg.sessionStore.sessions.listSnoozes(SOLE_USER_ID)).toEqual({})
   })
 
   it('seeds snoozedUntil from the store at load', () => {
@@ -3445,7 +3444,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.sessions.setSnooze('s1', null)
+    store.sessions.setSnooze(SOLE_USER_ID, 's1', null)
     const reg = new SessionRegistry(store)
     expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })

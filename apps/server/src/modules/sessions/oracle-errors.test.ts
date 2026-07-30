@@ -19,6 +19,7 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
+import { SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -63,7 +64,7 @@ describe('oracle: not-found shape, per write', () => {
     // Asymmetric with rename/archive above: the snooze table is keyed by session
     // id with no foreign key, so this write persists against a ghost.
     expect(await o.call.snoozes.set({ sessionId: GHOST, until: null })).toEqual({ [GHOST]: null })
-    expect(o.store.sessions.listSnoozes()).toEqual({ [GHOST]: null })
+    expect(o.store.sessions.listSnoozes(SOLE_USER_ID)).toEqual({ [GHOST]: null })
 
     expect(await o.call.snoozes.clear({ sessionId: GHOST })).toEqual({})
   })
