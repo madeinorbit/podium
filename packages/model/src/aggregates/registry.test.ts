@@ -136,9 +136,16 @@ describe('the aggregates carry ownership and attribution, and not their alternat
     }
   })
 
-  it('carries NO serializable effective capability (ADR 9 D5 A1)', () => {
+  it('carries NO obviously-named effective capability (ADR 9 D5 A1)', () => {
     // Rights are resolved LIVE at apply time; a snapshot survives the
     // revocation of the person it came from, with no reaper to trigger.
+    //
+    // A NAME MATCHER, and only that — the same class of instrument as
+    // POD-643's exported `findCapabilitySnapshotKeys`, with the same blind
+    // spot: an authority-shaped value under an innocent key (`meta`, `ctx`,
+    // `extra`) is invisible to both. It is kept for its failure MESSAGE, which
+    // names the offending key; the key-set pin below is what actually closes
+    // the gap. Two instruments, and neither is the other's corroboration.
     for (const { schema } of CANONICAL_AGGREGATES) {
       for (const key of Object.keys(schema.shape)) {
         const k = key.toLowerCase()
@@ -147,6 +154,78 @@ describe('the aggregates carry ownership and attribution, and not their alternat
         expect(k).not.toContain('permissions')
       }
     }
+  })
+})
+
+/**
+ * THE EXACT KEY SETS, pinned.
+ *
+ * This is the instrument the name matchers above cannot be: it fails on ANY new
+ * key, however innocently named, so an authority-shaped value smuggled in as
+ * `meta` or `ctx` reds here even though no name-based detector would see it
+ * (POD-643's caveat on `findCapabilitySnapshotKeys`, adopted).
+ *
+ * It is deliberately a chore to update. These two lists are the canonical
+ * durable vocabulary of the whole product; growing one should be a deliberate
+ * act with a reviewer looking at the diff, not a side effect of extending a
+ * field group. When this test fails on an intended addition, the fix is to add
+ * the key here AND to satisfy yourself that it is durable truth — not live
+ * state (D3.7), not derived (D3.6), not per-user (D10), not provenance (D3.8),
+ * and not a snapshotted right (ADR 9 D5 A1).
+ */
+const SESSION_AGGREGATE_KEYS = [
+  'accountId', 'activityCount', 'agentKind', 'agentState', 'archived', 'createdAt',
+  'createdBy', 'cwd', 'deleted', 'durableLabel', 'effort', 'executionProfileId',
+  'exitCode', 'headless', 'inputCount', 'issueId', 'lastActiveAt', 'lastInputAt',
+  'lastOutputAt', 'lastResumedAt', 'machineId', 'model', 'name', 'nameSource',
+  'namedBy', 'origin', 'outputCount', 'owner', 'refDraft', 'refIssueId', 'refLetter',
+  'resume', 'sessionId', 'spawnFailure', 'spawnedBy', 'status', 'stopReason',
+  'stoppedAt', 'title', 'visibility', 'workState', 'workflowRunId', 'workflowStepId',
+]
+
+const ISSUE_AGGREGATE_KEYS = [
+  'acceptance', 'activityNotes', 'archived', 'asked', 'assignee', 'audience',
+  'blockedByNotes', 'branch', 'brief', 'closedAt', 'closedReason', 'color',
+  'coordinatorSessionId', 'createdAt', 'createdBy', 'defaultAgent', 'defaultEffort',
+  'defaultModel', 'deferUntil', 'deletedAt', 'dependencyNote', 'description', 'design',
+  'dueAt', 'duplicateOf', 'estimateMin', 'id', 'intentOrigin', 'isDraftVessel', 'labels',
+  'lastLifecycleActor', 'linearId', 'linearIdentifier', 'linearUrl', 'machineId',
+  'needsHuman', 'notes', 'notesUpdatedAt', 'owner', 'panel', 'parentBranch', 'parentId',
+  'prUrl', 'priority', 'repoId', 'seq', 'sortKey', 'stage', 'startedBySession',
+  'suggestedReason', 'suggestedStage', 'supersededBy', 'title', 'type', 'updatedAt',
+  'visibility', 'worktreePath',
+]
+
+describe('the canonical key sets are pinned exactly', () => {
+  it('SessionAggregate carries exactly these 43 keys and no others', () => {
+    expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
+  })
+
+  it('IssueAggregate carries exactly these 57 keys and no others', () => {
+    expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
+  })
+
+  it('catches an authority-shaped value hidden under an INNOCENT key', () => {
+    // The case neither name matcher can see, and the reason the pin exists.
+    // `meta` names nothing suspicious; its CONTENT is a frozen grant set, which
+    // is the privilege leak ADR 9 D5 A1 rejects.
+    const smuggled = SessionAggregate.extend({
+      meta: z.object({ allowedVerbs: z.array(z.string()), grantedBy: z.string() }),
+    })
+
+    expect(Object.keys(smuggled.shape).sort()).not.toEqual(SESSION_AGGREGATE_KEYS)
+
+    // …and prove the name matcher genuinely MISSES it, so the two instruments
+    // are demonstrably not corroborating each other.
+    const nameMatcherHits = Object.keys(smuggled.shape).filter((k) => {
+      const lower = k.toLowerCase()
+      return (
+        lower.includes('capability') ||
+        lower.includes('effectiverights') ||
+        lower.includes('permissions')
+      )
+    })
+    expect(nameMatcherHits).toEqual([])
   })
 })
 
