@@ -55,6 +55,9 @@ import {
   visibilityClassOf,
 } from '../annotations/ownership'
 import { ROW } from '../annotations/matrix'
+import { ClientSessionAggregate } from '../identity/client-session'
+import { GrantEdge } from '../identity/grant'
+import { UserAccount, UserCredential } from '../identity/user'
 import { IssueAggregate } from './issue'
 import { SessionAggregate } from './session'
 
@@ -81,17 +84,46 @@ export interface CanonicalAggregate {
 }
 
 /**
- * THE canonical aggregates. Two today.
+ * THE canonical aggregates. Six.
  *
- * Both are `personal` — ADR 9 D3's first class: private to their owner and
- * shareable by explicit grant. That is the human decision of 2026-07-29 (§3.1
- * "C's mechanism, B's default") applied to the two classes this issue defines,
- * and it matches the `session-identity` and `issue-core` rows the matrix already
- * carries. Neither is `deployment-substrate`: the tenant-visible floor is
- * deliberately small (readiness §3.1.1) and a session or an issue is not
- * substrate.
+ * `Session` and `Issue` (POD-365) are `personal` — ADR 9 D3's first class:
+ * private to their owner and shareable by explicit grant. That is the human
+ * decision of 2026-07-29 (§3.1 "C's mechanism, B's default") applied to the two
+ * classes POD-365 defined, and it matches the `session-identity` and
+ * `issue-core` rows the matrix carries. Neither is `deployment-substrate`: the
+ * tenant-visible floor is deliberately small (readiness §3.1.1) and a session or
+ * an issue is not substrate.
+ *
+ * POD-1075 adds the four identity classes, and their classes are NOT uniform —
+ * which is the reason each declares rather than inheriting a default:
+ *
+ *   - `User` is `personal`: a person owns their own profile. Whether the bare
+ *     EXISTENCE of an account is disclosable so that people can be named as
+ *     grantees is the contested cell of ADR 9 §3 **O1**, recorded on the matrix
+ *     row and deliberately not answered here.
+ *   - `UserCredential` is `secret`: never replicated, never enqueued (ADR 1 D6
+ *     unchanged). Registering it is what makes "the credential is not on the
+ *     wire" a classified fact rather than an omission.
+ *   - `Grant` is `personal`, owned by its GRANTER — a grant may never exceed its
+ *     granter's rights, so the granter is the accountable party.
+ *   - `ClientSession` is `per-user-state`: a device session belongs to exactly
+ *     one person and is never grantable (D3 rule 4).
+ *
+ * `AgentDelegation` is deliberately ABSENT from this list even though it has a
+ * matrix row (`delegation-record`). Its lifecycle is `SessionBinding` (ADR 9
+ * D5 A5, POD-323, Phase 5), so the class is not an R1 aggregate this phase
+ * owns — registering it here would claim a durable home that Phase 5 is going to
+ * put somewhere else. `identity/delegation.ts` defines the SHAPE, which is what
+ * this issue was asked for, and pins the no-snapshot rule over it directly.
  */
-export const CANONICAL_AGGREGATE_NAMES = ['Session', 'Issue'] as const
+export const CANONICAL_AGGREGATE_NAMES = [
+  'Session',
+  'Issue',
+  'User',
+  'UserCredential',
+  'Grant',
+  'ClientSession',
+] as const
 export type CanonicalAggregateName = (typeof CANONICAL_AGGREGATE_NAMES)[number]
 
 /**
@@ -125,6 +157,26 @@ const AGGREGATE_BY_NAME: Record<CanonicalAggregateName, Omit<CanonicalAggregate,
     schema: IssueAggregate,
     matrixRow: ROW.issueCore,
     visibility: 'personal',
+  },
+  User: {
+    schema: UserAccount,
+    matrixRow: ROW.userAccount,
+    visibility: 'personal',
+  },
+  UserCredential: {
+    schema: UserCredential,
+    matrixRow: ROW.accountCredential,
+    visibility: 'secret',
+  },
+  Grant: {
+    schema: GrantEdge,
+    matrixRow: ROW.grantEdge,
+    visibility: 'personal',
+  },
+  ClientSession: {
+    schema: ClientSessionAggregate,
+    matrixRow: ROW.perUserClientSession,
+    visibility: 'per-user-state',
   },
 }
 

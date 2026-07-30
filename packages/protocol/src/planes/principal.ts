@@ -35,19 +35,31 @@ import { z } from 'zod'
  * POD-1075's aggregate. The re-export below keeps every import path in this
  * package and its consumers unchanged.
  *
- * `DeviceId` / `CapabilityRef` / `DelegationRef` STAY here on purpose. They are
- * not entity ids: they name a transport binding and two server-minted opaque
- * references — the principal taxonomy ADR 9 owns and POD-1075 lands as an
- * aggregate. Moving them would have been scope this issue was not given, and
- * `packages/model` gains them with that aggregate or not at all.
+ * `DeviceId` HAS NOW MOVED TOO (POD-1075), on the condition this paragraph set:
+ * *"`packages/model` gains them with that aggregate or not at all."* The
+ * aggregate landed — `identity/user.ts`, `identity/client-session.ts` — and
+ * `client_sessions` gained a user column, so the `(user, device)` pair is a
+ * durable model fact rather than a transport-only one and its brand belongs
+ * beside `UserId`. The re-export below keeps every import path in this package
+ * and its consumers unchanged, exactly as the `UserId` and `AgentIdentityId`
+ * moves did.
+ *
+ * `CapabilityRef` / `DelegationRef` STAY here, and the condition is why: they
+ * are opaque server-minted references the ports carry and must never inspect.
+ * Giving L0 a name for them would invite a consumer to look inside one, and
+ * "a port that could read a scope out of it would be a port that could evaluate
+ * policy" is the property this file exists to protect.
  */
 
-export { asAgentIdentityId, AgentIdentityId, asUserId, UserId } from '@podium/model'
-
-/** The authenticated client session / daemon binding a call arrived on. */
-export const DeviceId = z.string().min(1).brand<'DeviceId'>()
-export type DeviceId = z.infer<typeof DeviceId>
-export const asDeviceId = (s: string): DeviceId => s as DeviceId
+export {
+  asAgentIdentityId,
+  AgentIdentityId,
+  asDeviceId,
+  DeviceId,
+  asUserId,
+  UserId,
+} from '@podium/model'
+import type { DeviceId } from '@podium/model'
 
 /**
  * Reference to the server-minted capability (today's role + scope, extended by

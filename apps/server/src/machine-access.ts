@@ -73,7 +73,7 @@ import type {
 } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
-import { INSTANCE_OWNER, onBehalfOfUser } from './command-principal'
+import { FIRST_ADMIN_USER_ID, onBehalfOfUser } from './command-principal'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '@podium/runtime/local-machine'
 
 /**
@@ -134,7 +134,7 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
       return {
         machine: row.id as MachineId,
         // POD-1079: read `row.ownerUserId` here.
-        owner: INSTANCE_OWNER,
+        owner: FIRST_ADMIN_USER_ID,
         // POD-1079: read the grant edges here.
         grants: [],
         ...(row.name === undefined ? {} : { name: row.name }),
@@ -175,7 +175,7 @@ export const isLocalSentinel = (machineId: string): boolean =>
 
 const sentinelRow = (machineId: string): MachineOwnershipRow => ({
   machine: machineId as MachineId,
-  owner: INSTANCE_OWNER,
+  owner: FIRST_ADMIN_USER_ID,
   grants: [],
 })
 

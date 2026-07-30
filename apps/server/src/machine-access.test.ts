@@ -15,7 +15,7 @@ import {
   type AgentCommandPrincipal,
   attributionOf,
   type CommandPrincipal,
-  INSTANCE_OWNER,
+  FIRST_ADMIN_USER_ID,
   resolvePrincipal,
   systemPrincipal,
 } from './command-principal'
@@ -30,7 +30,7 @@ import {
   ownershipFromMachines,
 } from './machine-access'
 
-const OWNER = INSTANCE_OWNER
+const OWNER = FIRST_ADMIN_USER_ID
 const COLLEAGUE: UserId = asUserId('colleague')
 
 const user = (id: UserId): CommandPrincipal => ({
@@ -320,10 +320,10 @@ describe('the principal itself', () => {
 
     expect(human).toEqual({
       kind: 'user',
-      user: INSTANCE_OWNER,
+      user: FIRST_ADMIN_USER_ID,
       capability: { role: 'admin', scope: { kind: 'all' } },
     })
-    expect(attributionOf(human)).toEqual({ actor: INSTANCE_OWNER, onBehalfOf: INSTANCE_OWNER })
+    expect(attributionOf(human)).toEqual({ actor: FIRST_ADMIN_USER_ID, onBehalfOf: FIRST_ADMIN_USER_ID })
     expect(attributionOf(agent(asSessionId('agent-1'), OWNER))).toEqual({
       actor: 'session:agent-1',
       onBehalfOf: OWNER,

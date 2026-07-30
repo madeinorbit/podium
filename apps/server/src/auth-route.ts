@@ -2,12 +2,13 @@ import { createHash, randomBytes } from 'node:crypto'
 import { SESSION_COOKIE } from '@podium/protocol'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { hasPassword, verifyPassword } from './auth-store'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
-  createClientSession(tokenHash: string, expiresAt: string): void
-  getClientSession(tokenHash: string): { expiresAt: string } | undefined
+  createClientSession(tokenHash: string, userId: UserId, expiresAt: string): void
+  getClientSession(tokenHash: string): { userId: UserId; expiresAt: string } | undefined
   isClientSessionValid(tokenHash: string, nowIso: string): boolean
   extendClientSession(tokenHash: string, expiresAt: string): void
   deleteClientSession(tokenHash: string): void
@@ -177,7 +178,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     const expiresMs = at + SESSION_TTL_MS
     const expiresAt = new Date(expiresMs).toISOString()
     store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
-    store?.createClientSession(hashToken(token), expiresAt)
+    // WHICH PERSON this device belongs to. The shared password authenticates a
+    // CONNECTION, not a human (ADR 9 D1.3), so the only true answer available is
+    // the instance's one account — passed EXPLICITLY rather than defaulted in the
+    // store, so per-user login (POD-315) changes this line and nothing silently
+    // keeps writing one id for everybody.
+    store?.createClientSession(hashToken(token), FIRST_ADMIN_USER_ID, expiresAt)
 
     setSessionCookie(c, token)
     return c.json({ ok: true })

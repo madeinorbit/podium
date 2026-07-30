@@ -4,27 +4,49 @@
  * token, never the token itself, so a DB read can't mint a valid cookie.
  * Persisted (not in-memory) so a server redeploy doesn't force every device
  * to re-login.
+ *
+ * ---------------------------------------------------------------------------
+ * A ROW IS A DEVICE THAT RESOLVES TO A USER (POD-1075, ADR 9 D1.3)
+ * ---------------------------------------------------------------------------
+ *
+ * Every row now carries a `user_id`. That does NOT mean the login can tell two
+ * people apart — `auth-store.ts` is still one shared password, so every session
+ * this repository mints belongs to the first admin, and
+ * `CLIENT_PRINCIPAL_GRADE` stays `'device'` accordingly. What it means is that
+ * "which device" and "who" are two answers in storage instead of one, which is
+ * what makes per-user login (POD-315) a change to the AUTHENTICATOR rather than
+ * a second table migration after the wire cutover.
+ *
+ * `createClientSession` takes the user as a REQUIRED parameter rather than
+ * defaulting it here. A default would be the one place a future per-user login
+ * could silently keep writing the first admin's id for everybody, and the
+ * failure would be invisible: every session would work, and every session would
+ * belong to the wrong person.
  */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import type { UserId } from '@podium/model'
 
 export class AuthRepository {
   constructor(private readonly db: SqlDatabase) {}
 
-  /** Record a login session keyed by the SHA-256 of its cookie token. */
-  createClientSession(tokenHash: string, expiresAt: string): void {
+  /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
+   *  token. `userId` is the person the device resolves to — today always the
+   *  first admin, because the shared-password transport cannot authenticate a
+   *  second one (POD-315). */
+  createClientSession(tokenHash: string, userId: UserId, expiresAt: string): void {
     this.db
       .prepare(
-        'INSERT OR REPLACE INTO client_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)',
+        'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
       )
-      .run(tokenHash, new Date().toISOString(), expiresAt)
+      .run(tokenHash, userId, new Date().toISOString(), expiresAt)
   }
 
-  getClientSession(tokenHash: string): { expiresAt: string } | undefined {
+  getClientSession(tokenHash: string): { userId: UserId; expiresAt: string } | undefined {
     const row = this.db
-      .prepare('SELECT expires_at FROM client_sessions WHERE token_hash = ?')
-      .get(tokenHash) as { expires_at: string } | undefined
-    return row ? { expiresAt: row.expires_at } : undefined
+      .prepare('SELECT user_id, expires_at FROM client_sessions WHERE token_hash = ?')
+      .get(tokenHash) as { user_id: string; expires_at: string } | undefined
+    return row ? { userId: row.user_id as UserId, expiresAt: row.expires_at } : undefined
   }
 
   /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */

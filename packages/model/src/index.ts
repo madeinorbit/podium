@@ -45,6 +45,10 @@ export * from './exhaustive'
 // `fields/README.md` for the four rules that keep them useful, in particular
 // rule 2: leave room for principal-dependent projection, do not build it.
 export * from './fields/attribution'
+// The legacy-attribution sweep (POD-1075): every device-level / role-level
+// attribution field readiness §3.2 names, with its decided shape and a totality
+// check that each names the ONE shared Attribution schema instance.
+export * from './fields/attribution-legacy'
 // The change-lifecycle vocabulary (POD-305, 2.1). A change exists in three
 // distinct phases — staged spec, stored row, sequenced wire delta — and they stay
 // distinct TYPES composing one field vocabulary, rather than three restatements
@@ -71,9 +75,17 @@ export * from './aggregates/issue'
 export * from './aggregates/registry'
 export * from './aggregates/session'
 
-// Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
+// Identity: of repos, worktrees and sessions — and, from POD-1075, of PEOPLE.
+// The User/account aggregate with credential material held in a separate,
+// never-replicated shape; the grant edge; the per-user client session; and the
+// agent-delegation shape, which defines `(agentIdentity, onBehalfOf, scope)`
+// and deliberately carries NO serializable effective capability (ADR 9 D5 A1).
+export * from './identity/client-session'
+export * from './identity/delegation'
 export * from './identity/git-identity'
+export * from './identity/grant'
 export * from './identity/session-identity'
+export * from './identity/user'
 export * from './identity/worktree'
 // Branded entity ids and the composite-key helpers (POD-361) — re-homed from
 // @podium/protocol's ids.ts and planes/principal.ts, both of which named this

@@ -23,7 +23,7 @@ import { asSessionId, type RepoId, type SessionId } from '@podium/model'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MachineId } from '@podium/model'
+import { asUserId, type MachineId } from '@podium/model'
 import type { ControlMessage, UserId } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from '../../issue-authz'
@@ -627,7 +627,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
           role: 'admin',
           scope: { kind: 'all' },
           actorSessionId: asSessionId('sess-agent-7'),
-          onBehalfOf: 'alice',
+          onBehalfOf: asUserId('alice'),
         },
       },
     )
@@ -641,7 +641,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       {
         actor: 'sess-agent-7',
         actorKind: 'agent',
-        onBehalfOf: 'alice',
+        onBehalfOf: asUserId('alice'),
         fromMachineId: 'm1',
         toMachineId: 'm2',
       },
