@@ -203,7 +203,8 @@ export class AutomationsService {
     this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once')
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
-      // POD-361-EDGE-CAST (POD-362 owns): mint site; the id is generated here.
+      // MINT SITE: the AutomationId is generated here, so this is where the brand
+      // is applied. Not an adapter cast — nothing upstream held this id.
       id: asAutomationId(`aut_${randomUUID()}`),
       name: input.name.trim(),
       enabled,
@@ -211,7 +212,11 @@ export class AutomationsService {
       scheduleKind,
       cron,
       runAt,
-      targetSessionId: input.targetSessionId?.trim() ? asSessionId(input.targetSessionId.trim()) : null, // POD-361-EDGE-CAST: untyped command input.
+      // `.trim()` strips the brand off a branded string, so it is re-applied — the
+      // input itself is branded by the contract now (router.ts's automations input).
+      targetSessionId: input.targetSessionId?.trim()
+        ? asSessionId(input.targetSessionId.trim())
+        : null,
       agentKind: input.agentKind,
       model: input.model ?? 'auto',
       effort: input.effort ?? 'auto',
@@ -259,7 +264,7 @@ export class AutomationsService {
       runAt,
       ...(patch.targetSessionId !== undefined
         ? {
-            // POD-361-EDGE-CAST: untyped command input.
+            // As above: `.trim()` strips the brand; the input arrives branded.
             targetSessionId: patch.targetSessionId?.trim()
               ? asSessionId(patch.targetSessionId.trim())
               : null,

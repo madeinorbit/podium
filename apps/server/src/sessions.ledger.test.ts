@@ -259,7 +259,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(h) upstream mirror sets and staleness flips are explicitly captured (#247)', () => {
     const upstreamMeta: SessionMeta = {
-      sessionId: asSessionId('hub-s1'), // // POD-361-EDGE-CAST
+      sessionId: asSessionId('hub-s1'),
       agentKind: 'shell',
       title: 'hub session',
       cwd: '/hub/w',

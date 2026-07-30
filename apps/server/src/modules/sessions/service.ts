@@ -754,8 +754,7 @@ export class SessionsService {
     const displayRef = this.computeSessionDisplayRef(session)
     return {
       ...meta,
-      // POD-361-EDGE-CAST (POD-362 owns): `Session.refIssueId` is a plain string.
-      ...(session.refIssueId ? { refIssueId: asIssueId(session.refIssueId) } : {}),
+      ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
       ...(session.refLetter ? { refLetter: session.refLetter } : {}),
       ...(session.refDraft != null ? { refDraft: session.refDraft } : {}),
       ...(displayRef ? { displayRef } : {}),

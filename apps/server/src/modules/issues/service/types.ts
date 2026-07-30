@@ -84,7 +84,7 @@ export type IssuePanelOp =
       title?: string
       /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
        *  after the pull succeeded; a bare artifact-add stays a legacy path entry. */
-      artifactId?: string
+      artifactId?: ArtifactId
       entry?: string
       files?: { path: string; size: number }[]
     }
@@ -224,7 +224,7 @@ export interface IssueDeps {
       machineId?: string
       sourcePath: string
       extraPaths?: string[]
-    }): Promise<{ artifactId: string; entry: string; files: { path: string; size: number }[] }>
+    }): Promise<{ artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
   }

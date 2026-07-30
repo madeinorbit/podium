@@ -2,7 +2,9 @@ import {
   AgentKind,
   AutomationScheduleKind,
   AutomationSessionMode,
+  ArtifactIdField,
   isAgentKind,
+  IssueIdField,
   ResumeRef,
   SessionIdField,
   WorkState,
@@ -199,7 +201,8 @@ const automationFields = z.object({
   scheduleKind: AutomationScheduleKind.optional(),
   cron: z.string().nullable().optional(),
   runAt: z.string().datetime({ offset: true }).nullable().optional(),
-  targetSessionId: z.string().min(1).nullable().optional(),
+  // `.min(1)` KEPT, shared brand piped in after it (POD-362).
+  targetSessionId: z.string().min(1).pipe(SessionIdField).nullable().optional(),
   agentKind: AgentKind,
   model: z.string().optional(),
   effort: z.string().optional(),
@@ -1328,7 +1331,7 @@ export const appRouter = t.router({
       .input(
         z.union([
           z.object({ sessionId: SessionIdField, path: z.string() }),
-          z.object({ issueId: z.string(), artifactId: z.string(), path: z.string() }),
+          z.object({ issueId: IssueIdField, artifactId: ArtifactIdField, path: z.string() }),
           z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
         ]),
       )

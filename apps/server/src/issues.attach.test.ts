@@ -17,7 +17,6 @@ function harness(sessions: SessionMeta[] = []) {
     listSessions: () =>
       sessions.map((s) => ({
         ...s,
-        // // POD-361-EDGE-CAST: the map is keyed by plain strings.
         ...(issueBySession.get(s.sessionId)
           ? { issueId: asIssueId(issueBySession.get(s.sessionId)!) }
           : {}),

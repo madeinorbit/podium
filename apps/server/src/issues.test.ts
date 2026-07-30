@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type IssueId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -3125,7 +3125,7 @@ describe('IssueService agent mail (#103)', () => {
   // The "run mail inbox" nag must count only messages not yet in the agent's
   // context. status='delivered' = transcript echo = already seen.
 
-  function substrateRow(issueId: string, id: string, status: 'queued' | 'delivered' | 'read') {
+  function substrateRow(issueId: IssueId, id: string, status: 'queued' | 'delivered' | 'read') {
     return {
       id,
       threadId: id,

@@ -1196,7 +1196,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const sessions = [session({ sessionId: 's1', status: 'hibernated', issueId: ISSUE.id })]
     const { svc } = harness(sessions, { now: () => new Date(clock).toISOString() })
-    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' } as const
+    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') } as const
     const r1 = svc.send(from, { to: { kind: 'session', id: 's1' }, body: 'a', lifecycle: 'wake' })
     expect(r1.message).toMatchObject({ lifecycle: 'wake', status: 'queued' })
     clock += 60_000
@@ -1637,7 +1637,7 @@ describe('opt-in response [POD-835 §04b]', () => {
       session({ sessionId: 's1' }),
       session({ sessionId: 'sX', cwd: '/wt/b' }),
     ])
-    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' } as const
+    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') } as const
     const plain = svc.send(from, {
       to: { kind: 'session', id: 's1' },
       body: 'a',
@@ -2248,7 +2248,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const now = () => new Date(clock).toISOString()
     const sessions = [session({ sessionId: 's1', status: 'hibernated', issueId: ISSUE.id })]
-    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' } as const
+    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: asSessionId('sX') } as const
     const h1 = harness(sessions, { now })
     const r1 = h1.svc.send(from, {
       to: { kind: 'session', id: 's1' },

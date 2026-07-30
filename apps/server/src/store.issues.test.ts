@@ -317,7 +317,7 @@ describe('issue comments (P1)', () => {
 })
 
 describe('issue mail store (agent mail #103)', () => {
-  const msg = (id: string, issueId = 'iss_a', createdAt = 't1') => ({
+  const msg = (id: string, issueId = asIssueId('iss_a'), createdAt = 't1') => ({
     id,
     issueId,
     fromAuthor: 'issue:#2',
@@ -336,9 +336,9 @@ describe('issue mail store (agent mail #103)', () => {
   it('add/list/count: ordered by created_at,id; count only unread', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
-    store.issues.addIssueMessage(msg('msg_b', 'iss_a', 't2'))
-    store.issues.addIssueMessage(msg('msg_a', 'iss_a', 't1'))
-    store.issues.addIssueMessage(msg('msg_c', 'iss_other', 't1'))
+    store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
+    store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
+    store.issues.addIssueMessage(msg('msg_c', asIssueId('iss_other'), 't1'))
     const list = store.issues.listIssueMessages('iss_a')
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
@@ -378,7 +378,7 @@ describe('issue mail store (agent mail #103)', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
     store.issues.addIssueMessage(msg('msg_a'))
-    store.issues.addIssueMessage(msg('msg_z', 'iss_other'))
+    store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
     store.issues.deleteIssueChildRows('iss_a')
     expect(store.issues.listIssueMessages('iss_a')).toEqual([])
     expect(store.issues.listIssueMessages('iss_other').length).toBe(1)

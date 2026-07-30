@@ -130,9 +130,7 @@ export function attributeMemory(
       bytes += byPid.get(pid)?.memBytes ?? 0
       claimed.add(pid)
     }
-    // // POD-361-EDGE-CAST (POD-362 owns): the daemon's own session record types its id as a
-    // plain string; the wire projection brands at this boundary.
-    agents.push({ sessionId: asSessionId(session.sessionId), bytes, processCount: mine.size })
+    agents.push({ sessionId: session.sessionId, bytes, processCount: mine.size })
   }
 
   // Longest root first so a worktree registered inside a repo wins over the repo.

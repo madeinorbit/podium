@@ -233,8 +233,14 @@ export abstract class IssueServiceCore {
       ...(issue.notesUpdatedAt ? { notesUpdatedAt: issue.notesUpdatedAt } : {}),
       ...(issue.suggestedStage ? { suggestedStage: issue.suggestedStage } : {}),
       ...(issue.suggestedReason ? { suggestedReason: issue.suggestedReason } : {}),
-      // POD-361-EDGE-CAST (POD-362 owns): `blockedByNotes` is LLM-authored prose
-      // (D-2's rename) that the wire still types as ids until POD-308.
+      // A MODEL MISBRAND, not a POD-362 adapter cast — and it is being reported,
+      // not absorbed. `IssueWire.blockedBy` is `z.array(IssueIdField)`, but the
+      // value is `blockedByNotes`: LLM-authored PROSE that `store/types.ts`
+      // documents as "often BRANCH names rather than issue ids" and explicitly NOT
+      // the dependency graph (real edges live in issue_deps). So the brand on the
+      // wire field asserts an id space this value is not in. POD-308 owns the wire
+      // rename; branding cannot fix a field whose CONTENT is not an id, and
+      // widening the wire here would be a wire change this issue must not make.
       blockedBy: issue.blockedByNotes as IssueId[],
       ...(issue.dependencyNote ? { dependencyNote: issue.dependencyNote } : {}),
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
@@ -267,8 +273,8 @@ export abstract class IssueServiceCore {
       ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
       ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
-      deps: deps as IssueDepWire[], // POD-361-EDGE-CAST
-      dependents: dependents as IssueDepWire[], // POD-361-EDGE-CAST
+      deps,
+      dependents,
       commentCount,
       ready,
       blocked,

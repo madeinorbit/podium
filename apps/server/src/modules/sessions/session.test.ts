@@ -135,7 +135,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
-    a.viewVisible = new Set(['s1']) // controller is rendering the session
+    a.viewVisible = new Set([asSessionId('s1')]) // controller is rendering the session
     s.handleResize('b', 100, 30)
     expect(s.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalled()
@@ -165,7 +165,7 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.attachClient(a) // controller
-    a.viewVisible = new Set(['s1']) // rendering s1 on screen
+    a.viewVisible = new Set([asSessionId('s1')]) // rendering s1 on screen
     s.handleResize('a', 200, 50)
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
     expect(s.activityDirty).toBe(true)
@@ -182,7 +182,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a) // controller
     s.attachClient(b) // spectator (e.g. another device)
-    a.viewVisible = new Set(['s1'])
+    a.viewVisible = new Set([asSessionId('s1')])
     a.sent.length = 0
     b.sent.length = 0
     s.handleResize('a', 200, 50)
@@ -196,7 +196,7 @@ describe('Session', () => {
     const a = makeClient('a')
     s.attachClient(a)
     a.viewports.set('s1', { cols: 200, rows: 50 }) // resize arrived before viewState
-    a.viewVisible = new Set(['s1']) // viewState now confirms it renders s1
+    a.viewVisible = new Set([asSessionId('s1')]) // viewState now confirms it renders s1
     a.sent.length = 0
     s.reconcileGeometry('a')
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
@@ -210,7 +210,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
-    b.viewVisible = new Set(['s1']) // requester is rendering the session → snap-resizes
+    b.viewVisible = new Set([asSessionId('s1')]) // requester is rendering the session → snap-resizes
     s.handleResize('b', 50, 60)
     s.requestControl('b')
     expect(s.controllerId).toBe('b')
@@ -234,7 +234,7 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.attachClient(a) // a is the controller
-    a.viewVisible = new Set(['s1'])
+    a.viewVisible = new Set([asSessionId('s1')])
     const epoch0 = s.epoch
     a.sent.length = 0
     toDaemon.mockClear()
@@ -283,7 +283,7 @@ describe('Session', () => {
     expect(s.geometry).toEqual(geo) // confirmed gated out (still default)
     toDaemon.mockClear()
     // viewState arrives: the client now declares it renders s1 on screen.
-    a.viewVisible = new Set(['s1'])
+    a.viewVisible = new Set([asSessionId('s1')])
     s.reconcileGeometry('a')
     // The dropped fitted size is now applied — not lost.
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
@@ -298,7 +298,7 @@ describe('Session', () => {
     s.attachClient(a) // controller
     s.attachClient(b) // spectator
     b.viewports.set('s1', { cols: 200, rows: 50 })
-    b.viewVisible = new Set(['s1'])
+    b.viewVisible = new Set([asSessionId('s1')])
     toDaemon.mockClear()
     s.reconcileGeometry('b') // not the controller → nothing
     expect(s.geometry).toEqual(geo)
@@ -424,7 +424,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a) // a is the initial controller
     s.attachClient(b)
-    b.viewVisible = new Set(['s1']) // b renders the session → snap to its viewport on takeover
+    b.viewVisible = new Set([asSessionId('s1')]) // b renders the session → snap to its viewport on takeover
     b.viewports.set('s1', { cols: 33, rows: 21 })
     s.requestControl('b') // genuine takeover (b was NOT the controller)
     expect(s.geometry).toEqual({ cols: 33, rows: 21 })
@@ -435,7 +435,7 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.attachClient(a)
-    a.viewVisible = new Set(['s1'])
+    a.viewVisible = new Set([asSessionId('s1')])
     // Another split/warm pane measured a small grid, but s1 has not sent a
     // resize. The old single ClientConn.viewport applied this value to s1.
     a.viewports.set('other-session', { cols: 40, rows: 12 })

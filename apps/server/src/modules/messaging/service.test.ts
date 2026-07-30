@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptItem } from '@podium/model'
 import { EventBus } from '../bus'
@@ -548,7 +548,7 @@ describe('MessagingService', () => {
 
     it('sends typing into the bound topic when the session enters working', () => {
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -561,7 +561,7 @@ describe('MessagingService', () => {
 
     it('does not start ambient typing on compacting (only phase===working)', () => {
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -575,7 +575,7 @@ describe('MessagingService', () => {
     it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -595,7 +595,7 @@ describe('MessagingService', () => {
       (phase) => {
         vi.useFakeTimers()
         const h = makeHarness({
-          sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+          sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
         })
         const { sessionId } = bindTopic(h)
         h.bus.emit('session.stateChanged', {
@@ -617,7 +617,7 @@ describe('MessagingService', () => {
     it('stops ambient typing on session.exited', () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
@@ -648,7 +648,7 @@ describe('MessagingService', () => {
     it('does not double-fire when superagent-turn typing already covers the topic', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.topics.upsert({
@@ -687,7 +687,7 @@ describe('MessagingService', () => {
     it('keeps a single refresh cadence when ambient starts before the turn', async () => {
       vi.useFakeTimers()
       const h = makeHarness({
-        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        sessionIssueId: (id) => (id === asSessionId('s_agent') ? asIssueId('iss_bound') : null),
       })
       const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
       h.bus.emit('session.stateChanged', {

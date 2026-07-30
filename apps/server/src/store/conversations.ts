@@ -317,7 +317,7 @@ export class ConversationsRepository {
     machineId: string
     nativeId: string
     providerId: string
-    parentPodiumId?: string
+    parentPodiumId?: ConversationId
     path?: string
     /** Transcript file size at scan time (discovery evidence). Persisted as
      *  `reported_bytes` so attach-time dirty reconciliation can use the LAST

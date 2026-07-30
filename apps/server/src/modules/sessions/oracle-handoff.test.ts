@@ -143,8 +143,7 @@ async function handoffFixture(
               sizeBytes: 3,
               manifest: {
                 format: 1,
-                // // POD-361-EDGE-CAST: the daemon frame's ids are plain strings.
-                sessionId: asSessionId(msg.sessionId),
+                sessionId: msg.sessionId,
                 agentKind: 'claude-code',
                 resume: { kind: 'claude-session', value: 'native-id' },
                 transcriptFilename: 'native-id.jsonl',

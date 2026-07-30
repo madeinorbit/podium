@@ -109,8 +109,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
           path: op.path,
           ...(op.title ? { title: op.title } : {}),
           addedAt: this.now(),
-          // POD-361-EDGE-CAST (POD-362 owns): `op` is untyped command input.
-          ...(op.artifactId ? { artifactId: op.artifactId as ArtifactId } : {}),
+          ...(op.artifactId ? { artifactId: op.artifactId } : {}),
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
         }
@@ -313,10 +312,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       ...(input.linear?.url != null ? { linearUrl: input.linear.url } : {}),
       blockedByNotes: [],
       priority: input.priority ?? 2,
-      // POD-361-EDGE-CAST class: `CreateIssueInput.type`/`.stage` are the row's
-      // unvalidated text (the DDL CHECK is the constraint). Validating here would
-      // turn a create the tracker accepts today into a throw — a decoder/encoder
-      // change, not this issue's.
+      // NOT AN ID CAST — this site carried an edge-cast marker that POD-362 read and
+      // removed: `type`/`stage` are ENUM-ish text, not entity ids, so no brand applies.
+      // They stay unvalidated here because the DDL CHECK is the constraint and
+      // validating at this seam would turn a create the tracker accepts today into
+      // a throw — a decoder/encoder change, and not this issue's.
       type: (input.type || 'task') as StoredIssue['type'],
       ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
       // Keyed into the scope it will LAND in: the parent's children when this

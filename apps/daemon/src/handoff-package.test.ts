@@ -91,7 +91,6 @@ describe('handoff package', () => {
   it('places Claude by new cwd slug and preserves Codex date path + filename', () => {
     const common = {
       format: 1 as const,
-      // POD-361-EDGE-CAST: fixture literal.
       sessionId: asSessionId('s'),
       repoId: asRepoId('r'),
       branch: 'b',
