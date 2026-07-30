@@ -26,6 +26,17 @@
   rejection; **D13** makes machines owned compute (`see` / `use` / `manage`); **D14**
   restates D5 as **unaffected** — multi-user is not multi-tenancy, no `instance_id`
   columns; **D15** keeps D6 unchanged and makes secrets management admin-grade.
+- **Also amended by:** [Amendment 2 — instance identity, and the four axes it must never be
+  confused with](0001-authority-ownership-amendment-2.md) (2026-07-30, POD-733, answering
+  POD-645's drift questions): **D16** declares the four axes (instance / machine / process
+  role / user) with mint, scope, equality and conflation-failure per axis; **D17** keeps
+  D5.1's brand and constrains it to configuration positions only — never a field on a table,
+  projection or payload; **D18** confirms D5.3 (no `instance_id` column) against the machine
+  row composed with `owner` + grants, and fences it against citation; **D19** classifies
+  instance identity as `deployment-substrate`, human-minted at deploy time, and locates the
+  pairing-durability defect on the machine axis; **D20** ratifies **zero** protocol presence
+  and contrasts it with the per-principal scoped feed; **D21** puts cross-instance
+  federation, sharing and identity portability out of scope. **No D5 clause is overturned.**
 
 ---
 
