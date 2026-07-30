@@ -38,6 +38,13 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  capabilitySnapshots,
+  danglingRegistryEntries,
+  instancePartitions,
+  perUserSingletons,
+  unregisteredRestatements,
+} from './representation-audit'
 
 // ---------------------------------------------------------------------------
 // Source loading
@@ -376,28 +383,6 @@ export interface AuditCheck {
   collect(ctx: AuditContext): AuditSite[]
 }
 
-const SESSION_SHAPES = [
-  'AgentSession',
-  'OpencodeSessionRow',
-  'ResumableSession',
-  'RecentSession',
-  'HandoffSession',
-  'SessionMeta',
-  'SessionCardModel',
-  'MountedSession',
-  'HandoffManifest',
-]
-
-const ISSUE_SHAPES = [
-  'IssueWire',
-  'IssueSessionSummary',
-  'OrphanIssue',
-  'IssueRow',
-  'IssuePageModel',
-  'IssueNavView',
-  'HandoffIssue',
-]
-
 /** Declaration of one of `names` as an exported interface/type/class. */
 function declRe(names: string[]): RegExp {
   return new RegExp(`^export (?:interface|type|class) (?:${names.join('|')})\\b`)
@@ -423,24 +408,93 @@ export const CHECKS: AuditCheck[] = [
           /^export class (?:UpstreamSync|UpstreamForwarder)\b|new (?:UpstreamSync|UpstreamForwarder)\s*\(/,
       }),
   },
+  // REDEFINED at POD-368. The old detectors were `^export (interface|type|class)
+  // X` over hardcoded lists of nine and seven NAMES, which POD-367 measured at
+  // 4 of 17 issue representations — with `packages/model`'s own canonical
+  // declarations counted as debt and the repo's largest restatement invisible
+  // because its name was not on the list. The lists were deliberately NOT
+  // extended: a longer literal list reproduces the defect and leaves the
+  // criterion zeroable by RENAMING an identifier. These key on the entity
+  // VOCABULARY, read at runtime out of the model, so a rename changes nothing.
+  // See `scripts/representation-audit.ts` for what they can and cannot measure.
   {
     id: 'session-shapes',
-    title: 'Competing session shapes',
+    title: 'Hand-restated session field lists, unaccounted for in the model registry',
     phase: 'POD-302',
-    unit: 'declaration of a session shape outside the canonical aggregate',
-    collect: (ctx) => grep(ctx, { roots: ['apps', 'packages'], pattern: declRe(SESSION_SHAPES) }),
+    unit: 'a declaration restating ≥3 session vocabulary keys that is neither registered in packages/model nor excluded with a reason',
+    collect: (ctx) => unregisteredRestatements(ctx, 'session'),
   },
   {
     id: 'issue-shapes',
-    title: 'Competing issue shapes',
+    title: 'Hand-restated issue field lists, unaccounted for in the model registry',
     phase: 'POD-302',
-    unit: 'declaration of an issue shape outside the canonical aggregate',
-    collect: (ctx) => grep(ctx, { roots: ['apps', 'packages'], pattern: declRe(ISSUE_SHAPES) }),
+    unit: 'a declaration restating ≥3 issue vocabulary keys that is neither registered in packages/model nor excluded with a reason',
+    collect: (ctx) => unregisteredRestatements(ctx, 'issue'),
+  },
+  {
+    // The other direction of the loop. Without it the registry can rot into a
+    // list of retired names while every other check reports green — the same
+    // shape as a detector that stops matching.
+    id: 'representation-registry-rot',
+    title: 'Registry entries whose declaration is gone',
+    phase: 'POD-302',
+    unit: 'a registered representation whose site is missing or no longer declares the symbol',
+    collect: (ctx) => danglingRegistryEntries(ctx.repoRoot),
+  },
+  {
+    // A RATCHET, not a regression guard: seven ride the tree today. They are
+    // INHERITED — 1.4 added none and blessed none (POD-367 §3.5) — and each one
+    // left behind is later a table migration PLUS a wire change PLUS a replica
+    // migration. Mapped to POD-1076, which owns the (userId, entityId) re-key,
+    // NOT to POD-302: POD-302 must not be able to close by laundering it.
+    id: 'per-user-singletons',
+    title: 'Per-user state surviving as a singleton field on a representation',
+    phase: 'POD-1076',
+    unit: 'one per-user key on one session/issue representation',
+    collect: (ctx) => perUserSingletons(ctx),
+  },
+  {
+    // Expected ZERO and kept as a regression guard, because it will look like a
+    // harmless denormalization to whoever adds it (ADR 9 D5 A1). `owner`,
+    // `actor` and `onBehalfOf` are deliberately NOT matched: attribution must
+    // survive export, and forbidding it would forbid what the matrix requires.
+    id: 'capability-snapshots',
+    title: 'Serialized effective-capability snapshot on a representation',
+    phase: 'POD-302',
+    unit: 'one authority-shaped key on one session/issue representation',
+    collect: (ctx) => capabilitySnapshots(ctx),
+  },
+  {
+    // ADR 1 D5 stands, Amendment 2 fences it: multi-user lives INSIDE one
+    // instance and the dimension it adds is OWNER, not tenant. Zero, as a
+    // guard — "multi-user" and "multi-tenant" are the two words this programme
+    // most needs kept apart.
+    id: 'instance-partitions',
+    title: 'Instance/tenant partition on a session or issue representation',
+    phase: 'POD-302',
+    unit: 'one instance_id/tenant_id-shaped key on one session/issue representation',
+    collect: (ctx) => instancePartitions(ctx),
   },
   {
     id: 'change-row-typings',
     title: 'Parallel change-row typings (strict/lenient/unknown)',
-    phase: 'POD-302',
+    // RE-PHASED at POD-368, from POD-302 to POD-308, and this is a deviation
+    // recorded in docs/rearch-deletion-audit.md rather than a convenience.
+    //
+    // POD-302 is the SEMANTIC VOCABULARY of the session and the issue. This item's
+    // whole subject is `packages/protocol/src/messages/sync.ts`: the strict /
+    // lenient / unknown triple exists so a replica can tolerate an entity kind it
+    // does not know (ADR 2 D9), which is sync-envelope shape, not entity
+    // vocabulary. POD-364's inventory scopes sync infrastructure out of 1.4 by
+    // name (§12), and ADR 1's matrix puts `change-log` and `applied-mutations` in
+    // its `sync-infrastructure` section as deployment substrate — neither is a
+    // session or an issue field.
+    //
+    // The duality collapses when one canonical change-row shape lands at the wire
+    // cutover, which is POD-308's — the same issue that owns nesting the
+    // provenance carrier and deleting the `IssueWire.sessions` embed. Deleting it
+    // from inside 1.4 would mean inventing that shape twice.
+    phase: 'POD-308',
     unit: 'exported name in the change-row family (const + its inferred type count once)',
     collect: (ctx) => {
       const sites = grep(ctx, {

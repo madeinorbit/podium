@@ -156,9 +156,9 @@ describe('the live registry', () => {
    * shrinking — "39 passed" and "37 passed" read identically (POD-365's deleted
    * registry entry, POD-367 §6).
    */
-  it('covers exactly 39 retained representations: 22 session + 17 issue', () => {
-    expect(RETAINED_REPRESENTATIONS).toHaveLength(39)
-    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'session')).toHaveLength(22)
+  it('covers exactly 43 retained representations: 26 session + 17 issue', () => {
+    expect(RETAINED_REPRESENTATIONS).toHaveLength(43)
+    expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'session')).toHaveLength(26)
     expect(RETAINED_REPRESENTATIONS.filter((r) => r.entity === 'issue')).toHaveLength(17)
   })
 

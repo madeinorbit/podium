@@ -13,12 +13,15 @@
  * declares its ADR 9 D3 visibility class against an ADR 1 matrix row.
  *
  * ---------------------------------------------------------------------------
- * THE SET, AND WHY IT IS 39 AND NOT POD-364'S 41
+ * THE SET, AND WHY IT IS 43 AND NOT POD-364'S 41
  * ---------------------------------------------------------------------------
  *
- * POD-364 counted 24 session + 17 issue representations at `0e583f44`. Two
- * session entries have since been DELETED rather than documented, which is the
- * convention working as intended:
+ * POD-364 counted 24 session + 17 issue representations at `0e583f44`. The live
+ * set is 26 session + 17 issue, and both halves of that difference are recorded
+ * rather than reconciled away.
+ *
+ * TWO WERE DELETED rather than documented, which is the convention working as
+ * intended:
  *
  *   - `BtwSessionInfo` (§2.1 #14) — a strict subset of `ConciergeSessionInfo`,
  *     re-declared. Retired by POD-366; `btw.ts` now names #13 directly.
@@ -29,6 +32,15 @@
  * Neither could answer `distinctSemantics`, so neither is here. **A
  * representation that cannot justify itself in this form is a drifted duplicate
  * and belongs deleted, not registered.**
+ *
+ * FOUR MORE WERE FOUND that POD-364's hand pass missed:
+ * `SessionInstructionContext`, `SessionSpawnResult`, `SessionInfo` (the session
+ * twin of the `IssueInfo` POD-367 corrected, in the same file) and
+ * `OptimisticSpawnArgs`. POD-364 enumerated by READING; `scripts/
+ * representation-audit.ts` enumerates by KEY SET, and no excluded category covers
+ * these four. **The set is not claimed to be complete even now**: a composed
+ * representation leaves no key list behind, so no structural detector can
+ * enumerate one, and the registry is what enumerates them instead.
  *
  * ---------------------------------------------------------------------------
  * WHAT THE `pending` ENTRIES MEAN, AND WHY THEY ARE NOT LAUNDERED
@@ -75,7 +87,8 @@ const EMBED_BLOCKER =
   'resolve ids against, so sessionIds would render as bare ids (POD-367 §3.2)'
 
 // ---------------------------------------------------------------------------
-// Session — 22 retained representations (POD-364 §2.1, minus the two deleted)
+// Session — 26 retained representations (POD-364 §2.1 minus the two deleted, plus
+// the four its hand pass missed)
 // ---------------------------------------------------------------------------
 
 const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
@@ -512,6 +525,93 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     matrixRow: ROW.sessionIdentity,
     visibility: 'personal',
   },
+  // --- The four the hand inventory missed, found by the structural detector.
+  //
+  // POD-364 enumerated 24 session representations BY READING; `scripts/
+  // representation-audit.ts` enumerates by KEY SET, and it found four more that
+  // no excluded category covers. They are registered rather than allowlisted,
+  // because each one restates session vocabulary at a producer and each answers
+  // `distinctSemantics`. The count is 26, not 24, and that correction is the
+  // detector earning its cost on its first run.
+  {
+    symbol: 'SessionInstructionContext',
+    entity: 'session',
+    site: 'apps/server/src/modules/sessions/instructions.ts',
+    role: 'R5',
+    purpose: 'What an instruction provider needs to know to compose a session\'s agent instructions.',
+    distinctSemantics:
+      'One member is not a session fact at all: `existingOnly` is a RESURRECTION rule — rehydrate ' +
+      'only instructions already attached, never adopt a default that appeared after the ' +
+      'conversation began. That is a policy input riding a session port.',
+    composition: {
+      state: 'pending',
+      owner: 'POD-1141',
+      blocker: 'a Pick plus the two provider-local members; batched with the other R5 ports',
+    },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  },
+  {
+    symbol: 'SessionSpawnResult',
+    entity: 'session',
+    site: 'apps/server/src/modules/sessions/service.ts',
+    role: 'R5',
+    purpose: 'What the caller of a spawn is told about the session it just created.',
+    distinctSemantics:
+      'It reports the RESOLVED launch tuple — model/effort/account as the server actually chose ' +
+      'them, which the request may have left to defaults — and it carries both `machine` and ' +
+      '`machineId`, a duality the aggregate does not have and which a Pick must resolve rather ' +
+      'than preserve.',
+    composition: {
+      state: 'pending',
+      owner: 'POD-1141',
+      blocker:
+        'the machine/machineId duality has to collapse to one fact first; doing it here alone ' +
+        'would change a spawn response shape',
+    },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  },
+  {
+    symbol: 'SessionInfo',
+    entity: 'session',
+    site: 'apps/server/src/modules/workflows/service.ts',
+    role: 'R5',
+    purpose: 'The session facts a workflow step reads to decide placement and attribution.',
+    distinctSemantics:
+      'It is the session twin of `IssueInfo` in the same file, and it exists for the same reason: ' +
+      'a workflow must resolve where a step will run without holding a live session. POD-367 ' +
+      'corrected the issue half of this pair; the session half was missed by both passes.',
+    composition: {
+      state: 'pending',
+      owner: 'POD-1141',
+      blocker: 'a straight Pick; batched with the other R5 ports',
+    },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  },
+  {
+    symbol: 'OptimisticSpawnArgs',
+    entity: 'session',
+    site: 'packages/client-core/src/viewmodels/optimistic-spawn.ts',
+    role: 'command-input',
+    purpose:
+      'The arguments a client-side optimistic spawn needs to render a session before the server ' +
+      'has booted one.',
+    distinctSemantics:
+      'It carries `nowIso` — a clock injected so the builders stay pure — which is not a session ' +
+      'fact but a testability seam. It is also a declared BRAND EDGE: the click handler hands ' +
+      'plain strings, and POD-361 marked the cast here rather than branding inside the builder.',
+    composition: {
+      state: 'pending',
+      owner: 'POD-363',
+      blocker:
+        'POD-361 left a marked edge-cast (POD-361-EDGE-CAST) to be resolved by branding this ' +
+        'shape AT ITS SOURCE, which is POD-363\'s flip rather than a Pick here',
+    },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  },
   {
     symbol: 'SessionCardModel',
     entity: 'session',
@@ -850,11 +950,11 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
 ]
 
 /**
- * THE retained representations. 39 today: 22 session + 17 issue.
+ * THE retained representations. 43 today: 26 session + 17 issue.
  *
  * Membership is PINNED by a literal count in `registry.test.ts`, not derived from
  * this array, because a suite whose parameter list is the thing under test cannot
- * notice its own coverage shrinking — "39 passed" and "37 passed" read
+ * notice its own coverage shrinking — "43 passed" and "41 passed" read
  * identically.
  */
 export const RETAINED_REPRESENTATIONS: readonly RetainedRepresentation[] = [

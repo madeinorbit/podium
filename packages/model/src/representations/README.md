@@ -59,7 +59,7 @@ allowed to do. An audit that conflated them would forbid the attribution the mat
   interface in `apps/*` no runtime instrument exists, which is why `composition` is **declared
   data** with a named owner for anything outstanding.
 - **The schema-level items 3 and 4 reach only the schema-bearing entries.** Coverage of the other
-  34 sites is the tree-level detector in `scripts/rearch-audit.ts`, which parses the declaration's
+  38 sites is the tree-level detector in `scripts/rearch-audit.ts`, which parses the declaration's
   key set out of the source. Both directions are closed there: an entity-shaped declaration missing
   from this registry counts as debt, and a registry entry whose site no longer exists counts too —
   so the registry cannot rot into a list of retired names.
