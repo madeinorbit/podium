@@ -8,6 +8,7 @@ import {
   type SweepTimers,
   sweepPlaneLiveness,
 } from './gateway/plane-liveness'
+import { attachWebSockets } from './gateway/ws-server'
 import { safeSend, safeSendEncoded } from './gateway/ws-send'
 
 function fakeSocket(readyState = 1) {
@@ -299,6 +300,37 @@ describe('plane liveness policy', () => {
       DAEMON_PLANE_LIVENESS.startHeartbeat([], new WeakSet(), timers)
       client.stop()
       expect(scheduled.map((s) => s.cleared)).toEqual([true, false])
+    })
+  })
+
+  describe('the gateway wires each socket set to its own plane', () => {
+    // The one thing the policy objects cannot enforce for themselves: which
+    // SOCKET SET each is handed. Mutating `attachWebSockets` to pair the CLIENT
+    // set with the DAEMON plane's policy compiled and survived 45 tests across
+    // four suites — the interval travels with the policy, so that mutant silently
+    // swept browsers on the daemon's 10s cadence. It is caught here by cadence:
+    // the mutant schedules [10_000, 10_000], not [15_000, 10_000].
+    //
+    // No real HTTP server: `attachWebSockets` only registers an `upgrade`
+    // listener, and both `WebSocketServer`s are `noServer`. So this stays in the
+    // unit lane, with an injected clock and nothing to bind or tear down.
+    const fakeHttpServer = { on: () => {} } as unknown as Parameters<typeof attachWebSockets>[0]
+    const unusedRegistry = {} as unknown as Parameters<typeof attachWebSockets>[1]
+
+    it('schedules the client sweep at 15s and the daemon sweep at 10s', () => {
+      const { scheduled, timers } = fakeTimers()
+      const handle = attachWebSockets(fakeHttpServer, unusedRegistry, {}, { timers })
+      expect(scheduled.map((s) => s.ms)).toEqual([15_000, 10_000])
+      void handle.close()
+    })
+
+    it('close() stops BOTH sweeps', () => {
+      // A leaked sweep keeps terminating sockets on a gateway that is shutting
+      // down, and (before `unref`) would hold the process open.
+      const { scheduled, timers } = fakeTimers()
+      const handle = attachWebSockets(fakeHttpServer, unusedRegistry, {}, { timers })
+      void handle.close()
+      expect(scheduled.map((s) => s.cleared)).toEqual([true, true])
     })
   })
 })

@@ -20,6 +20,7 @@ import {
   CLIENT_PLANE_LIVENESS,
   DAEMON_PLANE_LIVENESS,
   type HeartbeatSocket,
+  type SweepTimers,
 } from './plane-liveness'
 
 export interface WsHandle {
@@ -87,10 +88,23 @@ export function isAllowedWsOrigin(origin: string | undefined, host: string | und
   return Boolean(reqHost) && parsed.hostname === reqHost
 }
 
+/**
+ * Test seam for the two sweeps' clock (POD-391). Production passes nothing and
+ * gets real timers. It exists because the ONE thing the policy objects cannot
+ * enforce for themselves is which SOCKET SET each is handed here — pairing the
+ * client set with the daemon plane's policy still compiles, and did survive a
+ * mutation of exactly that line. Injecting the clock lets the pairing be asserted
+ * without waiting 15 real seconds on a loaded host.
+ */
+export interface WsTransportDeps {
+  timers?: SweepTimers
+}
+
 export function attachWebSockets(
   server: Server,
   registry: SessionRegistry,
   auth: WsAuthOptions = {},
+  deps: WsTransportDeps = {},
 ): WsHandle {
   const daemonWss = new WebSocketServer({ noServer: true })
   const clientWss = new WebSocketServer({ noServer: true })
@@ -163,10 +177,18 @@ export function attachWebSockets(
   // Each plane schedules its OWN sweep at its OWN cadence (POD-391). This file
   // no longer builds the timers, so it cannot pair a socket set with the other
   // plane's interval — `wss.clients` is a live Set, re-iterated each tick.
-  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(clientWss.clients, aliveClients)
+  const clientHeartbeat = CLIENT_PLANE_LIVENESS.startHeartbeat(
+    clientWss.clients,
+    aliveClients,
+    deps.timers,
+  )
   // The daemon link gets the same dead-socket sweep the client link has always had;
   // terminating a wedged daemon fires its `close` → the gateway's detachDaemon.
-  const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemonWss.clients, aliveDaemons)
+  const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(
+    daemonWss.clients,
+    aliveDaemons,
+    deps.timers,
+  )
 
   return {
     close() {
