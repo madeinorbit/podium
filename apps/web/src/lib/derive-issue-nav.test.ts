@@ -1,4 +1,9 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  type IssueWireInput,
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 import {
@@ -10,7 +15,7 @@ import {
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(id: string, cwd: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     cwd,
@@ -24,7 +29,7 @@ function sess(id: string, cwd: string, over: Partial<SessionMeta> = {}): Session
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i1',
     repoPath: '/r/acme',

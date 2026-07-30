@@ -1,4 +1,12 @@
-import type { AutomationRunWire, AutomationWire, IssueWire } from '@podium/model'
+import {
+  type AutomationRunWire,
+  type AutomationWire,
+  asAutomationId,
+  asAutomationRunId,
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+} from '@podium/model'
 import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -33,7 +41,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 // invalid change rows and treats a quarantined delta as a cursor gap (a heal),
 // so a sloppy fixture would silently test the WRONG code path.
 const issue = (id: string, title: string): IssueWire => ({
-  id,
+  // POD-361-EDGE-CAST: test helpers take plain string ids.
+  id: asIssueId(id),
   repoPath: '/r',
   seq: 1,
   title,
@@ -76,7 +85,7 @@ const automation = (
   name: string,
   sessionMode: AutomationWire['sessionMode'] = 'fresh',
 ): AutomationWire => ({
-  id,
+  id: asAutomationId(id),
   name,
   enabled: true,
   repoPath: '/r',
@@ -95,10 +104,10 @@ const automation = (
 })
 
 const automationRun = (id: string, automationId: string): AutomationRunWire => ({
-  id,
-  automationId,
+  id: asAutomationRunId(id),
+  automationId: asAutomationId(automationId),
   firedAt: '2026-07-01T00:00:00.000Z',
-  sessionId: 'sess_1',
+  sessionId: asSessionId('sess_1'),
   outcome: 'spawned',
   detail: null,
 })

@@ -6,17 +6,19 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
-  agentCapabilityRejection,
   type AgentKind,
-  dedupeSessionsByResume,
+  agentCapabilityRejection,
+  asIssueId,
+  asSessionId,
   DEFER_NEXT_MESSAGE,
+  dedupeSessionsByResume,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type IssueWire,
   isHeadlessSession,
   isIssueDeferred,
   isSnoozed,
   issueReturnedFromDefer,
-  type IssueWire,
   lastUsedMachine,
   machinesForRepo,
   machinesForRepoOrClone,
@@ -829,7 +831,10 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
     for (;;) {
       const pid = spawnedByParentId(cur)
       if (!pid || seen.has(pid)) break
-      const parent = byId.get(pid)
+      // POD-361-EDGE-CAST: `pid` comes out of the freeform `spawnedBy` tag, which POD-361
+      // deliberately left unbranded (it needs a shared constructor+parser,
+      // POD-1128), so the lookup brands at the map boundary.
+      const parent = byId.get(asSessionId(pid))
       if (!parent) break
       anchor = pid
       seen.add(pid)
@@ -1610,7 +1615,7 @@ export function nestStartedByIssues(
         allWorktreePaths,
         ownership,
       )
-      const candidateRow = candidate ? byId.get(candidate) : undefined
+      const candidateRow = candidate ? byId.get(asIssueId(candidate)) : undefined // POD-361-EDGE-CAST
       // Nesting under a draft vessel ERASES the issue: that row is the agent
       // itself and renders no children, so the child has no path to the screen.
       // Provenance is never worth losing the work — a draft keeps its spawned
@@ -1638,7 +1643,7 @@ export function nestStartedByIssues(
   }
   const attach = (row: UnifiedIssueRow): UnifiedIssueRow => {
     const children = (childrenOf.get(row.issue.id) ?? [])
-      .map((id) => byId.get(id))
+      .map((id) => byId.get(asIssueId(id))) // POD-361-EDGE-CAST
       .filter((child): child is UnifiedIssueRow => child !== undefined)
       .map(attach)
       // A parent's children are their own sibling scope (POD-168): manual
@@ -2219,8 +2224,7 @@ export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
   // drops historical stale offers so a closed row cannot keep demanding a
   // decision. Open review work still counts.
   if (attentionGroup(s) === 'needsYou') {
-    const finished =
-      issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    const finished = issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
   if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
@@ -2388,7 +2392,8 @@ export function branchRollup(
 export function deepAttentionSource(
   row: UnifiedIssueRow,
 ): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
-  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null = null
+  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null =
+    null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
     const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }

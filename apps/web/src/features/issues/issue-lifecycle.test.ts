@@ -1,9 +1,12 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { issueCloseConcerns } from './issue-lifecycle'
 
-const session = (over: Partial<SessionMeta>): SessionMeta =>
+const session = (over: Partial<SessionMetaInput>): SessionMeta =>
   ({
     sessionId: 's',
     agentKind: 'codex',

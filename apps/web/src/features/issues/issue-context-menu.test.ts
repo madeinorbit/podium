@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   contextMenuTargets,
@@ -35,7 +38,7 @@ const handoffMachines = [
   { id: 'source', online: true, inventory: { agents: [handoffAgent()] } },
   { id: 'target', online: true, inventory: { agents: [handoffAgent('unknown')] } },
 ]
-const makeSession = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
+const makeSession = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
   ({
     status: 'live',
     agentKind: 'codex',

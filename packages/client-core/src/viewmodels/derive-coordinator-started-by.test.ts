@@ -1,5 +1,11 @@
 // M6 coordinator elevate + started-by issue nesting (POD-902).
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type IssueWire,
+  type IssueWireInput,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,
@@ -21,7 +27,7 @@ import {
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function sess(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     cwd: '/r/a',
@@ -36,7 +42,7 @@ function sess(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -271,8 +277,9 @@ describe('nestStartedByIssues', () => {
       r.kind === 'issue' ? (r.startedByChildren?.map((c) => c.issue.id) ?? []) : [],
     )
     const all = new Set([...topIds, ...childIds])
-    expect(all.has('a')).toBe(true)
-    expect(all.has('b')).toBe(true)
+    // POD-361-EDGE-CAST: the set is keyed by branded issue ids.
+    expect(all.has(asIssueId('a'))).toBe(true)
+    expect(all.has(asIssueId('b'))).toBe(true)
     expect(topIds.length + childIds.length).toBe(2)
   })
 

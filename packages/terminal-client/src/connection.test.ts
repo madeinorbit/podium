@@ -1,3 +1,4 @@
+import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
@@ -66,7 +67,8 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     const meta = {
-      sessionId: 's1',
+      // POD-361-EDGE-CAST: inline test literal.
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 't',
       cwd: '/w',
@@ -179,7 +181,8 @@ describe('SocketHub', () => {
   it('patches a single session title on sessionTitleChanged and notifies observers', () => {
     const { sock, hub } = setup()
     const meta = {
-      sessionId: 's1',
+      // POD-361-EDGE-CAST: inline test literal.
+      sessionId: asSessionId('s1'),
       agentKind: 'claude-code' as const,
       title: 'proj',
       cwd: '/w',

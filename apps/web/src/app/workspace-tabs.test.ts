@@ -1,9 +1,12 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from './store'
 import { fileTabsForWorkspace } from './workspace-tabs'
 
-const issue = (over: Partial<IssueWire>): IssueWire =>
+const issue = (over: Partial<IssueWireInput>): IssueWire =>
   ({ id: 'i1', seq: 1, worktreePath: undefined, ...over }) as IssueWire
 
 const tab = (over: Partial<FileTab>): FileTab =>

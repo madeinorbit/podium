@@ -1,16 +1,17 @@
-import type {
-  DoctorReport,
-  DuplicateCandidate,
-  EpicStatus,
-  IssueComment,
-  IssueCount,
-  IssueGraph,
-  IssueSearchFilter,
-  IssueStats,
-  IssueWire,
-  LintFinding,
-  OrphanIssue,
-  SessionMeta,
+import {
+  type DoctorReport,
+  type DuplicateCandidate,
+  type EpicStatus,
+  type IssueComment,
+  type IssueCount,
+  type IssueGraph,
+  type IssueId,
+  type IssueSearchFilter,
+  type IssueStats,
+  type IssueWire,
+  type LintFinding,
+  type OrphanIssue,
+  type SessionMeta,
 } from '@podium/model'
 import {
   DELEGATION_RULE,
@@ -86,7 +87,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         .map((d) => ({ from: r.id, to: d.toId, type: d.type })),
       ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
     ])
-    return { nodes, edges }
+    // POD-361-EDGE-CAST (POD-362 owns): store rows carry plain-string ids.
+    return { nodes, edges } as IssueGraph
   }
 
   epicStatus(id: string): EpicStatus {
@@ -94,7 +96,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     const childDoneCount = children.filter((c) => this.isClosed(c)).length
     return {
-      id: row.id,
+      id: row.id as IssueId, // POD-361-EDGE-CAST
       childCount: children.length,
       childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
@@ -291,7 +293,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         const tb = toks.get(b.id)
         if (!tb) continue
         const score = jaccard(ta, tb)
-        if (score >= threshold) out.push({ a: a.id, b: b.id, score })
+        // POD-361-EDGE-CAST
+        if (score >= threshold) out.push({ a: a.id as IssueId, b: b.id as IssueId, score })
       }
     }
     return out.sort((x, y) => y.score - x.score)
@@ -314,7 +317,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   lint(repoPath?: string): LintFinding[] {
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
-      .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
+      .map((r) => ({ id: r.id as IssueId, seq: r.seq, findings: lintIssue(r) })) // POD-361-EDGE-CAST
       .filter((f) => f.findings.length > 0)
   }
 
@@ -327,7 +330,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const adj = new Map<string, string[]>()
     for (const r of rows) {
       for (const d of this.deps.store.issues.listIssueDeps(r.id)) {
-        if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
+        // POD-361-EDGE-CAST
+        if (!ids.has(d.toId))
+          danglingDeps.push({ from: r.id as IssueId, to: d.toId as IssueId, type: d.type })
         if (d.type === 'blocks') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
         }
@@ -350,7 +355,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
     for (const r of rows) if (!colour.get(r.id)) visit(r.id)
     return {
-      cycles,
+      cycles: cycles as IssueId[][], // POD-361-EDGE-CAST
       danglingDeps,
       lintCount: this.lint(repoPath).length,
       staleCount: this.staleList(repoPath).length,
@@ -374,7 +379,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
       const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
       const ref = hashRef ?? branchRef
-      if (ref) out.push({ id: r.id, seq: r.seq, title: r.title, ref })
+      if (ref) out.push({ id: r.id as IssueId, seq: r.seq, title: r.title, ref }) // POD-361-EDGE-CAST
     }
     return out.sort((a, b) => a.seq - b.seq)
   }

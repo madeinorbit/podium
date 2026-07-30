@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -83,7 +86,7 @@ vi.mock('@/app/store', () => {
 const { AgentPanel } = await import('./AgentPanel')
 const { HANDOVER_ARRIVED_HOLD_MS, formatHandoverElapsed } = await import('./HandoverPane')
 
-function meta(over: Partial<SessionMeta>): SessionMeta {
+function meta(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -134,7 +137,7 @@ async function render(): Promise<void> {
   })
 }
 
-async function setSession(over: Partial<SessionMeta>): Promise<void> {
+async function setSession(over: Partial<SessionMetaInput>): Promise<void> {
   storeSessions = [meta(over)]
   await render()
 }

@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
@@ -640,7 +643,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
 })
 
 describe('IssueService close retires session offers (POD-290)', () => {
-  const offered = (cwd: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+  const offered = (cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
     ({
       ...sess(cwd, 'idle'),
       offer: {

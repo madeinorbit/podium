@@ -1,10 +1,13 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionDotClass } from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: 's1',
     cwd: '/r/acme',

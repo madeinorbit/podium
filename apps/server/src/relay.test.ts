@@ -1,7 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentPhase, AgentRuntimeState } from '@podium/model'
+import {
+  asSessionId,
+  type AgentPhase,
+  type AgentRuntimeState,
+} from '@podium/model'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -1571,7 +1575,7 @@ describe('memory breakdown relay', () => {
       sampledAt: '2026-06-11T00:00:00.000Z',
       supported: true,
       memory,
-      agents: [{ sessionId: 's1', bytes: 4, processCount: 2 }],
+      agents: [{ sessionId: asSessionId('s1'), bytes: 4, processCount: 2 }], // // POD-361-EDGE-CAST
       projects: [],
       otherBytes: 12,
     })

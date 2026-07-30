@@ -7,7 +7,11 @@ function cells(s: string, styled: boolean, y = 0): Cell[] {
 }
 
 describe('findStyledPathMatches', () => {
-  const cfg = { cwd: '/repo', knownPaths: new Set(['/repo/apps/web/src/derive.ts']), onOpen: () => {} }
+  const cfg = {
+    cwd: '/repo',
+    knownPaths: new Set(['/repo/apps/web/src/derive.ts']),
+    onOpen: () => {},
+  }
 
   it('matches a styled path-like run', () => {
     const m = findStyledPathMatches(cells('edit apps/web/src/derive.ts', true), cfg)

@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -70,7 +73,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   }
 }
 
-const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
+const fakeSession = (s: Partial<SessionMetaInput>): SessionMeta =>
   ({ sessionId: 's?', agentKind: 'claude-code', cwd: '/', status: 'live', ...s }) as never
 
 // #175: comment bodies left IssueWire — read the thread via IssueService.comments.

@@ -1,4 +1,8 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -49,7 +53,7 @@ const machine = (id: string) => ({
   online: true,
   inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
 })
-const session = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
+const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
   ({
     agentKind: 'claude-code',
     // A real session always carries a title (the harness's, until renamed); the

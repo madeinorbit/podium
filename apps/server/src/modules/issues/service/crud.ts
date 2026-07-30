@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
   isSortKey,
-  type IssueWire,
   normalizeClosedPatch,
-  type SessionMeta,
   sortKeyBetween,
+  type ArtifactId,
+  type IssueWire,
+  type SessionMeta,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
@@ -100,7 +101,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
           path: op.path,
           ...(op.title ? { title: op.title } : {}),
           addedAt: this.now(),
-          ...(op.artifactId ? { artifactId: op.artifactId } : {}),
+          // POD-361-EDGE-CAST (POD-362 owns): `op` is untyped command input.
+          ...(op.artifactId ? { artifactId: op.artifactId as ArtifactId } : {}),
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
         }

@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import { optimisticIssuePatch } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import { commandTarget } from './registry'
@@ -40,7 +43,7 @@ export class UpstreamIssuesService {
   /** Optimistic overlays for QUEUED forwarded mutations, keyed by issue id. Merged
    *  at read time; dropped when hub truth arrives AND the outbox no longer holds an
    *  entry for the issue (so an unrelated hub push can't wipe a pending edit). */
-  private readonly upstreamIssuePatches = new Map<string, Partial<IssueWire>>()
+  private readonly upstreamIssuePatches = new Map<string, Partial<IssueWireInput>>()
   private upstreamForwarder: IssueUpstreamForwarder | undefined
 
   constructor(private readonly deps: UpstreamIssuesDeps) {}
@@ -112,7 +115,8 @@ export class UpstreamIssuesService {
     const stale = this.deps.upstreamStale()
     return [...this.upstreamIssues.values()].map((i) => {
       const patch = this.upstreamIssuePatches.get(i.id)
-      const merged = patch ? { ...i, ...patch, id: i.id } : i
+      // POD-361-EDGE-CAST (POD-362 owns): a queued patch is unbranded wire input.
+      const merged = patch ? ({ ...i, ...patch, id: i.id } as IssueWire) : i
       if (!patch && !stale) return merged
       return {
         ...merged,

@@ -57,7 +57,7 @@ function session(sessionId: string): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  }
+  } as unknown as SessionMeta
 }
 
 function view(name: string, revision = 1): PublicationView {

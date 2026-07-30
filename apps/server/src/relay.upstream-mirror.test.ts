@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto'
-import type { ConversationSummaryWire, SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type ConversationSummaryWire,
+  type SessionMeta,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -10,7 +14,7 @@ import { SessionStore } from './store'
 // local ∪ upstream listing with viaHub marking, own-machine echo filtering,
 // staleness semantics on hub loss, and command-path rejection for hub sessions.
 
-function hubSession(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function hubSession(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     agentKind: 'shell',
@@ -30,11 +34,11 @@ function hubSession(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     machineId: 'hub-machine',
     machineName: 'hub',
     ...over,
-  }
+  } as unknown as SessionMeta
 }
 
 function hubConversation(id: string): ConversationSummaryWire {
-  return { id, agentKind: 'claude-code', providerId: 'claude-code' }
+  return { id, agentKind: 'claude-code', providerId: 'claude-code' } as unknown as ConversationSummaryWire
 }
 
 function makeNode() {

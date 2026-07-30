@@ -1,4 +1,7 @@
-import { AgentKind } from '@podium/model'
+import {
+  AgentKind,
+  asIssueId,
+} from '@podium/model'
 import type { AgentRuntimeState, AutomationRunWire, AutomationWire, Geometry, IssueWire, ResumeRef, SessionMeta, TranscriptItem, WorkState } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
@@ -685,7 +688,8 @@ export class SessionsService {
     const displayRef = this.computeSessionDisplayRef(session)
     return {
       ...meta,
-      ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
+      // POD-361-EDGE-CAST (POD-362 owns): `Session.refIssueId` is a plain string.
+      ...(session.refIssueId ? { refIssueId: asIssueId(session.refIssueId) } : {}),
       ...(session.refLetter ? { refLetter: session.refLetter } : {}),
       ...(session.refDraft != null ? { refDraft: session.refDraft } : {}),
       ...(displayRef ? { displayRef } : {}),

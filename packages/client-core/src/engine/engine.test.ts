@@ -9,7 +9,13 @@
  * no DOM, no network.
  */
 
-import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/model'
+import type {
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueWire,
+  SessionMeta,
+  SessionMetaInput,
+} from '@podium/model'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -1240,7 +1246,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
 // session/issue whose message was already on screen.
 // ---------------------------------------------------------------------------
 describe('eager mark-read-on-view (POD-272)', () => {
-  const active = (id: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+  const active = (id: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
     ({ ...session(id, '/tmp/known-repo/.worktrees/wt1'), ...over }) as SessionMeta
 
   it('marks the session in the OPEN PANE read the moment its activity lands', async () => {

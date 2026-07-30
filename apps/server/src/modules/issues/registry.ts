@@ -1,4 +1,11 @@
-import { isSortKey, IssueColor, IssueStage, IssueType, type SessionMeta } from '@podium/model'
+import {
+  IssueColor,
+  IssueStage,
+  IssueType,
+  isSortKey,
+  type IssueSearchFilter,
+  type SessionMeta,
+} from '@podium/model'
 import {
   type CommandDef,
   defineCommands,
@@ -486,7 +493,9 @@ const defs = {
       parentId: z.string().optional(),
     }),
     action: 'read',
-    handler: (ctx, input) => ctx.issues.search(input),
+    // POD-361-EDGE-CAST (POD-362 owns): the command input is a parsed but
+    // UNBRANDED zod shape; POD-362 declares the input schema with the brands.
+    handler: (ctx, input) => ctx.issues.search(input as IssueSearchFilter),
   }),
   count: def({
     kind: 'query',

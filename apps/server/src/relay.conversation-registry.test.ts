@@ -1,4 +1,7 @@
-import type { ConversationSummaryWire } from '@podium/model'
+import {
+  type ConversationSummaryWireInput,
+  type ConversationSummaryWire,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -18,7 +21,7 @@ describe('SessionRegistry conversation registry', () => {
     return registry
   }
 
-  const conv = (id: string, extra: Partial<ConversationSummaryWire> = {}): ConversationSummaryWire =>
+  const conv = (id: string, extra: Partial<ConversationSummaryWireInput> = {}): ConversationSummaryWire =>
     ({ id, agentKind: 'claude-code', providerId: 'claude-code-jsonl', ...extra }) as never
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {

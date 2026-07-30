@@ -2,7 +2,7 @@
 // keyed rows sort ascending by key within their band; unkeyed legacy rows keep
 // newest-first creation order below keyed rows; snoozed still sinks and nothing
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, IssueWireInput, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   partitionUnifiedWork,
@@ -15,7 +15,7 @@ const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
 // Rows need a live member session to surface in the unified list.
-function sess(id: string, issueId: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(id: string, issueId: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
   return {
     sessionId: id,
     issueId,
@@ -31,7 +31,7 @@ function sess(id: string, issueId: string, over: Partial<SessionMeta> = {}): Ses
   } as unknown as SessionMeta
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i1',
     repoPath: '/r/a',

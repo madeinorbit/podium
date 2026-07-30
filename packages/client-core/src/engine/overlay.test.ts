@@ -5,7 +5,7 @@
  * and pruneAwaiting implements retirement rule (a) (see overlay.ts header).
  */
 
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import {
@@ -27,7 +27,7 @@ const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEn
   queuedAt,
 })
 
-const sess = (over: Partial<SessionMeta> = {}): SessionMeta =>
+const sess = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   ({
     sessionId: 's1',
     title: 's1',
@@ -60,7 +60,7 @@ describe('overlayForOutboxEntry projection', () => {
     if (ws?.op !== 'patch') throw new Error('expected patch')
     expect(ws.patch).toEqual({ workState: undefined })
     expect(ws.coveredBy(sess())).toBe(true)
-    expect(ws.coveredBy(sess({ workState: 'done' } as Partial<SessionMeta>))).toBe(false)
+    expect(ws.coveredBy(sess({ workState: 'done' } as Partial<SessionMetaInput>))).toBe(false)
 
     const snooze = overlayForOutboxEntry(
       entry('snoozeSet', { sessionId: 's1', until: '2026-07-10T00:00:00.000Z' }),
@@ -149,7 +149,10 @@ describe('foldOverlays', () => {
   })
 
   it('inserts placeholder rows only while the id is absent from base, and reports them as pending', () => {
-    const placeholder = sess({ sessionId: 'new-1', status: 'starting' } as Partial<SessionMeta>)
+    const placeholder = sess({
+      sessionId: 'new-1',
+      status: 'starting',
+    } as Partial<SessionMetaInput>)
     const overlay = insertOverlay('sessions', 'new-1', placeholder)
     const empty = foldOverlays<SessionMeta>([], [overlay], keyOf)
     expect(empty.rows.map(keyOf)).toEqual(['new-1'])
@@ -283,7 +286,7 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     const kept = pruneAwaiting(awaiting, 'sessions', [echo1], keyOf, NOW)
     expect(kept.map((a) => a.overlay.key)).toEqual(['m-ws']) // 'done' keeps painting
     // Echo carrying the work state retires the rest.
-    const echo2 = sess({ archived: true, workState: 'done' } as Partial<SessionMeta>)
+    const echo2 = sess({ archived: true, workState: 'done' } as Partial<SessionMetaInput>)
     expect(pruneAwaiting(kept, 'sessions', [echo2], keyOf, NOW)).toEqual([])
   })
 

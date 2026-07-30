@@ -1,4 +1,10 @@
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  type IssueWireInput,
+  type SessionMetaInput,
+  type IssueWire,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
 
 /**
  * Fixture metadata for demo mode (`?demo=1` on web): realistic sessions and
@@ -19,7 +25,7 @@ const T0 = Date.now()
 const min = (n: number) => new Date(T0 - n * 60_000).toISOString()
 
 function session(
-  partial: Partial<SessionMeta> & { sessionId: string; title: string },
+  partial: Partial<SessionMetaInput> & { sessionId: string; title: string },
 ): SessionMeta {
   return {
     agentKind: 'claude-code',
@@ -111,7 +117,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
+  partial: Partial<IssueWireInput> & Pick<IssueWire, 'id' | 'seq' | 'title' | 'description'>,
 ): IssueWire {
   return {
     repoPath: '/home/dev/src/podium',

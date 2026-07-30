@@ -1,4 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueUpstreamForwarder } from './relay'
@@ -11,7 +14,7 @@ import { SessionStore } from './store'
 // staleness at read time, optimistic pendingSync patches + hub-truth overwrite,
 // and no-upstream inertness.
 
-function hubIssue(id: string, over: Partial<IssueWire> = {}): IssueWire {
+function hubIssue(id: string, over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id,
     repoPath: '/hub/repo',
@@ -50,7 +53,7 @@ function hubIssue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...over,
-  }
+  } as unknown as IssueWire
 }
 
 function makeNode() {

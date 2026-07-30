@@ -1,13 +1,17 @@
 import {
-  type Instant,
+  IssuePanel,
   isIssueBlocked,
   isIssueClosed,
   isIssueColorSlot,
   isIssueDeferred,
-  type IssueGitState,
-  IssuePanel,
-  type IssueWire,
   requireInstant,
+  type Instant,
+  type IssueDepWire,
+  type IssueGitState,
+  type IssueId,
+  type SessionId,
+  type IssueWire,
+  type RepoId,
   type SessionMeta,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
@@ -195,9 +199,12 @@ export abstract class IssueServiceCore {
     const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
     return {
-      id: row.id,
+      // POD-361-EDGE-CAST (POD-362 owns): the server store row types its ids as
+      // plain strings, so the projection brands them. Branding the ROW type is
+      // POD-362's change; doing it here would be that sweep, in the wrong issue.
+      id: row.id as IssueId,
       repoPath: row.repoPath,
-      ...(row.repoId ? { repoId: row.repoId } : {}),
+      ...(row.repoId ? { repoId: row.repoId as RepoId } : {}),
       ...(prefix ? { prefix } : {}),
       displayRef,
       seq: row.seq,
@@ -219,7 +226,7 @@ export abstract class IssueServiceCore {
       ...(row.notesUpdatedAt ? { notesUpdatedAt: row.notesUpdatedAt } : {}),
       ...(row.suggestedStage ? { suggestedStage: row.suggestedStage as IssueWire['stage'] } : {}),
       ...(row.suggestedReason ? { suggestedReason: row.suggestedReason } : {}),
-      blockedBy: row.blockedBy,
+      blockedBy: row.blockedBy as IssueId[], // POD-361-EDGE-CAST
       ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
       ...(row.prUrl ? { prUrl: row.prUrl } : {}),
       priority: row.priority,
@@ -234,12 +241,14 @@ export abstract class IssueServiceCore {
       ...(row.humanQuestionOptions?.length
         ? { humanQuestionOptions: row.humanQuestionOptions }
         : {}),
-      ...(row.humanQuestionAskedBy ? { humanQuestionAskedBy: row.humanQuestionAskedBy } : {}),
+      ...(row.humanQuestionAskedBy
+        ? { humanQuestionAskedBy: row.humanQuestionAskedBy as SessionId }
+        : {}),
       ...(row.humanQuestionAskedAt ? { humanQuestionAskedAt: row.humanQuestionAskedAt } : {}),
-      ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
-      ...(row.duplicateOf ? { duplicateOf: row.duplicateOf } : {}),
+      ...(row.supersededBy ? { supersededBy: row.supersededBy as IssueId } : {}),
+      ...(row.duplicateOf ? { duplicateOf: row.duplicateOf as IssueId } : {}),
       ...(row.assignee ? { assignee: row.assignee } : {}),
-      ...(row.parentId ? { parentId: row.parentId } : {}),
+      ...(row.parentId ? { parentId: row.parentId as IssueId } : {}),
       ...(row.design ? { design: row.design } : {}),
       ...(row.acceptance ? { acceptance: row.acceptance } : {}),
       ...(row.notes ? { notes: row.notes } : {}),
@@ -253,8 +262,8 @@ export abstract class IssueServiceCore {
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
       ...(row.panel ? { panel: this.parsePanel(row) } : {}),
       labels,
-      deps,
-      dependents,
+      deps: deps as IssueDepWire[], // POD-361-EDGE-CAST
+      dependents: dependents as IssueDepWire[], // POD-361-EDGE-CAST
       commentCount,
       ready,
       blocked,
@@ -274,8 +283,10 @@ export abstract class IssueServiceCore {
       audience: row.audience === 'agent' ? 'agent' : 'human',
       draft: row.draft ?? false,
       // Bare session ids (same format as humanQuestionAskedBy) — no `session:` prefix.
-      ...(row.coordinatorSessionId ? { coordinatorSessionId: row.coordinatorSessionId } : {}),
-      ...(row.startedBySession ? { startedBySession: row.startedBySession } : {}),
+      ...(row.coordinatorSessionId
+        ? { coordinatorSessionId: row.coordinatorSessionId as SessionId }
+        : {}),
+      ...(row.startedBySession ? { startedBySession: row.startedBySession as SessionId } : {}),
     }
   }
 

@@ -1,7 +1,10 @@
 import {
   type AgentKind,
-  isSortKey,
+  asIssueId,
+  asRepoId,
+  asSessionId,
   type IssueWire,
+  isSortKey,
   type SessionMeta,
   sortKeyBetween,
 } from '@podium/model'
@@ -53,7 +56,9 @@ export interface OptimisticSpawnArgs {
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
 export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMeta {
   return {
-    sessionId: args.sessionId,
+    // POD-361-EDGE-CAST: the click handler hands plain strings; POD-363 brands
+    // `OptimisticSpawnArgs` at its source instead of branding here.
+    sessionId: asSessionId(args.sessionId),
     agentKind: args.agentKind,
     title: basename(args.cwd) || args.cwd,
     cwd: args.cwd,
@@ -69,7 +74,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     // Just spawned by this user → they're looking at it: read, not unread.
     readAt: args.nowIso,
     unread: false,
-    issueId: args.issueId,
+    issueId: asIssueId(args.issueId), // POD-361-EDGE-CAST
     spawnedBy: 'user',
   }
 }
@@ -100,9 +105,9 @@ export function optimisticDraftIssue(args: {
   nowIso: string
 }): IssueWire {
   return {
-    id: args.issueId,
+    id: asIssueId(args.issueId), // POD-361-EDGE-CAST
     repoPath: args.repoPath,
-    ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
+    ...(args.repoId !== undefined ? { repoId: asRepoId(args.repoId) } : {}), // POD-361-EDGE-CAST
     // Placeholders reconciled by the broadcast: the real row carries a server seq
     // (>= 1) and server-clock timestamps. Invisible today — the draft-agent row
     // labels from the session title and sorts to the top regardless — but a future

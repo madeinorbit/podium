@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  type SessionMeta,
+} from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -17,7 +20,10 @@ function harness(sessions: SessionMeta[] = []) {
     listSessions: () =>
       sessions.map((s) => ({
         ...s,
-        ...(issueBySession.get(s.sessionId) ? { issueId: issueBySession.get(s.sessionId)! } : {}),
+        // // POD-361-EDGE-CAST: the map is keyed by plain strings.
+        ...(issueBySession.get(s.sessionId)
+          ? { issueId: asIssueId(issueBySession.get(s.sessionId)!) }
+          : {}),
       })),
     getSettings: () =>
       normalizeSettings({

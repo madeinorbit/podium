@@ -3,7 +3,10 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -89,7 +92,7 @@ function fakeIssues(
   } as unknown as IssueService
 }
 
-function session(over: Partial<SessionMeta>): SessionMeta {
+function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     cwd: '/wt/a',
@@ -2870,7 +2873,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
 })
 
 describe('composer-draft delivery guard [POD-865]', () => {
-  const drafting = (over: Partial<SessionMeta> = {}) =>
+  const drafting = (over: Partial<SessionMetaInput> = {}) =>
     session({ draftUpdatedAt: '2026-07-12T23:59:55.000Z', ...over })
 
   it('a non-empty draft holds EVERY urgency — including interrupt', () => {

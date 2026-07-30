@@ -1,3 +1,4 @@
+import { asAutomationRunId, type AutomationRunId } from '@podium/model'
 import { z } from 'zod'
 
 /**
@@ -345,9 +346,14 @@ export function issueAutoArchiveRunKey(observed: IssueAutoArchiveObservation): s
   ].join('/')
 }
 
-/** Deterministic occurrence identity — also the spawn/outbox mutation id. */
-export function automationOccurrenceRunId(automationId: string, firedAt: string): string {
-  return `arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128)
+/** Deterministic occurrence identity — also the spawn/outbox mutation id.
+ *
+ *  Returns the BRAND (POD-361): this is a MINT site, and an id constructor that
+ *  returns a bare string forces every caller to cast, which is how a brand ends
+ *  up adopted nowhere. The `automationId` parameter stays a plain string so
+ *  callers holding either form still compile — POD-362 narrows it. */
+export function automationOccurrenceRunId(automationId: string, firedAt: string): AutomationRunId {
+  return asAutomationRunId(`arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128))
 }
 
 export function automationFireRunKey(observed: AutomationFireObservation): string {

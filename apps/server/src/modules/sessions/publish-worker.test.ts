@@ -24,7 +24,7 @@ function session(sessionId: string): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  }
+  } as unknown as SessionMeta
 }
 
 const publicationView = {

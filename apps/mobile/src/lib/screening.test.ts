@@ -1,4 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyScreeningDecision,
@@ -7,7 +10,7 @@ import {
   screeningTally,
 } from './screening'
 
-const issue = (partial: Partial<IssueWire> & Pick<IssueWire, 'id'>) =>
+const issue = (partial: Partial<IssueWireInput> & Pick<IssueWire, 'id'>) =>
   ({
     repoPath: '/src/podium',
     seq: 1,

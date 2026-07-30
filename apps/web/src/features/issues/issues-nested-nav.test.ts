@@ -1,4 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { flattenRowGroups, issueRowsByStage } from './issue-hierarchy'
 import { type IssuesKeyState, type IssuesNav, issuesKeyReduce } from './issues-keys'
@@ -10,7 +13,7 @@ import { type IssuesKeyState, type IssuesNav, issuesKeyReduce } from './issues-k
  * flatten state and focus, selection, and the bulk-op visibility filter.
  */
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i',
     repoPath: '/home/u/acme',

@@ -1,4 +1,7 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  type IssueWire,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   childStageCounts,
@@ -10,7 +13,7 @@ import {
   partitionIssueTree,
 } from './issue-hierarchy'
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueWireInput> = {}): IssueWire {
   return {
     id: 'i',
     repoPath: '/home/u/acme',

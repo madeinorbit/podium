@@ -4,14 +4,17 @@
  * everything else → nothing. Stillness is a signal, so the "renders nothing"
  * cases are as load-bearing as the glyphs.
  */
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { AgentStatusGlyph } from './AgentStatusGlyph'
 
 afterEach(cleanup)
 
-function session(over: Partial<SessionMeta>): SessionMeta {
+function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -32,7 +35,7 @@ const waiting = session({
     nativeSubagentCount: 0,
     need: { kind: 'question' },
   },
-} as Partial<SessionMeta>)
+} as Partial<SessionMetaInput>)
 const done = session({
   agentState: {
     phase: 'idle',

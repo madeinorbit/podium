@@ -1,4 +1,7 @@
-import type { SessionMeta } from '@podium/model'
+import {
+  type SessionMetaInput,
+  type SessionMeta,
+} from '@podium/model'
 import { describe, expect, test } from 'vitest'
 import { formatElapsed, workingSinceMs } from './time-indicators'
 
@@ -21,7 +24,7 @@ describe('formatElapsed', () => {
   })
 })
 
-function session(over: Partial<SessionMeta>): SessionMeta {
+function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',

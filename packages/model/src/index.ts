@@ -34,6 +34,10 @@ export * from './entities/issue-color'
 export * from './entities/machine'
 export * from './entities/session'
 export * from './entities/transcript'
+// The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a
+// producer of plain strings has a name for where it stands (POD-361; POD-362 /
+// POD-363 retire the uses).
+export * from './entities/wire-input'
 export * from './exhaustive'
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of users.
 export * from './identity/git-identity'

@@ -1,4 +1,9 @@
-import type { IssueWire } from '@podium/model'
+import {
+  type IssueWireInput,
+  asIssueId,
+  asSessionId,
+  type IssueWire,
+} from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { normalizeUpstreamUrl } from './upstream'
@@ -84,10 +89,10 @@ export function optimisticIssuePatch(
   proc: string,
   input: Record<string, unknown>,
   nowIso: string,
-): Partial<IssueWire> {
+): Partial<IssueWireInput> {
   switch (proc) {
     case 'update': {
-      const patch = { ...((input.patch ?? {}) as Partial<IssueWire> & { color?: string | null }) }
+      const patch = { ...((input.patch ?? {}) as Partial<IssueWireInput> & { color?: string | null }) }
       // The mutation input uses null to clear an optional colour, while IssueWire
       // represents "no colour" as absence. Keep the node-side optimistic replica
       // wire-valid instead of briefly exposing color:null to consumers.
@@ -124,7 +129,12 @@ export function optimisticIssuePatch(
         ...(Array.isArray(input.options) && input.options.every((o) => typeof o === 'string')
           ? { humanQuestionOptions: input.options as string[] }
           : {}),
-        ...(typeof input.askedBy === 'string' ? { humanQuestionAskedBy: input.askedBy } : {}),
+        // POD-361-EDGE-CAST (POD-362 owns the removal): `input` is an untyped
+        // tRPC payload, so the brand is applied at this boundary rather than
+        // carried in. The real fix is a parsed command input, not a cast.
+        ...(typeof input.askedBy === 'string'
+          ? { humanQuestionAskedBy: asSessionId(input.askedBy) }
+          : {}),
         humanQuestionAskedAt: nowIso,
         updatedAt: nowIso,
       }
@@ -134,7 +144,8 @@ export function optimisticIssuePatch(
       return { archived: true, updatedAt: nowIso }
     case 'reparent':
       return {
-        ...(typeof input.parentId === 'string' ? { parentId: input.parentId } : {}),
+        // POD-361-EDGE-CAST (POD-362 owns the removal): as above.
+        ...(typeof input.parentId === 'string' ? { parentId: asIssueId(input.parentId) } : {}),
         updatedAt: nowIso,
       }
     default:
