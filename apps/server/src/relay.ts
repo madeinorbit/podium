@@ -533,14 +533,9 @@ export class SessionRegistry {
       },
       issue: (issueId) => {
         const issue = issues?.getMeta(issueId)
-        return issue
-          ? {
-              id: issue.id,
-              ...(issue.repoId ? { repoId: issue.repoId } : {}),
-              repoPath: issue.repoPath,
-              worktreePath: issue.worktreePath,
-            }
-          : undefined
+        // Only `worktreePath` is read (workflows' step-placement check); the id /
+        // repoId / repoPath this used to also carry had no reader (POD-367).
+        return issue ? { worktreePath: issue.worktreePath } : undefined
       },
       repoIdForPath: (path) => this.store.repos.resolveRepoIdForPath(path),
       notifyCoordinator: (sessionId, text) => {

@@ -253,42 +253,69 @@ export interface IssueDeps {
   }
 }
 
-export interface CreateIssueInput {
-  repoPath: string
-  title: string
-  description?: string
-  brief?: string
+/**
+ * A row field as a CREATE input: optional, and never `null`. Absent means "use
+ * the default", so admitting `null` as well would give one intent two spellings
+ * — which is why this is not simply `Partial<Pick<IssueRow, K>>`. {@link IssuePatch}
+ * keeps the `null`s, because clearing a field IS a patch.
+ */
+type CreatableRowFields<K extends keyof IssueRow> = {
+  [P in K]?: NonNullable<IssueRow[P]>
+}
+
+/**
+ * The create-command input, composed from {@link IssueRow} rather than restated
+ * (POD-367; POD-364's inventory #5 — the drifted duplicate of the create field
+ * set). {@link IssuePatch} was already the compliant reference pattern; this is
+ * the same pattern for create.
+ *
+ * Only three groups are declared by hand, each because it is genuinely NOT the
+ * row's field:
+ *  - `stage` is deliberately NARROWER than `IssueRow['stage']` (a bare string):
+ *    a caller may not forge proposal acceptance.
+ *  - `origin` / `audience` are narrower for the same reason the row is wider —
+ *    the row stores what was written, the input constrains what may be. The row's
+ *    `string` typing is the drift; correcting it belongs to the aggregate work.
+ *  - `startNow`, `linear` and `labels` are not row fields at all: the first is a
+ *    create-time action, the second is folded into three `linear*` columns, and
+ *    labels live in their own table.
+ *
+ * Two composed members carry create-time meaning the row's own docs do not, kept
+ * here because it is about the INPUT, not the column:
+ *  - `id` is the client-supplied id (optimistic UI): used verbatim instead of
+ *    minting a fresh `iss_${uuid}`, so an optimistic client row reconciles onto
+ *    the real issue without a swap. Absent = mint one.
+ *  - `startedBySession` is stamped by the registry from the AUTHENTICATED actor
+ *    and is not client-forgeable via tRPC input (ADR 3 D7 — identity comes from
+ *    the transport, never the payload). Null/absent for operator creates.
+ */
+export interface CreateIssueInput
+  extends Pick<IssueRow, 'repoPath' | 'title' | 'startedBySession'>,
+    CreatableRowFields<
+      | 'id'
+      | 'description'
+      | 'brief'
+      | 'parentBranch'
+      | 'defaultAgent'
+      | 'defaultModel'
+      | 'defaultEffort'
+      | 'machineId'
+      | 'priority'
+      | 'type'
+      | 'assignee'
+      | 'parentId'
+      | 'color'
+      | 'draft'
+    > {
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
-  parentBranch?: string
-  defaultAgent?: string
-  defaultModel?: string
-  defaultEffort?: string
-  /** Machine (daemon) the issue's agents run on; absent = repo affinity. */
-  machineId?: string
   startNow: boolean
   linear?: { id?: string; identifier: string; url: string }
-  priority?: number
-  type?: string
-  assignee?: string
   labels?: string[]
-  parentId?: string
-  /** Colour slot name [spec:SP-b4d1]; absent = no colour (neutral slate flow). */
-  color?: IssueColorSlot
   /** Who CREATED this issue; caller-derived, default 'human' (#198). */
   origin?: 'human' | 'agent'
   /** Who this issue is FOR; agent-declared, default 'human' (#198). */
   audience?: 'human' | 'agent'
-  /** Draft vessel with a placeholder title (issue-as-workspace); default false. */
-  draft?: boolean
-  /** Client-supplied id (optimistic UI): used verbatim instead of minting a fresh
-   *  `iss_${uuid}`, so an optimistic client row reconciles onto the real issue
-   *  without a swap. Absent = mint one (unchanged default behavior). */
-  id?: string
-  /** Bare session id of the creating agent session (started-by provenance).
-   *  Stamped by the registry from the authenticated actor; null/absent for
-   *  operator creates. Not client-forgeable via tRPC input. */
-  startedBySession?: string | null
 }
 
 /** The row fields update() accepts — every mutation entry point (router, CLI/MCP
