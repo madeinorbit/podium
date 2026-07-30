@@ -8,6 +8,36 @@ import { TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
+/**
+ * THE `podium issue` COMMAND TABLE — A RENDERING LAYER OVER THE SHARED CONTRACTS.
+ *
+ * The same table backs two surfaces: the CLI renders it as verbs and help text, and
+ * `apps/server/src/issue-mcp.ts` derives its MCP tool list from it. They are therefore
+ * ONE exposure decision, not two, and the contracts say so — 59 of the 68 issue
+ * commands declare `cli` and `mcp`; the other nine are web-UI-only.
+ *
+ * ## What POD-311 made shared, and what stays presentation
+ *
+ * SHARED: the command-name universe. `IssueTrpc['issues']` is keyed by
+ * `@podium/commands`'s `ISSUE_COMMAND_NAMES`, which is now `Object.keys(
+ * ISSUE_CONTRACTS)` rather than a hand-typed array in `@podium/protocol`. A verb
+ * cannot call a proc that has no contract, and the check runs in both directions:
+ * `scripts/audit-issue-commands.ts` fails if this table reaches a proc whose contract
+ * does not declare `cli`, AND if a contract declares `cli` that no verb reaches.
+ * `apps/server/src/modules/issues/cli-surface.runtime.test.ts` then drives this table
+ * against a REAL dispatcher, because a source scan cannot tell a wired surface from a
+ * dead one.
+ *
+ * PRESENTATION, DELIBERATELY NOT SHARED: the `args` schemas below. They are not a
+ * second declaration of a command's input — they are a different schema doing a
+ * different job. They parse ARGV: `idArg` accepts a bare number so `show 10` works,
+ * `cliBool` accepts `--pinned`, `--pinned true` and `--pinned=false`, `label` takes a
+ * comma string it splits before calling `setLabels` with an array, and `comment`
+ * defaults an `author`. Deriving these from the wire input would either lose those
+ * affordances or push argv coercion into the contract, where it does not belong. The
+ * contract decides WHAT MAY BE CALLED; this table decides HOW A HUMAN TYPES IT.
+ */
+
 /** What a command returns: `text` is the human rendering; `data` is the structured
  *  payload (the tRPC result) that `--json` and MCP structured output serialize. */
 export interface IssueCommandResult {
