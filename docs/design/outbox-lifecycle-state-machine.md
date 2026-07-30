@@ -347,3 +347,26 @@ would be a *fresh* command (D11.8), which is why expiry — not the Authority �
   re-evaluating a stale `expectedRevision` against newly installed truth would be the replica
   arbitrating, which D7 forbids. If telemetry ever wants the signal, the outbox subscribes to the
   replica's event — the dependency edge points outbox → replica, never the reverse.
+
+## How the coverage claims in this document were verified
+
+Every claim above was mutation-tested, under the strict protocol the POD-279 fan-out arrived at
+after POD-366 found that **a mutant which fails to apply is indistinguishable from one that
+survives** — both print a green suite, and the fragile patterns are the ones aimed at the most
+intricate code. So for each mutant: the pattern must match **exactly once** (not at-least-once), the
+file hash must change, the mutated text must be greppable back out, the suite runs, and the revert is
+verified with `git diff --quiet`. Mutate/run/revert is one unit, so an interrupted run cannot strand
+the source mutated.
+
+Twenty mutants, all killed. The protocol paid for itself twice on the final pass:
+
+- one "mutant" matched **zero** times (the code had been refactored under it) — a false survivor
+  under any method that does not assert the match count;
+- one applied cleanly and still changed nothing, because it inserted dead code beside the predicate
+  it meant to disable — a false survivor that even a hash check would have believed. Only reading the
+  result against *what the mutant was supposed to break* catches that one.
+
+Three survivors earlier in the review sequence were real findings rather than noise, and each is now
+a kill: a dead-lettered head that did not block its partition on a later pass, a stale-transition
+guard nothing asserted, and a per-store commit lock that no test could observe because the fake's
+commit was synchronous end to end.
