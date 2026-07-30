@@ -1,4 +1,4 @@
-import { asIssueId, asRepoId, asSessionId, isSortKey, sortKeyBetween, type AgentKind, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { isSortKey, sortKeyBetween, type AgentKind, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta } from '@podium/model'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -37,7 +37,7 @@ function basename(path: string): string {
 
 export interface OptimisticSpawnArgs {
   sessionId: SessionId
-  issueId: string
+  issueId: IssueId
   agentKind: AgentKind
   cwd: string
   /** ISO timestamp; injected so the builders stay pure/testable. */
@@ -47,9 +47,7 @@ export interface OptimisticSpawnArgs {
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
 export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMeta {
   return {
-    // POD-361-EDGE-CAST: the click handler hands plain strings; POD-363 brands
-    // `OptimisticSpawnArgs` at its source instead of branding here.
-    sessionId: asSessionId(args.sessionId),
+    sessionId: args.sessionId,
     agentKind: args.agentKind,
     title: basename(args.cwd) || args.cwd,
     cwd: args.cwd,
@@ -65,7 +63,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     // Just spawned by this user → they're looking at it: read, not unread.
     readAt: args.nowIso,
     unread: false,
-    issueId: asIssueId(args.issueId), // POD-361-EDGE-CAST
+    issueId: args.issueId,
     spawnedBy: 'user',
   }
 }
@@ -75,7 +73,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
 export function optimisticDraftSortKey(
   issues: readonly IssueWire[],
   repoPath: string,
-  repoId?: string,
+  repoId?: RepoId,
 ): string {
   let min: string | null = null
   for (const issue of issues) {
@@ -88,17 +86,17 @@ export function optimisticDraftSortKey(
 }
 
 export function optimisticDraftIssue(args: {
-  issueId: string
+  issueId: IssueId
   repoPath: string
-  repoId?: string
+  repoId?: RepoId
   sortKey: string
   agentKind: AgentKind
   nowIso: string
 }): IssueWire {
   return {
-    id: asIssueId(args.issueId), // POD-361-EDGE-CAST
+    id: args.issueId,
     repoPath: args.repoPath,
-    ...(args.repoId !== undefined ? { repoId: asRepoId(args.repoId) } : {}), // POD-361-EDGE-CAST
+    ...(args.repoId !== undefined ? { repoId: args.repoId } : {}),
     // Placeholders reconciled by the broadcast: the real row carries a server seq
     // (>= 1) and server-clock timestamps. Invisible today — the draft-agent row
     // labels from the session title and sorts to the top regardless — but a future

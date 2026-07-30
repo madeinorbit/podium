@@ -1,4 +1,4 @@
-import type { AgentKind, SessionId } from '@podium/model'
+import type { AgentKind, IssueId, RepoId, SessionId } from '@podium/model'
 import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
@@ -7,7 +7,7 @@ export interface SpawnTarget {
   repoPath: string
   /* Stable project identity used to keep optimistic sidebar rows in the same
    * group as their reconciled server row. */
-  repoId?: string
+  repoId?: RepoId
   machineId?: string
 }
 
@@ -27,7 +27,7 @@ export interface SpawnTarget {
 export async function createDraftAgent(args: {
   trpc: PodiumClientApi
   sessionId: SessionId
-  issueId: string
+  issueId: IssueId
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string

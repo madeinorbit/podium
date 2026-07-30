@@ -5,7 +5,7 @@
  * modules — the boundary lint and the web shim (apps/web/src/derive.ts, which
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
-import { DEFER_NEXT_MESSAGE, agentCapabilityRejection, asIssueId, asSessionId, dedupeSessionsByResume, isHeadlessSession, isIssueDeferred, isSnoozed, issueReturnedFromDefer, lastUsedMachine, machinesForRepo, machinesForRepoOrClone, machinesWithRepo, normalizeOriginUrl, onlineMachinesForRepoOrClone, repoNameFromOrigin, resolveTargetMachine, resolveTargetMachineForAgent, returnedFromSnooze, snoozeUntil1h, snoozeUntilTomorrow5am, type AgentKind, type GitRepositoryWire, type HostMetricsWire, type IssueWire, type SessionId, type SessionMeta, withoutHeadless, worktreeForCwd } from '@podium/model'
+import { DEFER_NEXT_MESSAGE, agentCapabilityRejection, asIssueId, asSessionId, dedupeSessionsByResume, isHeadlessSession, isIssueDeferred, isSnoozed, issueReturnedFromDefer, lastUsedMachine, machinesForRepo, machinesForRepoOrClone, machinesWithRepo, normalizeOriginUrl, onlineMachinesForRepoOrClone, repoNameFromOrigin, resolveTargetMachine, resolveTargetMachineForAgent, returnedFromSnooze, snoozeUntil1h, snoozeUntilTomorrow5am, type AgentKind, type GitRepositoryWire, type HostMetricsWire, type IssueId, type IssueWire, type RepoId, type SessionId, type SessionMeta, withoutHeadless, worktreeForCwd } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
@@ -444,7 +444,7 @@ export interface RepoNavView {
   worktrees: WorktreeNavView[]
   machines?: { machineId: string; path: string }[]
   originUrl?: string
-  repoId?: string
+  repoId?: RepoId
 }
 
 export interface SidebarSections {
@@ -802,9 +802,12 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
     for (;;) {
       const pid = spawnedByParentId(cur)
       if (!pid || seen.has(pid)) break
-      // POD-361-EDGE-CAST: `pid` comes out of the freeform `spawnedBy` tag, which POD-361
-      // deliberately left unbranded (it needs a shared constructor+parser,
-      // POD-1133), so the lookup brands at the map boundary.
+      // NOT a POD-363 adapter cast, and deliberately left in place by it. `pid` is
+      // parsed out of the freeform `spawnedBy` tag, which has SIX producers, ONE
+      // parser and seven hand-rebuilt comparisons; branding it here would brand the
+      // parser's output at one of eight call sites and leave the other seven. The
+      // brand belongs on a shared spawnedBy constructor+parser, which is POD-1133 —
+      // so this stays a boundary cast until that lands, not a sweep target.
       const parent = byId.get(asSessionId(pid))
       if (!parent) break
       anchor = pid
@@ -1498,7 +1501,7 @@ export function issueIdOwningSession(
   issues: readonly IssueWire[],
   allWorktreePaths: string[],
   ownership?: SessionOwnershipIndex,
-): string | null {
+): IssueId | null {
   if (ownership) {
     const indexed = ownership.sessionById.get(sessionId)
     if (!indexed) return null
@@ -1558,14 +1561,14 @@ export function nestStartedByIssues(
   const visibleIssues = issueRows.map((r) => r.issue)
   const byId = new Map(issueRows.map((r) => [r.issue.id, r]))
   const allById = new Map(allIssues.map((issue) => [issue.id, issue]))
-  const parentOf = new Map<string, string>()
+  const parentOf = new Map<IssueId, IssueId>()
 
   for (const row of issueRows) {
     const issue = row.issue
     // A formal tree edge always wins over provenance. Walk to the nearest visible
     // ancestor so a session-less internal bookkeeping node cannot orphan live work.
     let parentId = issue.parentId
-    const seenParents = new Set<string>([issue.id])
+    const seenParents = new Set<IssueId>([issue.id])
     while (parentId && !byId.has(parentId)) {
       if (seenParents.has(parentId)) {
         parentId = undefined
@@ -1587,7 +1590,7 @@ export function nestStartedByIssues(
         allWorktreePaths,
         ownership,
       )
-      const candidateRow = candidate ? byId.get(asIssueId(candidate)) : undefined // POD-361-EDGE-CAST
+      const candidateRow = candidate ? byId.get(candidate) : undefined
       // Nesting under a draft vessel ERASES the issue: that row is the agent
       // itself and renders no children, so the child has no path to the screen.
       // Provenance is never worth losing the work — a draft keeps its spawned
@@ -1597,8 +1600,8 @@ export function nestStartedByIssues(
       }
     }
     if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
-    let walk: string | undefined = parentId
-    const cycle = new Set<string>([issue.id])
+    let walk: IssueId | undefined = parentId
+    const cycle = new Set<IssueId>([issue.id])
     while (walk && !cycle.has(walk)) {
       cycle.add(walk)
       walk = parentOf.get(walk)
@@ -1607,7 +1610,7 @@ export function nestStartedByIssues(
     parentOf.set(issue.id, parentId)
   }
 
-  const childrenOf = new Map<string, string[]>()
+  const childrenOf = new Map<IssueId, IssueId[]>()
   for (const [childId, parentId] of parentOf) {
     const children = childrenOf.get(parentId) ?? []
     children.push(childId)
@@ -1615,7 +1618,7 @@ export function nestStartedByIssues(
   }
   const attach = (row: UnifiedIssueRow): UnifiedIssueRow => {
     const children = (childrenOf.get(row.issue.id) ?? [])
-      .map((id) => byId.get(asIssueId(id))) // POD-361-EDGE-CAST
+      .map((id) => byId.get(id))
       .filter((child): child is UnifiedIssueRow => child !== undefined)
       .map(attach)
       // A parent's children are their own sibling scope (POD-168): manual

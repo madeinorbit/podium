@@ -1,8 +1,8 @@
 import {
-  type IssueWireInput,
-  asIssueId,
-  asSessionId,
+  IssueIdField,
   type IssueWire,
+  SessionIdField,
+  UserIdField,
 } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
@@ -85,19 +85,50 @@ export function isDefinitiveRejection(err: unknown): boolean {
  * effect is not representable locally (start/addSession/depAdd/…) return only a marker
  * patch — pendingSync still shows, the value waits for hub truth.
  */
+/**
+ * The BRANDED id keys an `update` patch can carry. `input` is an untyped tRPC
+ * payload, so every one of these is PARSED with its shared field schema rather
+ * than cast: a blind `as Partial<IssueWire>` over the whole patch would launder a
+ * raw string straight into a branded field, which is exactly what the brand
+ * exists to prevent. Field schemas (brand-only, no `.min(1)`) so a payload that
+ * parses today still parses — see `packages/model/src/ids/brands.test.ts`.
+ *
+ * `machineId` is deliberately absent: it is carved out of the flip until POD-318
+ * (ADR 1 Amendment 2 D16.2), so it stays a plain string here on purpose.
+ */
+const PATCH_ID_FIELDS = {
+  parentId: IssueIdField,
+  supersededBy: IssueIdField,
+  duplicateOf: IssueIdField,
+  assignee: UserIdField,
+} as const
+
 export function optimisticIssuePatch(
   proc: string,
   input: Record<string, unknown>,
   nowIso: string,
-): Partial<IssueWireInput> {
+): Partial<IssueWire> {
   switch (proc) {
     case 'update': {
-      const patch = { ...((input.patch ?? {}) as Partial<IssueWireInput> & { color?: string | null }) }
+      const raw = { ...((input.patch ?? {}) as Record<string, unknown>) }
+      const ids: Partial<IssueWire> = {}
+      for (const [key, field] of Object.entries(PATCH_ID_FIELDS)) {
+        if (!(key in raw)) continue
+        const parsed = field.safeParse(raw[key])
+        delete raw[key]
+        // A non-string (or otherwise unparseable) id is DROPPED rather than
+        // passed through: the optimistic overlay is overwritten by hub truth
+        // moments later, so omitting a field is recoverable and forging a
+        // branded one is not.
+        if (parsed.success) Object.assign(ids, { [key]: parsed.data })
+      }
+      // Everything left is id-free, so the cast carries no brand.
+      const patch = raw as Partial<IssueWire> & { color?: string | null }
       // The mutation input uses null to clear an optional colour, while IssueWire
       // represents "no colour" as absence. Keep the node-side optimistic replica
       // wire-valid instead of briefly exposing color:null to consumers.
       if (patch.color === null) patch.color = undefined
-      return { ...patch, updatedAt: nowIso }
+      return { ...patch, ...ids, updatedAt: nowIso }
     }
     case 'close':
       return {
@@ -106,8 +137,9 @@ export function optimisticIssuePatch(
         updatedAt: nowIso,
       }
     case 'claim':
-      return typeof input.assignee === 'string'
-        ? { assignee: input.assignee, updatedAt: nowIso }
+      // PARSED, not cast — as in the arms below.
+      return UserIdField.safeParse(input.assignee).success
+        ? { assignee: UserIdField.parse(input.assignee), updatedAt: nowIso }
         : { updatedAt: nowIso }
     case 'setLabels':
       return Array.isArray(input.labels)
@@ -129,11 +161,11 @@ export function optimisticIssuePatch(
         ...(Array.isArray(input.options) && input.options.every((o) => typeof o === 'string')
           ? { humanQuestionOptions: input.options as string[] }
           : {}),
-        // POD-361-EDGE-CAST (POD-362 owns the removal): `input` is an untyped
-        // tRPC payload, so the brand is applied at this boundary rather than
-        // carried in. The real fix is a parsed command input, not a cast.
-        ...(typeof input.askedBy === 'string'
-          ? { humanQuestionAskedBy: asSessionId(input.askedBy) }
+        // PARSED, not cast: `input` is an untyped tRPC payload. The brand-only
+        // field schema accepts exactly what `typeof === 'string'` accepted, so
+        // the wire effect is unchanged and no raw string is laundered.
+        ...(SessionIdField.safeParse(input.askedBy).success
+          ? { humanQuestionAskedBy: SessionIdField.parse(input.askedBy) }
           : {}),
         humanQuestionAskedAt: nowIso,
         updatedAt: nowIso,
@@ -144,8 +176,10 @@ export function optimisticIssuePatch(
       return { archived: true, updatedAt: nowIso }
     case 'reparent':
       return {
-        // POD-361-EDGE-CAST (POD-362 owns the removal): as above.
-        ...(typeof input.parentId === 'string' ? { parentId: asIssueId(input.parentId) } : {}),
+        // PARSED, not cast — as in the `setNeedsHuman` arm above.
+        ...(IssueIdField.safeParse(input.parentId).success
+          ? { parentId: IssueIdField.parse(input.parentId) }
+          : {}),
         updatedAt: nowIso,
       }
     default:

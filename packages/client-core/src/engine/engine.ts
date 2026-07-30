@@ -20,8 +20,8 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
-import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import type { AgentKind, AutomationRunWire, AutomationWire, ConversationSummaryWire, GitDiscoveryDiagnosticWire, GitRepositoryWire, HostMetricsWire, IssueId, IssueWire, MachineWire, SessionId, SessionMeta, WorkState } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
@@ -1498,12 +1498,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         target: SpawnTarget
         agentKind: AgentKind
         firstPrompt?: string
-      }): { sessionId: SessionId; issueId: string } => {
+      }): { sessionId: SessionId; issueId: IssueId } => {
         // Client-minted ids (server reuses them verbatim) so the optimistic rows
         // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
         // MINT SITE: the optimistic client-side session id.
         const sessionId = asSessionId(randomUUID())
-        const issueId = `iss_${randomUUID()}`
+        // MINT SITE: the optimistic client-side issue id.
+        const issueId = asIssueId(`iss_${randomUUID()}`)
         const nowIso = new Date().toISOString()
         // Mirror the server's stable project identity and new-at-top sort key
         // before painting. Without these, the placeholder forms a temporary
