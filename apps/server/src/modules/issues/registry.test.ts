@@ -1,4 +1,5 @@
-import { ISSUE_COMMAND_NAMES } from '@podium/protocol'
+
+import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
@@ -140,12 +141,53 @@ describe('issue command registry completeness', () => {
     }
   })
 
-  it("scope: 'issue' is declared exactly on the targeted (SCOPED_TARGET) commands", () => {
+  /**
+   * THE SEAM BICONDITIONAL (POD-311). The old `scope: 'issue'` field lived on the
+   * handler beside the extractor, so the two could not disagree. They now live on
+   * opposite sides of the L1/L3 split — `policy.resource` on the contract, `target`
+   * on the handler — and nothing structural stops one changing without the other.
+   * So it is asserted, in BOTH directions, over the whole table.
+   *
+   * Written over the PRESENCE of the extractor and never over the value it returns:
+   * `mailClaim` has an extractor that deliberately returns `undefined`, because its
+   * target is only discoverable by loading the message, and its handler runs the
+   * same `checkIssueAccess` once it can. A check phrased over the returned value
+   * would call that a missing extractor and be wrong.
+   */
+  it("policy.resource 'issue' holds exactly where a target extractor exists (both directions)", () => {
     for (const name of ISSUE_COMMAND_NAMES) {
-      const d = defs[name]
-      if (Object.hasOwn(OLD_SCOPED_TARGET_FIELD, name)) expect(d?.scope, name).toBe('issue')
-      else expect(d?.scope, name).toBeUndefined()
+      const hasExtractor = defs[name]?.target !== undefined
+      const scoped = ISSUE_CONTRACTS[name].policy.resource === 'issue'
+      expect(scoped, `${name}: contract says resource 'issue'`).toBe(hasExtractor)
+      // And the partition still matches the old SCOPED_TARGET set exactly, so the
+      // biconditional cannot be satisfied by both sides drifting together.
+      expect(hasExtractor, name).toBe(Object.hasOwn(OLD_SCOPED_TARGET_FIELD, name))
     }
+  })
+
+  /**
+   * NON-VACUITY for the check above. A biconditional over a table is satisfied by a
+   * table with nothing in it, and "every command agrees" reads identically whether
+   * the agreement is 68 real matches or zero iterations. Prove both arms are
+   * populated and that a planted disagreement would FAIL.
+   */
+  it('the biconditional has both arms populated, and a mismatch would fail it', () => {
+    const scoped = ISSUE_COMMAND_NAMES.filter(
+      (n) => ISSUE_CONTRACTS[n].policy.resource === 'issue',
+    )
+    const unscoped = ISSUE_COMMAND_NAMES.filter(
+      (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
+    )
+    expect(scoped.length).toBe(33)
+    expect(unscoped.length).toBe(35)
+    // The predicate the assertion above applies, run on PLANTED pairs so it is
+    // observed saying NO before its silence is read as agreement.
+    const agrees = (hasExtractor: boolean, resource: string) =>
+      (resource === 'issue') === hasExtractor
+    expect(agrees(true, 'issue')).toBe(true)
+    expect(agrees(false, 'none')).toBe(true)
+    expect(agrees(false, 'issue')).toBe(false)
+    expect(agrees(true, 'none')).toBe(false)
   })
 })
 
@@ -252,7 +294,10 @@ describe('guardIssueCommand authorization matrix', () => {
     for (const [name, insideInput, outsideInput] of cases) {
       const definition = issueRegistry.defs[name]
       expect(definition.action, name).toBe('write')
-      expect(definition.scope, name).toBe('issue')
+      // `scope: 'issue'` moved to the L1 contract as `policy.resource` (POD-311).
+      // Read through the contract so this asserts the fact the guard actually
+      // consults, rather than a copy of it left on the handler.
+      expect(ISSUE_CONTRACTS[name].policy.resource, name).toBe('issue')
       expect(() =>
         guardIssueCommand(scoped, reg.issues, name, definition, insideInput),
       ).not.toThrow()

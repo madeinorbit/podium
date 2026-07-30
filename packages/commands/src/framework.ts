@@ -1,6 +1,6 @@
 import type { VisibilityClass } from '@podium/model'
 import type { z } from 'zod'
-import type { MachineVerb } from './handshake/strategies/types'
+import type { MachineVerb } from '@podium/protocol'
 
 /**
  * Command-definition contract for the P3 command registry [spec:SP-3fe2]:
@@ -274,98 +274,22 @@ export type CommandName<R extends { namespace: string; defs: Record<string, Comm
   `${R['namespace']}.${Extract<keyof R['defs'], string>}`
 
 /**
- * THE canonical issue-command name list [spec:SP-3fe2 #248] — the def keys of the
- * server's `issues` registry, declared HERE (the leaf contract package) so both
- * sides of the wire compile against ONE source:
+ * THE canonical issue-command name list USED TO LIVE HERE, hand-maintained as an
+ * `as const` array of sixty-eight strings beside a registry that had to be kept in
+ * step with it. POD-311 replaced it with a DERIVATION: `ISSUE_COMMAND_NAMES` is now
+ * `Object.keys(ISSUE_CONTRACTS).sort()` in `issues/contracts.ts`, so a name cannot
+ * exist without a contract and neither list can drift from the other because there
+ * is only one. The `satisfies` pin on the server registry and the `IssueTrpc` client
+ * key both read the derived union, unchanged in meaning.
  *
- *  - apps/server's registry is checked `satisfies Record<IssueCommandName, …>`,
- *    so adding/renaming/removing a command without touching this list is a
- *    compile error, not a silent authz/wire drift;
- *  - @podium/issue-client keys its `IssueTrpc.issues` client shape off the same
- *    union, so a CLI/MCP command body calling an unknown or renamed proc breaks
- *    compilation instead of failing at runtime.
- *
- * Names are the BARE def keys ('close', not 'issues.close'); the dotted wire
- * form is derived via {@link CommandName} where needed.
+ * It is called out rather than deleted silently because a reader who remembers the
+ * array will otherwise assume it was lost.
  */
-export const ISSUE_COMMAND_NAMES = [
-  'action',
-  'addComment',
-  'addSession',
-  'addShell',
-  'answerQuestion',
-  'applySuggestion',
-  'archive',
-  'attachSession',
-  'blocked',
-  'children',
-  'claim',
-  'cleanup',
-  'clearNeedsHuman',
-  'close',
-  'closeEligibleEpics',
-  'comments',
-  'count',
-  'create',
-  'defer',
-  'delete',
-  'depAdd',
-  'depRemove',
-  'depReport',
-  'dismissSuggestion',
-  'doctor',
-  'duplicate',
-  'epicStatus',
-  'events',
-  'findDuplicates',
-  'get',
-  'graph',
-  'integrate',
-  'linearSearch',
-  'lint',
-  'list',
-  'mailClaim',
-  'mailInbox',
-  'mailPending',
-  'mailSend',
-  'markRead',
-  'markUnread',
-  'orphans',
-  'panelApply',
-  'preflight',
-  'prime',
-  'promote',
-  'ready',
-  'refreshAssistant',
-  'reparent',
-  'restore',
-  'search',
-  'setCoordinator',
-  'setLabels',
-  'setNeedsHuman',
-  'setState',
-  'setTucked',
-  'stale',
-  'start',
-  'stats',
-  'stop',
-  'subscriptionAdd',
-  'subscriptionList',
-  'subscriptionRemove',
-  'subscriptionSetEnabled',
-  'supersede',
-  'tree',
-  'undefer',
-  'update',
-] as const
-
-/** One issue-command def key — see {@link ISSUE_COMMAND_NAMES}. */
-export type IssueCommandName = (typeof ISSUE_COMMAND_NAMES)[number]
 
 /**
  * THE canonical lock-command name list [spec:SP-85d1] — the def keys of the
  * server's `lock` registry (advisory named lease locks), declared here for the
- * same reason as {@link ISSUE_COMMAND_NAMES}: the server registry is
+ * same reason the issue list exists (see the note above): the server registry is
  * `satisfies`-checked against it and @podium/issue-client keys its
  * `IssueTrpc.lock` client shape off the same union.
  */

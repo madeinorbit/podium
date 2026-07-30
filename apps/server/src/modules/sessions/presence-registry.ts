@@ -43,6 +43,7 @@
  * throw a "forbidden" error the way an issue command does.
  */
 
+import { type CommandDef, isExposedOn, presenceCommand } from '@podium/commands'
 import {
   type AuthTarget,
   authorize,
@@ -50,7 +51,7 @@ import {
   capabilityAttribution,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type CommandDef, isExposedOn, presenceCommand } from '@podium/protocol'
+
 import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { SessionsService } from './service'

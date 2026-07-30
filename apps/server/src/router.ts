@@ -1,3 +1,4 @@
+import { presenceCommand } from '@podium/commands'
 import { sessionHandoffInput } from '@podium/commands'
 import {
   AgentKind,
@@ -7,12 +8,7 @@ import {
   ResumeRef,
   WorkState,
 } from '@podium/model'
-import {
-  agentSupportsCloud,
-  clientSwitchTraceSchema,
-  type FileReadResultMessage,
-  presenceCommand,
-} from '@podium/protocol'
+import { agentSupportsCloud, clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
 import {

@@ -33,15 +33,11 @@
  * mean "the walk broke" is the audit's own worst failure mode.
  */
 
+import { commandVisibility, PRESENCE_COMMAND_TABLES, presenceCommand, sessionCommandPlane } from '@podium/commands'
 import { sessionHandoffContract } from '@podium/commands'
 import { asUserId, type UserId } from '@podium/model'
 import type { MachineGrant, MachineId } from '@podium/protocol'
-import {
-  commandVisibility,
-  PRESENCE_COMMAND_TABLES,
-  presenceCommand,
-  sessionCommandPlane,
-} from '@podium/protocol'
+
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   type AgentCommandPrincipal,

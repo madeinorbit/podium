@@ -1,3 +1,4 @@
+import { isExposedOn, sessionCommandPlane } from '@podium/commands'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
@@ -6,12 +7,7 @@ import type { LiveServerMessage } from '@podium/protocol'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
-import {
-  formatIssueRef,
-  isExposedOn,
-  sessionCommandPlane,
-  sessionTitleRule,
-} from '@podium/protocol'
+import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'

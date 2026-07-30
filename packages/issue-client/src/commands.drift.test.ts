@@ -1,4 +1,5 @@
-import { ISSUE_COMMAND_NAMES, type IssueCommandName } from '@podium/protocol'
+
+import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
@@ -14,7 +15,7 @@ import { ISSUE_COMMANDS } from './commands.js'
 
 describe('CLI table ↔ protocol command-name drift', () => {
   it("IssueTrpc.issues is keyed by the protocol's canonical name union (type-level)", () => {
-    expectTypeOf<keyof IssueTrpc['issues']>().toEqualTypeOf<IssueCommandName>()
+    expectTypeOf<keyof IssueTrpc['issues']>().toEqualTypeOf<IssueContractName>()
   })
 
   it('every proc a command body can call exists in the canonical list (runtime probe)', async () => {

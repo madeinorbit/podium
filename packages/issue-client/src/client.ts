@@ -1,4 +1,5 @@
-import type { IssueCommandName, LockCommandName } from '@podium/protocol'
+
+import { type IssueContractName, type LockCommandName } from '@podium/commands'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -22,7 +23,7 @@ export interface IssueProc {
  * the server's command registry is `satisfies`-checked against — so a command
  * body calling an unknown or renamed proc breaks compilation, not runtime.
  */
-type IssueProcName = IssueCommandName
+type IssueProcName = IssueContractName
 
 /** The specs router (pspec v1, #135) — `podium spec` drives these. */
 type SpecProcName = 'list' | 'get' | 'create' | 'save' | 'remove' | 'search'

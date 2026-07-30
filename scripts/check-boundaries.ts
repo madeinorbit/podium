@@ -202,14 +202,44 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // only model's AgentKind enum, never IO or harness packages.
   'packages/composer': new Set(['packages/protocol', 'packages/model']),
   'packages/runtime': new Set(['packages/protocol', 'packages/model']),
-  // The issue-client seam (IssueTrpc + the shared command table) sits between
+  // The issue-client seam (IssueTrpc + the CLI's rendering table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.
-  'packages/issue-client': new Set(['packages/protocol', 'packages/model']),
+  //
+  // `packages/commands` was added by POD-311, and it is the point of that issue
+  // rather than a concession to it: the CLI table stopped declaring its own
+  // command-name universe and now RENDERS the shared L1 contracts. The direction
+  // is still downward — `@podium/commands` is L1 contracts-only, forbidden from
+  // importing a service, an app or any IO — so this widens what the seam may read,
+  // not what it may reach.
+  'packages/issue-client': new Set([
+    'packages/commands',
+    'packages/protocol',
+    'packages/model',
+  ]),
   // The node⇄hub sync layer (issue #196: oplog, upstream dialer/forwarder,
   // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
   // apps/server injects its store repositories through narrow interfaces
   // instead of this package importing apps/server.
-  'packages/sync': new Set(['packages/protocol', 'packages/runtime', 'packages/model']),
+  //
+  // `packages/commands` was added by POD-311 for ONE consumer — the upstream
+  // forwarder's optimistic-patch characterization, which enumerates the issue
+  // command vocabulary and previously read that list from `@podium/protocol`,
+  // where it was a hand-maintained array. Folding the array into the contract
+  // table moved the import; it did not create a new reach. `@podium/commands` is
+  // L1 contracts-only (no service, no IO), so the direction is unchanged.
+  //
+  // THIS DOES NOT WEAKEN THE ONE RULE THAT MATTERS HERE. What must never see the
+  // command vocabulary is the REPLICA ROLE — a replica that can interpret a
+  // command is a replica that can arbitrate (ADR 2 Amendment 1 D12.7) — and that
+  // is rule 10 below, a separate, stricter check over `packages/sync/src/replica/`
+  // which admits nothing outside its own directory but `span.ts`. Rule 10 is what
+  // holds the line; this table never did.
+  'packages/sync': new Set([
+    'packages/commands',
+    'packages/protocol',
+    'packages/runtime',
+    'packages/model',
+  ]),
   // Opt-in telemetry [spec:SP-f933]: the schema needs model's AgentKind enum
   // and consent/queue need runtime's config + state dir. It must never reach an
   // app — apps/server constructs the emitter and injects its gauges.

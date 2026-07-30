@@ -31,9 +31,9 @@
  * answer by the same path instead of by two coincidences.
  */
 
+import { type CommandDef, sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/commands'
 import type { AgentKind } from '@podium/model'
-import type { CommandDef } from '@podium/protocol'
-import { sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/protocol'
+
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'

@@ -1,4 +1,5 @@
-import { LOCK_COMMAND_NAMES } from '@podium/protocol'
+
+import { LOCK_COMMAND_NAMES } from '@podium/commands'
 import { afterAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'

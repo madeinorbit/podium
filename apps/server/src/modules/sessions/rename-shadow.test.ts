@@ -42,8 +42,9 @@
  * coarsest form that still distinguishes accept from reject-with-reason.
  */
 
+import { isExposedOn, presenceCommand } from '@podium/commands'
 import { OPERATOR, SOLE_USER_ID } from '@podium/model'
-import { isExposedOn, presenceCommand } from '@podium/protocol'
+
 import { afterEach, describe, expect, it } from 'vitest'
 import { INSTANCE_OWNER, type CommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'

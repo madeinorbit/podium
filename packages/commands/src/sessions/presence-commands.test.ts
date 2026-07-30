@@ -8,14 +8,14 @@
 import { OP_STREAM_MEMBERS, PinKind, WorkState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { type CommandDef, commandExposure, isExposedOn } from './commands'
+import { type CommandDef, commandExposure, isExposedOn } from '../framework'
 import {
   pinCommands,
   PRESENCE_COMMAND_TABLES,
   presenceCommand,
   presenceCommandNames,
   sessionPresenceCommands,
-} from './session-commands'
+} from './presence-commands'
 
 /** Every presence contract, paired with its dotted name. */
 const contracts = presenceCommandNames().map((name) => {
