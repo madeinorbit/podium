@@ -142,7 +142,7 @@ export type SessionsDaemonFrame = Extract<DaemonMessage, { type: SessionsDaemonF
  * the request was sent to. The generic correlator is POD-318's deliverable and
  * this extraction deliberately does not re-create one inside the gateway, so the
  * gap is carried forward with the principal now available at the port boundary
- * for POD-318 to enforce against. See POD-1174.
+ * for POD-318 to enforce against. See POD-1175.
  */
 export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',
