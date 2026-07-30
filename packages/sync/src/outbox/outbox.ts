@@ -1066,10 +1066,19 @@ export class Outbox {
 /**
  * Apply one record-level mutation to a record list, preserving insertion order: a
  * first `put` appends, a replacing `put` keeps its position, `remove` deletes by id,
- * and anything unmentioned is untouched. The in-memory twin of what the store does,
+ * and anything unmentioned is untouched. The in-memory twin of what the STORE does,
  * used to rebase a span's view and to MERGE its deltas into memory at commit.
+ *
+ * "Twin" is a claim, and a comment asserting an invariant is evidence that somebody
+ * worried about it — not that it holds. So it is EXPORTED and a test asserts the two
+ * implementations agree over whole results for a table of mutations, rather than
+ * trusting the two bodies to be kept in step. Two mappers for one hop with a comment
+ * saying they agree is the drift this programme is deleting.
  */
-const applyMutation = (records: OutboxRecord[], mutation: OutboxStoreMutation): OutboxRecord[] => {
+export const applyMutation = (
+  records: OutboxRecord[],
+  mutation: OutboxStoreMutation,
+): OutboxRecord[] => {
   const next = [...records]
   for (const id of mutation.remove ?? []) {
     const idx = next.findIndex((r) => r.mutationId === id)

@@ -1,13 +1,20 @@
 import { asSessionId, type MutationId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  applyMutation,
   type EnqueueRequest,
   envelopeFor,
   Outbox,
   OutboxInvariantError,
   OutboxUsageError,
 } from './outbox'
-import type { OutboxEnvelope, OutboxEvent, OutboxSubmitOutcome, SyncSpan } from './ports'
+import type {
+  OutboxEnvelope,
+  OutboxEvent,
+  OutboxStoreMutation,
+  OutboxSubmitOutcome,
+  SyncSpan,
+} from './ports'
 import { SyncCommitConflict } from './ports'
 import type { AuthorityRefusal } from './reasons'
 import {
@@ -2223,4 +2230,91 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
     expect(order).toEqual(['first:start', 'first:end', 'second:start'])
     expect(uow.spans).toBe(2)
   })
+})
+
+describe('the kernel and the store apply record-level mutations identically', () => {
+  // Two implementations of one semantic — `applyMutation` in the kernel (to rebase a
+  // span view and merge deltas into memory) and the store adapter's own apply. A
+  // comment calling one "the twin" of the other is evidence somebody worried about
+  // it, not that it holds, and drift here means memory and durable state disagree
+  // about record ORDER, which D12's FIFO depends on. So the agreement is asserted
+  // over WHOLE results — a per-field assertion goes stale the moment a record gains
+  // a key.
+  const rec = (id: string, state: OutboxRecord['state'] = 'queued'): OutboxRecord => ({
+    mutationId: id as MutationId,
+    command: CLOSE,
+    input: { id },
+    partitionKey: `p-${id}`,
+    attribution: ADA,
+    state,
+    queuedAt: 1,
+    attempts: 0,
+  })
+
+  /** Preconditions are required by the port, so each case declares the truth it is
+   *  written against — which also documents the case. (My first version passed
+   *  `expect: []` and the adapter refused it, correctly: every touched key needs a
+   *  precondition. The test was wrong, not the code.) */
+  const cases: ReadonlyArray<{
+    readonly name: string
+    readonly start: readonly OutboxRecord[]
+    readonly mutation: OutboxStoreMutation
+  }> = [
+    {
+      name: 'append a new record',
+      start: [rec('a')],
+      mutation: { put: [rec('b')], expect: [{ mutationId: 'b' as MutationId, expect: 'absent' }] },
+    },
+    {
+      name: 'replace in place keeps position',
+      start: [rec('a'), rec('b'), rec('c')],
+      mutation: {
+        put: [rec('b', 'applied')],
+        expect: [{ mutationId: 'b' as MutationId, expect: 'queued' }],
+      },
+    },
+    {
+      name: 'remove from the middle',
+      start: [rec('a'), rec('b'), rec('c')],
+      mutation: {
+        remove: ['b' as MutationId],
+        expect: [{ mutationId: 'b' as MutationId, expect: 'queued' }],
+      },
+    },
+    {
+      name: 'remove then put the same id lands at the end',
+      start: [rec('a'), rec('b')],
+      mutation: {
+        remove: ['a' as MutationId],
+        put: [rec('a', 'applied')],
+        expect: [{ mutationId: 'a' as MutationId, expect: 'queued' }],
+      },
+    },
+    {
+      name: 'unknown removal is a no-op',
+      start: [rec('a')],
+      mutation: {
+        remove: ['ghost' as MutationId],
+        expect: [{ mutationId: 'ghost' as MutationId, expect: 'absent' }],
+      },
+    },
+    {
+      name: 'empty mutation changes nothing',
+      start: [rec('a'), rec('b')],
+      mutation: { expect: [] },
+    },
+  ]
+
+  for (const { name, start, mutation } of cases) {
+    it(`agrees on: ${name}`, async () => {
+      const store = new InMemoryOutboxStore(start)
+      await store.apply(mutation)
+      const viaStore = store.durable()
+      const viaKernel = applyMutation([...start], mutation)
+
+      // Whole result, order included.
+      expect(viaKernel).toEqual(viaStore)
+      expect(JSON.stringify(viaKernel)).toBe(JSON.stringify(viaStore))
+    })
+  }
 })
