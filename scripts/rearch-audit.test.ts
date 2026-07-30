@@ -393,8 +393,7 @@ describe('inventory checks', () => {
     // The counterfactual that keeps the ratchet closable: a caller BUILDING a
     // change spec is a use of the shared type, and there are supposed to be many.
     const ctx = ctxOf({
-      'apps/server/src/modules/issues/service/crud.ts':
-        `const spec = { entity: 'issue', id: row.id, op: 'upsert', value: wire }`,
+      'apps/server/src/modules/issues/service/crud.ts': `const spec = { entity: 'issue', id: row.id, op: 'upsert', value: wire }`,
     })
     expect(countOf(ctx, 'change-row-typings')).toBe(0)
   })
@@ -522,8 +521,15 @@ describe('CLI exit codes', () => {
     expect(run(['--phase', 'POD-309', '--update-baseline'])).toBe(2)
   })
 
-  it('gates a phase whose items are still alive', () => {
-    expect(run(['--phase', 'POD-309'])).toBe(1)
+  // POD-309 used to be this case's subject. It retired UpstreamSync/UpstreamForwarder
+  // and drove `upstream-sync-forwarder` to 0, so `--phase POD-309` now exits 0 — which is
+  // what a FINISHED phase is supposed to look like. Rather than swap the literal and lose
+  // the signal, both directions are asserted: a phase with live items gates, and the
+  // phase that reached zero does not. A single-direction test here cannot distinguish a
+  // working `--phase` gate from one that exits 1 unconditionally.
+  it('gates a phase whose items are still alive, and clears one that reached zero', () => {
+    expect(run(['--phase', 'POD-308'])).toBe(1)
+    expect(run(['--phase', 'POD-309'])).toBe(0)
   })
 
   it('an output flag cannot disable the gate', () => {
@@ -587,6 +593,15 @@ describe('against the live repo', () => {
       // matching'), so detector drift reds loudly instead of reading as a
       // deletion. An item without that guard must not be added to this list.
       'send-turn-duplicate',
+      // POD-309 retired UpstreamSync/UpstreamForwarder: 4 → 0, all VANISHED (no file in
+      // the repo declares or constructs either, and a destination grep finds no code
+      // home). Exempt on the same terms as `send-turn-duplicate` and no looser — its
+      // `collect` THROWS when its anchor stops matching. Having no surviving code to
+      // anchor on, it anchors on its own scan instead: it throws when its roots match no
+      // files, and when its pattern stops matching the four control strings it is
+      // supposed to match. Both are asserted below, so an item added to this list
+      // without that guard still reds.
+      'upstream-sync-forwarder',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

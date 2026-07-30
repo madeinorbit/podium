@@ -533,7 +533,7 @@ export const CHECKS: AuditCheck[] = [
     // it is. See `scripts/change-row-audit.ts` for the two spellings it covers
     // and `change-row-audit.test.ts` for the planted violation of each.
     phase: 'POD-308',
-    unit: 'a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model\'s change field schemas',
+    unit: "a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model's change field schemas",
     collect: (ctx) => changeRowRestatements(ctx),
   },
   {

@@ -350,12 +350,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         (change.value as SessionMeta | undefined)?.geometry.cols === 100,
     )
     expect(geometryChange).toBeDefined()
-    expect(
-      changes.changes.some(
-        (change) =>
-          change.entity === 'session' && change.id === 'hub-explicit' && change.op === 'remove',
-      ),
-    ).toBe(true)
   })
 
   it('emits ordered self-contained projection events for persist and every live-view seam', () => {

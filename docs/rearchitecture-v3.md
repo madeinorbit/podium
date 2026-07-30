@@ -1116,6 +1116,123 @@ someone wires a real policy without the cutover is a loud failure. D13.5's water
 CADENCE is a measured threshold and stays POD-337's; `Authority.watermark(principal)` is
 the operation it will call. Real share/unshare commands stay Phase 3's (POD-290).
 
+#### LEDGER ENTRY — POD-309 (2.5 retire the upstream sync/forwarder): the two-directional claim
+
+**THE JOB WAS TWO OBLIGATIONS THAT FAIL IN OPPOSITE DIRECTIONS,** and naming that was the
+first useful thing. [spec:SP-0371] says the rewrite must NOT deliver hub/node federation
+AND must NOT make choices that prevent a future hub. The retirement rots by RE-GROWTH — a
+`new UpstreamForwarder(` reappearing, a `forwardIssueMutation` dep coming back with a
+well-meaning refactor. The seam rots by ATTRITION — nobody deletes it, they bake an
+assumption into it: a `@trpc/client` import lands in `authority/`, `suite.ts` starts
+naming the one instantiation that exists, `ChangeProvenanceFields` loses `causationId`
+because nothing reads it today. Every attrition case compiles and passes every test, and
+each one makes a future hub a flag day. The deletion ratchet covers the first direction
+and is STRUCTURALLY incapable of covering the second: a ratchet counts what is PRESENT and
+must go down, so it cannot notice something that vanished. Hence a second gate whose
+checks are mostly PRESENCE claims.
+
+**WHAT THE FORWARDER STILL DID THAT THE KERNEL DOES NOT — nothing H1 needs, measured
+before planning as the brief required.** Its durable FIFO queue with backoff, poison-drop
+and watchdog pacing is a strict SUBSET of the kernel Outbox (POD-306: ordering partitions,
+dead-letter *with* a recovery leg, age limits, principal binding). Its `mutationId`
+idempotency is `MutationLedger` (POD-382, the ONE implementation). Its
+`optimisticIssuePatch`/`PATCH_ID_FIELDS` overlay is superseded by `replica/overlay.ts`,
+whose retirement is EXACT via `causationId` rather than value-shaped. `UpstreamSync`'s
+cursor/gap/heal ladder is ADR 2 D7's ladder, now built on feed identity, `minAvailableSeq`
+and resync-required rather than on a persisted integer. What was genuinely unique to it
+was the federation part alone — a WS+tRPC dialer carrying a hub-minted cookie, `viaHub`
+ingest, and `upstream_outbox` — i.e. exactly the H2 behaviour this issue removes. POD-305
+asked which of `mirror.ts` / `upstream.ts` this issue deletes: **upstream**. The transcript
+lake survives; its `node:fs` use is unrelated to federation.
+
+**THE RATCHET: `upstream-sync-forwarder` 4 → 0, deletion audit 179 → 175 sites, and it is
+4 VANISHED / 0 MOVED.** Reported by grepping DESTINATIONS, not as a delta (POD-1180). The
+two class declarations and the two construction sites are gone, and a repo-wide grep for
+`UpstreamSync|UpstreamForwarder|UpstreamIssuesService|upstreamMirrorFor|setUpstream*|
+forwardIssueMutation|issueWrite` outside comments returns nothing: no file declares,
+constructs, or calls any of them. Every surviving mention is prose explaining what was
+removed, and those stay legal — a retirement nobody can describe is a retirement nobody
+can audit — which is why the new gate scans COMMENT-STRIPPED text and proves the stripper
+non-vacuous in both directions.
+
+**`issueWrite` WAS UNWRAPPED AT 28 CALL SITES rather than left as a pass-through.** With no
+second authority its body reduced to `return local()`. Keeping a contentless wrapper is the
+cheap option and the wrong one: it still reads as a policy seam, and the next author to add
+a branch to it would be re-growing the forwarding path by accident.
+
+**FORK RESOLVED — `resolveServerRole` no longer reads `config.upstream`.** The heuristic
+("a server dialing a hub is a NODE, so inbound pairing is off") named an H2 deployment
+shape whose input can no longer exist; a branch whose input is unreachable is dead code
+that reads as policy. ADR 5 D2 says the H1 server IS the rendezvous for its clients and
+daemons, and D5 says "daemon pairing and fleet admin STAY", so the default is `hub: true` —
+byte-identical to every non-node deployment. The explicit override survives in BOTH
+directions and is now the only way to reach `hub: false`, which `server.role.test.ts`
+asserts per direction (a default of `true` makes a single-direction test indistinguishable
+from `return { hub: true }`).
+
+**FORK RESOLVED — the pending rows are PARKED IN PLACE, and the rejected option is the
+interesting half.** ADR 5 D8 permits archiving the schema and forbids silent discard of
+poison/pending work. The literal reading of "one-shot migration parks the rows" is a
+drizzle migration renaming `upstream_outbox`, and that is the ONE option that destroys
+them: `drizzle-kit` resolves renames INTERACTIVELY and this repo generates
+non-interactively ([spec:SP-4428]), where the same schema edit emits DROP + CREATE — in one
+transaction, at boot, silently. So the table keeps its name and contents, every WRITER is
+deleted (only `SyncRepository.listParkedUpstreamMutations` survives, and
+`parked-upstream.test.ts` asserts the writers' ABSENCE on the running object rather than
+grepping for a name a rename would satisfy), and `reportParkedUpstreamMutations` reports
+anything parked at EVERY boot on two channels — a warning naming each mutation, because a
+durable event is invisible in a terminal, and a durable `upstream.retired_pending` event
+carrying the same list, because a journal rotates. It reports every boot deliberately: a
+once-only flag would miss precisely the operator who inherits the box later.
+
+**THE SEAM PROOF IS TEST-ONLY, AND IT IS NOT A REHEARSAL.** ADR 5 D8's seam proof is "a
+second in-memory Authority against kernel ports". `second-authority.seam.test.ts`
+instantiates two real `Authority` objects over two independent in-memory port sets and
+asserts they share NO state — B's first row is seq 1 while A has already assigned 1 and 2,
+which is what a module-level counter or a shared baseline would break — and that each
+carries its OWN `FeedIdentity`, so seq 1 exists in both feeds and means two different
+things. Nothing replicates A into B, transfers authority, prevents a loop or survives a
+hub disappearing: those are POD-353's, and building them under the banner of "proving the
+seam" is how a deferred feature returns as test code nobody admits to owning. The standing
+control is a case asserting BOTH authorities accept writes — an authority that refuses
+everything satisfies every isolation claim in the file perfectly.
+
+**S5 GOT AN HONEST NULL RESULT rather than a manufactured one.** `instantiation.ts` lists
+POD-309 as a hop that supplies a `SyncInstantiation`. It supplies none, deliberately: this
+issue DELETES a hop rather than adding one, and inventing a second storage adapter to
+satisfy the letter of S5 would be a suite certifying its own fixture. What is checked
+instead is the property a future hop actually needs — that `suite.ts` never NAMES
+`inMemoryInstantiation`. A suite that reaches for the one instantiation that exists is
+parameterized on paper and unrunnable by anyone else, which is the failure
+`instantiation.ts` warns about in its own header.
+
+**THE SWEEP, recorded as required — and it is a null result.** No federation acceptance
+criterion remains in the plan. `docs/rearchitecture-v3.md` mentions the hub in exactly two
+places and both are correct: §1's HUB DEFERRED declaration, and the Phase-2 scope line
+naming this issue. POD-289's own AC is the meta-criterion ("no fake federation acceptance
+criteria anywhere in the phase") and it holds. The four deferred behaviours — authority
+transfer, upstream projection, loop prevention, hub disappearance — were already
+enumerated in POD-353 before this issue started; they were verified present, not added.
+
+**EVIDENCE.** Workspace typecheck FORCED 23/23 with `Cached: 0 cached`, exit 0, and the
+instrument PROBED (a planted `TS2322` was reported at the expected line, then reverted).
+`check-boundaries` 56 allowlisted / 0 new; `check-no-nul-bytes` clean; deletion audit exact
+at the ratcheted-down baseline; `audit:seam` probe + gate green. FOUR mutants, one per run,
+each verified match-count 1, hash changed, grep-back, only the target dirty, and COMPILING
+before being believed: (1) `reportParkedUpstreamMutations` short-circuited to `return 0` →
+killed by 2 cases; (2) an `enqueueUpstreamMutation` WRITER re-added to `SyncRepository` →
+killed twice, by the runtime absence assertion AND by the source gate's
+`R-retirement-holds`; (3) `suite.ts` defaulting its parameter to `inMemoryInstantiation` →
+killed by `S5-parameterized-suite`; (4) `FeedIdentityRegistry` minting one shared identity
+→ killed by the S1 case. Mutant (2) is the one worth keeping: it compiles, it is a
+plausible refactor, and only the paired gates catch it.
+
+**Handed forward.** POD-308 owns the wire cutover and its brief names the same
+`upstream-sync-forwarder` ratchet item; it is now 0, so POD-308 inherits a win rather than
+a target — on a `scripts/rearch-audit-baseline.json` conflict, take the LOWER number.
+POD-353 starts from a green dual-Authority proof and a gate that will tell it if the seam
+drifted while it waited.
+
 ### Phase 3 — Command registry as the universal write surface (POD-290) · exit gate POD-424
 
 **Scope:** L1/L3 split + framework (POD-311), session mutations (POD-312 → 379–382 +
