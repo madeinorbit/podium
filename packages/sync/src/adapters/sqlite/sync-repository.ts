@@ -264,4 +264,39 @@ export class SyncRepository {
       .prepare('UPDATE upstream_outbox SET attempts = attempts + 1 WHERE mutation_id = ?')
       .run(mutationId)
   }
+
+  // ---- feed identity (ADR 2 D1) ----
+
+  /**
+   * The durable half of `FeedIdentityStore`, so the kernel port has a real
+   * implementation rather than only a shape.
+   *
+   * The kernel owns the SEMANTICS — minting, the never-a-counter rule, and the
+   * refusal to bump to the epoch it is replacing — and this owns only the row.
+   * That split is why `assertOpaqueEpoch` is not repeated here: a second copy of
+   * the rule in SQL would be a second definition able to disagree with the first,
+   * and the one that runs would depend on which door the write came through.
+   */
+  readFeedIdentity(): { feedId: string; epoch: string } | null {
+    const row = this.db
+      .prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1')
+      .get() as { feed_id: string; epoch: string } | undefined
+    return row === undefined ? null : { feedId: row.feed_id, epoch: row.epoch }
+  }
+
+  /**
+   * Persist the identity. UPSERT on the singleton key, so a bump REPLACES rather
+   * than appends: there is exactly one current generation, and a table that could
+   * hold two would leave "which epoch is this feed on?" answered by whichever row
+   * a query happened to return first.
+   */
+  writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): void {
+    this.db
+      .prepare(
+        'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?) ' +
+          'ON CONFLICT(singleton) DO UPDATE SET feed_id = excluded.feed_id, ' +
+          'epoch = excluded.epoch, minted_at = excluded.minted_at',
+      )
+      .run(identity.feedId, identity.epoch, mintedAt)
+  }
 }

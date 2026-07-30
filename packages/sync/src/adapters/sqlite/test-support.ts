@@ -3,7 +3,7 @@ import { SyncRepository } from './sync-repository'
 
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying the four tables it
- * reads: `changes` and `applied_mutations` (owned by THIS adapter's
+ * reads: `changes`, `applied_mutations` and `feed_identity` (owned by THIS adapter's
  * `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
  * (feature-owned, declared in apps/server's schema — this adapter reads them,
  * and reading a table is not owning it).
@@ -50,6 +50,17 @@ export function createTestSyncDatabase(): SqlDatabase {
        proc        TEXT NOT NULL,
        result      TEXT NOT NULL,
        applied_at  INTEGER NOT NULL
+     )`,
+  )
+  db.exec(
+    // ADR 2 D1's feed identity. ONE row, pinned by a constant primary key, so
+    // "there is exactly one current generation" is a property of the schema
+    // rather than a rule every writer has to remember.
+    `CREATE TABLE feed_identity (
+       singleton INTEGER PRIMARY KEY,
+       feed_id   TEXT NOT NULL,
+       epoch     TEXT NOT NULL,
+       minted_at INTEGER NOT NULL
      )`,
   )
   db.exec(
