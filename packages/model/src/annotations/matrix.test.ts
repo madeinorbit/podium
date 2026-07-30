@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { conflictRuleFor, FIELD_LWW_CLOCK, permitsFieldLww } from './arbitration'
 import {
   DECLARED_OMISSIONS,
   FIELD_LWW_MEMBERS,
@@ -33,7 +34,6 @@ import {
   type VisibilityClass,
   visibilityClassOf,
 } from './ownership'
-import { conflictRuleFor, FIELD_LWW_CLOCK, permitsFieldLww } from './arbitration'
 
 const rows = OWNERSHIP_MATRIX
 
@@ -130,6 +130,57 @@ describe('totality — no row escapes annotation', () => {
         `${row.id} records a defect with no expiry condition`,
       ).toBeGreaterThan(30)
     }
+  })
+
+  /**
+   * POD-731's acceptance criterion, as a test that can FAIL rather than as a
+   * count that cannot: workflow definitions, revisions, execution profiles,
+   * bindings and runs each carry a DECLARED visibility class, and this fails if
+   * one is missing.
+   *
+   * Written as a list of expected ids rather than a filter over the section,
+   * because a filter would pass on four rows if the fifth were deleted — the
+   * failure mode the criterion exists to catch. Deleting `ROW.workflowRuns`
+   * makes this red at the id lookup; deleting only its `visibility` cell makes
+   * it red at the class assertion; and either way the compiler catches it
+   * first, which is the belt this is the braces for.
+   */
+  it('declares all FIVE workflow classes, and fails if one is missing', () => {
+    const expected: [string, VisibilityClass][] = [
+      [ROW.workflowDefinitions as string, 'personal'],
+      [ROW.workflowRevisions as string, 'personal'],
+      [ROW.workflowBindings as string, 'personal'],
+      [ROW.workflowExecutionProfiles as string, 'personal'],
+      [ROW.workflowRuns as string, 'personal'],
+    ]
+    for (const [id, visibility] of expected) {
+      const row = OWNERSHIP_MATRIX_INDEX.get(id)
+      expect(row, `${id} is not on the matrix`).toBeDefined()
+      expect(visibilityClassOf(id), `${id} has no declared visibility class`).toBe(visibility)
+    }
+    // The COUNTERFACTUAL for the five `personal` answers above: `personal` is
+    // also what an UNDECLARED class resolves to (the D4 backstop), so five
+    // matching values prove nothing on their own. These two say the resolver is
+    // reading real declarations and not returning its default five times.
+    expect(OWNERSHIP_MATRIX_INDEX.has(asMatrixRowId('workflows') as string)).toBe(false)
+    expect(visibilityClassOf('workflows')).toBe<VisibilityClass>('personal')
+
+    // …and the columns that DIFFER between the five are what made one row
+    // insufficient. If a future edit collapses them back, these fail.
+    const definitions = OWNERSHIP_MATRIX_INDEX.get(ROW.workflowDefinitions as string) as MatrixRow
+    const runs = OWNERSHIP_MATRIX_INDEX.get(ROW.workflowRuns as string) as MatrixRow
+    const profiles = OWNERSHIP_MATRIX_INDEX.get(
+      ROW.workflowExecutionProfiles as string,
+    ) as MatrixRow
+    expect(definitions.owner.kind).toBe('user') // the creator's
+    expect(runs.owner.kind).toBe('inherits') // the ISSUE's
+    expect([definitions.conflict, runs.conflict]).toEqual(['exp-rev', 'cmd'])
+    expect([definitions.offline, runs.offline, profiles.offline]).toEqual([
+      'offline-eligible',
+      'online-only',
+      'never-enqueue',
+    ])
+    expect([definitions.secret, profiles.secret]).toEqual(['public', 'secret-presence'])
   })
 
   it('explains every ADR row it omits', () => {

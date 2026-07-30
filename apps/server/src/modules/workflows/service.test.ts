@@ -110,9 +110,18 @@ describe('WorkflowService', () => {
   })
 
   it('requires approval authority for agent global publication/default changes', () => {
+    // POD-731: the global-scope hole is closed, so the SETUP changes — an agent
+    // can no longer create the global workflow this case needs. The brake it
+    // asserts is unchanged and now covers create as well as publish.
+    expect(() =>
+      service.create(
+        { name: 'Candidate', description: '', scope: 'global', instructions: 'rules', steps: [] },
+        agent('s1'),
+      ),
+    ).toThrow('approval required')
     const created = service.create(
       { name: 'Candidate', description: '', scope: 'global', instructions: 'rules', steps: [] },
-      agent('s1'),
+      operator,
     )
     expect(() => service.publish({ revisionId: created.revision.id }, agent('s1'))).toThrow(
       'approval required',
@@ -162,18 +171,20 @@ describe('WorkflowService', () => {
     expect(service.list({}, agent('s1')).map((workflow) => workflow.id)).not.toContain(
       other.workflow.id,
     )
-    expect(() => service.get({ id: other.workflow.id }, agent('s1'))).toThrow(
-      'outside this session',
-    )
+    // POD-731 CONVERGENCE (ADR 3 Amendment 1 D20.2): an invisible workflow id
+    // fails identically to an unknown one.
+    expect(() => service.get({ id: other.workflow.id }, agent('s1'))).toThrow('unknown workflow')
     expect(service.bindings({}, agent('s1'))).toMatchObject([
       { targetKind: 'issue', targetId: 'issue-1' },
     ])
-    expect(() =>
-      service.assign(
-        { targetKind: 'issue', targetId: 'issue-1', revisionId: other.revision.id },
-        agent('s1'),
-      ),
-    ).toThrow('outside this session')
+    expect(
+      () =>
+        service.assign(
+          { targetKind: 'issue', targetId: 'issue-1', revisionId: other.revision.id },
+          agent('s1'),
+        ),
+      // POD-731 CONVERGENCE (D20.2): a revision id no longer confirms existence.
+    ).toThrow('unknown workflow revision')
   })
 
   it('reports an unavailable execution profile in prime and checkpoint responses', () => {
@@ -205,9 +216,12 @@ describe('WorkflowService', () => {
     expect(service.prime({}, agent('s1'))).toContain(
       'Execution profile unavailable: profile-missing',
     )
+    // POD-731: an advance against a stepped run must name its step or carry a
+    // mutation id, so an unnamed delivery cannot be told apart from a duplicate.
     const checkpoint = service.checkpoint(
       {
         runId: run.id,
+        stepId: 'review',
         status: 'active',
         summary: '',
         evidence: { summary: '', tests: [], artifacts: [] },
@@ -383,6 +397,7 @@ describe('WorkflowService', () => {
       service.checkpoint(
         {
           runId: run.id,
+          stepId: 'build',
           status: 'active',
           summary: '',
           evidence: { summary: '', tests: [], artifacts: [] },
@@ -439,12 +454,14 @@ describe('WorkflowService', () => {
         ],
       }),
     ).toThrow('duplicate workflow step id')
-    expect(() =>
-      service.profileSave(
-        { name: 'Shared', accountId: 'acct', harness: 'codex', model: 'auto', effort: 'auto' },
-        agent('s1'),
-      ),
-    ).toThrow('only the operator')
+    expect(
+      () =>
+        service.profileSave(
+          { name: 'Shared', accountId: 'acct', harness: 'codex', model: 'auto', effort: 'auto' },
+          agent('s1'),
+        ),
+      // POD-731: the refusal names the ACCOUNT GRADE (ADR 1 D6), not a role class.
+    ).toThrow('only an administrator')
     expect(() =>
       workflowInputs.profileSave.parse({ name: 'Bad', accountId: 'acct', harness: 'unknown' }),
     ).toThrow()
