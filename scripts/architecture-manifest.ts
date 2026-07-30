@@ -489,6 +489,26 @@ const HARNESS_ENUM_SOURCE = 'packages/model/src/entities/agent.ts'
  *
  * Still WARN level: POD-399 flips the axiom to error as its deliberate final act.
  */
+/**
+ * Workspaces that legitimately own NO feature because they are empty shells
+ * awaiting deletion, mapped to the issue that deletes them.
+ *
+ * Every other workspace must own at least one feature — a featureless package is
+ * normally a package nobody has classified, which is exactly the drift the
+ * manifest exists to catch. This set is the ONE declared exception, and it is
+ * deliberately a map rather than a list so the exemption names its own expiry:
+ * when POD-399 deletes packages/agent-bridge, the entry goes with it.
+ *
+ * The paired test asserts BOTH directions — that these workspaces are exempt AND
+ * that each one really is in MANIFEST with an empty feature list. Without the
+ * second half the exemption could be used to hide a package that owns nothing by
+ * accident, which would make this the sort of allowlist that launders debt
+ * instead of recording it.
+ */
+export const AWAITING_DELETION: ReadonlyMap<string, string> = new Map([
+  ['packages/agent-bridge', 'POD-399'],
+])
+
 export const HARNESS_ADAPTER_HOME = 'packages/harness'
 
 /**

@@ -3,20 +3,21 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  type AllowlistEntry,
+  AWAITING_DELETION,
+  MANIFEST,
+  MANIFEST_RULES,
+  SAME_LAYER_ALLOWED,
   applyAllowlist,
   checkManifestEdge,
   checkManifestRole,
   duplicateFeatureOwners,
   findHarnessBranching,
-  type ImportRef,
   loadHarnessLiterals,
-  MANIFEST,
-  MANIFEST_RULES,
   partitionAllowlist,
-  SAME_LAYER_ALLOWED,
   stripComments,
   tagsFor,
+  type AllowlistEntry,
+  type ImportRef,
   type WorkspaceTags,
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
@@ -51,11 +52,24 @@ describe('MANIFEST coverage', () => {
     expect(duplicateFeatureOwners()).toEqual([])
   })
 
-  it('gives every workspace at least one feature', () => {
+  it('gives every workspace at least one feature, except declared empty shells', () => {
     const featureless = Object.entries(MANIFEST)
       .filter(([, tags]) => tags.features.length === 0)
       .map(([w]) => w)
-    expect(featureless).toEqual([])
+    expect(featureless.filter((w) => !AWAITING_DELETION.has(w))).toEqual([])
+  })
+
+  // The counterfactual for the exemption above: an entry in AWAITING_DELETION must
+  // correspond to a real, tagged, genuinely featureless workspace. Otherwise the
+  // set could be used to excuse a package that owns nothing by accident — the
+  // allowlist-that-launders-debt shape this manifest exists to prevent.
+  it('only exempts workspaces that are tagged and really own nothing', () => {
+    for (const [workspace, issue] of AWAITING_DELETION) {
+      const tags = tagsFor(workspace)
+      expect(tags, `${workspace} is exempt but not in MANIFEST`).not.toBeNull()
+      expect(tags?.features, `${workspace} is exempt but owns features`).toEqual([])
+      expect(issue, `${workspace} exemption must name the deleting issue`).toMatch(/^POD-\d+$/)
+    }
   })
 
   it('declares same-layer edges only between tagged workspaces on the SAME layer', () => {
