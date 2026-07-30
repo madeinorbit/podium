@@ -565,11 +565,12 @@ actor recorded anywhere**. `deleted_by_issue_id` (`schema.ts:54`) names the issu
 cascaded, never the person or agent, so POD-1075 adds a new attribution pair here rather than
 re-typing an existing field.
 
-#### 3.6.2 CORRECTION — `spawnedBy` has SIX arms, and production writes one this doc omitted
+#### 3.6.2 CORRECTION — `spawnedBy` has EIGHT arms, and the documented set never matched production
 
-An earlier revision listed five arms, taken from the schema's own comment. **Production writes a
-sixth.** Repeating a code comment as fact is the same error class as trusting a grep, so the
-complete set is now derived from the construction sites:
+An earlier revision listed five arms, then six, both taken from the schema's own comment.
+**Production writes eight, and the comment documents a `steward` arm no producer writes at all** —
+so the two sets differ in BOTH directions. Repeating a code comment as fact is the same error class
+as trusting a grep, so the complete set is now derived from the construction sites:
 
 **EIGHT arms, derived from the PRODUCERS** (reconciled with POD-364, which enumerated the same way):
 
