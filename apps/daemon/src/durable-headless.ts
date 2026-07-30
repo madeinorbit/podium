@@ -17,7 +17,7 @@ import {
   killAbducoSession,
   shellQuote,
   spawnAbducoAgent,
-} from '@podium/agent-bridge'
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import type { HarnessBins } from './harness-exec.js'
 import {

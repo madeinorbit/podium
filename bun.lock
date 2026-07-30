@@ -46,6 +46,7 @@
         "@podium/agent-bridge": "workspace:*",
         "@podium/composer": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@xterm/headless": "^5.5.0",
@@ -210,9 +211,9 @@
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
-        "node-pty": "^1.0.0",
       },
       "devDependencies": {
+        "@podium/pty": "workspace:*",
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
       },
@@ -276,6 +277,19 @@
       "version": "0.0.0",
       "dependencies": {
         "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/pty": {
+      "name": "@podium/pty",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
+        "node-pty": "^1.0.0",
       },
       "devDependencies": {
         "tsup": "^8.5.1",
@@ -385,6 +399,7 @@
       "dependencies": {
         "@podium/agent-bridge": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/pty": "workspace:*",
         "ws": "^8.18.0",
       },
       "devDependencies": {
@@ -400,6 +415,7 @@
         "react": "^19.0.0",
       },
       "devDependencies": {
+        "@podium/pty": "workspace:*",
         "@types/node": "^25.9.1",
         "@types/react": "^19.0.0",
         "node-pty": "^1.0.0",
@@ -1058,6 +1074,8 @@
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
+
+    "@podium/pty": ["@podium/pty@workspace:packages/pty"],
 
     "@podium/runtime": ["@podium/runtime@workspace:packages/runtime"],
 

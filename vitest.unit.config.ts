@@ -35,12 +35,15 @@ export default defineConfig({
       '**/*.integration.*',
       '**/*.smoke.test.{ts,tsx}',
       '**/*.pty.test.{ts,tsx}',
-      'packages/agent-bridge/test/pty-behavior/**',
-      'packages/agent-bridge/test/session.test.ts',
-      'packages/agent-bridge/src/pty/node-pty-backend.test.ts',
-      'packages/agent-bridge/src/abduco.test.ts',
-      'packages/agent-bridge/src/abduco-bin.test.ts',
-      'packages/agent-bridge/src/tmux.test.ts',
+      'packages/pty/test/pty-behavior/**',
+      'packages/pty/test/session.test.ts',
+      'packages/pty/src/backends/node-pty-backend.test.ts',
+      'packages/pty/src/abduco.test.ts',
+      'packages/pty/src/abduco-bin.test.ts',
+      'packages/pty/src/tmux.test.ts',
+      // Drives the real `claude` binary (self-skips without PODIUM_REAL_CLI=1);
+      // the agent-smoke lane owns it.
+      'packages/agent-bridge/test/harness-smoke/**',
       // Boots a real daemon and spawns PTY-backed fixture agents per test.
       'apps/daemon/src/daemon.test.ts',
       // Spawn real child processes (bun install/typecheck; memory sampling).

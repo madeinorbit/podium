@@ -9,6 +9,7 @@
     "@podium/agent-bridge": "workspace:*",
     "@podium/composer": "workspace:*",
     "@podium/protocol": "workspace:*",
+    "@podium/pty": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@xterm/headless": "^5.5.0",

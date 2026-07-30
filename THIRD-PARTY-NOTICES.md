@@ -37,10 +37,10 @@ The following third-party sources are vendored (copied) into this repository:
 
 ### abduco
 
-- Path: `packages/agent-bridge/vendor/abduco/`
+- Path: `packages/pty/vendor/abduco/`
 - Upstream: https://github.com/martanne/abduco (v0.6, commit 8c32909)
 - License: ISC — Copyright (c) 2013-2018 Marc André Tanner. See
-  `packages/agent-bridge/vendor/abduco/LICENSE` for the full text.
+  `packages/pty/vendor/abduco/LICENSE` for the full text.
 - Podium compiles abduco at build time and embeds the binary in the compiled daemon as
   its durable PTY session backend. Local changes: none (see the accompanying VENDOR.md).
 

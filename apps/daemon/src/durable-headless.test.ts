@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { abducoHasSessionAsync, isAbducoAvailable, killAbducoSession } from '@podium/agent-bridge'
+import { abducoHasSessionAsync, isAbducoAvailable, killAbducoSession } from '@podium/pty'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeDurableHeadlessTurn,

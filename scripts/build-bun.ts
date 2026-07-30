@@ -23,12 +23,12 @@ import {
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { PUBLISH_WORKER_ENTRY } from '../apps/server/src/modules/sessions/publish-worker-embed.js'
-import { abducoSupported, buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
+import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
   minTerminalBunVersion,
-} from '../packages/agent-bridge/src/pty/bun-terminal-backend.js'
+} from '../packages/pty/src/backends/bun-terminal-backend.js'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so

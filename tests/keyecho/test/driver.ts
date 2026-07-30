@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { ensureBunNodePtyTtyPolyfill, resolveNodeExecutable } from '@podium/agent-bridge'
+import { ensureBunNodePtyTtyPolyfill, resolveNodeExecutable } from '@podium/pty'
 import * as pty from 'node-pty'
 
 const CLI = fileURLToPath(new URL('../src/cli.tsx', import.meta.url))

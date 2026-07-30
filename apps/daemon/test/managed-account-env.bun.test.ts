@@ -6,7 +6,7 @@
 // scripts/managed-account-spawn.integration.test.ts, but vitest runs under NODE — so it
 // exercises the node-pty backend. The SHIPPED daemon is bun-compiled and therefore uses
 // the Bun.Terminal PTY backend (a compiled daemon has no node-pty fallback at all — see
-// packages/agent-bridge/src/pty/index.ts). Env is handed to the OS by the BACKEND, so the
+// packages/pty/src/backends/index.ts). Env is handed to the OS by the BACKEND, so the
 // backend the users actually run must be proven too, not just the one the test runner picks.
 //
 // Same two directions as the vitest twin, against a real process's real environment:
@@ -21,8 +21,9 @@ import { afterEach, beforeEach, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand, hasBunTerminal } from '@podium/agent-bridge'
+import { agentLaunchCommand } from '@podium/agent-bridge'
 import { SpawnMessage } from '@podium/protocol'
+import { hasBunTerminal } from '@podium/pty'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
 import { sessionHandlers } from '../src/control/session'

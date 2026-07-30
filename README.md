@@ -79,7 +79,7 @@ Some tests self-skip when their machine setup is absent (they never fail for it)
 
 - `apps/cli/src/podium-update.test.ts` swap tests — need the operator's signing key
   (`apps/cli/src/.podium-update-dev.key`, the private half of `PODIUM_UPDATE_PUBKEY`).
-- `packages/agent-bridge/test/pty-behavior/claude-smoke.test.ts` — needs `claude` on PATH
+- `packages/agent-bridge/test/harness-smoke/claude-smoke.test.ts` — needs `claude` on PATH
   with `$HOME` already trusted (run `claude` once in `$HOME` and accept the prompt), or
   set `PODIUM_SKIP_CLAUDE_SMOKE=1`.
 - `packages/agent-bridge/src/opencode/*` detection tests expect the `opencode` CLI at
@@ -112,12 +112,13 @@ Found a vulnerability? Please report it privately — see [SECURITY.md](./SECURI
 | Path | What it is |
 |------|------------|
 | `apps/server` | API / web backend (Hono + tRPC). |
-| `apps/daemon` | Per-machine agent host; wraps agent CLIs via `@podium/agent-bridge`. |
+| `apps/daemon` | Per-machine agent host; runs agent CLIs on `@podium/pty`, driven by `@podium/agent-bridge`. |
 | `apps/cli` | The `podium` CLI (setup, update, issue/spec tooling). |
 | `apps/web` | Responsive web UI (React + Vite, PWA). |
 | `apps/desktop` | Tauri shell around the compiled backend + web UI. |
 | `packages/protocol` | Shared agent/terminal wire protocol. |
-| `packages/agent-bridge` | Coding-agent CLI process wrapper (server-side PTY). |
+| `packages/agent-bridge` | Per-CLI harness adapters: launch/exec/headless flags, agent state, discovery. |
+| `packages/pty` | PTY kernel: backends, durable hosts (abduco/tmux), framing, redraw. Harness-agnostic. |
 | `packages/terminal-client` | Browser terminal presentation client. |
 | `packages/domain` | Pure domain logic (issue stages, authz, identity predicates). |
 | `packages/runtime` | Runtime plumbing: config, sqlite, git identity, auth. |

@@ -42,6 +42,10 @@ export const sharedVitestConfig = {
         find: '@podium/protocol',
         replacement: fileURLToPath(new URL('./packages/protocol/src/index.ts', import.meta.url)),
       },
+      {
+        find: '@podium/pty',
+        replacement: fileURLToPath(new URL('./packages/pty/src/index.ts', import.meta.url)),
+      },
       // Leaving runtime to the exports map resolved it by walking *up* the filesystem
       // out of the checkout: scripts/ is not a workspace package, so it owns no
       // @podium symlink, and a walk-up can land in a sibling checkout's node_modules.

@@ -4,23 +4,22 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  abducoHasSession,
-  agentStateProviderFor,
-  claudeProjectSlug,
-  isAbducoAvailable,
-  isTmuxAvailable,
-  killAbducoSession,
-  killTmuxServer,
-  reapAbducoTestSessions,
-  tmuxHasSession,
-} from '@podium/agent-bridge'
+import { agentStateProviderFor, claudeProjectSlug } from '@podium/agent-bridge'
 import type {
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   DaemonHandshakeReply,
 } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import {
+  abducoHasSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+  reapAbducoTestSessions,
+  tmuxHasSession,
+} from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -35,8 +34,8 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
-import { createSessionObservers, type ReattachControl } from './session-observers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
@@ -60,7 +59,7 @@ afterAll(() => {
 })
 
 const FIXTURE = fileURLToPath(
-  new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 /**
