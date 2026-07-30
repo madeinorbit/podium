@@ -215,7 +215,20 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     ).toBe(false)
   })
 
-  it('enforces input bounds on the untrusted ids and stage', () => {
+  it('enforces input bounds on the untrusted ids and stage, from BOTH sides', () => {
+    // The accepted side is asserted AT THE BOUNDARY, not just somewhere inside it.
+    // Without it this test is satisfied by a parser that refuses everything — and
+    // the valid fixture above does not rescue it, because its issueId is 5 chars,
+    // so a bound wrongly tightened to .max(6) would pass every other case here.
+    // (POD-366's general form: an "it refuses bad input" test needs the instrument
+    // to be shown saying YES before its NO means anything.)
+    expect(
+      IssueAutoArchiveObservation.safeParse({ ...valid, issueId: 'i'.repeat(256) }).success,
+    ).toBe(true)
+    expect(IssueAutoArchiveObservation.safeParse({ ...valid, stage: 's'.repeat(64) }).success).toBe(
+      true,
+    )
+
     expect(IssueAutoArchiveObservation.safeParse({ ...valid, issueId: '' }).success).toBe(false)
     expect(
       IssueAutoArchiveObservation.safeParse({ ...valid, issueId: 'i'.repeat(257) }).success,
