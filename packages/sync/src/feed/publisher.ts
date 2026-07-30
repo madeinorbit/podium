@@ -34,33 +34,51 @@
  * POD-308 about.
  *
  * ---------------------------------------------------------------------------
- * THE FEED IS UNSCOPED, AND THAT IS PINNED AS A TEST
+ * THE FEED IS SCOPED (POD-1077), AND THIS SIDE OWNS FRAMING, NOT DECIDING
  * ---------------------------------------------------------------------------
  *
- * Every connection receives every change. `publish` takes no principal and
- * `connect` takes no filter; there is nowhere for a slice to be computed. That is
- * POD-1077's work, and Amendment 1 D13 requires the filter and the watermark to
- * land TOGETHER because a filter without a watermark turns every suppressed row
- * into a permanent gap. `publisher.unscoped.test.ts` asserts the absence, so a
- * green suite cannot be misread as privacy that does not exist.
+ * A connection now stands for a PRINCIPAL, and `publish` takes the principal plus
+ * an already-evaluated {@link ScopedDelivery} — the range and the rows that
+ * survived it, inseparable in one type (see `authority/scoping.ts`). So this
+ * module cannot filter, and cannot certify a range it did not receive: the
+ * decision is the Authority's (Amendment 1 D12.7) and the framing is this one's.
  *
- * A watermark frame — `changes: []` over a non-empty range — is already
- * REPRESENTABLE here and is emitted whenever a batch dedupes away to nothing. It
- * is the frame shape POD-1077 needs; what is missing is the per-principal
- * evaluation that would make it mean "suppressed for you" rather than "nothing
- * happened".
+ * That split is what makes "filter and watermark land together" (D13) structural
+ * rather than remembered. There is exactly ONE emit path here. It runs whether or
+ * not any row survived, so a fully-suppressed range leaves as a watermark —
+ * `changes: []` over a non-empty covered range — on the same ordered pipe, and
+ * the connection's position advances. A suppressed row therefore cannot become
+ * the invisible permanent gap that heal-loops forever (POD-351's warning, D2's
+ * named failure mode).
+ *
+ * ---------------------------------------------------------------------------
+ * WATERMARKS ARE FREE, WHICH IS D13.4 AND NOT AN OPTIMISATION
+ * ---------------------------------------------------------------------------
+ *
+ * D13.4: *"watermark-only frames must not demote a replica"* — a replica must
+ * never be forced to re-bootstrap because of activity it is not allowed to
+ * observe. Here that is a property of where a watermark is HELD rather than of a
+ * size calculation: a watermark never enters the bounded send queue at all. It
+ * sits in a single per-connection coalescing slot, where a run of them collapses
+ * to one certified range (D13.2, range-extension only, never a reorder) and where
+ * the next frame carrying real changes absorbs it by extending its own range
+ * downward. Under private-by-default a suppressed firehose is therefore bounded
+ * by ONE pending frame per connection, and cannot overflow anything.
  */
 
-import type { SequencedChange } from '../authority/change-lifecycle'
+import type { ScopedChange } from '../authority/change-lifecycle'
+import type { ScopedDelivery } from '../authority/scoping'
 import type {
   ChangeEnvelope,
   ChangeOp,
   DeltaFrame,
+  RescopeFrame,
   ResyncRequiredFrame,
   ServerFrame,
 } from '../replica/types'
 import type { FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
+import { principalIdOf, type FeedPrincipal } from './visibility'
 
 /**
  * The retention floor, read live (ADR 2 D5).
@@ -84,6 +102,8 @@ export interface FeedPublisherDeps {
 /** One connected replica, from the publisher's side. */
 export interface FeedConnection {
   readonly id: string
+  /** WHO this connection stands for (ADR 3 D7 — authenticated transport only). */
+  readonly principal: FeedPrincipal
   /** Frames ready to go out, oldest first. Empties the queue. */
   drain(): readonly ServerFrame[]
   /** ADR 2 D9 — demoted by backpressure and awaiting a re-bootstrap. */
@@ -97,10 +117,20 @@ export interface FeedConnection {
 
 interface ConnectionState {
   readonly id: string
+  readonly principal: FeedPrincipal
   readonly queue: BoundedSendQueue
   /** The exclusive lower bound of the NEXT frame — this connection's certified position. */
   fromSeq: number
   pending: ServerFrame[]
+  /**
+   * The coalescing slot for watermark-only frames (D13.2/D13.4).
+   *
+   * OUTSIDE the bounded queue on purpose — see the file header. Holds the
+   * certified UPPER bound only; the lower bound is always `fromSeq`, so the two
+   * cannot drift apart and there is no way to hold a watermark that certifies a
+   * range not contiguous with this connection's position.
+   */
+  watermarkThrough: number | null
 }
 
 /**
@@ -110,16 +140,19 @@ interface ConnectionState {
  * on the wire and therefore invisible to every golden fixture — the composition
  * drift that only a single definition site or an identity assertion can catch.
  *
- * The op needs no cast and gets none: `SequencedChange.op` is
- * `GlobalChangeOp` (`upsert | remove`), which is a strict subset of the Replica's
- * `ChangeOp` (`… | evict`), because `CHANGE_OPS` is built by EXTENDING
- * `GLOBAL_CHANGE_OPS` rather than by restating it. A cast here would have
- * compiled either way and would have gone on compiling on the day someone added a
- * fourth global op the Replica cannot apply; assigning it plainly means that day
- * is a type error. `evict` is unreachable from a global row by construction — it
- * is derived per-principal at the feed boundary, which is POD-1077's.
+ * The op needs no cast and gets none: `ScopedChange.op` is the Replica's own
+ * `ChangeOp` (`upsert | remove | evict`), and `CHANGE_OPS` is built by EXTENDING
+ * `GLOBAL_CHANGE_OPS` rather than by restating it. A cast here would have compiled
+ * either way and would have gone on compiling on the day someone added a fourth
+ * global op the Replica cannot apply; assigning it plainly means that day is a
+ * type error.
+ *
+ * `evict` reaches this function only from a SCOPED row (phase 4), never from a
+ * stored global one (phase 3), because `SequencedChange` has nowhere to put one.
+ * That is Amendment 1 D14.1's "per-principal, derived at the feed boundary" as a
+ * type relation instead of a convention.
  */
-function toEnvelope(change: SequencedChange): ChangeEnvelope {
+function toEnvelope(change: ScopedChange): ChangeEnvelope {
   const op: ChangeOp = change.op
   return {
     seq: change.seq,
@@ -142,32 +175,44 @@ export class FeedPublisher {
 
   /**
    * Attach a replica at `fromSeq` — its current cursor position, or 0 for a
-   * replica that has just installed a bootstrap at seq 0.
+   * replica that has just installed a bootstrap at seq 0 — AS a principal.
    *
-   * ONE ARGUMENT BEYOND THE ID, AND NO PRINCIPAL. See the file header: the arity
-   * of this method is asserted in `publisher.unscoped.test.ts`, so adding a
-   * principal parameter without the watermark evaluation to go with it fails a
-   * test rather than passing review.
+   * The principal is the third argument and is required. It comes from the
+   * authenticated transport and never from the replica (ADR 3 D7): a connection
+   * that could name its own principal is a connection that can name someone
+   * else's. `publisher.scoped.test.ts` asserts this arity, replacing the
+   * `publisher.unscoped.test.ts` assertion that it was 2.
    */
-  connect(id: string, fromSeq: number): FeedConnection {
+  connect(id: string, fromSeq: number, principal: FeedPrincipal): FeedConnection {
     const state: ConnectionState = {
       id,
+      principal,
       queue: new BoundedSendQueue(this.deps.sendQueue),
       fromSeq,
       pending: [],
+      watermarkThrough: null,
     }
     this.connections.set(id, state)
     return {
       id,
+      principal,
       drain: () => {
         const control = state.pending.splice(0, state.pending.length)
-        return [...control, ...state.queue.drain()]
+        const queued = state.queue.drain()
+        // The pending watermark leaves LAST and only now: it always certifies the
+        // newest range, and holding it until the transport asks is what lets a run
+        // of them collapse to one frame (D13.2).
+        return [...control, ...queued, ...this.takeWatermark(state)]
       },
       isDemoted: () => state.queue.isDemoted(),
       queuedBytes: () => state.queue.queuedBytes(),
       rearm: (atSeq: number) => {
         state.queue.rearm()
         state.fromSeq = atSeq
+        // A watermark held from before the demotion certifies a range against a
+        // position that no longer exists. Dropping it is not a lost update: the
+        // replica has just re-bootstrapped past it.
+        state.watermarkThrough = null
       },
       disconnect: () => {
         this.connections.delete(id)
@@ -180,72 +225,127 @@ export class FeedPublisher {
   }
 
   /**
-   * Publish one appended batch to every connection.
+   * Deliver ONE already-evaluated slice to every connection of ONE principal.
    *
    * Wire this to `Authority.subscribe`. It must run on the authority's ORDERED
    * pipe and after the durable append — `funnel.ts:54`'s pipe-before-bus rule —
    * because a reentrant subscriber that commits again would otherwise re-enter
    * here with LATER seqs before this batch had been framed, delivering
    * `[N-1, N+1, N]` and advancing cursors past a gap that can never heal.
-   */
-  publish(changes: readonly SequencedChange[]): void {
-    if (changes.length === 0) return
-    const highest = changes[changes.length - 1]?.seq ?? this.published
-    this.published = Math.max(this.published, highest)
-    for (const state of this.connections.values()) {
-      this.emitTo(state, changes, highest)
-    }
-  }
-
-  /**
-   * Emit a WATERMARK: "I evaluated up to `seq` and there is nothing for you."
    *
-   * Public because under a scoped feed this is the normal path rather than an
-   * exception (Amendment 1 D13), and POD-1077 needs to reach it without going
-   * through a batch that happens to be empty. Today it is reachable only when the
-   * authority evaluated a range and produced no visible change — a compaction
-   * sweep, a dedup that removed everything — which is the honest unscoped
-   * meaning.
+   * TWO PARAMETERS, AND NEITHER IS A FILTER. The principal names the audience;
+   * the delivery carries the rows AND the range they were evaluated over. There
+   * is no third argument by which a caller could name an op, an audience for a
+   * single row, or a `rescope`: the terminal path is an ARM of the delivery,
+   * chosen in `authority/scoping.ts` from the size of the set the policy derived.
+   * That is why this class has no `rescope` method for anyone to call —
+   * `publisher.scoped.test.ts` asserts its absence, because a caller-supplied
+   * rescope is an oracle for what that caller cannot see.
    */
-  publishWatermark(throughSeq: number): void {
-    this.published = Math.max(this.published, throughSeq)
+  publish(principal: FeedPrincipal, delivery: ScopedDelivery): void {
+    const audience = principalIdOf(principal)
+    this.published = Math.max(this.published, delivery.throughSeq)
     for (const state of this.connections.values()) {
-      this.emitTo(state, [], throughSeq)
+      if (principalIdOf(state.principal) !== audience) continue
+      if (delivery.kind === 'rescope') {
+        this.rescopeTo(state, delivery.reason)
+        continue
+      }
+      this.emitTo(state, delivery.changes, delivery.throughSeq)
     }
   }
 
   private emitTo(
     state: ConnectionState,
-    changes: readonly SequencedChange[],
+    changes: readonly ScopedChange[],
     throughSeq: number,
   ): void {
     // Nothing to certify: this connection is already at or past the range. Not an
     // error — a connection that attached at the head legitimately sees this.
     if (throughSeq <= state.fromSeq) return
+    // A demoted connection has no position to advance and no queue to hold this;
+    // it is waiting on a re-bootstrap, and `rearm` is the only way back.
+    if (state.queue.isDemoted()) return
 
-    const frame: DeltaFrame = {
-      kind: 'delta',
-      feedId: this.identity().feedId,
-      epoch: this.identity().epoch,
-      fromSeq: state.fromSeq,
-      seq: throughSeq,
-      minAvailableSeq: this.retentionFloor(),
-      // Only the part of the batch above this connection's position. A connection
-      // that attached mid-batch must not be certified a range it already had.
-      changes: changes.filter((c) => c.seq > state.fromSeq).map(toEnvelope),
+    // Only the part of the slice above this connection's position. A connection
+    // that attached mid-batch must not be certified a range it already had.
+    const rows = changes.filter((c) => c.seq > state.fromSeq).map(toEnvelope)
+
+    if (rows.length === 0) {
+      // A WATERMARK. It does not enter the bounded queue (D13.4) and it does not
+      // advance `fromSeq` yet: holding the lower bound is what lets the next frame
+      // with real changes absorb this range by extending downward, so a watermark
+      // is never delivered out of order and never costs a frame of its own when
+      // something visible follows it (D13.2, range-extension only).
+      state.watermarkThrough = Math.max(state.watermarkThrough ?? 0, throughSeq)
+      return
     }
 
+    const frame = this.frame(state.fromSeq, throughSeq, rows)
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
       // would let a later re-arm resume from a cursor certifying frames that were
       // discarded. Only `rearm(atSeq)` may set it again, and only after the
       // replica has re-bootstrapped.
+      state.watermarkThrough = null
       state.pending.push(admission.frame)
       return
     }
     if (admission.kind === 'suppressed') return
+    // The pending watermark's range is inside this frame's, so it is spent.
+    state.watermarkThrough = null
     state.fromSeq = throughSeq
+  }
+
+  /**
+   * Flush the coalescing slot, at drain time.
+   *
+   * A run of watermarks collapses to ONE frame here, which is D13.2's coalescing
+   * and D13.4's "a suppressed firehose cannot demote anyone" in the same two
+   * lines: the slot holds a number, not a queue, so there is nothing to overflow.
+   */
+  private takeWatermark(state: ConnectionState): readonly ServerFrame[] {
+    const through = state.watermarkThrough
+    if (through === null || state.queue.isDemoted() || through <= state.fromSeq) return []
+    const frame = this.frame(state.fromSeq, through, [])
+    state.watermarkThrough = null
+    state.fromSeq = through
+    return [frame]
+  }
+
+  /**
+   * Amendment 1 D14.4 — the principal's RIGHTS changed; re-bootstrap scoped.
+   *
+   * Private, and reachable only through the `rescope` arm of a `ScopedDelivery`.
+   * Distinct from `resync-required` in TYPE as well as in telemetry, because
+   * collapsing them makes an authz event look like a performance event and a
+   * re-bootstrap storm after a policy change would be misdiagnosed as
+   * backpressure.
+   */
+  private rescopeTo(state: ConnectionState, reason: string): void {
+    const identity = this.identity()
+    const frame: RescopeFrame | null = state.queue.rescopeNow(
+      identity.feedId,
+      identity.epoch,
+      reason,
+    )
+    state.watermarkThrough = null
+    if (frame !== null) state.pending.push(frame)
+  }
+
+  /** THE one frame constructor. A second one would be invisible to every golden fixture. */
+  private frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): DeltaFrame {
+    const identity = this.identity()
+    return {
+      kind: 'delta',
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      fromSeq,
+      seq,
+      minAvailableSeq: this.retentionFloor(),
+      changes,
+    }
   }
 
   /**

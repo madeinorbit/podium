@@ -57,12 +57,28 @@
  * Both of those are tripwires on the IMPORT, which catches the mistake when it is
  * written rather than when a merge goes wrong in production.
  *
- * WHAT THIS ROLE STILL DOES NOT DO, stated so a green suite is not misread:
- * the feed is UNSCOPED. Every subscriber receives every change. Per-principal
- * filtering, watermarks and `evict` are POD-1077's, and ADR 2 Amendment 1 D13 is
- * explicit that a filter without a watermark is a protocol break — so they land
- * together, and not here. `authority.unscoped.test.ts` pins the absence as a
- * TEST, so nobody can read this file's silence as privacy.
+ * ---------------------------------------------------------------------------
+ * THE FEED IS SCOPED (POD-1077) — AND THE RANGE IS PART OF THE DELIVERY
+ * ---------------------------------------------------------------------------
+ *
+ * Amendment 1 D12 overturned D2's unscoped clause: a replica's stream is the
+ * subsequence of the one global feed its principal may see, and D12.7 puts the
+ * evaluation HERE ("the authority evaluates visibility; the replica never
+ * filters, never re-checks, and never receives a row it may not see").
+ *
+ * Both read paths of this role — `subscribe` and `changesSince` — therefore take
+ * a PRINCIPAL and return a {@link ScopedDelivery}, which carries the evaluated
+ * range beside the rows. There is no unscoped overload of either, because an
+ * optional principal makes the unscoped read the default and the default is what
+ * every new call site takes. `authority.scoped.test.ts` replaces the
+ * `authority.unscoped.test.ts` tripwire POD-305 left here, assertion for
+ * assertion.
+ *
+ * Nothing about the WRITE side moved. Scoping happens at read/fan-out and never
+ * at append (D12.6), which is precisely why one global `seq` can stay global:
+ * one log read still serves N principals, `minAvailableSeq` stays a single
+ * published number, and `originId`/`causationId` stay meaningful across
+ * principals.
  */
 
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
@@ -77,6 +93,9 @@ import type {
   ChangeSubscriber,
   TransactPort,
 } from './ports'
+import type { FeedPrincipal, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
+import { principalIdOf } from '../feed/visibility'
+import { DEFAULT_RESCOPE_THRESHOLD, scopeBatch, type ScopedDelivery } from './scoping'
 
 export interface AuthorityDeps {
   /** The durable change log. Narrow by design — see `ChangeStorePort`. */
@@ -85,6 +104,21 @@ export interface AuthorityDeps {
   now: AuthorityClock
   /** ADR 2 D10's unit of work, injected. Unit tests may pass `(fn) => fn()`. */
   transact: TransactPort
+  /**
+   * ADR 2 Amendment 1 D12.7 — the per-principal evaluation, REQUIRED.
+   *
+   * Required rather than optional-defaulting-to-permissive, and that is the
+   * decision: a default would make "no policy" indistinguishable from "everyone
+   * may see everything", which is the fails-OPEN shape this run has paid for
+   * repeatedly. A composition root that genuinely has one principal must SAY so
+   * by naming `DeviceGradeUnscopedPolicy`, and `bun run audit:scoped-feed` holds
+   * that name to its declared allowlist.
+   */
+  visibility: FeedVisibilityPolicy
+  /** D14.3 — what turns a grant row into per-principal `evict`/re-admit rows. */
+  anchors: VisibilityAnchorPort
+  /** D14.4's terminal-path bound. Defaults to {@link DEFAULT_RESCOPE_THRESHOLD}. */
+  rescopeThreshold?: number
 }
 
 /**
@@ -113,9 +147,15 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   )
 }
 
+/** One subscription: who it is for, and where its deliveries go. */
+interface ScopedSubscription {
+  readonly principal: FeedPrincipal
+  readonly deliver: ChangeSubscriber
+}
+
 export class Authority implements AuthorityPort {
   private readonly baseline = new ChangeBaseline()
-  private readonly subscribers = new Set<ChangeSubscriber>()
+  private readonly subscribers = new Set<ScopedSubscription>()
 
   constructor(private readonly deps: AuthorityDeps) {
     this.baseline.seed(deps.store)
@@ -197,20 +237,84 @@ export class Authority implements AuthorityPort {
     return this.finalize(staged, seqs)
   }
 
-  changesSince(cursor: number | null): readonly SequencedChange[] | null {
+  /**
+   * Catch-up read for ONE principal (Amendment 1 D13's certified reply).
+   *
+   * `throughSeq` is the LOG HEAD, not the last visible row's seq. A reply whose
+   * range stopped at the last visible row would certify a range that ends where
+   * the data ends — so every suppressed seq above it stays an unexplained hole,
+   * the replica heals again, and the heal returns the same filtered rows. That
+   * loop is the exact failure D2 named and D13 exists to prevent, and it is
+   * reachable here rather than only on the live path because a heal is how a
+   * replica recovers from every rung of the ladder.
+   */
+  changesSince(cursor: number | null, principal: FeedPrincipal): ScopedDelivery | null {
     const rows = readChangesSince(this.deps.store, cursor)
-    return rows === null ? null : rows.map(fromWire)
+    if (rows === null) return null
+    return this.scope(principal, rows.map(fromWire), this.cursor())
   }
 
   cursor(): number {
     return this.deps.store.maxChangeSeq()
   }
 
-  subscribe(subscriber: ChangeSubscriber): () => void {
-    this.subscribers.add(subscriber)
+  /**
+   * Amendment 1 D13.5's LIVENESS TICK: "I evaluated everything up to the head and
+   * there is nothing for you."
+   *
+   * Produced by scoping an EMPTY batch through the same function every other
+   * delivery goes through, rather than by a bespoke watermark constructor. That
+   * is what makes a watermark structurally unable to skip a visible row: it is
+   * the ordinary path with a filter that matched nothing, so there is no second
+   * code path where someone could certify a range without evaluating it.
+   *
+   * D13.5 makes this normative rather than optional: under private-by-default a
+   * replica's visible traffic is sparse, and one that is never watermarked
+   * forward falls below `minAvailableSeq` and re-bootstraps for lack of news. The
+   * CADENCE is POD-337's measured threshold; this is the operation it calls.
+   */
+  watermark(principal: FeedPrincipal): ScopedDelivery {
+    return this.scope(principal, [], this.cursor())
+  }
+
+  subscribe(principal: FeedPrincipal, subscriber: ChangeSubscriber): () => void {
+    const subscription: ScopedSubscription = { principal, deliver: subscriber }
+    this.subscribers.add(subscription)
     return () => {
-      this.subscribers.delete(subscriber)
+      this.subscribers.delete(subscription)
     }
+  }
+
+  /** The principals currently subscribed, by stable id. Telemetry and tests. */
+  subscribedPrincipals(): readonly string[] {
+    return [...this.subscribers].map((s) => principalIdOf(s.principal))
+  }
+
+  /**
+   * ONE evaluation site, used by BOTH read paths.
+   *
+   * Deliberately private and deliberately singular: a second scoping site would
+   * be byte-identical on the wire in the common case and therefore invisible to
+   * every golden fixture — a restatement is exactly the composition drift only a
+   * single definition site can prevent. `authority.scoped.test.ts` asserts that
+   * the live path and the heal path agree by DIFFING their output over the same
+   * range rather than by asserting each against a literal.
+   */
+  private scope(
+    principal: FeedPrincipal,
+    changes: readonly SequencedChange[],
+    throughSeq: number,
+  ): ScopedDelivery {
+    return scopeBatch(
+      {
+        policy: this.deps.visibility,
+        anchors: this.deps.anchors,
+        rescopeThreshold: this.deps.rescopeThreshold ?? DEFAULT_RESCOPE_THRESHOLD,
+      },
+      principal,
+      changes,
+      throughSeq,
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -339,9 +443,18 @@ export class Authority implements AuthorityPort {
     try {
       while (this.pendingBatches.length > 0) {
         const batch = this.pendingBatches.shift() as readonly SequencedChange[]
-        for (const subscriber of this.subscribers) {
+        // The head of THIS batch, captured before any subscriber can commit
+        // again. Reading `this.cursor()` inside the loop would certify a range
+        // including seqs from a reentrant commit whose own batch has not been
+        // delivered yet — a cursor advanced past data that is still queued, which
+        // is the invisible permanent gap arriving through the ordering door
+        // rather than the visibility one.
+        const throughSeq = batch[batch.length - 1]?.seq ?? 0
+        for (const subscription of this.subscribers) {
           try {
-            subscriber(batch)
+            // Evaluated PER SUBSCRIBER, inside the one ordered drain: N
+            // principals see N slices of one batch, and never two orders of it.
+            subscription.deliver(this.scope(subscription.principal, batch, throughSeq))
           } catch (err) {
             console.error('[authority] change subscriber threw', err)
           }

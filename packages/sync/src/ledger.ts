@@ -1,8 +1,13 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { Authority } from './authority/authority'
+import {
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+  DEVICE_GRADE_PRINCIPAL,
+} from './feed/visibility'
 import type {
   StagedChangeSpec as KernelChangeSpec,
-  SequencedChange,
+  ScopedChange,
 } from './authority/change-lifecycle'
 import {
   CHANGE_KEEP_ROWS,
@@ -161,14 +166,43 @@ export class Ledger {
       store: deps.repo,
       now: deps.now,
       transact: deps.transact,
+      // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
+      //
+      // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
+      // edges as model types, so a principal is finally EXPRESSIBLE. It did not
+      // land per-user login: `packages/runtime/src/auth-store.ts` is still one
+      // shared password and `apps/server/src/gateway/client-principal.ts` still
+      // asserts `CLIENT_PRINCIPAL_GRADE === 'device'`. Two connections presenting
+      // that password are indistinguishable AS PERSONS.
+      //
+      // A filter is only as correct as the authenticator naming the principal it
+      // filters for, so this composition root — the pre-cutover oplog facade —
+      // names the ONE policy that matches its transport, by an exported name that
+      // says what it is. `bun run audit:scoped-feed` holds the site list at
+      // exactly this one, so a second `DeviceGradeUnscopedPolicy` cannot appear
+      // quietly; when per-user login lands, deleting that export is what forces
+      // every site to name a real policy.
+      visibility: new DeviceGradeUnscopedPolicy(),
+      anchors: new DeviceGradeNoAnchors(),
     })
     // One subscription, translating the kernel's vocabulary into this facade's.
     // Registered in the CONSTRUCTOR rather than lazily on first listener: the
     // Authority delivers batches in append order through one queue, and joining
     // that queue late would put this facade's listeners behind changes they were
     // registered before.
-    this.authority.subscribe((changes) => {
-      const wire = changes.map(toWireChange)
+    this.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
+      // D14.4's terminal arm is unreachable from here — `DeviceGradeNoAnchors`
+      // reports no visibility edges, so no anchored row is ever derived and the
+      // threshold cannot be crossed. Handled rather than cast, because "cannot
+      // happen" plus a cast is how a silently dropped delivery ships.
+      if (delivery.kind !== 'batch') {
+        throw new Error(
+          `Ledger: the Authority produced a '${delivery.kind}' delivery for the device-grade ` +
+            `principal. This facade is the PRE-CUTOVER wire (POD-308 owns the new one) and cannot ` +
+            `express it. A real visibility policy here needs the wire cutover first (ADR 2 Am1 D17.2).`,
+        )
+      }
+      const wire = delivery.changes.map(toWireChange)
       for (const listener of this.listeners) {
         try {
           listener(wire)
@@ -233,8 +267,10 @@ export class Ledger {
   /** Catch-up read for `sync.changesSince` — null means "fall back to a
    *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
   changesSince(cursor: number | null): MetadataChange[] | null {
-    const changes = this.authority.changesSince(cursor)
-    return changes === null ? null : changes.map(toWireChange)
+    const delivery = this.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+    if (delivery === null) return null
+    if (delivery.kind !== 'batch') return null
+    return delivery.changes.map(toWireChange)
   }
 
   /** Current cursor — the highest seq ever assigned (0 before any change). */
@@ -316,7 +352,19 @@ function toKernelSpec(spec: EntityChangeSpec): KernelChangeSpec {
 }
 
 /** The kernel's sequenced change → the pre-cutover wire row. */
-function toWireChange(change: SequencedChange): MetadataChange {
+function toWireChange(change: ScopedChange): MetadataChange {
+  // The PRE-CUTOVER wire has two ops (`@podium/protocol`'s `MetadataChange`);
+  // `evict` is the third, and POD-308 owns bringing the wire onto the scoped
+  // vocabulary. Refused loudly rather than silently coerced into `remove`, which
+  // is exactly the substitution Amendment 1 D14.5 makes normative: the replica
+  // would render a revoked share as a deletion, and a later re-grant as a
+  // resurrection. Unreachable while this facade names `DeviceGradeNoAnchors`.
+  if (change.op === 'evict') {
+    throw new Error(
+      `Ledger: an 'evict' row reached the pre-cutover wire, which cannot express it. ` +
+        `'remove' is NOT a substitute (ADR 2 Am1 D14.5) — the wire cutover (POD-308) comes first.`,
+    )
+  }
   const base = { seq: change.seq, id: change.entityId, op: change.op }
   return (
     change.op === 'upsert'
