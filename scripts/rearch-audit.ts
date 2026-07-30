@@ -656,16 +656,54 @@ export const CHECKS: AuditCheck[] = [
   },
   {
     id: 'router-triple-access',
-    title: 'router.ts triple state access (mods() / registry / sessionStore)',
+    title: 'tRPC transport triple state access (mods() / registry / sessionStore)',
     phase: 'POD-314',
-    unit: 'hand-written state reach-through in router.ts',
+    unit: 'hand-written state reach-through in a file that BUILDS tRPC procedures',
+    // SCOPE WIDENED AT POD-314, AND THIS IS A REDEFINITION RATHER THAN A
+    // RE-BASELINING — the POD-305 pattern. No product code changed in the commit
+    // that moved this number; the DETECTOR's scope did, and the count rose
+    // because debt became measurable (POD-301's words, 25/186 -> 28/237).
+    //
+    // WHY IT HAD TO MOVE. The old root was `apps/server/src/router.ts` alone,
+    // which is exactly the blindness POD-1180 was filed for: an extraction into
+    // `modules/**/trpc.ts` read as a win with nothing removed. Three issues
+    // measured it and each declined to widen, because widening changes
+    // EVERYONE's number and had to be done once, across all the derived routers,
+    // by whoever could measure the whole thing — POD-382 found 5 of its 7
+    // "removals" were moves, POD-384 moved seven sites into
+    // modules/fleet/handlers.ts, POD-386 one into modules/specs/trpc.ts.
+    //
+    // MEASURED, both scopes, so the one NOT chosen is on the record too:
+    //   router.ts alone (the old scope)      6
+    //   + modules/**/trpc.ts (this scope)   20
+    //   all of apps/server/src/modules      37
+    // (all three measured BY THIS INSTRUMENT, which strips comments first — a
+    // raw grep reports one more for the middle figure, and the instrument's
+    // number is the one that governs.)
+    //
+    // THIS SCOPE IS THE FILES THAT BUILD PROCEDURES, chosen on what the item
+    // MEANS rather than on what it counts: its subject is A TRANSPORT REACHING
+    // PAST THE SEAM. The third boundary measures something different — reach-
+    // through by anything a transport DERIVES — and folding it in here would
+    // change the referent while keeping the name, which is the same defect as a
+    // restatement passing a golden fixture. The 20 -> 37 gap is a finding in its
+    // own right and belongs to POD-1180's successor: it says the derived arms
+    // reach past the seam MORE than the transports ever did, which is the
+    // opposite of what the cutovers were meant to buy.
     collect: (ctx) =>
       grep(ctx, {
-        roots: ['apps/server/src/router.ts'],
-        // `mods(ctx)` is only sugar: trpc.ts:41 returns `ctx.modules ??
+        // Both homes, the POD-383 precedent recorded on `send-turn-duplicate`
+        // below: a detector that follows code to its new address and forgets the
+        // old one reads a RELAPSE as a pass.
+        roots: ['apps/server/src/router.ts', 'apps/server/src/modules'],
+        // Only the files that BUILD procedures. Expressed as the existing `skip`
+        // veto rather than a new option: `router.ts` is named directly and every
+        // other scanned file must be a family's `trpc.ts`.
+        skip: (file) => file !== 'apps/server/src/router.ts' && !file.endsWith('/trpc.ts'),
+        // `mods(ctx)` is only sugar: trpc.ts returns `ctx.modules ??
         // ctx.registry.modules`. Keying on the helper NAME alone would miss the
-        // same reach-through spelled longhand (router.ts:582 etc.) — and would
-        // read a codemod that inlines the helper as 100+ deletions.
+        // same reach-through spelled longhand — and would read a codemod that
+        // inlines the helper as 100+ deletions.
         pattern: /\bmods\(|\bsessionStore\b|\bctx\.registry\.modules\b|\bctx\.modules\b/,
       }),
   },
