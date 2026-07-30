@@ -387,7 +387,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
       actor: { kind: 'user', userId: 'user-mike' },
     })
 
-  const arbitrate = (partial: Partial<OverlayInputs>) =>
+  const withArbitration = (partial: Partial<OverlayInputs>) =>
     computeOverlay({
       base: undefined,
       exit: undefined,
@@ -397,7 +397,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     })
 
   it('carries the reason out, and leaves the authoritative value exactly where it was', () => {
-    const result = arbitrate({
+    const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
       pending: [byAgent('m1', 'agent guess')],
     })
@@ -421,7 +421,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
    * empty `rejected`. It does, and that is what separates the two answers.
    */
   it('distinguishes a PREDICTED refusal from an unknown effect in one fold', () => {
-    const result = arbitrate({
+    const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
       pending: [
         byAgent('m1', 'agent guess'),
@@ -442,7 +442,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     // The vacuity check on the fixture above: if the reducer ignored `authored`,
     // this would reject too, and the previous test would prove nothing about the
     // arbitration. Same base, same name, same everything but the actor.
-    const result = arbitrate({
+    const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
       pending: [byHuman('m1', 'renamed by me')],
     })
@@ -456,7 +456,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     // Clearing the name clears `nameSource` (the shipped service does exactly
     // this), which unblocks the agent rename that follows it. A fold that stopped
     // at the first `rejected` would render a state the authority never reaches.
-    const result = arbitrate({
+    const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
       pending: [
         byAgent('m1', 'too early'),
@@ -473,7 +473,7 @@ describe('a reducer may PREDICT a refusal, and the projection must not swallow i
     // Rule 2 runs before any reducer, so there is no reason to report. Reporting
     // one would mean naming a cause, and for an `evict` the cause is a revoked
     // share — the visibility fact this projection is forbidden to know.
-    const result = arbitrate({
+    const result = withArbitration({
       base: row({ name: 'chosen by me', nameSource: 'user' }),
       exit: 'evicted' as ExitKind,
       pending: [byAgent('m1', 'agent guess')],

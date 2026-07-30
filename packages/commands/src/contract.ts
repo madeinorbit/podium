@@ -211,11 +211,79 @@ export type ErrorConsistency =
 // D6 — optional optimistic reducer
 // ---------------------------------------------------------------------------
 
+/**
+ * The actor half of the authored attribution pair, BY KIND ONLY (POD-351).
+ *
+ * A reducer receives this and never an identity. `session.rename`'s arbitration
+ * ([spec:SP-eb60]) turns on human-versus-agent, so a reducer that could not see
+ * the kind could never predict a refusal — and the rejection member below would
+ * be a shape with no possible caller. It learns "an agent wrote this"; it has no
+ * argument with which to ask "may this agent write this".
+ *
+ * Structurally compatible with `@podium/sync`'s `PendingAttribution` by
+ * construction and by assertion, NOT by coincidence — see the note on
+ * {@link OptimisticEffect}.
+ */
+export interface AuthoredAttribution {
+  /** The human the write is on behalf of (ADR 9 D5 A4's provisional owner). */
+  readonly onBehalfOf: string
+  /** Opaque to the Replica; a reducer reads only `kind`. */
+  readonly actor: unknown
+}
+
+/**
+ * WHAT A REDUCER SAYS A PENDING COMMAND WOULD DO — the contract layer's copy of
+ * the kernel's `OptimisticEffect`.
+ *
+ * ## Why this is declared twice, and why that is not the redefinition the ADRs forbid
+ *
+ * `packages/sync/src/replica/` is DIRECTION-LOCKED: it imports nothing outside
+ * itself but the span port (`check-boundaries` rule 10, ADR 1 D1 / ADR 2
+ * Amendment 1 D12.7), because a Replica that could reach the contract vocabulary
+ * would be a Replica that could interpret commands — which is arbitration. So the
+ * kernel declares the port it CONSUMES, and this package declares the vocabulary
+ * it PROVIDES. That is a port declared by the consumer and implemented by the
+ * provider, joined by an adapter at the composition root; it is the same
+ * hexagonal shape the rest of the pack uses, not a second home for one fact.
+ *
+ * ## What stops them drifting, since two declarations can
+ *
+ * Structural compatibility is asserted BIDIRECTIONALLY at the composition root
+ * where both types are importable, with a non-vacuity probe beside it — an
+ * assignment that compiles proves nothing if it would compile against anything.
+ * A member added on one side and not the other fails that assertion at build
+ * time. The alternative — putting this in `@podium/model` — would move a
+ * command-plane concept into the L0 leaf that ADR 4 reserves for entity
+ * vocabulary, to avoid a duplication that is already caught.
+ */
+export type OptimisticEffect =
+  /** The provisional value after this command. Materialises a row if there is none. */
+  | { readonly kind: 'value'; readonly value: unknown }
+  /** Optimistically absent — the command removes the row from the view. */
+  | { readonly kind: 'absent' }
+  /** No client-derivable effect. Render pending; never guess (ADR 3 D6). */
+  | { readonly kind: 'no-reducer' }
+  /**
+   * The reducer PREDICTS the authority will refuse, and can say why (POD-351).
+   * Advisory only: the command stays queued and is still judged live at apply.
+   * Derivable from the authoritative row + the command; never from a principal.
+   */
+  | { readonly kind: 'rejected'; readonly reason: string }
+
+/**
+ * ADR 3 D6's optional optimistic reducer. Pure, total, and handed no principal.
+ *
+ * `local` is the authoritative row from the principal's slice, or `undefined`
+ * when the slice holds none — the only case in which a reducer may materialise
+ * one. `authored` is the pair the write was recorded under, forwarded from the
+ * Outbox verbatim.
+ */
 export type OptimisticReducer<In> = (args: {
   input: In
   local: unknown
   now: string
-}) => unknown | null
+  authored?: AuthoredAttribution
+}) => OptimisticEffect
 
 // ---------------------------------------------------------------------------
 // The contract
