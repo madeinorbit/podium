@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { applyAllowlist, partitionAllowlist } from './architecture-manifest'
+import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
   checkFile,
   checkHostEdgeSeparationAll,
@@ -477,6 +479,22 @@ describe('rule 9 — host edge vs agent command relay (ADR 7 D2)', () => {
       "import { open } from './browser-open.js'\nexport const use = open\n",
     )
     expect(checkHostEdgeSeparationAll(root).map((v) => v.rule)).toEqual(['host-edge-separation'])
+  })
+
+  it('a violation FAILS the gate: it is not allowlisted, so it lands in errors', () => {
+    // Mechanism presence is not coverage. The two tests above prove the rule
+    // fires; this one proves a firing rule stops the build rather than being
+    // warned away by the ratchet, which is the other half of "enforced".
+    const violation = {
+      file: 'apps/daemon/src/hook-ingest.ts',
+      specifier: './agent-relay.js',
+      rule: 'host-edge-separation',
+      message: 'synthetic',
+    }
+    const [, legacy] = partitionAllowlist(BOUNDARY_ALLOWLIST)
+    const { warnings, errors } = applyAllowlist([violation], legacy)
+    expect(errors).toEqual([violation])
+    expect(warnings).toEqual([])
   })
 
   it('leaves same-side imports and unrelated siblings alone', () => {
