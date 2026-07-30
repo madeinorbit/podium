@@ -1564,3 +1564,32 @@ fixing (rebase, amend, squash), the SHAs change, the originals survive only in t
 the ADD/ADD appears exactly as predicted. This is a concrete reason the fan-out rule is *merge, never
 rebase* — a rebase downstream of a shared ghost turns a clean automatic merge into a conflict where the
 reflexive resolution silently reinstates the broken version.
+
+### The golden wire fixtures are STRUCTURALLY BLIND to composition drift — only `toBe` sees it
+
+This programme's core claim is "every concept defined once, and the other shapes COMPOSE that
+definition." The obvious way to verify it — run the wire goldens — cannot verify it at all, and it is
+worth being precise about why.
+
+A shape that RESTATES a field list instead of composing the shared schema produces **byte-identical
+wire output**. Branding is compile-time. So both golden suites
+(`packages/protocol/src/messages/wire-golden.json`, byte-for-byte; `src/__fixtures__/golden/*.json`,
+reflecting over export surfaces) pass on a restatement exactly as they pass on a composition. A green
+golden run is evidence the WIRE did not change; it is NOT evidence the vocabulary did not fork.
+
+**The only instrument that sees a fork is object identity.** Assert `toBe` against the shared schema
+INSTANCE — not `toEqual`, not a golden diff, not a snapshot. POD-351 did this deliberately and stated
+the reason: its target contract composes POD-380's schema instance asserted `toBe`, because a
+restatement "would be byte-identical and pass every golden fixture; only object identity sees the
+fork." That assertion was load-bearing — its shadow comparison could only claim to measure HANDLERS
+because both paths provably parsed ONE schema.
+
+**Corollaries:**
+
+- Any issue claiming "one definition site" owes a `toBe` identity assertion per consumer, or the claim
+  is unverifiable by construction rather than merely unverified.
+- A new retained representation belongs in POD-368's registry with its purpose, why its semantics
+  differ, its ADR 4 role and its composition state. An unregistered representation is how the previous
+  two attempts grew ~8 definitions of "a session".
+- Deriving a value (e.g. `evict` from the op vocabulary) rather than restating it is the same rule one
+  level down — and a derivation is checkable the same way.
