@@ -263,7 +263,7 @@ describe('membership is per principal and leaves are derived (D9.4/D10.6)', () =
     expect(registry.keysOf(asSubscriberId('ghost'))).toEqual([])
   })
 
-  it('holds no durable presence: everything dies with the connections (D12)', () => {
+  it('drops all presence state when the connection goes — nothing outlives it (D12)', () => {
     const { port, registry } = setup()
     port.join(conn('a', user('alice')), room)
     port.publishPresence(conn('a', user('alice')), room, { cursor: 1 })
@@ -312,7 +312,7 @@ describe('today’s `visible` boolean maps forward (D9.5)', () => {
 })
 
 describe('room fan-out never touches the funnel or the oplog (D11.1)', () => {
-  it('publishes no durable frame and moves no feed seq', () => {
+  it('puts nothing on the durable pipe under a 200-update flood, and never demotes the replica', () => {
     const registry = new SubscriptionRegistry()
     const feedRouter = new PlaneRouter<{ seq: number }>(registry, controlEntityDelivery(4))
     const presenceRouter = new PlaneRouter<PresenceRoomServerMessage>(
@@ -339,7 +339,7 @@ describe('room fan-out never touches the funnel or the oplog (D11.1)', () => {
     expect(feedRouter.isDemoted(asSubscriberId('a'))).toBe(false)
   })
 
-  it('coalesces by (room, member, kind) so a flood collapses instead of growing', () => {
+  it('gives join and update ONE coalescing identity per member, and keeps leave distinct', () => {
     const left = presenceCoalesceKey({
       type: 'presenceRoomDelta',
       room,
