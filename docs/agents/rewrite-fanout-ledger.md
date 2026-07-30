@@ -1935,3 +1935,24 @@ The name is the mechanism: it says what it is, it is held to a two-entry allowli
 `audit:scoped-feed`, and it is **deleted outright when per-user login lands**, which forces every site
 to name a real policy at that moment. A placeholder with an honest name and a gate counting its uses is
 a scheduled deletion; an optional-permissive default is a fails-open hole nobody will find.
+
+### `vitest run <path>` EXITS 0 WHEN IT FINDS NO TESTS — every isolation check is exposed
+
+Measured directly: `bun --bun vitest run scripts/this-file-does-not-exist.test.ts` prints
+*"No test files found, exiting with code 0"* and **exits 0**.
+
+This aims the run's dominant defect class straight at the method everyone here uses to disclaim a red.
+"It passes in isolation" is normally established by running the one file and reading the exit code — and
+a mistyped path, a moved file, or a renamed suite produces the identical green. I nearly recorded one:
+I ran a seam test that does not exist, read `exit=0`, and only caught it because the `Test Files` line
+was missing from the output.
+
+**The rule: an isolation check is only evidence if it reports a NON-ZERO test count.** Grep the
+`Test Files N passed` / `Tests N passed` line and assert it is there — do not read the exit code alone.
+Same discipline the fleet applies to its own gates (POD-305's guard that fails first if the matrix
+imports empty; POD-301's population floor that throws below 1800 sites): **a run that measured nothing
+must not be able to look like a run that measured everything.**
+
+Corollary for the same reason: `git add <nonexistent>` FAILS loudly (`pathspec did not match any
+files`), which is why the missing file was caught at all. Prefer commands that refuse over commands
+that shrug.
