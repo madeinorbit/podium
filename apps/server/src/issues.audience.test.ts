@@ -22,7 +22,7 @@ const ctx = (registry: SessionRegistry, capability: Capability) =>
     capability,
   })
 
-/** issueWrite-wrapped mutations type as `wire | { queued: true }` — local tests always get the wire. */
+/** Issue mutations are typed loosely at this seam; these cases assert on the wire. */
 const asWire = (v: unknown): IssueWire => v as IssueWire
 
 const withWarning = (v: unknown): string | undefined => (v as { warning?: string }).warning

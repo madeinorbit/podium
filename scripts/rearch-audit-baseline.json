@@ -25,7 +25,7 @@
     "state-dir-defs": 0,
     "static-systemd-units": 11,
     "superagent-shadow-types": 2,
-    "upstream-sync-forwarder": 4,
+    "upstream-sync-forwarder": 0,
     "web-storage-keys": 12
   }
 }

@@ -8,10 +8,11 @@
  * WHAT THIS FILE IS FOR
  * ---------------------------------------------------------------------------
  *
- * Today the answers to "who may write this, who may see it, and what happens
- * when two writes race" are IMPLICIT — spread through `UpstreamSync`'s apply
- * logic and the upstream forwarder's per-proc patch switch, where they can only
- * be read by tracing code. This module makes them DATA: one closed vocabulary
+ * The answers to "who may write this, who may see it, and what happens when two
+ * writes race" used to be IMPLICIT — spread through the retired upstream dialer's
+ * apply logic and the forwarder's per-proc patch switch (both deleted at POD-309),
+ * where they could only be read by tracing code. This module makes them DATA: one
+ * closed vocabulary
  * here, one row per aggregate/field group in `matrix.ts`, and a totality test
  * that fails when a durable class arrives without them.
  *
