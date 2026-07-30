@@ -947,3 +947,45 @@ Also worth keeping, POD-381's sharpest line on the not-yet-wired rule: it declin
 column to `sessions` because POD-379's attribution oracle pins that row's full key set against POD-1075
 as the issue that changes it — so a column here **would edit another issue's characterization to record
 a value nothing reads**.
+
+### "Done" is not "durable": I merged a mid-flight branch and got the exact duplicate
+
+POD-642 was blocked waiting on POD-380's contract framework plus four of POD-381's modules, and correctly
+refused to merge a sibling branch. To unblock it I merged POD-380's three commits and POD-381's one
+commit into integration. It failed:
+
+    packages/protocol/src/commands.ts(324,13): error TS2300: Duplicate identifier 'CommandTransport'
+
+**The exact duplicate the whole coordination existed to prevent.** POD-381 had told me twice that it
+merged POD-380 and deleted its own `CommandTransport`/`CommandDelivery` unions — and it had, *in its
+working tree*. Its committed history was one commit sitting directly on integration,
+`git merge-base --is-ancestor f9bf5fa5 <381 tip>` said **NO**, and 17 files were modified and
+uncommitted. Integration reset to `10632d1e`, clean again.
+
+> Before treating any branch as landable, check that the part you need is COMMITTED — `git log` and
+> `merge-base --is-ancestor` on the specific commit an agent cited, not the agent's word for it. An
+> agent reporting "I merged X" may mean its working tree, and 17 uncommitted files are one API 529 away
+> from gone. One stream has already died that way today.
+
+My error, not POD-381's: I treated mid-flight work as landable to relieve a blocked stream. The blocked
+stream was waiting *well* — POD-642 had written its access callbacks against POD-381's signatures
+verbatim so the eventual wiring is a pass-through — so the wait cost far less than the bad merge did.
+
+### Make the exception visible, do not make the rule silent
+
+POD-380, as framework owner, ratified POD-381's `machineVerb` and then added the note that decided the
+shape — **`offline` must not be DERIVED from `machineVerb`**, even though D18.3 makes the implication
+true in general. The `resumeAndSend` carve-out proves the implication has exceptions, so a derived value
+would need an override, and *an override on a derived field is strictly worse than an explicit field with
+a recorded reason: the reader cannot tell which contracts actually thought about it.*
+
+So `offline` stays explicit per contract, and D18.3 is expressed as a **test** asserting
+`machineVerb: 'use'` implies online-only for every contract except a named, commented allowlist. A new
+command that forgets to think about it reds instead of inheriting a default.
+
+Its sharper statement of the axis is worth keeping too: resource/scope/action is the **ownership** axis,
+and "may this principal execute on that host" is not a narrower version of it — `resource: 'machine'`
+would have made `sessions.kill` stop naming the session whose owner also has to authorize it, which is
+what D15.2 forbids.
+
+Adopted fleet-wide as the standing formulation.
