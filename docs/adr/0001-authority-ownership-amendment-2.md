@@ -242,7 +242,7 @@ be assignable to exactly one of them:
 | **Type** | `InstanceId` brand (D5.1), **configuration-only** (D17) | `MachineId` brand | `InstanceServiceRole` union — **not an id** | `UserId` brand (POD-1075) |
 | **Who mints it** | **Not minted — selected.** A human supplies it at deploy time via `PODIUM_INSTANCE` or `--instance`; when neither is set, `resolveInstanceId` **supplies `default` automatically**, so the label on an unconfigured deployment is a fallback, not anyone's deliberate act. No process ever mints a *new* id; the first process to claim a state root merely **records** the selected one (`ensureInstanceStateIdentity` → `instance.json`) | **The daemon**, once, `randomUUID()` in `daemon.json` (identity.ts L35) — **in the target scheme.** Today the local machine is the documented exception: the **server** provisions `machines.id = 'local'` at startup with a server-minted secret (`ensureLocalMachine`, service.ts L409; server.ts L226). POD-318 deletes that exception — see D16.2 | Nobody — it is a compile-time constant of the entry point, surfaced in unit and command names | **The server**, at account creation / invite (ADR 9 D1.2) |
 | **Scoped by** | Nothing above it. It **is** the outermost scope — but see D16.1: the *carrier* of the partition is the resolved **state root**, and the id is a label on that root, not a global name for it | Its instance — because its identity file lives in that instance's state root, and its row lives in that instance's DB | Its instance | Its instance |
-| **What equality means** | **Nothing, by itself.** See **D16.1** — equality of instance-id strings is *not* evidence that two processes belong to one deployment, and no code path treats it as such | "The same daemon identity file", hence the same host **as far as this instance's fleet is concerned** — **not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly. Authoritative only inside the instance whose DB holds the row (D16.1) | "The same **role class**" — and nothing more. **N live daemon processes in one deployment is NORMAL**, one per paired machine. Uniqueness is per **host**, not per deployment (D16.3); daemon processes are identified by their `MachineId` and pairing relation, never by their role | "The same person" — **within one instance only.** Server-minted, so equal `UserId` values in two instances are unrelated strings (D21.3) |
+| **What equality means** | **Nothing, by itself.** See **D16.1** — equality of instance-id strings is *not* evidence that two processes belong to one deployment, and no code path treats it as such | "The same daemon identity file", hence the same host **as far as this instance's fleet is concerned** — **not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly. Authoritative only inside the instance whose DB holds the row (D16.1) | "The same **role class**" — and nothing more. **Role carries NO identity uniqueness at any scope** — not per deployment, not per host (D16.3). N live daemon processes in one deployment is normal; two on one host are possible. A role never identifies a process | "The same person" — **within one instance only.** Server-minted, so equal `UserId` values in two instances are unrelated strings (D21.3) |
 | **Never** | Replicated, synced, wire-borne, or a column (D18, D19, D20) | A stand-in for a person (ADR 9 D1's rejected alternatives), nor for a partition | An id, an owner, or a security principal | A partition. `UserId` never separates deployments |
 | **If conflated with the others** | See the failure table below | | | |
 
@@ -301,7 +301,7 @@ for the moment an implementer is about to write `a.id === b.id`:
 | `InstanceId` | **Nothing.** Not unique in any scope the runtime can observe — it is a *label on a state root*, and `default` is the label of every unconfigured deployment on earth | Only that two things carry the same label | That they share a deployment, a database, a port triplet, a fleet, or anything else. Use the resolved **state root** (same host) or the **pairing relation** (across hosts) |
 | `MachineId` | One instance's `machines` table | The same daemon identity file, hence the same host **within that instance** | Anything across instances — and today the constant `'local'` is byte-equal in *every* instance while naming different hardware |
 | `UserId` | One instance's `User` aggregate | The same person **within that instance** | Anything across instances (D21.3: no identity portability) |
-| `InstanceServiceRole` | **Not unique anywhere as an identity.** The intended *managed* topology is one server and one daemon per `(host, instance)` — a systemd arrangement, plus a real port-bind constraint on the **server** only (D16.3) | The same role **class** | That the processes are the same process, that only one may exist in the deployment, or that only one may exist on a host. Identify a specific daemon by its `MachineId` and pairing relation (D16.3) |
+| `InstanceServiceRole` | **Not unique anywhere as an identity** — no scope, including a host. The intended *managed* topology is one server and one daemon per `(host, instance)`: a systemd cardinality, plus a real port-bind constraint on the **server** only (D16.3) | The same role **class** | That two processes are the same process, or that only one may exist — in the deployment or on a host. And note `MachineId` does **not** rescue this: it identifies the *logical enrollment*, not a process (D16.3 rule 2) |
 
 **And symmetrically, for the other two id axes** — stated here because the same mistake is
 available on each:
@@ -424,13 +424,34 @@ Therefore, normatively:
 
 1. **Role equality establishes the role class and nothing else.** It is not an identity test, and
    two live daemons of the same role are not in conflict — they are the fleet.
-2. **A specific daemon process is identified by its `MachineId` and its pairing relation**, never
-   by its role. Role answers "what kind of process is this?"; `MachineId` answers "which one?".
-3. **POD-734 must not turn server-versus-daemon role threading into a one-daemon-per-deployment
-   constraint.** Threading `(instanceId, role)` into unit names, state paths, ports and durable
-   labels is correct and is per-host by construction. Any check that would reject a second live
-   daemon *in the deployment* — a registry keyed by role, a "the daemon" singleton, a uniqueness
-   assertion on `(instanceId, role)` — is a bug, and would break every multi-machine install.
+2. **`MachineId` + the pairing relation identify the LOGICAL MACHINE ENROLLMENT — the daemon
+   *installation* — not a process, and not a connection.** This taxonomy contains **no durable
+   process identity at all**, and none should be invented here. Two concurrent processes reading
+   the same `daemon.json` present the *same* `MachineId` and the *same* pairing relation, so
+   neither value can tell them apart. A particular **live process or connection** is therefore
+   identified only by a **process-local or connection handle**, which is runtime state with no
+   durable identity and no place on this axis map.
+
+   *This is already how the code behaves, and reading it the other way would misread working
+   code.* `MachinesService` keeps `daemons: Map<machineId, Send<ControlMessage>>`, and `attach`
+   is a plain `set` — a second connection presenting the same `MachineId` **silently replaces**
+   the first. `detach(machineId, send)` then guards with
+   `if (this.daemons.get(machineId) !== send) return false`, whose own comment says the closing
+   socket "is already superseded". That guard exists precisely because two connections for one
+   enrollment are possible, and the discriminator it uses is the **`send` handle** — a
+   connection handle — not the `MachineId`. So the registry is correctly read as
+   *enrollment → its current connection*, never as *machine → its process*.
+3. **POD-734 must not manufacture a process identity from either axis.** Threading
+   `(instanceId, role)` into unit names, state paths, ports and durable labels is correct and is
+   host-local by construction. Two distinct bugs are forbidden:
+   - **From the role axis:** any check that rejects a second live daemon *in the deployment* — a
+     registry keyed by role, a "the daemon" singleton, a uniqueness assertion on
+     `(instanceId, role)` — breaks every multi-machine install.
+   - **From the machine axis:** treating a `MachineId`-keyed live-process registry as proof of
+     *one process per paired machine*. Keying by `MachineId` is fine and is what the code does;
+     concluding that the entry therefore identifies a unique OS process is not. Anything that
+     must survive a reconnect, distinguish two concurrent connections, or be torn down per
+     process needs a connection handle, exactly as `detach`'s supersession check already does.
 
 **Rationale.** The first draft said two live processes of one role in an instance are "a
 conflict (port bind, state claim)". The parenthetical was the giveaway: port bind and state
@@ -1112,9 +1133,13 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
       enrollment and revocation.
 - [ ] A **crash-between-writes** regression test asserts the new owner holds `use`/`manage` and
       the old owner holds neither, with no manual repair (D19.4d rule 7).
-- [ ] No code treats two live processes of one role as a conflict at deployment scope, and no
-      registry, singleton or uniqueness assertion is keyed on `(instanceId, role)` — N daemons
-      per deployment is the normal case (D16.3).
+- [ ] No code treats two live processes of one role as a conflict at any scope, and no registry,
+      singleton or uniqueness assertion is keyed on `(instanceId, role)` — role carries no
+      identity uniqueness (D16.3).
+- [ ] Nothing treats `MachineId` as a **process** identity: a `MachineId`-keyed live registry is
+      read as *enrollment → current connection*, and anything distinguishing two concurrent
+      connections uses a connection handle, as `detach`'s supersession check already does
+      (D16.3 rule 2).
 - [ ] `repo_id` equality is never asserted globally for the **path-fallback** form — that form
       means `(machineId, path)` and is upgradable (§3.2, D19.3).
 - [ ] The `InstanceId (partition)` matrix row declares `deployment-substrate` with owner
