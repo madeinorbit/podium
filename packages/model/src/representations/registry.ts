@@ -742,7 +742,11 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'IssueTreeNode',
     entity: 'issue',
-    site: 'apps/server/src/modules/issues/service/types.ts',
+    // Moved to model by POD-1141, which gave the tree and show projections one
+    // shared home; the server module now RE-EXPORTS it (boundary rule 7 permits a
+    // re-export and flags only a new declaration under the same name). The site
+    // is the DECLARATION, so it follows the symbol rather than its consumers.
+    site: 'packages/model/src/projections/issue-read.ts',
     role: 'R4',
     purpose: 'One node of the epic-subtree payload the tree view and the CLI render.',
     distinctSemantics:
@@ -775,18 +779,24 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     visibility: 'personal',
   },
   {
-    symbol: 'ShowWire',
+    // Was `ShowWire` in packages/issue-client. POD-1141 renamed it and moved it
+    // here, which RESOLVES the NO_SHARED_HOME half of its old blocker — that home
+    // now exists and the tree projection shares it. The embed half stands.
+    symbol: 'IssueShowWire',
     entity: 'issue',
-    site: 'packages/issue-client/src/commands.ts',
+    site: 'packages/model/src/projections/issue-read.ts',
     role: 'R4',
     purpose: 'The slice of an issue the `issue show` renderer reads.',
     distinctSemantics:
-      'Like `ShowSession` it is a version-tolerant read: every optional member may be absent ' +
-      'because this client can meet an older server across a remote relay.',
+      'A version-tolerant read: every optional member may be absent because this client can meet ' +
+      'an older server across a remote relay, and it reads `null` where the current server omits ' +
+      'the key — so every optional member is `| null` too. A straight Pick<IssueWire, …> would ' +
+      'declare a contract this client cannot rely on, and tightening the read would be a ' +
+      'behaviour change dressed as a refactor. The key SET is the projection, spelled once.',
     composition: {
       state: 'pending',
       owner: 'POD-308',
-      blocker: NO_SHARED_HOME + '; it also embeds ShowSession[], so ' + EMBED_BLOCKER,
+      blocker: 'it embeds IssueTreeSession[], so ' + EMBED_BLOCKER,
     },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
