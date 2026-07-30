@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { UserIdField } from '../ids'
 import { PersonalPreferences } from '../settings/preferences'
 import { PinState, SessionSnoozeState, TabOrderState } from '../user-state/session-state'
-import { perUserKey, PerUserKey, PerUserSingletonKey } from './per-user-key'
+import { PerUserKey, PerUserSingletonKey, perUserKey } from './per-user-key'
 
 describe('every composer names the SAME `userId` schema instance', () => {
   const COMPOSERS: readonly [string, z.AnyZodObject][] = [

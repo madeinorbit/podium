@@ -33,9 +33,9 @@ import {
   NOT_A_SETTINGS_SECRET,
   NotificationSecrets,
   SECRET_FINGERPRINT_CONTRACT,
+  SERVER_SECRET_KEYS,
   SecretPresenceListWire,
   SecretPresenceWire,
-  SERVER_SECRET_KEYS,
   ServerSecret,
   ServerSecretKey,
 } from './secrets'

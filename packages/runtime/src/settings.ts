@@ -1,9 +1,8 @@
 import {
   type AccountId,
-  AccountIdField,
   ApiKeySecrets,
-  asAccountId,
   AutoContinuePreferences,
+  asAccountId,
   CodingRole,
   ExperimentalFlags,
   GitWorkflowPolicy,
@@ -61,15 +60,12 @@ import { z } from 'zod'
 export const AUTO_CONTINUE_BASE_DELAY_MS = 10_000
 export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
 
-/** Re-exported, not redeclared: `@podium/model` owns the harness vocabulary
- *  (POD-300). Runtime kept its own identical `z.enum` copy only because the
- *  L0 package did not carry it before. Same members, same order — the settings
- *  wire is unchanged. */
-export { HarnessAgent }
-
 /**
- * Re-exported, not redeclared (POD-418) — `@podium/model` owns the settings
- * vocabulary, split by matrix row:
+ * Re-exported, not redeclared — `@podium/model` owns this vocabulary.
+ *
+ * `HarnessAgent` moved at POD-300; runtime had kept an identical `z.enum` copy
+ * only because the L0 package did not carry it before. POD-418 moved the rest of
+ * the settings vocabulary the same way, split by matrix row:
  *
  *   - `preferences-personal`: {@link Roles}, {@link RoleBackend},
  *     {@link CodingRole}, {@link Sidebar}, {@link AutoContinuePreferences},
@@ -81,7 +77,7 @@ export { HarnessAgent }
  *     {@link NotificationSecrets}
  *
  * Same members, same order, same defaults — the settings wire is unchanged, and
- * `settings.test.ts` asserts each composed member is the model's schema INSTANCE
+ * `settings.classification.test.ts` asserts each composed member is the model's INSTANCE
  * (`toBe`), because a restatement is byte-identical and only object identity
  * sees the fork (POD-305).
  */
@@ -91,6 +87,7 @@ export {
   CodingRole,
   ExperimentalFlags,
   GitWorkflowPolicy,
+  HarnessAgent,
   HibernationPolicy,
   IntegrationSecrets,
   IssueAssistantPolicy,

@@ -61,7 +61,13 @@
 
 import type { z } from 'zod'
 import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
-import type { MatrixRow, MatrixRowId, OfflineClass, SecretClass, VisibilityClass } from '../annotations/ownership'
+import type {
+  MatrixRow,
+  MatrixRowId,
+  OfflineClass,
+  SecretClass,
+  VisibilityClass,
+} from '../annotations/ownership'
 import { InstancePreferences, PersonalPreferences } from './preferences'
 import { LEGACY_IN_BLOB_SECRET_GROUPS } from './secrets'
 
@@ -78,7 +84,11 @@ import { LEGACY_IN_BLOB_SECRET_GROUPS } from './secrets'
  * classifySettingsPath} answers `undefined` for one, which is what makes it
  * findable.
  */
-export const SETTINGS_TIERS = ['personal-preference', 'instance-preference', 'server-secret'] as const
+export const SETTINGS_TIERS = [
+  'personal-preference',
+  'instance-preference',
+  'server-secret',
+] as const
 export type SettingsTier = (typeof SETTINGS_TIERS)[number]
 
 /**
@@ -97,7 +107,10 @@ export const SETTINGS_TIER_ROW: Readonly<Record<SettingsTier, MatrixRowId>> = {
  *  a tier whose row is missing is a broken build, not a classification. */
 export function settingsTierRow(tier: SettingsTier): MatrixRow {
   const row = OWNERSHIP_MATRIX_INDEX.get(SETTINGS_TIER_ROW[tier])
-  if (!row) throw new Error(`settings tier '${tier}' names matrix row '${SETTINGS_TIER_ROW[tier]}', which does not exist`)
+  if (!row)
+    throw new Error(
+      `settings tier '${tier}' names matrix row '${SETTINGS_TIER_ROW[tier]}', which does not exist`,
+    )
   return row
 }
 

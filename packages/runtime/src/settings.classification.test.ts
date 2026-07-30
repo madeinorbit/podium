@@ -29,8 +29,8 @@
  * is exactly the case a spot check passes.
  */
 
-import { settingsLeafPaths, SETTINGS_CLASSIFICATION } from '@podium/model'
 import * as model from '@podium/model'
+import { SETTINGS_CLASSIFICATION, settingsLeafPaths } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { DEFAULT_SETTINGS, normalizeSettings, PodiumSettings } from './settings'

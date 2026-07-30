@@ -37,8 +37,8 @@ import { z } from 'zod'
 import { UserIdField } from '../ids'
 import { type EntityRef, parseUserEntityKey, userEntityKey } from '../ids/keys'
 
-export { parseUserEntityKey, userEntityKey }
 export type { EntityRef }
+export { parseUserEntityKey, userEntityKey }
 
 /**
  * The USER HALF ALONE — for the members of §7.1's family that are about the
