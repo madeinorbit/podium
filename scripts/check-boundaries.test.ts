@@ -657,3 +657,71 @@ describe('checkDeclaredDeps', () => {
     expect(checkDeclaredDeps(root)).toEqual([])
   })
 })
+
+
+describe('rule 9 — the Replica role is direction-locked (POD-369)', () => {
+  const REPLICA = 'packages/sync/src/replica/replica.ts'
+
+  it('allows sibling imports inside the replica directory', () => {
+    expect(
+      checkFile(REPLICA, `import type { Cursor } from './types'\nimport { x } from './ports'`),
+    ).toEqual([])
+  })
+
+  it('rejects a merge-policy or concrete-adapter import, however it is spelled', () => {
+    for (const specifier of [
+      '@podium/domain',
+      '../merge-policy',
+      '../../../domain/src/issue-authz',
+      '@podium/protocol',
+      'idb',
+    ]) {
+      const v = checkFile(REPLICA, `import { x } from '${specifier}'`)
+      // Some of these also trip rule 3b (restricted package deps); rule 9 must
+      // fire on ALL of them, including the ones no other rule would catch.
+      expect(
+        v.map((e) => e.rule),
+        specifier,
+      ).toContain('replica-direction')
+    }
+  })
+
+  it('rejects visibility, authorization and conflict EVALUATION in replica source', () => {
+    for (const snippet of [
+      'const ok = canSee(principal, row)',
+      'function isVisibleTo(p: unknown) { return true }',
+      'if (hasGrant(user, entity)) apply()',
+      'const winner = resolveConflict(a, b)',
+      'const merged = lastWriteWins(a, b)',
+    ]) {
+      const v = checkFile(REPLICA, snippet)
+      expect(
+        v.map((e) => e.rule),
+        snippet,
+      ).toEqual(['replica-direction'])
+    }
+  })
+
+  it('does NOT flag prose that documents the prohibition', () => {
+    const source = [
+      '/** The replica must never ask canSee(principal, row) — the Authority decides. */',
+      '// no arbitrate() here, and no resolveConflict() either',
+      "import type { Cursor } from './types'",
+    ].join('\n')
+    expect(checkFile(REPLICA, source)).toEqual([])
+  })
+
+  it('lets the replica tests import vitest, and nothing else from outside', () => {
+    const test = 'packages/sync/src/replica/replica.test.ts'
+    expect(checkFile(test, `import { describe } from 'vitest'`)).toEqual([])
+    expect(
+      checkFile(test, `import { authorize } from '@podium/domain'`).map((e) => e.rule),
+    ).toContain('replica-direction')
+  })
+
+  it('leaves every other workspace alone', () => {
+    expect(
+      checkFile('packages/sync/src/ledger.ts', `import { z } from '@podium/protocol'`),
+    ).toEqual([])
+  })
+})
