@@ -214,11 +214,15 @@ well-typed mutation. The in-memory adapter refuses an incomplete one anyway. The
 for inserts: a record that changed without going through `put()` fails the draft, because memory
 silently ahead of the store is the same defect class as an unlicensed removal.
 
-Only `retireApplied` / `retireAllApplied` take a span: the span exists to cover the Replica's entity write, cursor
-advance and the retirement that follows from them. Enqueue, discard, retry and edit are USER
-actions and are not part of an entity commit — inside an open span they join it (so they compose
-rather than clobber), but `find`/`require` resolve against published state, so an entry created
-inside a span is not addressable by id until it commits.
+Only `retireApplied` / `retireAllApplied` take a span: the span exists to cover the Replica's entity
+write, cursor advance and the retirement that follows from them. Enqueue, discard, retry and edit are
+USER actions and are not part of an entity commit — they take no span and do **not** join one that
+happens to be open. A user action issued while somebody else's transaction is in flight commits
+independently and immediately, and survives that transaction's abort (clause 4 above). There is
+deliberately no `unitOfWork` field on `OutboxConfig`: the kernel opens no transaction of its own, so a
+configured coordinator would be a port with no reads — telling an integrator they had wired something
+that did nothing. An earlier draft of this document claimed user actions joined an open span; that was
+only ever true through an ambient current-span flag, which was removed as unsafe.
 
 Removals are licensed. A draft diffs the ids it started with against the ids it ends with, and
 every id that disappeared must have been removed with one of D9 invariant 1's two licences —

@@ -63,7 +63,6 @@ import type {
   OutboxSubmitOutcome,
   SyncSpan,
 } from './ports'
-import { SyncCommitConflict } from './ports'
 import {
   MAX_AGE_REASON,
   normalizeRefusal,
@@ -965,13 +964,15 @@ export class Outbox {
           // transactions, not about wrapping a single atomic write).
           return await this.stage(body, undefined)
         } catch (error) {
-          // Two shapes of the same outcome: the adapter answered at apply time
-          // (`OutboxConflict`) or only at commit time (`SyncCommitConflict`, raised
-          // by the transaction it rolled back). Both mean "another writer won"; both
-          // re-stage against fresh truth. A commit-time conflict that reached us
-          // through the caller's own span is not ours to retry.
-          const conflicted = error instanceof OutboxConflict || error instanceof SyncCommitConflict
-          if (!conflicted || ambient || attempt >= MUTATION_CONFLICT_ATTEMPTS) throw error
+          // Only an APPLY-time conflict is ours to resolve, by re-staging against
+          // fresh truth. A COMMIT-time conflict can only arise inside a span the
+          // CALLER owns, and it arrives as `SyncCommitConflict` on their `transact`
+          // call, not here — their transaction is what rolled back, so the retry
+          // decision is theirs. Hence no arm for it: an unreachable branch claiming
+          // to handle a case is worse than its absence.
+          if (!(error instanceof OutboxConflict) || attempt >= MUTATION_CONFLICT_ATTEMPTS) {
+            throw error
+          }
         }
       }
     })

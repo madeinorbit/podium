@@ -7,13 +7,7 @@ import {
   OutboxInvariantError,
   OutboxUsageError,
 } from './outbox'
-import type {
-  OutboxEnvelope,
-  OutboxEvent,
-  OutboxSubmitOutcome,
-  SyncSpan,
-  SyncUnitOfWork,
-} from './ports'
+import type { OutboxEnvelope, OutboxEvent, OutboxSubmitOutcome, SyncSpan } from './ports'
 import { SyncCommitConflict } from './ports'
 import type { AuthorityRefusal } from './reasons'
 import {
@@ -80,7 +74,6 @@ async function harness(
     store?: InMemoryOutboxStore
     clock?: ManualClock
     principal?: string
-    unitOfWork?: SyncUnitOfWork
     idPrefix?: string
   } = {},
 ): Promise<Harness> {
@@ -97,7 +90,6 @@ async function harness(
     maxAgeMs: MAX_AGE_MS,
     newMutationId: sequentialMutationIds(init.idPrefix ?? 'm'),
     onStoreUnreadable: (error) => unreadable.push(error),
-    ...(init.unitOfWork ? { unitOfWork: init.unitOfWork } : {}),
   })
   outbox.subscribe((event) => events.push(event))
   return { outbox, store, authority, clock, events, unreadable }
@@ -1110,7 +1102,7 @@ describe('review round 1 — the blockers, each with the test that would have ca
 
   it('blocker 4: a retirement enrolled in a span lands with it, and rolls back with it', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store } = await harness(() => applied, {})
     const record = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
     expect(state(outbox, record.mutationId)).toBe('applied')
@@ -1147,7 +1139,7 @@ describe('review round 1 — the blockers, each with the test that would have ca
 
   it('blocker 4: one span, not two, when the outbox mutates inside an open transaction', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox } = await harness(() => applied, {})
     const record = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
     const spansBefore = uow.spans
@@ -1291,7 +1283,7 @@ describe('review round 2 — one physical store, several writers', () => {
     // so the second one won. A feed frame can carry several provenance
     // retirements, so this is a normal path, not an exotic one.
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store, events } = await harness(() => applied, {})
     const a = await outbox.enqueue(close('POD-1'))
     const b = await outbox.enqueue(close('POD-2'))
     const c = await outbox.enqueue(close('POD-3'))
@@ -1316,7 +1308,7 @@ describe('review round 2 — one physical store, several writers', () => {
 
   it('rolls back EVERY retirement in an aborted span, and emits none of them', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store, events } = await harness(() => applied, {})
     const a = await outbox.enqueue(close('POD-1'))
     const b = await outbox.enqueue(close('POD-2'))
     await outbox.drain()
@@ -1340,33 +1332,45 @@ describe('review round 2 — one physical store, several writers', () => {
     expect(store.durable().map((r) => r.mutationId)).toEqual([b.mutationId])
   })
 
-  it('enrolls RETIREMENT only — a user action is not part of a replica commit', async () => {
-    // Writing the boundary down because the first version of this test assumed
-    // otherwise: `retireApplied` is the only span-enrolled operation, because the
-    // span exists to cover the Replica's entity write + cursor advance + the
-    // retirement that follows from them (ADR 2 D10). Enqueue, discard, retry and
-    // edit are USER actions; they are not part of an entity commit and take no
-    // span. An entry created inside a span is therefore not visible to a
-    // non-enrolled operation until the span commits — which is correct, not a
-    // gap: the store does not have it yet either.
+  it('enrolls RETIREMENT only: an aborted span keeps the user enqueue and undoes the retirement', async () => {
+    // The real rule, asserted by ABORTING the span. `retireApplied` is the only
+    // span-enrolled operation, because the span exists to cover the Replica's entity
+    // write + cursor advance + the retirement that follows (ADR 2 D10). Enqueue,
+    // discard, retry and edit are USER actions: they take no span and do NOT join one
+    // that happens to be open, so they commit independently and survive its abort.
+    //
+    // This test previously claimed the enqueue JOINED the open span, which was only
+    // ever true via an ambient current-span flag — removed as unsafe, because it
+    // could absorb an unrelated caller's write and lose it on abort. Aborting is what
+    // makes the difference between the two visible.
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox, events } = await harness(() => applied, { store, clock })
     const retiring = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
 
-    await uow.transact(async (span) => {
-      await outbox.retireApplied(retiring.mutationId, span)
-      // A mutation with no span of its own JOINS the configured unit of work's
-      // ambient span (that is what `transact` nesting means), so it composes with
-      // the staged removal instead of clobbering it — and it lands at the same
-      // commit.
-      await outbox.enqueue(close('POD-2'))
-    })
+    let independent: OutboxRecord | undefined
+    await expect(
+      uow.transact(async (span) => {
+        await outbox.retireApplied(retiring.mutationId, span)
+        independent = await outbox.enqueue(close('POD-2'))
+        // Already durable, before this transaction has decided anything.
+        expect(store.durable().map((r) => r.mutationId)).toContain(independent.mutationId)
+        throw new Error('replica frame rejected after staging the retirement')
+      }),
+    ).rejects.toThrow(/replica frame rejected/)
 
-    const durable = store.durable()
-    expect(durable.map((r) => r.mutationId)).not.toContain(retiring.mutationId)
-    expect(durable).toHaveLength(1)
-    expect(durable[0]?.state).toBe('queued')
+    // The user's enqueue SURVIVES the abort; the enrolled retirement does NOT.
+    expect(
+      store
+        .durable()
+        .map((r) => r.mutationId)
+        .sort(),
+    ).toEqual([retiring.mutationId, independent?.mutationId].sort())
+    expect(outbox.find(retiring.mutationId)?.state).toBe('applied')
+    expect(types(events)).toContain('local-ack')
+    expect(types(events)).not.toContain('retired')
   })
 
   it('refuses to retire an id the same span has already retired', async () => {
@@ -1378,7 +1382,7 @@ describe('review round 2 — one physical store, several writers', () => {
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const { outbox } = await harness(() => applied, { store, clock, unitOfWork: uow })
+    const { outbox } = await harness(() => applied, { store, clock })
     const target = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
 
@@ -1444,7 +1448,7 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
 
   it('commits two provenance matches as ONE enrolled write, with entity and cursor', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store, events } = await harness(() => applied, {})
     const replica = new FakeReplica()
     const a = await outbox.enqueue(close('POD-1'))
     const b = await outbox.enqueue(close('POD-2'))
@@ -1471,7 +1475,7 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
 
   it('aborts the batch whole: both entries and the OLD entity and cursor survive, no observations', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store, events } = await harness(() => applied, {})
     const replica = new FakeReplica()
     const a = await outbox.enqueue(close('POD-1'))
     const b = await outbox.enqueue(close('POD-2'))
@@ -1495,7 +1499,7 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
 
   it('extends the span draft when a second batch arrives — bootstrap aggregating two frames', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store, events } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store, events } = await harness(() => applied, {})
     const a = await outbox.enqueue(close('POD-1'))
     const b = await outbox.enqueue(close('POD-2'))
     const c = await outbox.enqueue(close('POD-3'))
@@ -1517,7 +1521,7 @@ describe('review round 2, second correction — the batch shape POD-369 submits'
 
   it('validates the whole batch before staging any of it', async () => {
     const uow = new InMemoryUnitOfWork()
-    const { outbox, store } = await harness(() => applied, { unitOfWork: uow })
+    const { outbox, store } = await harness(() => applied, {})
     const a = await outbox.enqueue(close('POD-1'))
     const queued = await outbox.enqueue(close('POD-2'))
     await uow.transact(async () => {
@@ -1658,7 +1662,7 @@ describe('the POD-373 crash case, outbox half', () => {
     }
 
     // ABORT: neither retires, and the pair is intact.
-    const aborted = await harness(() => applied, { store, clock, unitOfWork: uow, idPrefix: 'm' })
+    const aborted = await harness(() => applied, { store, clock, idPrefix: 'm' })
     const m1 = await aborted.outbox.enqueue(edit)
     const m2 = await aborted.outbox.enqueue(tombstone)
     await aborted.outbox.drain()
@@ -1811,76 +1815,41 @@ describe('review round 3 — concurrent writers, deterministically', () => {
   })
 })
 
-describe('review round 4 — the same races on the CONFIGURED unit-of-work path', () => {
-  it('the id collision re-stages through a COMMIT-time conflict, not a generic error', async () => {
-    // Round 3 only covered the no-UoW path. With a unit of work configured — the
-    // NORMAL durable path — the adapter can only check its precondition at commit,
-    // so the loser used to reject with a generic Error and never re-stage. Now the
-    // transaction rejects with the typed `SyncCommitConflict`, which re-stages and
-    // then fails for the RIGHT reason.
+describe('review round 4 — commit-time conflicts and transaction atomicity', () => {
+  it('propagates a commit conflict to the caller who OWNS the span', async () => {
+    // An apply-time conflict is the kernel's to resolve by re-staging. A COMMIT-time
+    // conflict can only happen inside a span the CALLER opened, so it surfaces on
+    // THEIR `transact` call and the retry decision is theirs — the kernel has no
+    // branch for it, because a branch claiming to handle an unreachable case is worse
+    // than its absence.
+    const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    // A separate transaction per tab, as a real two-tab deployment has.
-    const ada = await harness(() => unreachable, {
-      store,
-      clock,
-      unitOfWork: new InMemoryUnitOfWork(),
-    })
-    const grace = await harness(() => unreachable, {
-      store,
-      clock,
-      principal: 'u-grace',
-      unitOfWork: new InMemoryUnitOfWork(),
-    })
-    const collide = 'm-collide' as MutationId
+    const { outbox } = await harness(() => applied, { store, clock })
+    const target = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
 
-    const release = store.holdNextApplies(2)
-    const both = Promise.allSettled([
-      ada.outbox.enqueue(close('POD-1', { attribution: ADA, mutationId: collide })),
-      grace.outbox.enqueue(close('POD-2', { attribution: GRACE, mutationId: collide })),
+    let seen: unknown
+    try {
+      await uow.transact(async (span) => {
+        await outbox.retireApplied(target.mutationId, span)
+        // Another writer moves the record, so the staged expectation goes stale and
+        // the precondition can only fail at commit.
+        await store.apply({
+          put: [{ ...(store.durable()[0] as OutboxRecord), state: 'cancelled' }],
+          expect: [{ mutationId: target.mutationId, expect: 'applied' }],
+        })
+      })
+    } catch (error) {
+      seen = error
+    }
+
+    expect(seen).toBeInstanceOf(SyncCommitConflict)
+    // The kernel did not silently retry it into existence: the entry is whatever the
+    // other writer made it, and the retirement did not happen.
+    expect(store.durable().map((r) => [r.mutationId, r.state])).toEqual([
+      [target.mutationId, 'cancelled'],
     ])
-    await Promise.resolve()
-    release()
-    const settled = await both
-
-    expect(settled.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
-    const rejected = settled.find((r) => r.status === 'rejected') as PromiseRejectedResult
-    // The point of the typed channel: the loser learns it collided, not that
-    // "something failed at commit".
-    expect(String(rejected.reason)).toMatch(/duplicate mutationId/)
-    expect(store.durable()).toHaveLength(1)
-  })
-
-  it('discard versus drain still settles BOTH successfully with a unit of work', async () => {
-    const store = new InMemoryOutboxStore()
-    const clock = new ManualClock()
-    const tabA = await harness(() => applied, {
-      store,
-      clock,
-      idPrefix: 'a-',
-      unitOfWork: new InMemoryUnitOfWork(),
-    })
-    const tabB = await harness(() => applied, {
-      store,
-      clock,
-      idPrefix: 'b-',
-      unitOfWork: new InMemoryUnitOfWork(),
-    })
-    const record = await tabA.outbox.enqueue(close('POD-1'))
-    await tabB.outbox.enqueue(close('POD-2'))
-
-    const release = store.holdNextApplies(2)
-    const both = Promise.allSettled([tabA.outbox.discard(record.mutationId), tabB.outbox.drain()])
-    await Promise.resolve()
-    release()
-    const [discarded, drained] = await both
-
-    // The contract the reviewer held me to: losing to a user discard is a normal
-    // successful drain outcome on the DURABLE path too, not only without a UoW.
-    expect(discarded?.status).toBe('fulfilled')
-    expect(drained?.status).toBe('fulfilled')
-    expect(store.durable().find((r) => r.mutationId === record.mutationId)?.state).toBe('cancelled')
-    expect(tabB.authority.envelopes.map((e) => e.mutationId)).not.toContain(record.mutationId)
   })
 
   it('a late precondition failure leaves NOTHING of the transaction behind', async () => {
@@ -1892,7 +1861,7 @@ describe('review round 4 — the same races on the CONFIGURED unit-of-work path'
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const { outbox, events } = await harness(() => unreachable, { store, clock, unitOfWork: uow })
+    const { outbox, events } = await harness(() => unreachable, { store, clock })
     const collide: OutboxRecord = {
       mutationId: 'm-shared' as MutationId,
       command: CLOSE,
@@ -1939,7 +1908,7 @@ describe('review round 4 — the same races on the CONFIGURED unit-of-work path'
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const { outbox } = await harness(() => applied, { store, clock, unitOfWork: uow })
+    const { outbox } = await harness(() => applied, { store, clock })
     const target = await outbox.enqueue(close('POD-1'))
     await outbox.drain()
     const before = JSON.stringify(store.durable())
@@ -2165,7 +2134,7 @@ describe('review round 6 — an unrelated open transaction must not absorb a mut
     const uow = new InMemoryUnitOfWork()
     const store = new InMemoryOutboxStore()
     const clock = new ManualClock()
-    const { outbox, events } = await harness(() => unreachable, { store, clock, unitOfWork: uow })
+    const { outbox, events } = await harness(() => unreachable, { store, clock })
 
     let releaseOuter = (): void => {}
     const outerHeld = new Promise<void>((resolve) => {

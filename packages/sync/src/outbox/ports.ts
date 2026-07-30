@@ -260,13 +260,11 @@ export interface OutboxConfig {
    * nobody can observe is not a report.
    */
   readonly onEvent?: (event: OutboxEvent) => void
-  /**
-   * Optional: join the Replica's commit so entity rows, the cursor advance and an
-   * outbox retirement are ONE atomic span (ADR 2 D10 / ADR 6 D4.1). Absent, every
-   * write is its own transaction — exactly the previous behaviour, which is why
-   * wiring this changes no kernel contract.
-   */
-  readonly unitOfWork?: SyncUnitOfWork
+  // There is deliberately NO `unitOfWork` here. Enrollment in a transaction is a
+  // per-call decision expressed by passing a `SyncSpan` to `retireApplied` /
+  // `retireAllApplied` — see `SyncUnitOfWork`. A configured coordinator would be a
+  // port with no reads: the kernel opens no transaction of its own, so wiring one
+  // here would have no effect while the config told an integrator otherwise.
 }
 
 /**
@@ -343,15 +341,11 @@ export interface OutboxConfig {
  * Replica's entity write, its cursor advance, and the retirement that follows from
  * them, so `retireApplied` is the one outbox operation that takes a span. Enqueue,
  * discard, retry and edit are USER actions: they are not part of an entity commit,
- * they take no span. Inside an open span they JOIN it (nested `transact` joins by
- * contract), so they compose with the staged changes and land at the same commit
- * rather than clobbering them.
- *
- * One narrow, deliberate boundary: `find` / `require` resolve against PUBLISHED
- * state, so an entry created inside a span is not addressable by id until that
- * span commits. Nothing needs it to be — a span is a replica commit, not a user
- * session — and the alternative is ambient span state threaded through every
- * read.
+ * they take no span, and they do NOT join one that happens to be open: a user action
+ * issued while somebody else's transaction is in flight commits independently and
+ * immediately, and survives that transaction's abort. That is the point of clause 4
+ * of the transaction rule — a call with no span must never fulfil on the strength of
+ * another caller's uncommitted work, nor be rolled back by their abort.
  *
  * POD-305 (Authority) and POD-373 (cross-hop conformance) WIRE it; the kernel
  * modules only declare it and enroll into it. The crash-between-writes case
