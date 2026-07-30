@@ -22,7 +22,6 @@ import type {
   SuperagentThreadRow,
 } from '../../store'
 import {
-  type BtwSessionInfo,
   buildBtwDelta,
   buildBtwSeed,
   buildHandoffSeed,
@@ -869,7 +868,7 @@ export class SuperagentService {
       const last = items[items.length - 1]
       if (firstTurn) {
         const info = this.listSessions().find((s) => s.sessionId === originId)
-        const session: BtwSessionInfo = {
+        const session: ConciergeSessionInfo = {
           sessionId: originId,
           ...((info?.name ?? info?.title) ? { name: info?.name ?? info?.title } : {}),
           ...(info?.agentKind ? { agentKind: info.agentKind } : {}),
