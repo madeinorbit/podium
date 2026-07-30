@@ -1,6 +1,10 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   checkFile,
+  checkPrincipalFree,
   checkRuntimeBarrelPurity,
   clauseIsTypeOnly,
   extractImports,
@@ -441,5 +445,77 @@ describe('rule 8 — @podium/runtime browser-safety', () => {
 
   it('checkRuntimeBarrelPurity is a no-op when the barrel file cannot be read', () => {
     expect(checkRuntimeBarrelPurity('/nonexistent/repo/root')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// harness-principal-free (POD-397) — packages/harness must stay a library about
+// SOFTWARE, never about who is allowed to use it.
+// ---------------------------------------------------------------------------
+
+describe('checkPrincipalFree', () => {
+  const HARNESS = 'packages/harness/src/manifest.ts'
+
+  it('flags a principal type imported into packages/harness', () => {
+    const v = checkPrincipalFree(HARNESS, `import type { UserId } from '@podium/protocol'`)
+    expect(v).toHaveLength(1)
+    expect(v[0]?.rule).toBe('harness-principal-free')
+    expect(v[0]?.message).toContain('UserId')
+  })
+
+  it('flags a value-imported authorization helper too, not just types', () => {
+    expect(
+      checkPrincipalFree(HARNESS, `import { envelopePrincipal } from '@podium/protocol'`),
+    ).toHaveLength(1)
+  })
+
+  it('does NOT flag AgentCapabilities — that is the harness capability descriptor', () => {
+    // The two senses of "capability" collide exactly here. A rule that flagged
+    // this would be uselessly noisy AND would teach the next contributor that the
+    // harness capability table is an authorization concept, which it is not.
+    expect(
+      checkPrincipalFree(HARNESS, `import type { AgentCapabilities } from '@podium/protocol'`),
+    ).toEqual([])
+    expect(
+      checkPrincipalFree(HARNESS, `import { AGENT_CAPABILITIES } from '@podium/protocol'`),
+    ).toEqual([])
+  })
+
+  it('only looks at import clauses, not at local names', () => {
+    expect(checkPrincipalFree(HARNESS, `const grantedScopes = 1`)).toEqual([])
+    expect(checkPrincipalFree(HARNESS, `function authorize() {}`)).toEqual([])
+  })
+
+  it('applies only to the principal-free workspaces', () => {
+    expect(
+      checkPrincipalFree('apps/server/src/x.ts', `import type { UserId } from '@podium/protocol'`),
+    ).toEqual([])
+    // The pty half is guarded too, until POD-399 deletes it.
+    expect(
+      checkPrincipalFree(
+        'packages/agent-bridge/src/session.ts',
+        `import type { UserId } from '@podium/protocol'`,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('passes clean against the REAL packages/harness tree', () => {
+    // The claim the acceptance criterion actually makes. Walks the shipped source
+    // rather than a fixture, so reintroducing a principal import fails here.
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const walk = (dir: string): string[] =>
+      readdirSync(join(repoRoot, dir), { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory()
+          ? walk(`${dir}/${e.name}`)
+          : e.name.endsWith('.ts') || e.name.endsWith('.tsx')
+            ? [`${dir}/${e.name}`]
+            : [],
+      )
+    const files = walk('packages/harness/src')
+    expect(files.length).toBeGreaterThan(50)
+    const violations = files.flatMap((f) =>
+      checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),
+    )
+    expect(violations).toEqual([])
   })
 })
