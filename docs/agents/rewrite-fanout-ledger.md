@@ -1768,3 +1768,25 @@ Credential material is a separate schema on its own matrix row, so `UserWire` ha
 strip. Same instinct one layer down: `createClientSession` takes the user as a REQUIRED parameter,
 because a store-level default is the one place per-user login could silently keep writing one id for
 everybody while every session still works.
+
+### A stale `tsconfig.tsbuildinfo` fabricates typecheck errors — and it is INVISIBLE to git
+
+Cost an hour on the POD-311 merge. The merged tree reported cascading `TS18048 'possibly undefined'`
+across `issue-client`, `apps/server` and `apps/cli`. POD-311's own worktree, at content byte-identical
+except one docs commit, exited 0.
+
+Cause: my integration worktree carried a STALE `tsconfig.tsbuildinfo` — 23 of them against its 22 —
+which gave `tsgo` degraded type resolution. Deleting the incremental artefacts made `apps/server` exit 0
+immediately. **These files are gitignored, so they never appear in a diff and never travel with a
+branch: two worktrees at identical commits can typecheck differently, indefinitely.**
+
+When an in-package typecheck disagrees with the author's, compare ENVIRONMENTS before code:
+`find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete` and re-run.
+
+**Two rules already in this ledger that I broke in the same hour, so they are restated:**
+
+1. **A cached green is not evidence.** The workspace typecheck first reported `Tasks: 23 successful`
+   from turbo cache while the in-package run was RED. `--force` is not optional when the answer
+   matters; check the `Cached: 0 cached` line.
+2. **`cmd | tail` returns the PIPE's status.** I read `bunx tsgo --noEmit | tail -3` as exit 0 while it
+   was printing errors. Redirect to a file and echo `$?`, or the exit code you read is `tail`'s.
