@@ -89,6 +89,7 @@ import { PresenceRegistry, soleHumanPrincipal } from './modules/sessions/presenc
  * work) and the audit checks procedure TYPE rather than name, so a write cannot hide
  * among them by being called a query.
  */
+import { fleetProcedures } from './modules/fleet/trpc'
 import { presencePrincipal, sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
 import { type Context, mods, t } from './trpc'
@@ -276,20 +277,29 @@ const automationInput = automationFields.superRefine((input, ctx) => {
 })
 const automationPatch = automationFields.partial()
 
-/** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only
- *  when this process runs the hub role. NOT_FOUND (→ HTTP 404), not FORBIDDEN —
- *  on a node the surface is absent, not permission-gated. Context builders that
- *  set no role (tests, in-process callers) keep the historical core+hub shape. */
-const hubRoleGuard = t.middleware(({ ctx, next }) => {
-  if (ctx.role && !ctx.role.hub) {
-    throw new TRPCError({
-      code: 'NOT_FOUND',
-      message: 'not available: this server does not run the hub role',
-    })
-  }
-  return next()
+/**
+ * THE DERIVED FLEET-FAMILY PROCEDURES (POD-384), built once at module load and
+ * spread into the `machines` / `repos` / `discovery` routers below.
+ *
+ * The hub-role gate moved WITH them: it is no longer a `hubProc` each fleet
+ * procedure had to remember to use, it is derived from each contract's
+ * `serverRole` in `modules/fleet/trpc.ts`. The 404-on-wrong-role behaviour is
+ * unchanged — that is the acceptance criterion — but it now follows a
+ * declaration rather than a call-site habit.
+ *
+ * `joinCommand` is the one thing the module cannot import for itself:
+ * `hub/machines-join` is hub-role code and `roles.ts` rule 1 forbids core from
+ * importing it. This file is a composition root, so it supplies the port.
+ */
+const fleet = fleetProcedures({
+  joinCommand: (pairCode) => {
+    const config = loadConfig()
+    const publicUrl = config.publicUrl
+    return publicUrl
+      ? buildJoinCommand({ publicUrl, pairCode, channel: resolveUpdateChannel(config) })
+      : null
+  },
 })
-const hubProc = t.procedure.use(hubRoleGuard)
 
 function cloudProvider(ctx: Context): CloudRuntimeProvider {
   return ctx.cloud ?? disabledCloudRuntimeProvider
@@ -768,67 +778,14 @@ export const appRouter = t.router({
     // Full registered-repo rows incl. the human-facing prefix (#474) — the web's
     // source for the linkify prefix set and the prefix editor.
     listDetailed: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.repos.listRepos()),
-    // Change a repo's nice-id prefix (#474). Validation (^[A-Z]{2,5}$) and
-    // server-wide uniqueness are enforced in the store; violations surface as
-    // BAD_REQUEST with the store's message. Old refs stop resolving — UI warns.
-    setPrefix: t.procedure
-      .input(z.object({ path: z.string(), prefix: z.string(), machineId: z.string().optional() }))
-      .mutation(({ ctx, input }) => {
-        try {
-          ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.registry.sessionStore.repos.listRepos()
-      }),
+    // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
+    // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths)
+    // is unchanged and still surfaces as BAD_REQUEST with the store's message.
+    ...fleet.repos,
     // cwd → repo inference for the CLI: longest registered root that contains `path`.
     inferFromPath: t.procedure
       .input(z.object({ path: z.string() }))
       .query(({ ctx, input }) => ({ repoPath: ctx.repos.inferFromPath(input.path) ?? null })),
-    add: t.procedure
-      .input(
-        z.object({
-          path: z.string(),
-          machineId: z.string().optional(),
-          // Optional nice-id prefix override (#474); derived from the repo name when absent.
-          prefix: z.string().optional(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        try {
-          await ctx.repos.add(input.path, input.machineId, input.prefix)
-        } catch (e) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: e instanceof Error ? e.message : String(e),
-          })
-        }
-        return ctx.repos.list()
-      }),
-    // Persist a selected set in one call (the scan-and-select flow). Each path is
-    // added independently so one bad entry doesn't drop the rest; failures are reported.
-    addMany: t.procedure
-      .input(z.object({ paths: z.array(z.string()), machineId: z.string().optional() }))
-      .mutation(async ({ ctx, input }) => {
-        const failed: { path: string; message: string }[] = []
-        for (const path of input.paths) {
-          try {
-            await ctx.repos.add(path, input.machineId)
-          } catch (e) {
-            failed.push({ path, message: e instanceof Error ? e.message : String(e) })
-          }
-        }
-        return { repos: ctx.repos.list(), failed }
-      }),
-    remove: t.procedure
-      .input(z.object({ path: z.string(), machineId: z.string().optional() }))
-      .mutation(async ({ ctx, input }) => {
-        await ctx.repos.remove(input.path, input.machineId)
-        return ctx.repos.list()
-      }),
     // Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
     // With `machineId` the listing comes from THAT machine's daemon — the only
     // filesystem the user means. Without it, the legacy server-local browse: kept
@@ -922,54 +879,14 @@ export const appRouter = t.router({
       }),
   }),
   discovery: t.router({
+    // CONVERSATION discovery, not repo discovery — `rpc.scan()` returns
+    // `{ conversations, diagnostics }`. It shares this router's name and nothing
+    // else, so POD-384 deliberately left it out of the fleet contract table.
     scan: t.procedure.mutation(({ ctx }) => mods(ctx).rpc.scan()),
-    // Load path: enrich only the already-registered repos with branch/worktree metadata.
-    // Fans out to each online machine; each result is stamped with its machineId.
-    // Single-machine: identical to the old scanRepos(list()) path (maxDepth:0 inspects
-    // each registered root in place, never walking the filesystem), just with machineId added.
-    refreshRepos: t.procedure.mutation(({ ctx }) => ctx.repos.scanReposAll()),
-    // Discovery path: walk a user-picked folder (never all of $HOME) to a bounded
-    // depth and return candidates for the selection screen. machineId targets that
-    // machine's daemon (POD-787); omitted → default machine (legacy behavior).
-    scanFolder: t.procedure
-      .input(
-        z.object({
-          path: z.string(),
-          maxDepth: z.number().int().positive().optional(),
-          machineId: z.string().optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        ctx.registry.modules.rpc.scanRepos(
-          [input.path],
-          {
-            includeHome: false,
-            maxDepth: input.maxDepth ?? 6,
-          },
-          input.machineId,
-        ),
-      ),
-    // Tiered per-machine discovery (POD-787) [spec:SP-3701]: probes of other machines'
-    // repo paths + shallow walks around known repos; `deep` adds the bounded $HOME
-    // sweep. Origin matches are auto-registered; the rest come back as candidates.
-    scanMachine: t.procedure
-      .input(
-        z.object({
-          machineId: z.string(),
-          deep: z.boolean().optional(),
-          // The folder the user is browsing — scanned as an extra root ("scan
-          // here", POD-855) [spec:SP-5eb6] alongside the always-on known-repo tiers.
-          atPath: z.string().optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => {
-        if (!ctx.discovery)
-          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
-        return ctx.discovery.scan(input.machineId, {
-          deep: input.deep ?? true,
-          ...(input.atPath === undefined ? {} : { atPath: input.atPath }),
-        })
-      }),
+    // refreshRepos · scanFolder · scanMachine — DERIVED (POD-384). The three
+    // `machineVerb: 'use'` commands in the fleet family: each places a
+    // filesystem walk on the target machine's daemon.
+    ...fleet.discovery,
     // Most recent finished discovery for a machine (e.g. the automatic connect scan),
     // so the picker can show results without re-scanning.
     lastMachineScan: t.procedure
@@ -985,32 +902,9 @@ export const appRouter = t.router({
     // its `use` decision attached, so a machine it cannot execute on is never
     // OFFERED (readiness §3.1.4 M5) and one it cannot see is simply absent.
     list: t.procedure.query(({ ctx }) => visibleMachinesFor(mods(ctx), ctx.capability)),
-    rename: hubProc
-      .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
-      .mutation(({ ctx, input }) => {
-        mods(ctx).machines.renameMachine(input.id, input.name)
-        return mods(ctx).machines.listMachines()
-      }),
-    revoke: hubProc.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
-      mods(ctx).machines.revokeMachine(input.id)
-      return mods(ctx).machines.listMachines()
-    }),
-    // Mint a short-lived pairing code the user types into a new machine's daemon to
-    // join it to this server.
-    pairingCode: hubProc
-      .input(z.object({ copyAgentCredentials: z.boolean().optional() }).optional())
-      .mutation(({ ctx, input }) => {
-        const code = mods(ctx).machines.mintPairingCode({
-          ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
-        })
-        const config = loadConfig()
-        const publicUrl = config.publicUrl
-        const channel = resolveUpdateChannel(config)
-        return {
-          code,
-          joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code, channel }) : null,
-        }
-      }),
+    // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
+    // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
+    ...fleet.machines,
   }),
   // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
   // reaches these instead of importing @podium/runtime/setup directly, which would pull node:fs
