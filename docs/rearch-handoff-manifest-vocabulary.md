@@ -226,6 +226,20 @@ rather than the suite colour:
 `refusal` was **appended**, never spliced mid-shape — zod emits keys in shape order, so a field
 placed at its "logical" position would change encoded bytes with an identical field set.
 
+**What the byte-identity proof does and does not establish.** Worth stating plainly, because this
+document leans on it repeatedly: golden fixtures only ever exercise values *someone chose to write*.
+So "177/177 byte-identical" is an **encoding** proof — the same input still serialises to the same
+bytes. It is **not an acceptance proof**: a schema that emits identical bytes while *rejecting* an
+input it used to accept would pass every fixture unchanged. Tightening validation is therefore
+invisible to this gate in the same way a restatement is (§6a), and for the same underlying reason —
+the corpus measures outputs for chosen inputs, not the boundary of what is admissible.
+
+Nothing here tightened validation, and the three `.unwrap()`s in the composition *loosen* nothing
+either: each replaces an optional/nullable shared field with the required form the hand-written
+schema already had, so the admissible set is unchanged field by field. But a future revision — POD-1142
+restructuring for `format: 2` is the obvious one — needs a fixture whose optional strings are *empty*,
+asserted to **parse**, if that boundary is to be covered at all. Contributed to POD-1142 in writing.
+
 **Mutation tests** (mutate → run → revert as one unit; every revert verified clean):
 
 | Mutant | Killed by |
