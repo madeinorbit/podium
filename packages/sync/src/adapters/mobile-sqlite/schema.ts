@@ -121,7 +121,12 @@ export function applySchema(db: SqlDatabaseLike): void {
       entity_id TEXT NOT NULL,
       value TEXT NOT NULL,
       revision INTEGER,
-      provenance TEXT,
+      -- NOT NULL: EntityRecord.provenance is REQUIRED on the port and the upsert arm
+      -- of CacheOperation cannot be built without it. A nullable column invites a
+      -- hydrate that reads undefined back into a required field, which is the error
+      -- the in-package typecheck caught here and which no test in this directory
+      -- could see. revision stays nullable because it genuinely is optional.
+      provenance TEXT NOT NULL,
       PRIMARY KEY (principal, entity, entity_id)
     );
     CREATE TABLE IF NOT EXISTS ${META_TABLE} (
