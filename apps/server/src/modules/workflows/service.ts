@@ -1,5 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import type { AdvanceIdempotencyPort } from '@podium/commands'
+import {
+  type AdvanceIdempotencyPort,
+  workflowAdoptInput,
+  workflowAssignInput,
+  workflowAssignStepInput,
+  workflowCheckpointInput,
+  workflowCreateInput,
+  workflowForkInput,
+  workflowProfileSaveInput,
+  workflowPublishInput,
+  workflowRetryInput,
+  workflowReviseInput,
+  workflowSkipInput,
+} from '@podium/commands'
 import { AgentKind } from '@podium/model'
 import {
   type ExecutionProfileWire,
@@ -65,6 +78,15 @@ const revisionBody = z.object({
   steps: workflowSteps.default([]),
 })
 
+/**
+ * The transport-facing input table.
+ *
+ * THE ELEVEN MUTATIONS NOW POINT AT THEIR CONTRACTS (POD-731). They are not
+ * restated here: a second copy of a schema is a second thing to edit, and the
+ * copy that does not get edited is the one a transport validates with. What is
+ * still written out below is `list`, `get`, `bindings`, `profiles`, `runs`,
+ * `prime` and `status` — the QUERIES, which POD-732 folds in with the cutover.
+ */
 export const workflowInputs = {
   list: z.object({
     includeArchived: z.boolean().optional(),
@@ -72,62 +94,22 @@ export const workflowInputs = {
     scopeRef: z.string().optional(),
   }),
   get: z.object({ id: z.string().min(1) }),
-  create: scopeInput.extend({
-    name: z.string().trim().min(1).max(120),
-    description: z.string().max(2_000).default(''),
-    instructions: z.string().default(''),
-    steps: workflowSteps.default([]),
-  }),
-  revise: revisionBody.extend({ workflowId: z.string().min(1) }),
-  fork: scopeInput.extend({
-    revisionId: z.string().min(1),
-    name: z.string().trim().min(1).max(120),
-    description: z.string().max(2_000).default(''),
-  }),
-  publish: z.object({ revisionId: z.string().min(1) }),
+  create: workflowCreateInput,
+  revise: workflowReviseInput,
+  fork: workflowForkInput,
+  publish: workflowPublishInput,
   bindings: actorInput,
-  assign: z.object({
-    targetKind: WorkflowBindingTarget,
-    targetId: z.string(),
-    revisionId: z.string().min(1),
-  }),
+  assign: workflowAssignInput,
   profiles: actorInput,
-  profileSave: z.object({
-    id: z.string().optional(),
-    name: z.string().trim().min(1).max(120),
-    accountId: z.string().min(1),
-    machineId: z.string().min(1).nullable().optional(),
-    harness: AgentKind,
-    model: z.string().default('auto'),
-    effort: z.string().default('auto'),
-  }),
+  profileSave: workflowProfileSaveInput,
   runs: z.object({ includeTerminal: z.boolean().optional() }),
   prime: actorInput,
   status: z.object({ runId: z.string().optional() }),
-  checkpoint: z.object({
-    runId: z.string().optional(),
-    stepId: z.string().optional(),
-    status: z.enum(['active', 'blocked', 'complete']),
-    summary: z.string().max(16_000).default(''),
-    evidence: WorkflowStepEvidence.default({}),
-    observation: WorkflowGitObservation.nullable().optional(),
-  }),
-  assignStep: z.object({
-    runId: z.string().optional(),
-    stepId: z.string().min(1),
-    sessionId: z.string().nullable(),
-  }),
-  skip: z.object({
-    runId: z.string().optional(),
-    stepId: z.string().min(1),
-    reason: z.string().default(''),
-  }),
-  retry: z.object({ runId: z.string().optional(), stepId: z.string().min(1) }),
-  adopt: z.object({
-    revisionId: z.string().min(1),
-    runId: z.string().optional(),
-    startStepId: z.string().optional(),
-  }),
+  checkpoint: workflowCheckpointInput,
+  assignStep: workflowAssignStepInput,
+  skip: workflowSkipInput,
+  retry: workflowRetryInput,
+  adopt: workflowAdoptInput,
 } as const
 
 export interface WorkflowCaller {
@@ -304,11 +286,10 @@ export class WorkflowService implements WorkflowEngine {
   }
 
   get(input: z.infer<(typeof workflowInputs)['get']>, caller: WorkflowCaller) {
-    const workflow = this.deps.store.getWorkflow(input.id)
-    if (!workflow) throw new Error(`unknown workflow: ${input.id}`)
-    if (!this.canReadWorkflow(caller, workflow)) {
-      throw new Error('workflow is outside this session')
-    }
+    // ONE site, ONE message for both "no such workflow" and "not yours"
+    // (ADR 3 Amendment 1 D20.2) — `assertWorkflowRead` is where that lives, so
+    // this no longer resolves the row and then refuses it with a second string.
+    const workflow = this.access.assertWorkflowRead(caller, input.id)
     return { workflow, revisions: this.deps.store.listRevisions(input.id) }
   }
 
