@@ -233,6 +233,8 @@ export interface StrategyPorts {
   readonly machines?: MachineDirectory
   readonly delegations?: DelegationDirectory
   readonly mint: CapabilityMinter
+  /** The operator channel's in-process binding, when this process has one. */
+  readonly boundUser?: () => UserId | null
 }
 
 /** Re-exported for strategy modules that talk about scopes in their doc comments. */
