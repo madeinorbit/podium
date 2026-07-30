@@ -1188,4 +1188,20 @@ export const WIRE_FIXTURES: WireFixture[] = [
       refusal: 'unreachable',
     },
   },
+  // All THREE arms are pinned, not two. Mutation-testing found that dropping
+  // `unknown-target` — the fail-identically arm, and the one whose absence turns
+  // a refusal into an existence oracle — was invisible to this corpus while only
+  // the other two had fixtures. The arm that matters most for a leak is the one
+  // an incomplete fixture set would have let go.
+  {
+    name: 'frame.handoffImportResult.refusedUnknownTarget',
+    schema: DaemonMessage,
+    value: {
+      type: 'handoffImportResult',
+      requestId: 'req-15',
+      ok: false,
+      error: 'no such machine',
+      refusal: 'unknown-target',
+    },
+  },
 ]

@@ -85,5 +85,6 @@
   "frame.handoffImportRequest": "{\"type\":\"handoffImportRequest\",\"requestId\":\"req-12\",\"sessionId\":\"sess-1\",\"repoPath\":\"/home/u/repo\",\"worktreeName\":\"issue-300\",\"occupiedWorktreePaths\":[\"/home/u/repo/.worktrees/issue-299\"]}",
   "frame.handoffImportResult": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-12\",\"ok\":true,\"newCwd\":\"/home/u/repo/.worktrees/issue-300/packages/model\",\"worktreeRoot\":\"/home/u/repo/.worktrees/issue-300\"}",
   "frame.handoffImportResult.refusedUnauthorized": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-13\",\"ok\":false,\"error\":\"no `use` on the target machine\",\"refusal\":\"unauthorized\"}",
-  "frame.handoffImportResult.refusedUnreachable": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-14\",\"ok\":false,\"error\":\"target machine is offline\",\"refusal\":\"unreachable\"}"
+  "frame.handoffImportResult.refusedUnreachable": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-14\",\"ok\":false,\"error\":\"target machine is offline\",\"refusal\":\"unreachable\"}",
+  "frame.handoffImportResult.refusedUnknownTarget": "{\"type\":\"handoffImportResult\",\"requestId\":\"req-15\",\"ok\":false,\"error\":\"no such machine\",\"refusal\":\"unknown-target\"}"
 }
