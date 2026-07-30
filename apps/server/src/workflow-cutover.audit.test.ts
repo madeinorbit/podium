@@ -14,16 +14,27 @@
  *    derived surface actually EXISTS with the right verbs — a script that saw an
  *    empty router literal would report a serene zero hand-written mutations.
  *
- * Running the script's checks here too is deliberate, and it is what puts the
- * gate in `bun run test` rather than in a command someone has to remember.
+ * The script is RUN as a subprocess here, not imported. POD-382's
+ * `session-cutover.audit.test.ts` keeps the two halves entirely separate and
+ * leaves its script to `bun run audit:sessions`; importing it instead would make
+ * `apps/server` (L4) import UP into `scripts` (L5), which `check-boundaries`
+ * refuses — correctly, and it caught exactly that here. Spawning keeps the layer
+ * order intact AND puts the gate in `bun run test` rather than in a command
+ * someone has to remember, which is the one thing the sessions split gives up.
  */
 
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
 import { describe, expect, it } from 'vitest'
-import { auditWorkflowCommands } from '../../../scripts/audit-workflow-commands'
 import { WORKFLOW_QUERIES } from './modules/workflows/queries'
 import { WORKFLOW_COMMANDS } from './modules/workflows/registry'
 import { appRouter } from './router'
+
+/** The repo root, from this file's location — `process.cwd()` is the vitest
+ *  invocation directory and is not the same thing when a lane is run from a
+ *  package. */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 /** The tRPC internals the router exposes for introspection. */
 function procedures(): Record<string, { _def: { type: string; inputs: unknown[] } }> {
@@ -42,7 +53,18 @@ function procedures(): Record<string, { _def: { type: string; inputs: unknown[] 
 
 describe('POD-732 workflow cutover gate', () => {
   it('the source audit is clean — no hand-written mutation, no resurrected table, one ledger door', () => {
-    expect(auditWorkflowCommands()).toEqual([])
+    // `--probe` first, inside the script: it fails with exit 2 when a check
+    // cannot find its planted fixture, so a green run here cannot mean "the scan
+    // broke". The JSON arm is parsed rather than the exit code alone, so a
+    // failure names the finding instead of just the status.
+    const probe = Bun.spawnSync(['bun', 'scripts/audit-workflow-commands.ts', '--probe'], {
+      cwd: REPO_ROOT,
+    })
+    expect(probe.exitCode, probe.stderr.toString()).toBe(0)
+    const gate = Bun.spawnSync(['bun', 'scripts/audit-workflow-commands.ts', '--json'], {
+      cwd: REPO_ROOT,
+    })
+    expect(JSON.parse(gate.stdout.toString())).toEqual({ ok: true, findings: [] })
   })
 
   /**

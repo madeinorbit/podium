@@ -113,7 +113,13 @@ deleted rather than inherited.
 - `bun run audit:workflows` (6 probes + 4 checks), `bun run audit:sessions`,
   `check-boundaries` (56 allowlisted, **0 new**), `rearch-audit` (baseline
   exact), `check-no-nul-bytes`. No schema change, so no `migration:check`.
+- `check-boundaries` caught a violation of mine and it is fixed rather than
+  allowlisted: the cutover test first *imported* the audit script, making
+  `apps/server` (L4) import UP into `scripts` (L5). It now SPAWNS the script, so
+  the layer order holds and the gate still runs inside `bun run test` — which is
+  the one thing POD-382's fully-separate split gives up. Mutant confirming the
+  spawned gate still fails the lane: **KILLED**.
 - Mutation testing, one mutant per call, each verified APPLIED (unique match,
-  hash change, grep-back) and reverted atomically: **7 mutants, 7 KILLED** —
+  hash change, grep-back) and reverted atomically: **8 mutants, 8 KILLED** —
   after the exposure mutant SURVIVED on the first pass and the guard was made
   reachable from a test.
