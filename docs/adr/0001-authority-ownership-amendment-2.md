@@ -79,7 +79,7 @@ questions, and POD-733 is the record that answers them:
 |---|---|---|
 | 1 | Does `InstanceId` join the branded-id taxonomy and the model vocabulary, or stay a runtime-only concern? | **D17** (D5.1 stands; the brand gains a *placement constraint*) |
 | 2 | Do fleet / machine records carry an explicit `InstanceId` column, or stay implicitly scoped by the per-instance state DB? | **D18** (implicit; composed with owner + grants in §3) |
-| 3 | Ownership-matrix treatment: who mints it; never replicated across instances by definition | **D16** + **D19** |
+| 3 | Ownership-matrix treatment: who mints it; never replicated across instances by definition | **D16** (+ **D16.1** equality, **D16.2** as-built vs target) + **D19** |
 | 4 | How does instance identity appear — or explicitly not appear — on the wire? | **D20** |
 | — | Cross-instance sharing / federation | **D21** (out, stated twice, because the word "sharing" now collides) |
 
@@ -192,6 +192,18 @@ Compose the five facts above and the bug falls out mechanically:
 > and restart the daemon with it — which is precisely what a headless remote machine has no
 > one available to do.
 
+**And the one automatic fallback that exists cannot save this case.** `PairingManager`
+(`apps/server/src/hub/pairing.ts`) holds codes **in memory only** — its own comment says
+"single-use/in-memory … Lost on restart by design" — and `redeem` deletes the entry
+**regardless of outcome**, so a code is spent even when it is rejected as expired. Compose
+that with the trigger list: losing the `machines` row essentially always involves a server
+restart, and a restart wipes every outstanding code. So the daemon's one-shot
+`--pair-code` fallback (daemon.ts L933–941) is unavailable exactly when it is needed, and a
+retry with the same code fails a second time for a different reason. Recovery therefore
+**cannot** be specified as "the operator supplies a pair code"; the distinguishing fact has to
+live at a durability tier that survives both the restart and the database — which is what
+D19.4's pairing root is.
+
 Two things about this bug matter for the decisions below, and they pull in **opposite**
 directions:
 
@@ -228,9 +240,9 @@ be assignable to exactly one of them:
 |---|---|---|---|---|
 | **What it is** | A deployment partition: one whole Podium universe (one Authority, one state DB, one port triplet, one service set) | A host that can execute work — "owned compute" (ADR 9 D6) | The kind of process (`server` / `daemon` / `janitor` / `update`) within one instance | A person with an account (ADR 9 D1) |
 | **Type** | `InstanceId` brand (D5.1), **configuration-only** (D17) | `MachineId` brand | `InstanceServiceRole` union — **not an id** | `UserId` brand (POD-1075) |
-| **Who mints it** | **A human, at deploy time.** `PODIUM_INSTANCE` / `--instance` / the `default` fallback. No process mints one; the first process to claim a state dir merely **records** it (`ensureInstanceStateIdentity` → `instance.json`) | **The daemon**, once, `randomUUID()` in `daemon.json` (identity.ts L35). The server registers it at pair/hello but never coins it | Nobody — it is a compile-time constant of the entry point, surfaced in unit and command names | **The server**, at account creation / invite (ADR 9 D1.2) |
-| **Scoped by** | Nothing above it. It **is** the outermost scope | Its instance — because its identity file lives in that instance's state root, and its row lives in that instance's DB | Its instance | Its instance |
-| **What equality means** | "The same deployment": same state dir, same DB, same ports, same units. Two equal ids that resolve to different state dirs is an **error**, not a merge (`assertInstanceStateIdentity` hard-fails) | "The same host, as far as this instance's fleet is concerned." **Not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly | "The same kind of process." Two live processes of the same role in one instance is a **conflict** (port bind, state claim), never an identity | "The same person." The unit of ownership, grants, and attribution |
+| **Who mints it** | **Not minted — selected.** A human supplies it at deploy time via `PODIUM_INSTANCE` or `--instance`; when neither is set, `resolveInstanceId` **supplies `default` automatically**, so the label on an unconfigured deployment is a fallback, not anyone's deliberate act. No process ever mints a *new* id; the first process to claim a state root merely **records** the selected one (`ensureInstanceStateIdentity` → `instance.json`) | **The daemon**, once, `randomUUID()` in `daemon.json` (identity.ts L35) — **in the target scheme.** Today the local machine is the documented exception: the **server** provisions `machines.id = 'local'` at startup with a server-minted secret (`ensureLocalMachine`, service.ts L409; server.ts L226). POD-318 deletes that exception — see D16.2 | Nobody — it is a compile-time constant of the entry point, surfaced in unit and command names | **The server**, at account creation / invite (ADR 9 D1.2) |
+| **Scoped by** | Nothing above it. It **is** the outermost scope — but see D16.1: the *carrier* of the partition is the resolved **state root**, and the id is a label on that root, not a global name for it | Its instance — because its identity file lives in that instance's state root, and its row lives in that instance's DB | Its instance | Its instance |
+| **What equality means** | **Nothing, by itself.** See **D16.1** — equality of instance-id strings is *not* evidence that two processes belong to one deployment, and no code path treats it as such | "The same daemon identity file", hence the same host **as far as this instance's fleet is concerned** — **not** "the same physical hardware": one host paired to two instances is two MachineIds, correctly. Authoritative only inside the instance whose DB holds the row (D16.1) | "The same kind of process." Two live processes of the same role in one instance is a **conflict** (port bind, state claim), never an identity | "The same person" — **within one instance only.** Server-minted, so equal `UserId` values in two instances are unrelated strings (D21.3) |
 | **Never** | Replicated, synced, wire-borne, or a column (D18, D19, D20) | A stand-in for a person (ADR 9 D1's rejected alternatives), nor for a partition | An id, an owner, or a security principal | A partition. `UserId` never separates deployments |
 | **If conflated with the others** | See the failure table below | | | |
 
@@ -246,7 +258,128 @@ concern:
 | **Instance ≡ Process role** | `instanceServiceName(role, id)` composes two independent coordinates into one unit name. Collapse them and `podium-a-daemon` vs `podium-b-daemon` stops being derivable, which is how one instance's `systemctl restart` stops another instance's daemon — the isolation SP-15aa's acceptance proof exists to refuse. |
 | **User ≡ Process role** | The `OPERATOR` constant, which is exactly the artefact ADR 9 D1.5 retires: "someone authenticated" becoming `{role: 'admin', scope: 'all'}` is a role standing in for a person, and it makes ownership unenforceable and attribution a lie. |
 
-**Rationale.** POD-645's four questions are each locally answerable and jointly misleading:
+#### D16.1 — Equality is CONTEXTUAL. Never treat an id string as proof of co-membership
+
+**Normative, and aimed squarely at POD-734.** The runtime establishes **no global identity
+relation** for any of the four axes. Each axis's equality is decidable only inside a stated
+context, and outside that context equal strings mean nothing at all.
+
+**What the code actually enforces for `InstanceId`** (`packages/runtime/src/instance.ts`,
+verified):
+
+| Situation | Enforced behaviour |
+|---|---|
+| Same state root, marker id ≠ selected id | **Hard fail.** `assertInstanceStateIdentity` throws — "instance 'x' cannot use `<dir>`: it belongs to instance 'y'" |
+| **Same selected id, two different state roots** | **Both accepted.** There is no registry, no uniqueness index, and nothing that could observe the second root. `instanceStateDir` returns `PODIUM_STATE_DIR` **verbatim whenever it is set**, so the id → root mapping is not injective and is not even a function of the id |
+| Unmarked, non-empty root, named instance | Refused unless `PODIUM_ADOPT_STATE=1` (`ensureInstanceStateIdentity`) |
+| Unmarked root, `default` | Marked in place, for backward compatibility |
+| Two hosts both resolving `default` | **Ordinary and expected.** Every unconfigured deployment is called `default` |
+
+So the *only* relation the runtime enforces is **"this state root belongs to this instance
+label"** — a check between one selected label and one directory. It follows that:
+
+1. **The partition's carrier is the resolved state root, not the label.** Two processes belong
+   to the same deployment iff they resolve to the **same state root** (hence the same DB, the
+   same derived ports, the same unit names). The label is an *attribute of a root*, not a name
+   that identifies one.
+2. **Across hosts, the label carries nothing whatsoever.** A server on host A and a daemon on
+   host B are both very likely to be instance `default`, and they share no state root at all.
+   What makes them one deployment is that **the daemon is paired to that server's endpoint** —
+   the association is the pairing relation plus the endpoint it dialled, and D19.4's pairing
+   root is what makes it verifiable. Equal labels across hosts are a coincidence of defaults.
+3. **Therefore: POD-734 must never compare instance-id strings to decide that two processes,
+   two rows, or two files belong to one deployment.** The decidable predicates are: *within a
+   host*, same resolved state root; *across hosts*, the pairing relation. A raw string
+   comparison is not a substitute for either, and code that uses one is asserting a global
+   identity the runtime does not provide.
+
+**Uniqueness scope, and what an equality check is ENTITLED to conclude.** The compact form,
+for the moment an implementer is about to write `a.id === b.id`:
+
+| Id | Unique within | An equality check may conclude | It may NOT conclude |
+|---|---|---|---|
+| `InstanceId` | **Nothing.** Not unique in any scope the runtime can observe — it is a *label on a state root*, and `default` is the label of every unconfigured deployment on earth | Only that two things carry the same label | That they share a deployment, a database, a port triplet, a fleet, or anything else. Use the resolved **state root** (same host) or the **pairing relation** (across hosts) |
+| `MachineId` | One instance's `machines` table | The same daemon identity file, hence the same host **within that instance** | Anything across instances — and today the constant `'local'` is byte-equal in *every* instance while naming different hardware |
+| `UserId` | One instance's `User` aggregate | The same person **within that instance** | Anything across instances (D21.3: no identity portability) |
+| `InstanceServiceRole` | Not an id | The same *kind* of process | Any identity at all. Two live processes of one role in one instance is a conflict, not a match |
+
+**And symmetrically, for the other two id axes** — stated here because the same mistake is
+available on each:
+
+- **`MachineId`** is authoritative **only inside the instance whose DB holds the row.** In the
+  target scheme it is a `randomUUID()`, so accidental collision is negligible — but negligible
+  collision is not the same as cross-instance meaning, and today the local machine makes the
+  point concretely: `LOCAL_MACHINE_ID` is the literal constant `'local'`, so **every** instance
+  has a machine whose id is byte-equal to every other instance's, describing different
+  hardware. Cross-instance `MachineId` equality is therefore not merely unproven, it is
+  currently *guaranteed to be misleading* for one row in every deployment.
+- **`UserId`** is server-minted inside one instance (ADR 9 D1.2). Equality means the same
+  person **within that instance**. Across instances it is an unrelated string, which is
+  exactly D21.3's no-identity-portability clause seen from the equality side.
+
+**Rationale.** The original draft of this decision asserted that equal instance ids resolving
+to different state dirs is "an error, not a merge, and `assertInstanceStateIdentity` hard-fails".
+That is **false**: the assertion runs in the opposite direction — it protects a *root* from the
+wrong *label*, not a label from being reused across roots — and with `PODIUM_STATE_DIR` set
+there is no relation between label and root at all. Left standing, it would have licensed
+POD-734 to treat `instanceId === instanceId` as a co-membership test, which would silently
+pass for every pair of unconfigured deployments in existence, all of which are called
+`default`. Correcting it is the difference between threading a value and inventing an
+authority.
+
+#### D16.2 — As-built exceptions are transitional. `local` and `__local__` are invalid MachineIds and must die before branding reaches them
+
+**Decision.** The axis table above states the **target** scheme. Two as-built exceptions exist
+today, are transitional, and must not be read as the model:
+
+| | As-built today (tip `201dd989`) | Target, after POD-318 |
+|---|---|---|
+| **Local machine id** | The **server** provisions it: `ensureLocalMachine` upserts `id: LOCAL_MACHINE_ID = 'local'` with a **server**-minted secret (service.ts L409–419), called at boot (server.ts L226). The bundled local daemon then presents that constant. The daemon does **not** mint it | The local daemon **auto-pairs over the loopback bootstrap secret exactly like a remote one**, minting its own `randomUUID()` in `daemon.json`. **One** identity scheme, no special case |
+| **Pre-adoption rows** | `LOCAL_PLACEHOLDER = '__local__'` is the `machine_id` default on `repos` (schema L200) and the value on rows created before a real machine adopts them; `adoptPlaceholderRows` re-homes them at boot | Gone. A one-shot migration re-homes existing rows and the boot heals (`retargetPlaceholderSessions`, `adoptPlaceholderRows`, `backfillRepoIds`, `healLocalOrigins`) are **deleted**; a fresh install never mints a placeholder |
+
+Three normative rules follow:
+
+1. **`'local'` and `'__local__'` are INVALID `MachineId` values.** They are sentinels — one a
+   server-side stand-in for "the host I am running on", the other for "no machine yet". Neither
+   names a daemon identity, and neither may survive into the target model.
+2. **ORDERING CONSTRAINT, and it is the sharp one.** `MachineId` is declared as
+   `z.string().min(1).brand<'MachineId'>()` — it validates **length, not shape** — so
+   `MachineId.parse('local')` **succeeds today** and yields a perfectly well-typed
+   `MachineId`. Branding a sentinel does not flag it; it *launders* it, after which no type,
+   test, or reviewer can distinguish the sentinel from a real machine identity, and the
+   migration that was supposed to delete it has lost its handle. Therefore:
+
+   > **POD-318's migration must retire `local` and `__local__` BEFORE `MachineId` branding is
+   > applied at any site that can hold either value.** POD-360's characterization inventory is
+   > where those sites are enumerated, and each such site must be marked in that inventory as
+   > *blocked on POD-318* rather than as an ordinary schema flip for POD-301/POD-361–363. If
+   > branding must land first for an unrelated reason, the sentinel sites are carved out and
+   > left as raw strings until the migration lands — a narrower, visible debt, rather than a
+   > well-typed lie.
+
+   This is not a hypothetical reachability argument: `'__local__'` is a **column DEFAULT in
+   three tables** — `sessions.machine_id` (schema L43), `conversations.machine_id` (L154) and
+   `repos.machine_id` (L200). The database *manufactures* the sentinel for any insert that
+   omits the column, so branding those sites freezes it into the type system from three
+   directions at once, and POD-360's inventory reached the same conclusion independently. This
+   amendment states the constraint normatively so that **POD-361 and POD-318 cannot each assume
+   the other handled it** — the failure mode of two streams both believing an ordering
+   dependency is someone else's.
+
+3. **This amendment's own tables are marked accordingly.** §3.2 lists both sentinels under a
+   *transitional* heading with their retirement owner, and does **not** classify them as
+   ordinary machine identities.
+
+**Rationale.** Blocker: the earlier draft said flatly that the daemon mints `machines.id`, and
+§3.3 normatively described first boot as auto-pairing "as `LOCAL_MACHINE_ID`" — i.e. it wrote
+the transitional exception into the target model, in the one document POD-318 and POD-734 will
+implement from, and simultaneously classified `__local__` as a machine identity. Combined with
+a brand that accepts any non-empty string, that is a direct path to `'local'` becoming a
+permanent well-typed `MachineId` in a scheme whose whole point was to delete it. Separating
+as-built from target, and attaching the ordering constraint to POD-360's inventory where the
+sites are actually listed, is what makes the retirement enforceable rather than aspirational.
+
+**Rationale (D16 overall).** POD-645's four questions are each locally answerable and jointly misleading:
 answer them one at a time and you get four defensible sentences that still permit an
 implementer to believe instance scoping and user ownership are the same mechanism seen from
 different angles. The axis table is the smallest artefact that makes that belief
@@ -440,10 +573,15 @@ authorise one.
    boundary of one Authority's feed. ADR 2's feed identity is `(feedId, epoch, seq)` within
    one Authority; there is no inter-Authority feed, no cross-instance cursor, and nothing to
    replicate *to*. Note carefully that this is **not** a consequence of ids being
-   instance-unique — several are not. `repo_id` is derived from a normalized origin URL
-   (repo-id.ts L64–71), so two instances that know the same repository compute the **same**
-   `repo_id`; `LOCAL_MACHINE_ID` is the literal constant `'local'` in every instance. **Equal
-   ids across instances therefore do exist, and mean nothing.** The prohibition on
+   instance-unique — several are not. `repo_id` has **two forms and two different equality
+   rules**, and only the first is global: when an origin URL normalizes it is
+   `repo_<sha1_16(normalized origin)>` (repo-id.ts L70), so two instances that know the same
+   repository compute the **same** `repo_id`; when no origin normalizes it falls back to
+   `repo_<sha1_16("path:"+machineId+":"+path)>` (L71), which is **machine-scoped** and
+   upgradable, and must not be cited as evidence of anything global. Separately,
+   `LOCAL_MACHINE_ID` is the literal constant `'local'` in every instance. **Equal ids across
+   instances therefore do exist, and mean nothing** — see D16.1 for the general rule. The
+   prohibition on
    cross-instance joins does not rest on id uniqueness and must not be implemented as a
    uniqueness check: it rests on the state-dir claim and on there being no transport between
    instances (D20, D21).
@@ -459,21 +597,58 @@ authorise one.
      is documented as needing to outlive "the server's own database" (identity.ts). Those two
      contracts are inconsistent: one side is built to survive the other's data loss, and the
      other side holds the only copy of what makes survival possible.
-   - **Decision:** closing that gap is **machine-axis work** — pairing durability and
-     unattended re-pair recovery — and it is **not** in scope for POD-734, which threads
-     instance identity and must not grow a pairing feature. It is filed as **POD-1114**
-     (`discovered-from` POD-733). Whoever takes it may **not** close it by adding an instance
-     coordinate to the wire (D20) or a column to the table (D18).
-   - **What this amendment does require, at no schema cost:** when a daemon handshake is
-     refused, and when `assertInstanceStateIdentity` refuses a state dir, the **server-side
-     log and operator-facing error must name the instance id and state dir the check was
-     performed against.** An operator whose daemon is stuck must be able to tell "wrong
-     instance" from "unpaired" from "lost database" from the evidence available on the
-     server. This is a diagnostics obligation on the *deployment* axis discharged **where
-     instance identity already lives** — in the process's own configuration and its logs —
-     and explicitly **not** by adding a field to a protocol frame. The client-facing
-     rejection reason stays as it is: it must not become an oracle, and it is not where an
-     operator debugs a deployment.
+   - **THE OBSERVABLE CONTRACT IS DECIDED HERE**, not deferred to POD-1114. Three situations
+     currently arrive as one indistinguishable `helloRejected`, and the contract fixes what
+     each must do:
+
+     | Situation | Required outcome |
+     |---|---|
+     | **Accidental loss of the `machines` row** (re-created DB, restore from before pairing, split-deployment promotion) | The previously paired daemon **MUST recover unattended** — no human on the remote host, no fresh pair code, and it **keeps its existing `MachineId`**, which `daemon.json`'s contract already promises outlives the server's database |
+     | **Intentional revoke** (`deleteMachine` / unpair / token rotation by a `manage`-holder) | **Stays denied, permanently.** Recovery requires a deliberate new pairing act, and must never be reachable by the automatic path above |
+     | **A daemon dialling a different instance** | **Stays denied**, and is *not* discoverable by the daemon: refused with an error byte-identical to any other refusal |
+
+   - **The two durable facts that make those three distinguishable.** Naming the current
+     instance id and state dir in a log **cannot** separate the first two — the server observes
+     the same absent row either way, so the distinguishing fact does not exist yet and must be
+     created. Both facts below are **machine-axis**, and neither is an instance discriminator,
+     so D18's fence is untouched:
+
+     1. **A revocation record that OUTLIVES the row.** Intentional revoke writes a retained
+        tombstone keyed by `MachineId` (with the time and the revoking principal — which
+        ADR 3 D7 already supplies from the transport). *Absent row **with** a tombstone* =
+        revoked ⇒ deny. *Absent row **without** a tombstone* = the row was lost, not
+        surrendered. This is the fact whose absence causes §1.4's bug: today, deletion and
+        data loss are byte-identical states.
+     2. **An instance-scoped PAIRING ROOT at the state-root durability tier.** A secret held
+        beside `instance.json` (`0600`, same tier, not inside the DB) under which an issued
+        machine token is verifiable **without** the per-row hash. Then: absent row, no
+        tombstone, and the presented token verifies under this instance's root ⇒ **re-enrol
+        automatically**, recreating the row and preserving the `MachineId`. A token that does
+        **not** verify under this root was minted by a different instance, or forged, or is
+        stale beyond the root's rotation ⇒ deny.
+
+     Note what the pairing root buys beyond durability: it makes **"wrong instance" decidable
+     with zero protocol presence.** A token minted under instance A's root simply fails to
+     verify under instance B's, so the wrong-instance case is caught by cryptography rather
+     than by an instance field on the wire — which is why D20 can stay absolute. This is the
+     answer to §1.4's "three situations, one rejection" without touching the frames.
+
+   - **Honest boundary.** The contract covers loss of the **database**. If the whole state
+     root is lost, the pairing root is lost with it and a real re-pair is genuinely required;
+     that is the limit of what any server-side fact can promise, and it is not a gap to be
+     closed later by weakening rule 1.
+   - **Diagnostics follow from the decision rather than substituting for it.** Once the two
+     facts exist, a refused handshake and a refused state root must log **which of the three
+     verdicts was reached** — re-enrolled, revoked, or unverifiable — alongside the instance id
+     and state root the check ran against. That is now a statement of fact rather than, as the
+     earlier draft had it, an operator being asked to infer a distinction the server had no
+     basis for. The **client-facing** rejection reason still does not carry the verdict: it
+     must not become an existence or deployment oracle.
+   - **Scope.** Implementation is **POD-1114**, whose brief is constrained to exactly this
+     contract and these two facts — it is no longer an open design menu, and "keep recovery
+     manual" has been struck from it. It remains **out of scope for POD-734**, which threads
+     instance identity and must not grow a pairing feature. Whoever implements it may **not**
+     substitute an instance coordinate on the wire (D20) or a column on the table (D18).
 
 **Rationale.** Questions 3 and 4 of POD-645 ("who mints it, never replicated") look like
 bookkeeping and are the two places the axis map earns its keep. "Never replicated" needed a
@@ -633,12 +808,31 @@ axis; nothing may carry two.
 | `machines.owner` | **User** | no — POD-318 | pairing principal (M3) |
 | machine grant edges (`see`/`use`/`manage`) | **User** | no — POD-1079 | granter, bounded by granter's rights |
 | `repos.machine_id`, `repos.path`, `repo_prefixes` | Machine (inherits the machine's scoping; Amendment 1 D13.5) | yes | per-machine facts; **no owner of their own** |
-| `repos.repo_id` | **Neither** — content-derived (repo-id.ts L64) | yes | Equal across machines *and* instances by design (D19.3) |
-| `LOCAL_MACHINE_ID = 'local'` | Machine | yes | The host the server runs on — **owned**, not ambient (Amendment 1 D13.4) |
-| `LOCAL_PLACEHOLDER = '__local__'` | Machine (pre-adoption) | yes | Retired by POD-318; must not collide with the `instance.json` first-boot claim (POD-645 acceptance) |
+| `repos.repo_id` — **origin-backed** form | **Neither** — content-derived: `repo_<sha1_16(normalizeOriginUrl(origin))>` (repo-id.ts L70) | yes | Equality means **the same normalized origin URL**. Stable across checkouts, across machines, and across instances by design (D19.3) |
+| `repos.repo_id` — **path-fallback** form | **Machine** — `repo_<sha1_16("path:"+machineId+":"+path)>` (repo-id.ts L71), used when no origin normalizes | yes | Equality means **the same `(machineId, path)` coordinate** and nothing wider. Provisional: `isPathFallbackRepoId` detects it and `updateRepoOrigin` **upgrades** it to the origin-backed form once an origin is learned |
+
+**Which consumer is entitled to which `repo_id` equality notion.** The two forms are the same
+column and must not be read with the same rule:
+
+| Consumer | Entitled to | Because |
+|---|---|---|
+| "Is this the same repository, wherever it is checked out?" — cross-machine repo grouping, prefix allocation, multi-machine history | **Origin-backed equality only.** Must first establish the id is not a path fallback (`isPathFallbackRepoId`) and treat a fallback as *unknown*, never as *distinct-and-final* | This is precisely what hashing a normalized origin is for: stability across checkouts and machines |
+| "Is this the same working copy on this machine?" — worktree and path-scoped operations | **Either form**, but only ever with the machine coordinate carried alongside | A path means nothing without the host it is on |
+| Anything asserting a **global** repo identity from a fallback id | **Nothing.** This is the false rule the split exists to prevent | The fallback deliberately encodes `machineId`, so two machines with the same checkout path produce two different ids for one repository, and one machine's two paths produce two ids as intended |
 | ~~`machines.instance_id`~~ | — | **no, and never** | D18's fence |
 | daemon `daemon.json` (`machineId`, `token`) | Machine, **stored inside** the instance state root | yes | Two instances on one host ⇒ two MachineIds, correctly (D16) |
 | `daemon.secret` (local same-host daemon) | Machine (credential-local) | yes | Per state dir, therefore per instance — a *location* consequence, not a column |
+| pairing root (D19.4 fact 2) | Machine (secret; state-root tier, **not** in the DB) | **no — POD-1114** | Per state root, therefore per instance. Makes "wrong instance" decidable with zero protocol presence |
+| machine revocation tombstone (D19.4 fact 1) | Machine | **no — POD-1114** | Retained; must outlive the `machines` row, or revoke and data loss stay indistinguishable |
+
+**Transitional sentinels — NOT machine identities.** Listed separately because D16.2 makes
+them invalid `MachineId` values, and because `MachineId` validates length rather than shape, so
+branding one would launder it into a well-typed id:
+
+| Sentinel | What it actually is | Retirement |
+|---|---|---|
+| `LOCAL_MACHINE_ID = 'local'` | A **server-side stand-in** for "the host I run on", server-provisioned with a server-minted secret (`ensureLocalMachine`). Byte-equal in every instance, describing different hardware. The host it stands for is **owned**, not ambient (Amendment 1 D13.4) | POD-318 — replaced by a daemon-minted UUID via loopback auto-pair. **Must be gone before `MachineId` branding reaches its sites** (D16.2 rule 2; sites enumerated by POD-360) |
+| `LOCAL_PLACEHOLDER = '__local__'` | "No machine yet" — the `machine_id` default on `repos` (schema L200) for rows created pre-adoption | POD-318 — one-shot migration re-homes rows; `adoptPlaceholderRows` and the sibling heals are deleted. Same branding-order constraint. Must not collide with the `instance.json` first-boot claim (POD-645 acceptance) |
 
 **Reading the table:** the instance coordinate appears **nowhere** as a field, and everywhere
 as a **location** — which state dir, which DB file, which port. That is the whole decision,
@@ -649,17 +843,31 @@ in one column.
 Three things happen at first boot on the same host, on three different axes, and POD-645's
 acceptance requires they compose:
 
-| Order | Claim | Axis | Site |
-|---|---|---|---|
-| 1 | Instance claims its state dir | Instance | `ensureInstanceStateIdentity` (server.ts L149–150, daemon.ts L361–363) — **before** service construction |
-| 2 | Local daemon is auto-paired as `LOCAL_MACHINE_ID` | Machine | `readOrCreateDaemonSecret` + local adoption (`ensureLocalMachine`) |
-| 3 | That machine is assigned an **owner** | User | POD-318, from the pairing principal; existing machines migrated to the first admin |
+Three things happen at first boot on the same host, on three different axes. **The sequence
+below is the TARGET (post-POD-318), not the as-built path** — per D16.2, today's local machine
+is server-provisioned as the constant `'local'`, and that is the exception POD-318 deletes.
+Writing the as-built path here as normative is exactly the error D16.2 exists to prevent.
 
-This amendment's contribution is only the ordering constraint and the axis assignment: **the
-instance claim must precede both others** (it decides which DB the machine row and the owner
-land in), and **step 3 must fail closed** — a machine with no resolvable owner is not ambient
-team compute (Amendment 1 D13.4, ADR 9 D6 M4). Implementation and proof are POD-734's and
-POD-318's; nothing here authorises step 1 to learn about steps 2–3, or the reverse.
+| Order | Claim | Axis | Target site |
+|---|---|---|---|
+| 1 | Instance claims its state root | Instance | `ensureInstanceStateIdentity` (server.ts L149–150, daemon.ts L361–363) — **before** service construction. Also the tier at which D19.4's pairing root is established |
+| 2 | The local daemon **mints its own `MachineId`** — `randomUUID()` in `daemon.json` — and **auto-pairs over the loopback bootstrap secret exactly like a remote daemon** | Machine | POD-318's unified scheme (`readOrCreateDaemonSecret` supplies the loopback secret; `ensureLocalMachine` and `adoptPlaceholderRows` are **deleted**). **No `'local'`, no `'__local__'`** |
+| 3 | That machine is assigned an **owner** — the principal that set the instance up | User | POD-318, from the pairing principal per ADR 3 D7 (transport, never payload); pre-existing machines migrated to the first admin |
+
+This amendment's contribution is the ordering constraint and the axis assignment, not the
+implementation:
+
+- **Step 1 must precede both others** — it decides which DB the machine row and the owner land
+  in, and which state root holds the pairing root.
+- **Step 2 must produce a daemon-minted UUID**, not a sentinel. A first boot that still writes
+  `'local'` has not satisfied this sequence, and per D16.2 rule 2 that value must not reach a
+  `MachineId`-branded site.
+- **Step 3 must fail closed** — a machine with no resolvable owner is usable by **nobody**, not
+  by everybody (Amendment 1 D13.4, ADR 9 D6 M4; POD-318 carries the test that a second,
+  non-owning member account cannot spawn on the auto-paired local machine).
+
+Implementation and proof are POD-734's and POD-318's; nothing here authorises step 1 to learn
+about steps 2–3, or the reverse.
 
 ---
 
@@ -671,8 +879,8 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
 
 | Item | Status |
 |---|---|
-| Pairing durability / unattended re-pair recovery (§1.4's bug) | **Filed as POD-1114** (Pairing durability across server data loss), `discovered-from` POD-733. Machine-axis. Constrained by D19.4: not fixable by a wire field (D20) or a column (D18), and not in POD-734's scope |
-| Naming the instance and state dir in handshake-refusal and state-dir-refusal **logs** | Required by D19.4; the site belongs to whoever next touches `authenticateDaemon` and `assertInstanceStateIdentity`. No schema, no wire, no protocol change |
+| Pairing durability / unattended re-pair recovery (§1.4's bug) | **POD-1114**, `discovered-from` POD-733. The **observable contract and the two durable facts are DECIDED** in D19.4 — POD-1114 implements them and no longer chooses between outcomes. Machine-axis; not fixable by a wire field (D20) or a column (D18); not in POD-734's scope |
+| Logging the **verdict** (re-enrolled / revoked / unverifiable) plus the instance id and state root on a refused handshake or refused state root | Required by D19.4, and possible only once its two durable facts exist — so it lands with POD-1114 rather than before it. No wire, no protocol change |
 
 ---
 
@@ -691,6 +899,20 @@ policy question**; an omitted row is silence, not closure. Two items are recorde
       per-instance isolation is enforced by an ownership or grant check (D18 rule 1).
 - [ ] Instance identity is resolved **once**, at the entry point, and threaded — never
       re-resolved, defaulted, or invented below it (D19.2, D20.4).
+- [ ] **No instance-id string comparison is used as proof that two processes, rows or files
+      belong to one deployment** (D16.1). Within a host the predicate is same resolved state
+      root; across hosts it is the pairing relation.
+- [ ] `'local'` and `'__local__'` never reach a `MachineId`-branded site: POD-318's migration
+      retires them **before** POD-301/POD-361–363 brand those sites, or the sites are carved
+      out as raw strings until it does (D16.2 rule 2; inventoried by POD-360).
+- [ ] First boot mints a **daemon-minted UUID** for the local machine — not a sentinel — and
+      assigns an owner that fails closed (§3.3 target sequence).
+- [ ] Revoke and accidental row loss are **distinguishable from durable facts**, not inferred:
+      a retained revocation tombstone and an instance-scoped pairing root at the state-root
+      tier (D19.4). A previously paired daemon recovers unattended from row loss; revoke and
+      wrong-instance stay denied.
+- [ ] `repo_id` equality is never asserted globally for the **path-fallback** form — that form
+      means `(machineId, path)` and is upgradable (§3.2, D19.3).
 - [ ] The `InstanceId (partition)` matrix row declares `deployment-substrate` with owner
       `none — substrate` and no grants, satisfying ADR 9 D4's totality test (D19.1).
 - [ ] Machines remain `owned-compute` with `see`/`use`/`manage`; the composed machine row
@@ -722,7 +944,18 @@ Every claim below was read on tip `201dd989` (`issue/279-integration`), 2026-07-
 | `machines` columns (no owner, no pairer, no grants, no instance column) | `apps/server/src/migrations/schema.ts` L189–197 |
 | `repos` keyed `(machine_id, path)`, `machine_id` default `'__local__'` | same file L199–208 |
 | `LOCAL_MACHINE_ID = 'local'`, `LOCAL_PLACEHOLDER = '__local__'`, `readOrCreateDaemonSecret` | `packages/runtime/src/local-machine.ts` L13, L19, L45 |
-| `repo_id` is an origin-URL hash, path-fallback otherwise | `apps/server/src/repo-id.ts` `normalizeOriginUrl` L21, `deriveRepoId` L64, L70–71 |
+| `repo_id` has **two** forms: origin-backed (global) and `(machineId, path)` fallback (machine-scoped, upgradable) | `apps/server/src/repo-id.ts` `normalizeOriginUrl` L21, `deriveRepoId` L64, origin branch L70, fallback branch L71, `isPathFallbackRepoId` L77 |
+| `assertInstanceStateIdentity` rejects only a marker whose value differs from the SELECTED id — same id in two different roots is accepted, and there is no registry | `packages/runtime/src/instance.ts` L193–204 |
+| `instanceStateDir` returns `PODIUM_STATE_DIR` verbatim when set, so id → state root is not injective | same file L80–89 |
+| `resolveInstanceId` supplies `default` automatically when `PODIUM_INSTANCE` is unset | same file L29–31 |
+| A named instance refuses a non-empty unmarked root unless `PODIUM_ADOPT_STATE=1`; `default` is marked in place | `ensureInstanceStateIdentity` L212–246 |
+| The **server** provisions the local machine as the constant `'local'` with a server-minted secret — the daemon does not mint it | `apps/server/src/modules/machines/service.ts` `ensureLocalMachine` L409–419; called at `apps/server/src/server.ts` L226 |
+| `MachineId` validates length, not shape — so `MachineId.parse('local')` succeeds | `packages/protocol/src/ids.ts` (`z.string().min(1).brand<'MachineId'>()`) |
+| POD-318 deletes `local` / `__local__` and the bridging boot heals, and lands the owner at first-boot auto-pair | `podium issue show 318` (scope items 1 and M3/M4) |
+| POD-360 is the characterization step that inventories every entity-id site before branding | `podium issue show 360` |
+| `'__local__'` is a column DEFAULT in **three** tables | `apps/server/src/migrations/schema.ts` L43 (`sessions`), L154 (`conversations`), L200 (`repos`) |
+| Pairing codes are in-memory, single-use, deleted on redeem **regardless of outcome**, and lost on restart | `apps/server/src/hub/pairing.ts` — class comment, `redeem` (delete-before-expiry-check), `ttlMs` 60 min |
+| The daemon's one-shot pair fallback depends on an operator-supplied `--pair-code` | `apps/daemon/src/daemon.ts` L933–941 |
 | Handshake frames carry `machineId`/`token`/`hostname` and **no** instance id | `packages/protocol/src/messages/daemon-handshake.ts` L4–16 |
 | `hello` accepted iff `getMachineByToken`; `'unknown machine — re-pair'` on failure | `apps/server/src/modules/machines/service.ts` L176, L184 |
 | `getMachineByToken` fails closed on a missing row (`if (!row) return false`) | `apps/server/src/store/machines.ts` L80–88 |
