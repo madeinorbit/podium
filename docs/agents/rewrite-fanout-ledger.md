@@ -1823,3 +1823,37 @@ not-mine claim has two honest forms: **measured** (detached checkout at a named 
 identical command) or **mechanistic** (the failing code is disjoint from the diff, stated as reasoning
 rather than as measurement). Passing off the second as the first is the slip POD-351 made in the other
 direction.
+
+### An instrument that finds NOTHING passes everything — twice in one hour, both in zod
+
+Two issues hit the same shape independently, and neither was findable by reading the code.
+
+**POD-363, `ZodBranded` exposes `.unwrap()` too.** Its brand-derivation peeled until it could peel no
+further — sailing PAST the brand onto the bare `z.string()` and matching **nothing**. Every
+value-preservation assertion PASSED, because *a derivation that finds nothing passes everything through
+unchanged*. It looked exactly like success. Fixed by matching against the shared brand fields by
+IDENTITY and returning the match BEFORE peeling past it.
+
+**POD-640, `safeParse().success` is not evidence of shape.** Its `admitsWake` probe keyed on
+`safeParse` succeeding — and zod **STRIPS unknown keys and succeeds**, so it called every contract
+wake-capable, including the one deliberately built as the negative control. Now keyed on the parsed
+OUTPUT.
+
+**The general rule: when an instrument's job is to FIND things, a zero result and a broken instrument
+are indistinguishable from the outside — and the downstream assertions will all pass.** Every such
+instrument needs a case proving it finds something (POD-363's per-key `toBe` against the shared
+INSTANCE) and a case proving it does not over-find (POD-640's `mail.reply`, which must NOT get the
+verb; a check demanding it of everything scores green and proves nothing).
+
+**And assert against the DERIVATION, not the source it derives from.** POD-363's identity tests
+originally asserted on `IssueWire.shape` — a claim about the MODEL, not about its derivation.
+Mutation-verified: a version matching brands by CONSTRUCTOR rather than identity mapped every branded
+key to whichever field was listed first (so `assignee` parsed as an `IssueId`) and SURVIVED all 15
+tests, because both brands accept any string at runtime.
+
+### Do not read `inventory:ids` as a completion metric
+
+Its A-schema-flip figure reads 1798 before AND after the branded-id sweep and can never reach zero: the
+classifier is NAME-based, so `sessionId: SessionId` — already branded — still counts as a site
+(measured: `api.ts` has six branded `sessionId` members, all six counted). The gate doc says the sweep
+deliberately over-reports. **The audit item is the `POD-361-EDGE-CAST` marker count, which is now 0.**
