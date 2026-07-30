@@ -1,6 +1,11 @@
 # ADR 1 — Amendment 2: instance identity, and the four axes it must never be confused with
 
-- **Status:** Proposed (human gate: POD-359)
+- **Status:** Proposed. POD-359 closed 2026-07-30 with the pack's **human sign-off gate
+  suspended** for the autonomous POD-279 fan-out
+  (`docs/agents/rewrite-fanout-protocol.md` §1), the coordinator recording sign-off in its
+  place — see `docs/adr/README.md`. This amendment was authored *after* that sweep and is
+  therefore **not** covered by its tracker reconciliation; it inherits the same suspended
+  gate and needs the same human confirmation whenever the pack next gets one.
 - **Date:** 2026-07-30
 - **Deciders:** architecture rewrite ADR pack (POD-359); the human decisions of 2026-07-28/29
   recorded in `docs/multi-user-readiness.md`; human sign-off before Phase 1
@@ -739,13 +744,15 @@ Every claim below was read on tip `201dd989` (`issue/279-integration`), 2026-07-
 | Stage | Owner |
 |---|---|
 | Proposed | POD-733 (this document) |
-| Pack reconciliation + index | POD-359 |
-| Human approval | POD-359 human gate |
+| Pack reconciliation + index | POD-359 — **closed 2026-07-30**, and its 103-issue tracker sweep predates this file. The index row and the `docs/adr/README.md` amendment count were added by POD-733; anything else this amendment implies for the tracker is unswept |
+| Human approval | Suspended for the autonomous run (see Status above); coordinator sign-off recorded in `docs/adr/README.md` |
 | Brand declaration + adoption at runtime call sites | POD-301 (bounded by D17.5) |
 | Matrix annotations + totality test | POD-304 |
 | Instance threading (fleet service + composition root) | POD-734, POD-321 |
 | Machine owner + pairing principal; placeholder retirement | POD-318 |
 | Machine grants + verb checks | POD-1079 |
 
-Until human sign-off of the ADR pack, no phase may treat an alternative instance-scoping
-strategy as authorized. Amendments require an ADR update and POD-359 tracker reconciliation.
+No phase may treat an alternative instance-scoping strategy as authorized. Further amendment
+requires an ADR update; POD-359 having closed, the tracker-reconciliation obligation passes to
+whoever amends next, and D18's fence stands independently of the sign-off state — it is a
+prohibition, not a provisional recommendation awaiting ratification.

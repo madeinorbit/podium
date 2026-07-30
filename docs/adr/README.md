@@ -20,10 +20,12 @@ tip `2ddfec21`. Source proposal committed at
 
 ## Amendments (2026-07-29 — multi-user)
 
-All five encode the human decisions of 2026-07-28/29 recorded in
-`docs/multi-user-readiness.md`, and all consume ADR 9's vocabulary rather than redefining it.
-Each base ADR carries an **"Amended by"** pointer in its frontmatter; base decision numbers are
-never reused or renumbered, and each amendment continues its base document's sequence.
+The **first five** encode the human decisions of 2026-07-28/29 recorded in
+`docs/multi-user-readiness.md`; the sixth (ADR 1 Amd 2) answers POD-645's instance-identity
+drift questions and exists largely to stop that work being misread as multi-tenancy. All six
+consume ADR 9's vocabulary rather than redefining it. Each base ADR carries an
+**"Amended by"** pointer in its frontmatter; base decision numbers are never reused or
+renumbered, and each amendment continues its base document's sequence.
 
 | Amendment | File | Adds | Overturns / amends in the base |
 |---|---|---|---|
@@ -32,6 +34,7 @@ never reused or renumbered, and each amendment continues its base document's seq
 | ADR 3 Amd 1 (POD-1073) | [0003-command-security-amendment-1.md](0003-command-security-amendment-1.md) | D14–D22 + security properties 9–17 | D7's principal table replaced; D8 now resolves a delegation chain; D2's `machine` scope gains see/use/manage; the `IssueScope` closed set gains owner/grant scopes and **reads stop being scope-free**. D1, D3, D5, D6, D9–D13 unchanged; **D10/D11 keep sole ownership of their numbers** |
 | ADR 4 Amd 1 (POD-359, integrator) | [0004-representation-policy-amendment-1.md](0004-representation-policy-amendment-1.md) | D8–D10 (`UserId` brand + ownership field group + attribution pair; per-user state as a keyed shape) | D7.3's *rationale* narrows to the slice; the decision itself is unchanged. D2's R1–R6 role set stays closed |
 | ADR 7 Amd 1 (POD-1074) | [0007-plane-inventory-amendment-1.md](0007-plane-inventory-amendment-1.md) | D9–D16 (identity-carrying presence, rooms inside the stream port, cursor-rate fan-out, no durable presence, one subscription primitive, visibility-gated joins, inventory extension) | Two cells of D1's port-semantics table restated as per-principal routing. Three planes, D2–D5, D6's totality obligation, D7's eight handoff types and D8 unchanged |
+| ADR 1 Amd 2 (POD-733) — *2026-07-30, instance identity* | [0001-authority-ownership-amendment-2.md](0001-authority-ownership-amendment-2.md) | D16–D21 (the four identity axes with mint / scope / equality / conflation-failure each; `InstanceId` as a **configuration** brand with exhaustive permitted and forbidden positions; no `instance_id` column, decided against the machine row composed with `owner` + grants; `deployment-substrate` classification; **zero** protocol presence ratified and contrasted with the per-principal feed; cross-instance federation / sharing / identity portability out) | **Nothing overturned.** D5 is amended by *constraint and composition* only — all five of its clauses stand, and D18 re-states Amendment 1 D14's prohibition as its own conclusion, fenced against being cited to authorise the column it forbids |
 
 Reconciliation record (pack reviewer + integrator, 2026-07-17): outbox max-age
 owned solely by ADR 3 (ADR 2 keeps the inequality); schema-discard vs migrate
