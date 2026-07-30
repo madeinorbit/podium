@@ -989,3 +989,40 @@ would have made `sessions.kill` stop naming the session whose owner also has to 
 what D15.2 forbids.
 
 Adopted fleet-wide as the standing formulation.
+
+### The local sentinel is not a machine id, and a fail-closed gate must know that
+
+POD-381's machine-`use` gate typechecked in all three packages and then failed **24 oracle tests** with
+`TRPCError: unknown machine 'local'`. Cause:
+
+```
+machineVerbsFor: const row = ownership.rowFor(machineId); if (!row) return new Set()
+checkMachineUse: if (!verbs.has('see')) return 'absent'
+```
+
+An unknown id yields the empty set, which reads as `absent` — and `grep -c 'LOCAL_MACHINE_ID|__local__'`
+over that file is **zero**. But `local`/`__local__` are **sentinels, not machine ids**
+(`ids/brands.ts:262`: branding is shape not identity, so `MachineId.parse('local')` SUCCEEDS and
+branding a sentinel launders it — the reason POD-318 exists). POD-366 measured the consequence earlier:
+a fresh session sits on the `__local__` placeholder until a real machine adopts it.
+
+So on a single-machine install — today's common case — **every command against a fresh session is
+refused as `absent`**. Not a stricter posture; the product refusing its own default state.
+
+> A fail-closed gate over an id space that contains SENTINELS needs an explicit sentinel arm before the
+> lookup. And the fix must not be "make a missing row permissive", which inverts default-closed and hands
+> `use` on every unknown machine to everyone.
+
+**A `will-change` tag is not a blanket permit for any red in that file.** The failing test was tagged
+will-change POD-1079, but it failed because the product now *throws from a different layer*, not because
+the named shape changed — and it was 24 tests across several oracle files. POD-379 built the tag ratchet
+precisely so a green oracle could never be cited as evidence that a deliberate replacement had not
+regressed something else.
+
+Integration reset to `14aa4f04`, green. Also worth recording: my earlier doubt that POD-381 had merged
+POD-380 was **wrong**. It had merged at `f9bf5fa5`; my `merge-base --is-ancestor` check failed only
+because POD-380 had since added a third commit, so the ancestor test was against a moved tip. The
+uncommitted-work finding was real at the time; the accusation about the merge was not.
+
+> `merge-base --is-ancestor <branch> <branch>` answers a question about TIPS. To ask whether a specific
+> merge happened, test the SHA the agent cited, not the branch name.
