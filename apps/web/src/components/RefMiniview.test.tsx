@@ -1,11 +1,12 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asIssueId } from '@podium/model'
 import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
 import { RefCard, seedCardPosition } from './RefMiniview'
 
 const parent: RefIssueLike = {
-  id: 'iss_parent',
+  id: asIssueId('iss_parent'),
   prefix: 'POD',
   seq: 500,
   displayRef: 'POD-500',
@@ -14,7 +15,7 @@ const parent: RefIssueLike = {
 
 /** A fully-populated issue (a structural subset of IssueWire, like the store holds). */
 const rich: RefIssueLike = {
-  id: 'iss_1',
+  id: asIssueId('iss_1'),
   prefix: 'POD',
   seq: 517,
   displayRef: 'POD-517',
@@ -24,10 +25,10 @@ const rich: RefIssueLike = {
   assignee: 'agent:claude-code',
   ready: false,
   blocked: true,
-  blockedBy: ['iss_a', 'iss_b'],
+  blockedBy: [asIssueId('iss_a'), asIssueId('iss_b')],
   childCount: 4,
   childDoneCount: 2,
-  parentId: 'iss_parent',
+  parentId: asIssueId('iss_parent'),
   activityNotes: 'Card now shows stage, todos and status.',
   panel: {
     todos: [
@@ -100,7 +101,13 @@ describe('RefCard issue summary (#517)', () => {
   })
 
   it('degrades to ref + title for a lean issue (no enrichment fields)', () => {
-    renderCard(root, { id: 'iss_x', prefix: 'POD', seq: 9, displayRef: 'POD-9', title: 'Lean' })
+    renderCard(root, {
+      id: asIssueId('iss_x'),
+      prefix: 'POD',
+      seq: 9,
+      displayRef: 'POD-9',
+      title: 'Lean',
+    })
     const text = container.textContent ?? ''
     expect(text).toContain('POD-9')
     expect(text).toContain('Lean')
@@ -109,7 +116,7 @@ describe('RefCard issue summary (#517)', () => {
   })
 
   it('omits the parent chip when the parent is not resolvable', () => {
-    renderCard(root, { ...rich, parentId: 'iss_gone' })
+    renderCard(root, { ...rich, parentId: asIssueId('iss_gone') })
     expect(container.textContent).not.toContain('in POD-500')
   })
 })

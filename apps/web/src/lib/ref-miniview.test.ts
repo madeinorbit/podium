@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   collectRefPrefixes,
@@ -9,9 +10,9 @@ import {
 } from './ref-miniview'
 
 const issues: RefIssueLike[] = [
-  { id: 'iss_1', prefix: 'POD', seq: 13, displayRef: 'POD-13', title: 'Nice ids' },
-  { id: 'iss_2', prefix: 'POD', seq: 27, displayRef: 'POD-27', title: 'Other' },
-  { id: 'iss_3', prefix: 'WEB', seq: 4, displayRef: 'WEB-4', title: 'Web thing' },
+  { id: asIssueId('iss_1'), prefix: 'POD', seq: 13, displayRef: 'POD-13', title: 'Nice ids' },
+  { id: asIssueId('iss_2'), prefix: 'POD', seq: 27, displayRef: 'POD-27', title: 'Other' },
+  { id: asIssueId('iss_3'), prefix: 'WEB', seq: 4, displayRef: 'WEB-4', title: 'Web thing' },
 ]
 
 const sessions: RefSessionLike[] = [
@@ -121,7 +122,7 @@ describe('sessionWorkingIssueRef', () => {
     expect(sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'nope' }, issues)).toBeNull()
     expect(
       sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'iss_9' }, [
-        { id: 'iss_9', seq: 9, title: 'legacy, no displayRef' },
+        { id: asIssueId('iss_9'), seq: 9, title: 'legacy, no displayRef' },
       ]),
     ).toBeNull()
   })

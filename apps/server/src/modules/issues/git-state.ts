@@ -1,4 +1,4 @@
-import type { IssueGitState } from '@podium/model'
+import type { IssueGitState, IssueWire } from '@podium/model'
 
 /**
  * Git-state probe [POD-98] — the pure half of the "has this task committed,
@@ -18,16 +18,27 @@ export interface GitProbeIo {
   ): Promise<{ ok: boolean; output: string }>
 }
 
-export interface GitProbeTarget {
+/**
+ * What the probe needs about an issue's checkout.
+ *
+ * The three workspace members — `parentBranch`, `branch`, `machineId` — are the
+ * issue's own fields and are PICKED from `IssueWire` (POD-367) rather than
+ * restated; their docs live there. Note the visibility consequence recorded in
+ * POD-364's inventory: every member of this port is a MACHINE fact, so its
+ * visibility is INHERITED from the machine (ADR 9 D3 rule 3, owned-compute), not
+ * carried here. `machineId` rides the POD-318 carve-out through the pick and is
+ * deliberately still unbranded.
+ *
+ * The rest are probe-local inputs with no issue field behind them: where to look,
+ * whether the checkout is shared, and the harness-supplied attribution inputs
+ * this module never guesses from checkout state.
+ */
+export interface GitProbeTarget
+  extends Pick<IssueWire, 'parentBranch' | 'branch' | 'machineId'> {
   /** Checkout to probe: the issue worktree, or the session cwd on shared work. */
   cwd: string
   /** True = multi-task checkout (no issue-owned worktree): merge axis off. */
   shared: boolean
-  /** Issue's parent branch — the merge-axis base (private worktrees only). */
-  parentBranch: string
-  /** Issue's own branch, for the merged check. Null on shared checkouts. */
-  branch: string | null
-  machineId?: string
   /** Harness-attributed commit shas for this task's sessions. */
   commits?: string[]
   /** Harness-observed files this task's sessions touched (repo-relative). */
