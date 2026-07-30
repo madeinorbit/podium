@@ -493,6 +493,15 @@ auto-archive bound test asserted only the refused side, and the valid fixture di
 file. Now 256 and 64 exactly are asserted to PASS, and mutating `.max(256)`→`.max(6)` reds it (1 site,
 hash `0e1c6c7b`→`3ea308f7`). Generalised with POD-366.
 
+**A fourth direction on the same hazard: a suite cannot notice its own coverage shrinking.**
+POD-365 deleted a registry entry and its test count fell 27 → 24 with **no red**, because `it.each`
+over the list under test simply iterated one case fewer — an evaporated question rather than a wrong
+answer. This file had the identical defect: four tests iterate `ISSUE_COMMAND_NAMES`, and the
+classification test derived its expected marker count **from that same list**, so a deleted command
+would have left every one of them green while covering one case fewer. Now guarded with a **literal**
+length (68) plus a membership check that every named arm is still in the canonical list — derived from
+the list it would be a tautology.
+
 **The exactly-once assertion earned its keep immediately.** Attempting that mutant with the obvious
 pattern `issueId: z.string().min(1).max(256)` matched **twice** — both auto-archive observations carry
 an `issueId` — and the helper refused to run. Had it proceeded it would have mutated both schemas; had
@@ -524,6 +533,18 @@ Re-checked that way: the survivor-shaped compound auto-archive mutant (applied a
 the `clearNeedsHuman` characterization mutant (1 site, `fe71f94f`→`b0b2028b`, text confirmed → exactly
 its own test red). A kill is self-proving — something went red, so the mutant applied; only
 survivor-shaped results are ambiguous, which is why those are the ones re-verified.
+
+**How each mutant was verified — precisely, not "all verified".** Every mutant here produced a
+**specific red naming the expected test**, and a red is self-certifying about application: a
+never-applied mutant produces green. That is the load-bearing half and it holds for all of them.
+The **uniqueness** half does not: only the four run through the helper asserted
+matched-exactly-once, and one early mutant's guard was written `assert s2 != s or True`, which
+asserts nothing at all — its kill still stands on its red, but not on its construction. So the honest
+description is *"all verified by their red; four also verified by construction"*, not "all verified by
+construction". (POD-365 made and then corrected the same overstatement about its own suite, with the
+generalisation worth keeping: **memory is an instrument that only ever says YES** — an unchecked
+recollection of having been careful is indistinguishable from having been careful. The check cost one
+grep.)
 
 **Mutation evidence.** Eleven mutants, all killed, product file reverted clean after each (one at a
 time, and after committing — an early revert-to-HEAD during this work discarded uncommitted edits,

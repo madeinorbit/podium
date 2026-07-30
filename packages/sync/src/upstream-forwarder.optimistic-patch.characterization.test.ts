@@ -68,6 +68,26 @@ const EVERY_READ_KEY = {
 
 describe('optimisticIssuePatch — classification of the whole command surface', () => {
   /**
+   * A GUARD ON THIS SUITE'S OWN COVERAGE, not on the switch.
+   *
+   * POD-365's finding: a parameterised suite whose parameter list IS the thing under
+   * test cannot notice its own coverage shrinking. Four tests in this file iterate
+   * `ISSUE_COMMAND_NAMES`, and the classification test below derives its expected
+   * marker count FROM that same list — so a command deleted from the list would
+   * leave every one of them green while silently covering one case fewer. An
+   * evaporated question, not a wrong answer.
+   *
+   * The length is a LITERAL on purpose: derived from the list it would be a
+   * tautology. Update it deliberately when a command is genuinely added or removed.
+   */
+  it('the canonical command list has not shrunk beneath this suite', () => {
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(68)
+    // And every named arm is still a MEMBER, so renaming one in the canonical list
+    // is caught here rather than silently reclassifying that arm as unknown.
+    for (const arm of NAMED_ARMS) expect(ISSUE_COMMAND_NAMES).toContain(arm)
+  })
+
+  /**
    * The switch's coverage measured against the CANONICAL command list, not
    * against itself. This is the list POD-311's reducers must account for: nine
    * commands have a representable optimistic effect today and the rest do not,
