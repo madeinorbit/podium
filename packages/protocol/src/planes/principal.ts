@@ -1,6 +1,5 @@
-import type { UserId } from '@podium/model'
+import type { MachineId, UserId } from '@podium/model'
 import { z } from 'zod'
-import type { MachineId } from '../ids'
 
 /**
  * The transport-derived principal that every plane port carries on its

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { asIssueId, asSessionId } from '../ids'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { PlaneTarget } from './control-port'
 import {
   PRESENCE_PAYLOAD_MAX_BYTES,

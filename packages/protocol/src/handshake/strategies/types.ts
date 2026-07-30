@@ -16,7 +16,7 @@
  * unit-testable against a fake with no server, socket or database.
  */
 
-import type { MachineId } from '../../ids'
+import type { MachineId } from '@podium/model'
 import type { CapabilityRef, DeviceId, Principal, UserId } from '../../planes/principal'
 import type { DelegationDirectory, DelegationScope } from '../delegation-chain'
 import type {

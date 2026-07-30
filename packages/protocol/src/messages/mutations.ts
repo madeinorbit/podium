@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MachineId, MutationId } from '../ids'
+import { MachineId, MutationId } from '@podium/model'
 import { MetadataChange } from './sync'
 
 /**

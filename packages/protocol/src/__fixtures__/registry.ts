@@ -2,6 +2,14 @@
  * The covered surface of the golden wire fixtures (POD-360).
  *
  * Families are the protocol's module split PLUS @podium/model's barrel,
+ *
+ * The `ids` family is GONE as of POD-361, and that is a relocation, not a
+ * coverage loss: the brands and the two composite-key helpers moved to
+ * @podium/model, so every schema `ids.json` pinned now appears in the `model`
+ * family — asserted case-by-case in the POD-361 handoff before the golden was
+ * regenerated (docs/rearch-branded-id-flip.md §9), because a regeneration is
+ * exactly what would otherwise let a deletion pass as a move.
+ *
  * so "every message family" is a mechanical fact rather than a list someone has to
  * remember to extend: each module contributes EVERY zod schema it exports.
  *
@@ -19,7 +27,6 @@
 import * as model from '@podium/model'
 import { z } from 'zod'
 import * as commands from '../commands'
-import * as ids from '../ids'
 import * as maintenance from '../maintenance'
 import * as approvals from '../messages/approvals'
 import * as automations from '../messages/automations'
@@ -70,7 +77,6 @@ const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, un
   ['harness', harness],
   ['headless', headless],
   ['host', host],
-  ['ids', ids],
   ['inventory', inventory],
   ['issues', issues],
   ['local-link', localLink],
