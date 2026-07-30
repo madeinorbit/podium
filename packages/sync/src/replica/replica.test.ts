@@ -1624,6 +1624,13 @@ describe('every declared ADR route is driven, not merely declared', () => {
   })
 
   it('rung 5 (corruption) fires from healing and from bootstrapping', async () => {
+    // The claim is about the SOURCE posture, so assert against `transitions`
+    // (which records `from`) rather than `trace` (which records only that the row
+    // fired). A trace-only assertion passes identically whichever posture the
+    // replica was in, so it cannot distinguish these two cases at all.
+    const corruptFrom = (r: Replica) =>
+      r.transitions.filter((t) => t.rowId === 'D7-5-CORRUPT').map((t) => t.from)
+
     const a = harness()
     await bootstrapped(a, 10, [])
     a.authority.changesSinceQueue = [deltaFrame(10, 12, [session(12, 's', 'v')])]
@@ -1631,7 +1638,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     expect(a.replica.posture).toBe('healing')
     a.store.setCorrupt(true)
     await a.replica.settled().catch(() => undefined)
-    expect(a.replica.trace).toContain('D7-5-CORRUPT')
+    expect(corruptFrom(a.replica)).toEqual(['healing'])
 
     const b = harness()
     await bootstrapped(b, 10, [])
@@ -1641,8 +1648,16 @@ describe('every declared ADR route is driven, not merely declared', () => {
     await Promise.resolve()
     b.store.setCorrupt(true)
     channel.push(bootstrapChunk(20, [], true))
+    // Leave manual mode so the re-bootstrap rung 5 starts is served by the scripted
+    // slice instead of blocking forever on a channel this test never feeds again.
+    // The generator already handed out above keeps its own reference, so the last
+    // chunk pushed a line earlier is still delivered to the walk in flight.
+    b.authority.manual = null
     await b.replica.settled().catch(() => undefined)
-    expect(b.replica.trace).toContain('D7-5-CORRUPT')
+    expect(corruptFrom(b.replica)).toEqual(['bootstrapping'])
+    // And it TERMINATED: a store that stays corrupt exhausts the walk's budget
+    // rather than renewing it once per attempt (D7, strictly downward).
+    expect(b.replica.trace).toContain('D6-EXHAUSTED')
   })
 
   it('D6-BUFFER and D6-BUFFER-COVERED fire from healing', async () => {
