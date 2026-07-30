@@ -33,18 +33,19 @@
 
 import type { AgentKind } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
-import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
+import { sessionCommandPlane, type sessionCommandPlaneInputs } from '@podium/protocol'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
 import {
   checkMachineUse,
-  machineAccessMessage,
   type MachineOwnershipIndex,
+  machineAccessMessage,
   machineUseDecision,
 } from '../../machine-access'
 import type { MachineUseResolver } from '../machines/service'
-import type { MessageDeliveryService } from '../messages/service'
+import type { SendDisposition } from '../messages/service'
+import type { SessionsService } from './service'
 import {
   assertMayCommandSession,
   resolveSessionTarget,
@@ -52,7 +53,6 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
-import type { SessionsService } from './service'
 
 // ---------------------------------------------------------------------------
 // Execution context
@@ -79,12 +79,39 @@ export type SessionCommandServices = Pick<
   | 'withMutation'
 >
 
-/** The substrate both chat paths ride (#237) [spec:SP-34d7]. */
-export type SessionMessageSend = Pick<MessageDeliveryService, 'send'>
+/**
+ * THE SUBSTRATE BOTH CHAT PATHS RIDE (#237) [spec:SP-34d7] — as a dispatch of
+ * the `mail.send` CONTRACT, not as a call on the delivery service.
+ *
+ * This is POD-729's second deletion and the one that matters for security.
+ * Until now `sessions.sendText` and `sessions.resumeAndSend` called
+ * `MessageDeliveryService.send` directly: they went through the session command
+ * plane's own gates and then reached delivery WITHOUT passing the mail
+ * contract's policy. Two consequences, both of which multi-user turns from
+ * untidiness into a hole (readiness §3.1.5, §3.1.3 A3):
+ *
+ *  - the send was not bounded by the delegating human's ceiling, because the
+ *    ceiling is applied when an ADDRESS is resolved and these two never resolved
+ *    an address; and
+ *  - the sender was stamped by a private four-line `from` expression here rather
+ *    than by `senderFromCapability`, so the attribution PAIR came from a second
+ *    site that could drift from the one every other send uses.
+ *
+ * The port is bound at the composition root with the caller's capability already
+ * closed over, exactly like every other transport binding — a handler cannot
+ * invent a principal, and there is no argument here through which it could pass
+ * one.
+ */
+export type MailSendPort = (input: {
+  to: string
+  body: string
+  urgency?: 'fyi' | 'next-turn' | 'interrupt'
+  lifecycle?: 'wait' | 'wake'
+}) => Promise<unknown>
 
 export interface SessionCommandDeps {
   sessions(): SessionCommandServices
-  messages(): SessionMessageSend
+  mailSend: MailSendPort
   /** Draft-issue vessel creation for the low-friction start path. */
   createDraftIssue(
     repoPath: string,
@@ -246,23 +273,48 @@ type SendInput = { sessionId: string; text: string; mutationId?: string }
 type TargetInput = { sessionId: string }
 type AnswerInput = { sessionId: string; choices: { optionIndices: number[] }[] }
 
+/** What `mail.send` answers with, narrowed to the keys the chat paths return.
+ *  Exported because it is the INFERRED return type of two tRPC procedures — an
+ *  unnameable local type here becomes `unknown` on the client. */
+export interface SubstrateOutcome {
+  ok: boolean
+  queued?: boolean
+  reason?: string
+  disposition: SendDisposition
+}
+
 /**
- * The substrate send both chat paths ride. The sender is stamped from the
- * PRINCIPAL — an operator's send stays unwrapped and unclamped, an agent's rides
- * as that agent — so the wrapping is decided by who called, never by which
- * router they reached.
+ * The substrate send both chat paths ride — one dispatch of `mail.send`.
+ *
+ * The sender is stamped from the CAPABILITY inside the mail handler
+ * (`senderFromCapability`), so an operator's send stays unwrapped and unclamped
+ * and an agent's rides as that agent: decided by who called, never by which
+ * router they reached, and now by the SAME expression every other send uses.
+ *
+ * The address is the raw session id, deliberately. It is re-resolved under the
+ * human ceiling by the handler rather than handed over pre-resolved, which is
+ * what makes the absent-target case converge: an id that names nothing and an id
+ * beyond the ceiling both resolve to `unresolvable`, are both written to the one
+ * UNADDRESSABLE address and both dead-letter — which is exactly POD-379's pinned
+ * shape for a send to an unknown session. Pre-resolving here would have been a
+ * second answer to "who may this caller address".
+ *
+ * The RETURN is narrowed back to the four pinned keys. `mail.send` answers with
+ * more (id, urgency, lifecycle, clamped), and the oracle asserts these results
+ * with `toEqual` — widening the chat path's reply is a wire change and not this
+ * issue's to make.
  */
-function substrateSend(ctx: SessionCommandCtx, input: SendInput, lifecycle: 'wait' | 'wake') {
-  const from =
-    ctx.principal.kind === 'agent'
-      ? ({ kind: 'agent', sessionId: ctx.principal.agentSessionId } as const)
-      : ({ kind: 'operator' } as const)
-  const { ok, queued, reason, disposition } = ctx.deps.messages().send(from, {
-    to: { kind: 'session', id: input.sessionId },
+async function substrateSend(
+  ctx: SessionCommandCtx,
+  input: SendInput,
+  lifecycle: 'wait' | 'wake',
+): Promise<SubstrateOutcome> {
+  const { ok, queued, reason, disposition } = (await ctx.deps.mailSend({
+    to: input.sessionId,
     body: input.text,
     urgency: 'next-turn',
     lifecycle,
-  })
+  })) as SubstrateOutcome
   return {
     ok,
     ...(queued !== undefined ? { queued } : {}),
@@ -277,14 +329,19 @@ function substrateSend(ctx: SessionCommandCtx, input: SendInput, lifecycle: 'wai
  * A relayed send whose target is absent throws; the operator's returns the
  * substrate's `dead_letter`. Both are POD-379-pinned, and they differ because
  * the transports differ, not because the check does.
+ *
+ * NO `withMutation` HERE ANY MORE (POD-729). Idempotency is the framework
+ * envelope's, applied once in {@link dispatchSessionCommand} for every command
+ * in the table — the same move POD-380 made for the presence class. A wrapper
+ * per handler is how two commands end up recording receipts under two spellings
+ * of their own proc name, which is the defect the relay arm already had.
  */
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
-  return (ctx: SessionCommandCtx, input: SendInput) =>
-    ctx.sessions.withMutation(input.mutationId, proc, () => {
-      const target = ctx.target(input.sessionId, proc)
-      if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
-      return substrateSend(ctx, input, lifecycle)
-    })
+  return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
+    const target = ctx.target(input.sessionId, proc)
+    if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+    return substrateSend(ctx, input, lifecycle)
+  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the table is heterogeneous by construction
@@ -296,31 +353,30 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  * contract declares — is a compile error rather than a 404 at runtime.
  */
 export const SESSION_COMMAND_HANDLERS = {
-  create: (ctx: SessionCommandCtx, input: CreateInput) =>
-    ctx.sessions.withMutation(input.mutationId, 'sessions.create', async () => {
-      const { draftIssue, mutationId: _mutationId, ...rest } = input
-      // Explicit placement is gated BEFORE the target is prepared, because
-      // preparing may clone a repository onto the target machine — a side effect
-      // a denied principal must never cause.
-      if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-      const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
-      const issueId =
-        rest.issueId ??
-        (draftIssue
-          ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
-          : undefined)
-      // The draft-issue vessel path produces an OWNED draft, not an ownerless
-      // one: the session and its vessel resolve the same owner because they
-      // resolve it from the same principal.
-      void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
-      return ctx.sessions.createSession({
-        ...rest,
-        ...target,
-        ...(issueId ? { issueId } : {}),
-        use: ctx.machineUse,
-        spawnedBy: spawnedByFor(ctx.principal),
-      })
-    }),
+  create: async (ctx: SessionCommandCtx, input: CreateInput) => {
+    const { draftIssue, mutationId: _mutationId, ...rest } = input
+    // Explicit placement is gated BEFORE the target is prepared, because
+    // preparing may clone a repository onto the target machine — a side effect
+    // a denied principal must never cause.
+    if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
+    const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const issueId =
+      rest.issueId ??
+      (draftIssue
+        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
+        : undefined)
+    // The draft-issue vessel path produces an OWNED draft, not an ownerless
+    // one: the session and its vessel resolve the same owner because they
+    // resolve it from the same principal.
+    void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
+    return ctx.sessions.createSession({
+      ...rest,
+      ...target,
+      ...(issueId ? { issueId } : {}),
+      use: ctx.machineUse,
+      spawnedBy: spawnedByFor(ctx.principal),
+    })
+  },
 
   resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
@@ -384,10 +440,24 @@ export type SessionCommandResult<K extends SessionCommandKey> = ReturnType<
 
 /**
  * Dispatch one command: parse against the CONTRACT's schema, then run its
- * handler behind the gates the contract declares.
+ * handler behind the gates the contract declares — inside the FRAMEWORK's
+ * idempotency envelope.
  *
  * Deliberately the only way in. A transport asks for a command by name; it
  * cannot reach a handler with an unparsed input or with a principal it invented.
+ *
+ * IDEMPOTENCY IS HERE, ONCE (POD-729), not in the handlers and not in the
+ * transports. Two properties fall out of that which a per-handler wrapper never
+ * gave us. First, the receipt's proc name is DERIVED from the key rather than
+ * spelled by hand at each site — the relay arm used to apply the wrapper again
+ * under a locally-spelled name, so one command wrote receipts under two names
+ * and neither deduped the other. Second, a NEW command is idempotent by
+ * existing: forgetting the wrapper is no longer possible, because there is no
+ * wrapper to forget.
+ *
+ * A command with no `mutationId` in its input is unaffected — `withMutation`
+ * with an undefined id runs the function and records nothing, which is what a
+ * command that declares no idempotency key means.
  */
 export function dispatchSessionCommand<K extends SessionCommandKey>(
   ctx: SessionCommandCtx,
@@ -400,7 +470,11 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
     ctx: SessionCommandCtx,
     input: unknown,
   ) => SessionCommandResult<K>
-  return handler(ctx, contract.input.parse(rawInput))
+  const input = contract.input.parse(rawInput)
+  const mutationId = (input as { mutationId?: string } | null)?.mutationId
+  return ctx.sessions.withMutation(mutationId, `sessions.${key}`, () =>
+    handler(ctx, input),
+  ) as SessionCommandResult<K>
 }
 
 /** Is this proc one of the migrated command-plane commands? */

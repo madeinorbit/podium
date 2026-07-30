@@ -22,14 +22,14 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipFromMachines } from '../../machine-access'
+import { machinesForPrincipal } from './command-ctx'
 import {
   createdOwnership,
   dispatchSessionCommand,
-  type SessionCommandDeps,
   SessionCommandCtx,
+  type SessionCommandDeps,
   spawnedByFor,
 } from './command-plane'
-import { machinesForPrincipal } from './command-ctx'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import type { SessionVisibility } from './session-access'
 
@@ -90,7 +90,23 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => modules.sessions,
-    messages: () => modules.messages,
+    // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
+    // fixture binds the port the same way the composition root does — from the
+    // principal's own capability, through the real gate. Substituting the
+    // delivery service here instead would have let these tests pass while the
+    // production path went around the mail policy, which is precisely the
+    // bypass POD-729 exists to close.
+    mailSend: (input) =>
+      modules.messageGate.dispatch(
+        'capability' in principal
+          ? principal.capability
+          : { role: 'admin', scope: { kind: 'all' } },
+        undefined,
+        'send',
+        input,
+        'relay',
+        'immediate',
+      )!,
     createDraftIssue: (repoPath, agentKind, issueId) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId),
     access: {
@@ -104,9 +120,14 @@ function ctxFor(
 }
 
 /** A fixture with one paired machine row that HAS an owner to be denied on. */
-function oracleWithPairedMachine(): { o: Oracle; rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }> } {
+function oracleWithPairedMachine(): {
+  o: Oracle
+  rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>
+} {
   const o = makeOracle({ machineId: 'box', offlineMachines: [{ id: 'box', name: 'The Box' }] })
-  const rows = new Map([['box', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'The Box' }]])
+  const rows = new Map([
+    ['box', { owner: INSTANCE_OWNER, grants: [] as MachineGrant[], name: 'The Box' }],
+  ])
   return { o, rows }
 }
 
@@ -161,37 +182,37 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
-  it.each(['kill', 'hibernate', 'resurrect', 'sendText', 'resumeAndSend', 'continue'] as const)(
-    'denies %s against a session living on a machine the principal may not use',
-    async (command) => {
-      const { o, rows } = oracleWithPairedMachine()
-      const ownership = ownershipTable(rows)
-      const owner = ctxFor(o, human(INSTANCE_OWNER), { ownership })
-      const spawned = (await dispatchSessionCommand(owner, 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'box',
-      })) as { sessionId: string }
-      const input =
-        command === 'sendText' || command === 'resumeAndSend'
-          ? { sessionId: spawned.sessionId, text: 'hello' }
-          : { sessionId: spawned.sessionId }
+  it.each([
+    'kill',
+    'hibernate',
+    'resurrect',
+    'sendText',
+    'resumeAndSend',
+    'continue',
+  ] as const)('denies %s against a session living on a machine the principal may not use', async (command) => {
+    const { o, rows } = oracleWithPairedMachine()
+    const ownership = ownershipTable(rows)
+    const owner = ctxFor(o, human(INSTANCE_OWNER), { ownership })
+    const spawned = (await dispatchSessionCommand(owner, 'create', {
+      agentKind: 'shell',
+      cwd: '/p',
+      machineId: 'box',
+    })) as { sessionId: string }
+    const input =
+      command === 'sendText' || command === 'resumeAndSend'
+        ? { sessionId: spawned.sessionId, text: 'hello' }
+        : { sessionId: spawned.sessionId }
 
-      // The machine changes hands: the colleague now owns it and the instance
-      // owner holds nothing on it.
-      rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
+    // The machine changes hands: the colleague now owns it and the instance
+    // owner holds nothing on it.
+    rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
 
-      expect(
-        await messageOf(() =>
-          dispatchSessionCommand(
-            ctxFor(o, human(INSTANCE_OWNER), { ownership }),
-            command,
-            input,
-          ),
-        ),
-      ).toBe("unknown machine 'box'")
-    },
-  )
+    expect(
+      await messageOf(() =>
+        dispatchSessionCommand(ctxFor(o, human(INSTANCE_OWNER), { ownership }), command, input),
+      ),
+    ).toBe("unknown machine 'box'")
+  })
 
   it("M4: a non-owner authenticated to a server running on the owner's machine cannot execute on `local`", async () => {
     // The default ownership index — the one the router actually builds — over
