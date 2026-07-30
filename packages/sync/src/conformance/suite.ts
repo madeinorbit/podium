@@ -336,6 +336,8 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // Fail AFTER both participants enrolled and BEFORE the shared commit.
         const transactionsBefore = storage.unitOfWorkTransactions()
+        const eventsBefore = ada.replicaEvents.length
+        const outboxEventsBefore = ada.outboxEvents.length
         storage.failNextCommit(new Error('power loss mid-transaction'))
         ada.replica.receive(frame)
         // SURFACED on the unit of work the Replica joined, not swallowed.
@@ -343,6 +345,19 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // ONE transaction was opened for both regions, not two — through the kernel's
         // own commit path, which is what POD-1158's fix made reachable.
         expect(storage.unitOfWorkTransactions()).toBe(transactionsBefore + 1)
+
+        // NO OBSERVATION ESCAPED. POD-370 named this half explicitly and durable state
+        // alone cannot see it: a subscriber told "upserted" or "retired" by a
+        // transaction that then aborted has been lied to, and no later hook can retract
+        // it. This is what makes "nothing escapes on abort" a mechanism rather than a
+        // hope — adoptions are registered with `span.onCommit`, so an abort simply never
+        // runs them.
+        expect(ada.replicaEvents.slice(eventsBefore)).toEqual([])
+        expect(
+          ada.outboxEvents
+            .slice(outboxEventsBefore)
+            .filter((event) => event.type === 'retired'),
+        ).toEqual([])
 
         // Recreate BOTH kernels from the store. Whatever they see is what committed.
         const recovered = (await ada.recover()) as Client
@@ -369,6 +384,142 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         expect(recovered.view.cache.readCursor()?.seq).toBe(frame.seq)
         expect(recovered.view.cache.read('issue', 'ADA-1')?.value).toEqual({ closed: true })
         expect(await recovered.view.outbox.read()).toEqual([])
+      })
+
+      it(`${ledger.cover('base/crash-between-writes')} — the same crash inside an atomic BOOTSTRAP INSTALL is equally all-or-nothing`, async () => {
+        // The live-frame path is not the only route into a multi-region commit. A
+        // bootstrap install commits the snapshot, the cursor AND the retirements every
+        // buffered frame it includes owe, in ONE transaction — through
+        // `installSnapshot`, which REPLACES the cache rather than extending it. POD-370
+        // asked for the case twice for exactly that reason, and a suite that only crashed
+        // the live path would leave the recovery path untested at its riskiest moment.
+        seedTwoSlices()
+        const ada = await connected(ADA)
+        const record = await enqueueWrite(ada, {
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
+        await ada.outbox.drain()
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+
+        // THE WINDOW HAS TO BE OPENED DELIBERATELY, and the first draft of this case did
+        // not open it. Pin the snapshot BELOW the confirming change so the buffered frame
+        // is INCLUDED in the install rather than dropped as covered; otherwise the install
+        // owes no retirement, takes the single-region autocommit arm, and the injected
+        // failure is never consumed. That draft passed while measuring nothing —
+        // `unitOfWorkTransactions()` moved by 0 and the trace read `D6-BUFFER-COVERED`.
+        authority.pinSnapshotSeq = (ada.replica.cursor as Cursor).seq
+
+        const preCursor = ada.replica.cursor as Cursor
+        const preSlice = sliceOf(ada)
+        const preOutbox = await ada.view.outbox.read()
+        const eventsBefore = ada.replicaEvents.length
+        const outboxEventsBefore = ada.outboxEvents.length
+        const uowBefore = storage.unitOfWorkTransactions()
+
+        // A rescope puts the replica in `bootstrapping` SYNCHRONOUSLY, so the frame
+        // delivered next is BUFFERED rather than applied live — which is how a delta
+        // carrying my own command's provenance ends up inside the install.
+        ada.replica.receive({
+          kind: 'rescope',
+          feedId: authority.feedId,
+          epoch: authority.epoch,
+        })
+        expect(ada.replica.posture).toBe('bootstrapping')
+        ada.replica.receive(nextFrame(authority, ada))
+        expect(ada.replica.stats().bufferedFrames).toBe(1)
+
+        storage.failNextCommit(new Error('power loss during install'))
+        await ada.settle()
+
+        // THE WINDOW WAS OPEN — asserted, because that is the whole difference between
+        // this case and the probe it replaced. A transaction was opened, and the install
+        // therefore really was multi-region.
+        expect(storage.unitOfWorkTransactions()).toBeGreaterThan(uowBefore)
+
+        // ── WHAT HOLDS: the durable commit really was all-or-nothing ───────────
+        const installs = ada.replicaEvents
+          .slice(eventsBefore)
+          .filter((e) => e.type === 'bootstrap-installed')
+        const retired = ada.outboxEvents
+          .slice(outboxEventsBefore)
+          .filter((e) => e.type === 'retired')
+
+        // The ABORTED attempt published nothing and announced nothing: exactly one
+        // `bootstrap-installed` across both attempts, and it belongs to the retry.
+        // `bootstrap-installed` is the loudest thing the Replica emits, and an install
+        // that did not install must not emit it.
+        expect(installs).toHaveLength(1)
+        // The ladder resolved DOWNWARD and terminated rather than looping.
+        expect(ada.replica.posture).toBe('live')
+        // Never blanked on the way (D7 stale-visible) and never ahead of its snapshot.
+        expect(sliceOf(ada).length).toBeGreaterThan(0)
+        expect(ada.replica.cursor?.seq).toBeLessThanOrEqual(authority.head())
+        // NO DATA LOSS. The user's authored input is recoverable verbatim, and both
+        // kernels rebuilt from the store agree with exactly what committed.
+        const recovered = (await ada.recover()) as Client
+        expect(await recovered.view.outbox.read()).toEqual(await ada.view.outbox.read())
+        expect(recovered.view.cache.readCursor()).toEqual(ada.replica.cursor)
+
+        // ── WHAT DOES NOT HOLD, PINNED: POD-1161 ───────────────────────────────
+        // `Replica.install` drains `this.buffer` BEFORE its transaction commits, so the
+        // aborted attempt consumed the buffered frame and the RETRY started empty. The
+        // retirement that frame was the only carrier of is gone.
+        //
+        // Unlike entity truth, retirement is not re-derivable: provenance for an
+        // already-applied command appears in the feed ONCE, and no later frame carries it
+        // again after the cursor passes it. The entity side is safe precisely because a
+        // re-bootstrap re-derives it by construction — which is why this defect hides.
+        //
+        // The consequence is not silent loss and not a torn commit: it is a STUCK entry
+        // for a command that demonstrably applied, which POD-371's liveness backstop
+        // eventually dead-letters with reason `max-age` — surfaced, but telling the user
+        // their write aged out unsent when it in fact landed.
+        //
+        // ASSERTED AS TODAY'S BEHAVIOUR SO IT GOES RED WHEN FIXED. Do not delete this
+        // block when POD-1161 lands — INVERT it: `retired` should be non-empty and the
+        // entry should be gone. The candidate fix is to move the buffer reset into the
+        // `adopt` closure that already runs in `span.onCommit`, which is where POD-1158
+        // put every other post-commit observation.
+        expect(retired).toEqual([])
+        expect(ada.outbox.find(record.mutationId)?.state).toBe('applied')
+        expect(await ada.view.outbox.read()).toEqual(preOutbox)
+        expect(ada.outbox.find(record.mutationId)?.input).toEqual({
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
+
+        // POSITIVE CONTROL: the same install path with NO injected failure retires the
+        // command its buffered frame confirms. Without it, every branch above could be
+        // satisfied by an install that never retires anything.
+        authority.pinSnapshotSeq = null
+        const clean = (await openClient({
+          authority,
+          storage: await instantiation.open(),
+          principal: GRACE,
+          clock,
+          newMutationId: nextId,
+        })) as Client
+        clean.replica.connect()
+        await clean.settle()
+        const graceWrite = await enqueueWrite(clean, {
+          entity: 'issue',
+          entityId: 'GRACE-1',
+          value: { closed: true },
+        })
+        await clean.outbox.drain()
+        authority.pinSnapshotSeq = (clean.replica.cursor as Cursor).seq - 1
+        clean.replica.receive({
+          kind: 'rescope',
+          feedId: authority.feedId,
+          epoch: authority.epoch,
+        })
+        clean.replica.receive(nextFrame(authority, clean))
+        await clean.settle()
+        expect(clean.outboxEvents.some((e) => e.type === 'retired')).toBe(true)
+        expect(clean.outbox.find(graceWrite.mutationId)).toBeUndefined()
       })
 
       it(`${ledger.cover('base/quota-exhaustion')} — a denied durable write surfaces and loses nothing`, async () => {

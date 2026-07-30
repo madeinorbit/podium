@@ -200,6 +200,19 @@ export class ConformanceAuthority {
   readonly receipts: ApplyReceipt[] = []
   /** Chunk size. A tuning parameter, not a protocol constant (ADR 2 D6). */
   chunkSize = 2
+  /**
+   * Pin the snapshot point BELOW the head (ADR 2 D6: the snapshot is read at a
+   * definite `(feedId, epoch, snapshotSeq)`, and nothing requires that to be the head).
+   *
+   * Needed to make a buffered frame INCLUDED in an install rather than dropped as
+   * covered, which is the difference between exercising the install's multi-region
+   * commit and never opening a transaction at all. Without it the bootstrap-install
+   * crash case was an all-green probe: the confirming frame sat at the same seq as the
+   * snapshot, so it was correctly discarded as covered, no retirement was owed, the
+   * commit took the single-region autocommit arm and the injected failure was never
+   * consumed. Measured, not assumed — `unitOfWorkTransactions()` moved by 0.
+   */
+  pinSnapshotSeq: number | null = null
   private readonly transports = new Map<string, ConformanceTransport>()
 
   head(): number {
@@ -404,13 +417,16 @@ export class ConformanceAuthority {
       this.concurrentBootstraps,
     )
     try {
-      const snapshotSeq = this.head()
+      const snapshotSeq = this.pinSnapshotSeq ?? this.head()
       const visible = new Set(this.policy.visibleKeys(principal))
       const rows: ChangeEnvelope[] = []
       const emitted = new Set<EntityKey>()
       // Newest first, so one row per entity: the snapshot is state, not history.
       for (let i = this.rows.length - 1; i >= 0; i -= 1) {
-        const change = (this.rows[i] as LogRow).change
+        const row = this.rows[i] as LogRow
+        const change = row.change
+        // A snapshot is state AT `snapshotSeq`, so a row above it is not in it.
+        if (change.seq > snapshotSeq) continue
         const key = keyOf(change.entity, change.entityId)
         if (emitted.has(key) || !visible.has(key)) continue
         if (change.op !== 'upsert') continue

@@ -92,6 +92,30 @@ path, with a third refusal proving the normalizer does not flatten everything) �
   against a target its **human** can see; "did not retry" is asserted as the count
   stopping, beside a legal write in the same drain that did apply.
 
+## Two things this suite found the hard way
+
+### The all-green probe (POD-1161)
+
+The bootstrap-install half of the D10 crash case passed on its first draft **while
+measuring nothing**. The confirming frame sat at the same seq as the snapshot, so it was
+correctly dropped as covered, the install owed no retirement, the commit took the
+single-region autocommit arm, and the injected failure was never consumed:
+`unitOfWorkTransactions()` moved by 0 and `bootstrap()` was called once, not twice. It
+agreed with the right answer for none of the right reasons.
+
+The window only opens when the buffered frame is **above** the snapshot point, which
+needed a deliberate fixture control (`ConformanceAuthority.pinSnapshotSeq`). The case now
+asserts a transaction was opened **before** asserting anything about its outcome — which
+is the general rule: a chaos case must prove its fault injector fired.
+
+With the window open, a real defect appeared. `Replica.install` drains `this.buffer`
+before its transaction commits, so an aborted attempt consumes the buffered frames and
+the retry starts empty. Only the **retirement** is lost — entity truth is re-derived by a
+re-bootstrap by construction, which is exactly why it hides — leaving a stuck entry for a
+command that demonstrably applied, which later dead-letters with a misleading `max-age`.
+Filed as POD-1161; the suite pins today's behaviour so it goes red when fixed, with a
+positive control beside it.
+
 ## The survivor worth remembering
 
 Mutating the Replica to hand the store `remove` for an eviction **survived** every
