@@ -12,7 +12,7 @@ handed forward still open. It does not re-derive POD-364's inventory.
 | # | Representation | Status | Note |
 |---|---|---|---|
 | 1 | `issues` (drizzle DDL) | untouched | Physical DDL — legitimate R3 by inventory verdict |
-| 2 | `IssueRow` | **not done** | Needs the one `toStorage`/`fromStorage` pair; the aggregate's renames and wrapper make a straight `Pick` a store-wide change (§4) |
+| 2 | `IssueRow` | **done at POD-1151** | The one `toStorage`/`fromStorage` pair now exists (`apps/server/src/store/issue-storage.ts`) with `StoredIssue` composed from `IssueAggregate`; `IssueRow` is R3 and is registered `declared-legitimate-restatement` with named enforcement. Two real callers: `toWire` and `create`. Registry pin 43→44 |
 | 3 | `IssueWire` | **BLOCKED — architectural** | A circular import blocks it; proven, measured, and filed as POD-1141 (§4a) |
 | 4 | `IssuePatch` | already compliant | The reference pattern §6 generalizes; unchanged |
 | 5 | `CreateIssueInput` | **composed** | `Pick<IssueRow,…>` + a `CreatableRowFields<K>` mapped type |
@@ -34,6 +34,8 @@ aggregates, not counted in the 17).
 
 **9 composed, 1 correctly left alone with reasons, 1 blocked architecturally (POD-1141),
 4 not done, 2 legitimately untouched.**
+
+**Updated at POD-1151:** #2 is done — see §4a below. #3 unblocked and landed at POD-1141.
 
 ---
 
@@ -388,6 +390,46 @@ identical, and would be **wrong**, with no test able to see it. The mechanical c
 which substitutions are byte-*safe*; it never tells you which are *correct*. Ownership must be
 asserted per key by hand — which is how `updatedAt` was excluded here and `branch` was pointed at
 `IssueWorkspace` rather than `IssueGitState`.
+
+---
+
+## 4a. #2 `IssueRow`, closed at POD-1151 — what the pair does and does not buy
+
+The one documented `toStorage`/`fromStorage` pair (ADR 4 §4.1) lives in
+`apps/server/src/store/issue-storage.ts`. Its R1 side, `StoredIssue`, is
+`IssueAggregate.omit(…)` — a composition, with every retained key the shared field-group
+INSTANCE (asserted with `toBe`, because a member retyped as a fresh `z.string()` is
+byte-identical and passes every golden fixture). Two real callers: `IssueService.toWire`,
+which decodes a row once instead of performing every R1↔R3 split inline, and
+`IssueService.create`, which builds R1 and encodes once instead of hand-writing a 59-key row.
+
+**The pair is NOT a bijection, and that is a measured storage gap rather than a mapper
+defect.** Five R1 members have no column — `owner`, `visibility` (ADR 9 D2/D3), `createdBy`,
+`lastLifecycleActor` (D5 A3) and the `attribution` half of the needs-human `asked` group,
+plus `labels`, which lives in the `issue_labels` join table. They are named as data
+(`ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY`) rather than defaulted at the seam, because ADR 9
+D8 S5 forbids defaulting `onBehalfOf` and a mapper is the last place anyone would look for
+the multi-user model's defaults. POD-1075 owns the columns.
+
+**So `IssueAggregate` still cannot be the service's in-memory type, and the blocker is
+structural, not effort.** `Map<string, IssueRow>` in `service/core.ts` reads three classes
+the aggregate excludes BY CONSTRUCTION: per-user state (`readAt`/`tuckedAt`/`pinned` —
+POD-1076's `(userId, issueId)` re-key; `aggregates/registry.test.ts` fails if one reappears
+on R1), the derived `repoPath` (inventory D-1), and the attribution members above. Until
+POD-1075 and POD-1076 land there is nowhere for those facts to go. The pair is what makes
+that migration mechanical when they do.
+
+**One defect worth propagating, because it is this programme's failure mode in miniature.**
+The first design here NAMED the storage gap as a schema — an `IssueStorageLocal` z.object
+carrying `readAt`/`tuckedAt`/`pinned`/`repoPath` — which read well and grew the debt:
+`scripts/rearch-audit.ts` reported `per-user-singletons` 8 → 11. That item is a RATCHET with
+no registry escape, mapped to POD-1076 exactly so POD-302 cannot close by laundering it.
+A second declaration of those keys is not a collapse of a restatement; it is one more of
+them. Naming it as a `Pick<IssueRow, …>` type alias did not fix it either — the detector
+reads the picked key literals, correctly. The fix was to accept that R1 must not have them:
+`StoredIssue` carries neither, and `toStorage` takes them as a `Pick` in ARGUMENT position,
+so `IssueRow` stays their one declaration. **A gate that says "GREW" is worth more than the
+design it rejects.**
 
 ---
 
