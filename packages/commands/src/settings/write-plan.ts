@@ -38,7 +38,7 @@
  * lost write look identical.
  */
 
-import { classifySettingsPath, type SettingsTier } from '@podium/model'
+import { classifySettingsPath, ServerSecretKey, type SettingsTier } from '@podium/model'
 import type { DeliveryClass } from '../contract'
 import { SETTINGS_CONTRACTS, type SettingsContractName, TIER_COMMAND } from './contracts'
 
@@ -174,7 +174,9 @@ export type SettingsWriteIntent =
       readonly kind: 'secret'
       readonly command: SettingsContractName
       readonly delivery: DeliveryClass
-      readonly key: string
+      /** A member of the closed vocabulary, not a free path — see the narrowing
+       *  in {@link planSettingsWrite}. */
+      readonly key: ServerSecretKey
       /** Absent for `settings.clearSecret` — see {@link planSettingsWrite}. */
       readonly value?: string
     }
@@ -233,6 +235,13 @@ export function planSettingsWrite(
       continue
     }
     if (leaf.tier === 'server-secret') {
+      // NARROWED, not cast. The path came from the classification's secret tier,
+      // which POD-418 derives from the same groups `SERVER_SECRET_KEYS`
+      // enumerates and asserts equal — so this parse succeeds by construction,
+      // and a THROW here means the model's two lists have diverged. That is a
+      // broken build rather than a settings write to refuse quietly, which is
+      // the posture `settingsTierRow` already takes for a missing matrix row.
+      const key = ServerSecretKey.parse(leaf.path)
       const value = typeof leaf.value === 'string' ? leaf.value : ''
       const command: SettingsContractName =
         value.length > 0 ? 'settings.setSecret' : 'settings.clearSecret'
@@ -247,8 +256,8 @@ export function planSettingsWrite(
       }
       intents.push(
         value.length > 0
-          ? { kind: 'secret', command, delivery, key: leaf.path, value }
-          : { kind: 'secret', command, delivery, key: leaf.path },
+          ? { kind: 'secret', command, delivery, key, value }
+          : { kind: 'secret', command, delivery, key },
       )
       continue
     }

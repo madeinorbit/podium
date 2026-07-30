@@ -3,7 +3,6 @@ import { type ThemeMode, type ThemePreset, useTheme } from '@/app/theme'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -12,6 +11,7 @@ import {
   TERMINAL_DEFAULTS,
 } from '@/features/terminal/appearance'
 import { useTerminalAppearance } from '@/features/terminal/use-terminal-appearance'
+import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { Row, Section } from './shared'
 
 /** Theme + light/dark switcher. Theme state is UI-local (not part of the settings

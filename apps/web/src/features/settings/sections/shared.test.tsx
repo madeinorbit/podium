@@ -183,7 +183,12 @@ describe('RoleBackendEditor · managed account for the coding role (#216)', () =
       // biome-ignore lint/a11y/useValidAriaRole: this selects the Podium backend role
       <RoleBackendEditor
         role="coding"
-        backend={{ accountId: asAccountId('managed:openai'), harness: 'codex', model: 'auto', effort: 'auto' }}
+        backend={{
+          accountId: asAccountId('managed:openai'),
+          harness: 'codex',
+          model: 'auto',
+          effort: 'auto',
+        }}
         accounts={[]}
         onChange={onChange}
       />,

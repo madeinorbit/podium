@@ -4,7 +4,7 @@
  * single reusable RoleBackendEditor (SP-6454 B3) used by the sessions,
  * superagent, and background-LLM tabs. Extracted verbatim from SettingsView.tsx.
  */
-import { asAccountId, type AccountId } from '@podium/model'
+import { type AccountId, asAccountId } from '@podium/model'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -152,7 +152,11 @@ export const MANAGED_CODING_ACCOUNTS: {
     label: 'Claude subscription (managed)',
     harnesses: ['claude-code'],
   },
-  { id: asAccountId('managed:anthropic'), label: 'Anthropic API key (managed)', harnesses: ['claude-code'] },
+  {
+    id: asAccountId('managed:anthropic'),
+    label: 'Anthropic API key (managed)',
+    harnesses: ['claude-code'],
+  },
   { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)', harnesses: ['codex'] },
 ]
 
