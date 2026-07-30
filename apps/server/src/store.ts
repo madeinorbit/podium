@@ -54,6 +54,7 @@ import { ObservationCheckpointsRepository } from './store/observation-checkpoint
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
+import { ServerSecretsRepository } from './store/server-secrets'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
 import { UsersRepository } from './store/users'
@@ -80,6 +81,10 @@ export class SessionStore {
   readonly auth: AuthRepository
   readonly superagent: SuperagentRepository
   readonly settings: SettingsRepository
+  /** Server-owned secrets (ADR 1 D6) — the keyed store POD-419 lifted them into,
+   *  out of the settings blob that round-trips to the browser. Same reasoning as
+   *  `accounts` below, now applied to the material that was left behind. */
+  readonly secrets: ServerSecretsRepository
   /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
    *  Deliberately NOT in the settings blob, which round-trips to the browser. */
   readonly accounts: AccountsRepository
@@ -152,6 +157,7 @@ export class SessionStore {
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)
+    this.secrets = new ServerSecretsRepository(this.db)
     this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.grants = new GrantsRepository(this.db)

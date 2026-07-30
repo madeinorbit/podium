@@ -102,6 +102,16 @@ export async function auditEntrypoint(
     result = await Bun.build({
       entrypoints: [absEntry],
       target: 'browser',
+      // The repo resolves workspace packages through the `@podium/source`
+      // condition — every other tool here passes it (see the `--conditions` flag
+      // on the root scripts). Without it Bun follows the `import` condition to
+      // `dist/index.js`, which is not built in a worktree, and the bundle fails
+      // to RESOLVE rather than reporting what it reached. That reads as a
+      // violation of this gate and is not one: POD-419 added a
+      // `@podium/model` import to the adapters (model is `browser-safe`), and
+      // the bundle succeeds with zero `node:` references once the condition is
+      // supplied.
+      conditions: ['@podium/source'],
       plugins: [
         {
           name: 'podium-no-node',

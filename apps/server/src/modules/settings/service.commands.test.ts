@@ -19,7 +19,11 @@
  *    own schema rejects, so "it wrote something" is not the only thing proved.
  */
 
-import { SERVER_SECRET_KEYS } from '@podium/model'
+import {
+  SERVER_SECRET_KEYS,
+  type SecretPresenceWire,
+  type ServerSecretKey,
+} from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
@@ -44,16 +48,45 @@ function makeStore() {
   }
 }
 
+/** The server-only secret store, in memory (POD-419). A Map, not an object with
+ *  five keys: absence is the ROW being absent, and a fixture that pre-seeds five
+ *  blanks would make `present: false` untestable. */
+function makeSecrets() {
+  const rows = new Map<string, { value: string; updatedAt: string }>()
+  return {
+    get: (key: ServerSecretKey): string | undefined => rows.get(key)?.value,
+    getOrEmpty: (key: ServerSecretKey): string => rows.get(key)?.value ?? '',
+    set: (key: ServerSecretKey, value: string, updatedAt: string): void => {
+      if (value === '') rows.delete(key)
+      else rows.set(key, { value, updatedAt })
+    },
+    clear: (key: ServerSecretKey): void => {
+      rows.delete(key)
+    },
+    apiKeyFor: (provider: string): string | undefined =>
+      rows.get(`apiKeys.${provider}`)?.value,
+    presence: (): SecretPresenceWire[] =>
+      SERVER_SECRET_KEYS.map((key) => ({
+        key,
+        present: rows.has(key),
+        fingerprint: null,
+        updatedAt: rows.get(key)?.updatedAt ?? null,
+      })),
+  }
+}
+
 const FINGERPRINT_KEY = Buffer.from('c'.repeat(64), 'hex')
 
 let store: ReturnType<typeof makeStore>
+let secrets: ReturnType<typeof makeSecrets>
 let bus: EventBus
 let service: SettingsService
 
 beforeEach(() => {
   store = makeStore()
+  secrets = makeSecrets()
   bus = new EventBus()
-  service = new SettingsService(store, bus, {
+  service = new SettingsService(store, secrets, bus, {
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
     modelProbe: { list: vi.fn(async () => []) } as never,
@@ -88,16 +121,44 @@ describe('the blob write may not carry a secret', () => {
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
     ).not.toThrow(/sk-smuggled/)
-    expect(service.getSettings().apiKeys.openai).toBe('')
+    expect(secrets.get('apiKeys.openai')).toBeUndefined()
   })
 
-  it('REFUSES a CLEARED secret too — a removal is a change', () => {
+  it('a BLANK secret member does not clear the stored one — the blob cannot express a clear', () => {
+    // POD-420 asserted this as "a removal is a change", refused by comparing the
+    // incoming blob against the PREVIOUS BLOB. POD-419 moved the material out of
+    // the blob, and that changed what a blank MEANS: every client is now served
+    // a blob whose secret members are absent, so it posts back `''` on every
+    // ordinary preference save. Reading that as a clear would delete every
+    // secret on the instance the first time anyone changed a sidebar setting.
+    //
+    // So the property is stronger than a refusal: the blob CANNOT express a
+    // clear at all. Clearing is `settings.clearSecret` — online-only,
+    // admin-grade, never queued.
     service.setSecret('apiKeys.anthropic', 'sk-configured')
     const current = service.getSettings()
     expect(() =>
       service.setSettings({ ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
-    ).toThrow(/apiKeys\.anthropic/)
-    expect(service.getSettings().apiKeys.anthropic).toBe('sk-configured')
+    ).not.toThrow()
+    expect(secrets.get('apiKeys.anthropic')).toBe('sk-configured')
+  })
+
+  it('ACCEPTS a stale client posting back the material it was served', () => {
+    // A browser tab left open across the upgrade still holds the old blob. That
+    // is a ROUND-TRIP, not a rotation — refusing it would break every preference
+    // save from that tab, which is the failure POD-420's positive control exists
+    // to prevent, now expressed against the keyed store.
+    service.setSecret('apiKeys.openai', 'sk-served-earlier')
+    const current = service.getSettings()
+    expect(() =>
+      service.setSettings({
+        ...current,
+        apiKeys: { ...current.apiKeys, openai: 'sk-served-earlier' },
+        sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
+      }),
+    ).not.toThrow()
+    expect(service.getSettings().sidebar.repoSort).toBe('alphabetical')
+    expect(secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
   })
 
   it('refuses EVERY secret key, not just the one someone remembered', () => {
@@ -132,7 +193,11 @@ describe('the blob write may not carry a secret', () => {
 describe('setSecret / clearSecret are the only path to material', () => {
   it('writes the material and returns a projection WITHOUT it', () => {
     const wire = service.setSecret('apiKeys.openai', 'sk-live-value')
-    expect(service.getSettings().apiKeys.openai).toBe('sk-live-value')
+    // POD-419: the material lands in the server-only keyed store, and NOT in the
+    // blob — which is the object that round-trips to a browser.
+    expect(secrets.get('apiKeys.openai')).toBe('sk-live-value')
+    expect(service.getSettings().apiKeys.openai).toBe('')
+    expect(JSON.stringify(service.getSettings())).not.toContain('sk-live-value')
     expect(wire.key).toBe('apiKeys.openai')
     expect(wire.present).toBe(true)
     expect(wire.fingerprint).toMatch(/^[0-9a-f]{16}$/)
@@ -150,7 +215,8 @@ describe('setSecret / clearSecret are the only path to material', () => {
   it('clearSecret removes it and reports absence', () => {
     service.setSecret('integrations.linearApiKey', 'lin_api_x')
     const wire = service.clearSecret('integrations.linearApiKey')
-    expect(service.getSettings().integrations.linearApiKey).toBe('')
+    // Absence is the ROW being absent, not a blank value.
+    expect(secrets.get('integrations.linearApiKey')).toBeUndefined()
     expect(wire).toEqual({
       key: 'integrations.linearApiKey',
       present: false,
@@ -203,5 +269,8 @@ describe('the preference patch applies by path and validates by model', () => {
       /server-owned secrets/,
     )
     expect(service.getSettings().apiKeys.openai).toBe('')
+    // …and it did not reach the keyed store either, which is where a write that
+    // slipped past the blob guard would now actually land.
+    expect(secrets.get('apiKeys.openai')).toBeUndefined()
   })
 })

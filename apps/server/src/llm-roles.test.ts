@@ -12,6 +12,11 @@ const settings = (patch: Partial<PodiumSettings> = {}): PodiumSettings =>
     ...patch,
   })
 
+/** The provider-key resolver `completeForRole` now requires (POD-419) — the
+ *  material lives in the server-only keyed store, not in `settings.apiKeys`. */
+const apiKey = (provider: string): string | undefined =>
+  ({ openrouter: 'or-key', anthropic: 'an-key' })[provider]
+
 /** A fake llmClient factory: records what it was built with, returns fixed text. */
 function fakeLlm(text: string) {
   const calls: { model: string; messages: LlmMessage[] }[] = []
@@ -37,7 +42,7 @@ describe('completeForRole', () => {
   it('resolves the role backend, calls the client, returns raw text by default', async () => {
     const { factory, calls } = fakeLlm('hello world')
     const r = await completeForRole(
-      { settings: settings(), llm: factory },
+      { settings: settings(), apiKey: apiKey, llm: factory },
       { role: 'background', messages: [{ role: 'user', content: 'hi' }] },
     )
     expect(r.data).toBe('hello world')
@@ -48,7 +53,7 @@ describe('completeForRole', () => {
   it('parses into structured data when given parse', async () => {
     const { factory } = fakeLlm('the title is:\n```json\n{"title":"Fix login"}\n```')
     const r = await completeForRole(
-      { settings: settings(), llm: factory },
+      { settings: settings(), apiKey: apiKey, llm: factory },
       {
         role: 'background',
         messages: [{ role: 'user', content: 'name it' }],
@@ -61,7 +66,7 @@ describe('completeForRole', () => {
   it('returns null data (not a throw) when the model output cannot be parsed', async () => {
     const { factory } = fakeLlm('no json here, sorry')
     const r = await completeForRole(
-      { settings: settings(), llm: factory },
+      { settings: settings(), apiKey: apiKey, llm: factory },
       {
         role: 'background',
         messages: [{ role: 'user', content: 'x' }],

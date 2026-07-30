@@ -65,6 +65,13 @@ export interface TopicRecapPort {
 export interface MessagingDeps {
   bus: EventBus
   getSettings(): PodiumSettings
+  /** The Telegram bot token out of the server-only secret store (POD-419) —
+   *  `''` when none is configured. The chat id stays in the blob (per-user
+   *  routing); only the material moved. Required, not optional: an omitted
+   *  dependency would leave the bridge permanently unconfigured on an instance
+   *  that has a token, which reads as "Telegram is broken" rather than as a
+   *  missing wire. */
+  telegramBotToken(): string
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
   issues?: { list(): IssueWire[] }
@@ -203,7 +210,7 @@ export class MessagingService implements TelegramNoticePort {
   /** (Re)build the adapter from current settings. Safe to call repeatedly. */
   configure(): void {
     const n = this.deps.getSettings().notifications
-    const botToken = n.telegramBotToken.trim()
+    const botToken = this.deps.telegramBotToken().trim()
     const chatId = n.telegramChatId.trim()
     const key = botToken && chatId ? `${botToken}\n${chatId}` : ''
     if (key === this.adapterKey) return

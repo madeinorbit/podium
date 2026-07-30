@@ -115,6 +115,7 @@ export * from './annotations/ownership'
 // COMPOSES the blob from these bindings and redeclares none of them.
 export * from './settings/classification'
 export * from './settings/preferences'
+export * from './settings/scrub'
 export * from './settings/secrets'
 
 // Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately

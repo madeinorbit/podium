@@ -100,6 +100,11 @@ import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import {
+  mergeScrubReports,
+  planSecretScrub,
+  type SecretScrubReport,
+} from '../secret-scrub'
+import {
   ALL_TABLES,
   applySchema,
   CURSOR_KEY,
@@ -153,6 +158,10 @@ export interface SqliteStoreOptions {
   readonly deleteDatabase: () => void
   /** REQUIRED — see {@link DurabilityDegradation}. */
   readonly onDegraded: (degradation: DurabilityDegradation) => void
+  /** Called after every open with what the secret scrub found (POD-419).
+   *  Optional, and deliberately not the mechanism anything depends on — see the
+   *  same option on the IndexedDB adapter. */
+  readonly onSecretsScrubbed?: (report: SecretScrubReport) => void
 }
 
 /** One staged SQL statement, issued into the commit transaction verbatim and IN ORDER. */
@@ -318,6 +327,13 @@ export class SqliteSyncStore {
         throw new SchemaVersionMismatch(version)
       }
       store.hydrate()
+      // POD-419: material written by an EARLIER build is removed before this
+      // store answers its first read. See `../secret-scrub.ts` for why this runs
+      // on every open rather than in a version-gated arm — and note that the
+      // version arm above would not have caught it anyway: an upgrade that
+      // rebootstraps drops the rows, but a store already AT this version never
+      // enters it.
+      store.scrubSecrets()
       return store
     } catch (error) {
       // Version mismatch, decode failure, or an unreadable table: clear the whole
@@ -571,6 +587,102 @@ export class SqliteSyncStore {
       }
       throw error
     }
+  }
+
+  /**
+   * Remove every classified secret member from every stored row, in ONE
+   * `BEGIN IMMEDIATE … COMMIT` over all three tables.
+   *
+   * The mirror is updated only after COMMIT returns, which is this adapter's
+   * rule everywhere else and matters especially here: a mirror scrubbed ahead of
+   * its durable write would report clean to every in-process reader while the
+   * material sat in the file. `secret-scrub.test.ts` reads back through a SECOND
+   * CONNECTION for exactly that reason.
+   */
+  private scrubSecrets(): void {
+    const entityRows: { principal: string; key: string; record: EntityRecord }[] = []
+    for (const [principal, slice] of this.entities)
+      for (const [key, record] of slice) entityRows.push({ principal, key, record })
+    const entities = planSecretScrub(
+      entityRows.map((row) => ({
+        address: `entities[${row.principal}/${row.record.entity}/${row.record.entityId}]`,
+        row,
+        value: row.record.value,
+      })),
+    )
+
+    const cursors = planSecretScrub(
+      [...this.cursors].map(([principal, value]) => ({
+        address: `meta[${principal}/${CURSOR_KEY}]`,
+        row: { principal },
+        value,
+      })),
+    )
+
+    const outboxRows: { principal: string; index: number; stored: StoredOutboxRecord }[] = []
+    for (const [principal, slice] of this.outboxRows)
+      slice.forEach((stored, index) => outboxRows.push({ principal, index, stored }))
+    // Every row in every state: terminal and dead-lettered entries keep the
+    // author's `input` verbatim and are the ones a live-queue scrub misses.
+    const outbox = planSecretScrub(
+      outboxRows.map((row) => ({
+        address: `outbox[${row.principal}/${row.stored.mutationId}]`,
+        row,
+        value: row.stored.record,
+      })),
+    )
+
+    const report = mergeScrubReports(entities.report, cursors.report, outbox.report)
+    if (report.rewritten === 0) {
+      this.options.onSecretsScrubbed?.(report)
+      return
+    }
+
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const rewrite of entities.rewrites) {
+        const { principal, record } = rewrite.row
+        this.db
+          .prepare(
+            `UPDATE ${ENTITY_TABLE} SET value = ? WHERE principal = ? AND entity = ? AND entity_id = ?`,
+          )
+          .run(JSON.stringify(rewrite.value), principal, record.entity, record.entityId)
+      }
+      for (const rewrite of cursors.rewrites) {
+        this.db
+          .prepare(`UPDATE ${META_TABLE} SET value = ? WHERE principal = ? AND key = ?`)
+          .run(JSON.stringify(rewrite.value), rewrite.row.principal, CURSOR_KEY)
+      }
+      for (const rewrite of outbox.rewrites) {
+        const { stored } = rewrite.row
+        this.db
+          .prepare(`UPDATE ${OUTBOX_TABLE} SET record = ? WHERE principal = ? AND mutation_id = ?`)
+          .run(JSON.stringify(rewrite.value), stored.principal, stored.mutationId)
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK')
+      } catch {
+        // As in `commitDraft`: a connection that died mid-transaction cannot roll
+        // back and does not need to — the journal undoes it on next open, and the
+        // scrub runs again there.
+      }
+      throw error
+    }
+
+    for (const rewrite of entities.rewrites) {
+      const { principal, key, record } = rewrite.row
+      this.entities.get(principal)?.set(key, { ...record, value: rewrite.value })
+    }
+    for (const rewrite of cursors.rewrites)
+      this.cursors.set(rewrite.row.principal, rewrite.value as Cursor | null)
+    for (const rewrite of outbox.rewrites) {
+      const { principal, index, stored } = rewrite.row
+      const slice = this.outboxRows.get(principal)
+      if (slice) slice[index] = { ...stored, record: rewrite.value }
+    }
+    this.options.onSecretsScrubbed?.(report)
   }
 
   /** Swap a committed draft into the mirror. Runs only after COMMIT returned. */

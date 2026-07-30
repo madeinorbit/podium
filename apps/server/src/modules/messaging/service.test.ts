@@ -268,10 +268,11 @@ function makeHarness(
         notifications: {
           web: true,
           ntfyTopic: '',
-          telegramBotToken: 'tok',
           telegramChatId: '42',
         },
       }) as never,
+    // POD-419: the token comes from the server-only keyed store, not the blob.
+    telegramBotToken: () => 'tok',
     superagent: {
       sendTurn: sendTurn as never,
       interruptTurn: interruptTurn as never,
@@ -1093,10 +1094,10 @@ describe('MessagingService', () => {
           notifications: {
             web: true,
             ntfyTopic: '',
-            telegramBotToken: 'tok',
             telegramChatId: '42',
           },
         }) as never,
+      telegramBotToken: () => 'tok',
       superagent: {
         sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
         interruptTurn: vi.fn(),

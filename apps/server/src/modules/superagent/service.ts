@@ -285,7 +285,8 @@ export class SuperagentService {
         waitPollMs: this.waitPollMs,
         issueTools: this.issueTools,
       },
-      this.store.settings.getSettings().integrations.linearApiKey,
+      // POD-419: out of the server-only keyed store, not the settings blob.
+      this.store.secrets.getOrEmpty('integrations.linearApiKey'),
       threadId,
       { issueBelt: true },
     )

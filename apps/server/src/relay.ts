@@ -286,7 +286,7 @@ export class SessionRegistry {
       readTranscriptFromLake: (session, input) =>
         conversations.readTranscriptFromLake(session, input),
     })
-    const settings = new SettingsService(this.store.settings, this.bus, {
+    const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
       ...(options.generateTelegramSetupCode
         ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
@@ -297,6 +297,8 @@ export class SessionRegistry {
     const notify = new NotifyService(
       {
         getSettings: () => this.store.settings.getSettings(),
+        // POD-419: out of the server-only keyed store, read at the moment of use.
+        telegramBotToken: () => this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: () => clients().values(),

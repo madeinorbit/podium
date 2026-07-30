@@ -90,7 +90,15 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * would ship to the browser. Only the masked `identity` is ever returned.
  */
 export function accountViews(
-  settings: PodiumSettings,
+  /**
+   * Resolve the LEGACY provider key for a provider — POD-419.
+   *
+   * This used to be the whole `PodiumSettings` blob, read for exactly one member
+   * (`apiKeys[provider]`). The material now lives in the server-only keyed store,
+   * and taking a narrow resolver rather than the store object keeps this function
+   * a pure projection that a test can drive without a database.
+   */
+  legacyApiKey: (provider: string) => string | undefined,
   accounts: AccountsRepository,
   homeDir: string = homedir(),
 ): AccountView[] {
@@ -111,7 +119,7 @@ export function accountViews(
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const id = `managed:${provider}`
     const row = stored.get(id)
-    const legacyKey = settings.apiKeys[provider] ?? ''
+    const legacyKey = legacyApiKey(provider) ?? ''
     if (row) {
       return {
         id,

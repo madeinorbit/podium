@@ -107,6 +107,37 @@ export const meta = sqliteTable("meta", {
 	value: text().notNull(),
 });
 
+/**
+ * SERVER-OWNED SECRETS, KEYED — ADR 1 D6's `server-secrets` row at rest
+ * (POD-419, 3.7b).
+ *
+ * The material used to live inside the `meta['settings']` JSON blob, interleaved
+ * with preferences: `notifications.telegramBotToken` (secret) sat beside
+ * `notifications.telegramChatId` (per-user routing). A blob whose members span
+ * three matrix rows cannot be replicated, enqueued or authorized as one thing,
+ * and the read that served preferences to a browser served the secrets with
+ * them.
+ *
+ * As its own table the three questions have one answer each: this table is
+ * replicated by nothing (it is in no change-log entity kind and no wire shape),
+ * the outbox refuses the commands that write it BY CLASS rather than by
+ * inspecting a payload, and rotation is admin-grade per row.
+ *
+ * `key` is POD-418's closed vocabulary (`SERVER_SECRET_KEYS`) — the LEGACY
+ * dotted paths on purpose, so the migration that lifted each value can be read
+ * against the blob it came out of.
+ *
+ * ABSENCE IS THE ROW BEING ABSENT. There is no `''` spelling of "not
+ * configured", which is what lets `SecretPresenceWire.present` mean something;
+ * `clearSecret` DELETEs. `updated_at` is the rotation time POD-420 could only
+ * return and not persist, because the blob had nowhere to put it.
+ */
+export const serverSecrets = sqliteTable("server_secrets", {
+	key: text().primaryKey(),
+	value: text().notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
 // Human-facing ids (#474): stable presentable refs on top of internal ids.
 export const repoPrefixes = sqliteTable("repo_prefixes", {
 	repoId: text("repo_id").primaryKey(),

@@ -72,6 +72,7 @@
     "audit:wire-adapters": "bun scripts/audit-wire-adapters.ts --probe && bun scripts/audit-wire-adapters.ts",
     "audit:spec": "bun scripts/audit-spec-commands.ts --probe && bun scripts/audit-spec-commands.ts",
     "audit:browser-reach": "bun scripts/audit-browser-reach.ts --probe && bun scripts/audit-browser-reach.ts",
+    "audit:client-secrets": "bun scripts/audit-client-secrets.ts --probe && bun scripts/audit-client-secrets.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
     "fixtures:wire:update": "bun --conditions=@podium/source scripts/update-wire-fixtures.ts",
