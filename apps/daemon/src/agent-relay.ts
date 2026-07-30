@@ -1,3 +1,5 @@
+import { asSessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { createServer, type Server } from 'node:http'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type DaemonMessage } from '@podium/protocol'
 
@@ -10,7 +12,7 @@ import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type DaemonMessage } from '@podium/pro
 const BLOCKING_RELAY_PROCS = new Set(['messages.send'])
 
 export interface AgentRelayRequest {
-  sessionId: string
+  sessionId: SessionId
   router: string
   proc: string
   input?: unknown
@@ -121,10 +123,10 @@ const RELAY_BODY_MAX_BYTES = 1 * 1024 * 1024
  */
 export function startAgentRelayServer(opts: {
   relay: (req: AgentRelayRequest) => Promise<AgentRelayResult>
-  openUrl?: (sessionId: string, url: string) => { ok: true } | { ok: false; error: string }
+  openUrl?: (sessionId: SessionId, url: string) => { ok: true } | { ok: false; error: string }
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_AGENT_RELAY_PORT. */
   port?: number
-}): Promise<{ port: number; endpointFor(sessionId: string): string; close(): Promise<void> }> {
+}): Promise<{ port: number; endpointFor(sessionId: SessionId): string; close(): Promise<void> }> {
   const server: Server = createServer((req, res) => {
     // Accept both the new `/agent/<sid>` path and the legacy `/issue/<sid>` path:
     // an in-flight session spawned before the rename keeps POSTing to `/issue/`
@@ -135,7 +137,9 @@ export function startAgentRelayServer(opts: {
       res.end()
       return
     }
-    const sessionId = match[1] as string
+    // DECODE EDGE: the session id comes off the HTTP path (`/agent/<sessionId>`),
+    // so this is where an untyped request segment re-enters the branded id space.
+    const sessionId = asSessionId(match[1] as string)
     const chunks: Buffer[] = []
     let total = 0
     let aborted = false

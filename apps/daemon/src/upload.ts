@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { join } from 'node:path'
 
 /**
@@ -9,7 +10,7 @@ import { join } from 'node:path'
  * @param id       - Unique identifier for this upload (UUID)
  * @param mime     - MIME type used to pick the file extension
  */
-export function uploadFilePath(root: string, sessionId: string, id: string, mime: string): string {
+export function uploadFilePath(root: string, sessionId: SessionId, id: string, mime: string): string {
   const ext = mimeToExt(mime)
   return join(root, 'uploads', sessionId, `${id}${ext}`)
 }

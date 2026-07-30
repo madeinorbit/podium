@@ -1,9 +1,5 @@
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs'
-import {
-  asSessionId,
-  type AgentMemoryWire,
-  type ProjectMemoryWire,
-} from '@podium/model'
+import { asSessionId, type AgentMemoryWire, type ProjectMemoryWire, type SessionId } from '@podium/model'
 
 /** One process as seen in /proc. memBytes is PSS where readable, RSS otherwise. */
 export interface ProcSample {
@@ -19,7 +15,7 @@ export interface ProcSample {
 /** How to find a session's processes: its attach/PTY pid, and the durable label
  *  that the abduco/tmux master (not a daemon child!) carries in its cmdline. */
 export interface SessionProcessHint {
-  sessionId: string
+  sessionId: SessionId
   label: string
   pid?: number
 }

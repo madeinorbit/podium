@@ -1,8 +1,9 @@
+import type { SessionId } from '@podium/model'
 export type Tier = 0 | 1 | 2 | 3
 
 export interface OutputSchedulerDeps {
   /** Send one coalesced batch for a session (caller wraps it as agentFrameBatch). */
-  flush: (sessionId: string, frames: string[]) => void
+  flush: (sessionId: SessionId, frames: string[]) => void
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (h: unknown) => void
   scheduleImmediate?: (fn: () => void) => void
@@ -20,7 +21,7 @@ interface Pending { frames: string[]; bytes: number; tier: Tier; timer: unknown;
  * the loop carrying the focused session's echo.
  */
 export class OutputScheduler {
-  private readonly pending = new Map<string, Pending>()
+  private readonly pending = new Map<SessionId, Pending>()
   private readonly setTimer: NonNullable<OutputSchedulerDeps['setTimer']>
   private readonly clearTimer: NonNullable<OutputSchedulerDeps['clearTimer']>
   private readonly scheduleImmediate: NonNullable<OutputSchedulerDeps['scheduleImmediate']>
@@ -35,7 +36,7 @@ export class OutputScheduler {
     this.coalesceMaxBytes = deps.coalesceMaxBytes ?? 64 * 1024
   }
 
-  private state(sessionId: string): Pending {
+  private state(sessionId: SessionId): Pending {
     let p = this.pending.get(sessionId)
     if (!p) {
       p = { frames: [], bytes: 0, tier: 1, timer: undefined, immediate: false }
@@ -44,7 +45,7 @@ export class OutputScheduler {
     return p
   }
 
-  enqueue(sessionId: string, data: string): void {
+  enqueue(sessionId: SessionId, data: string): void {
     const p = this.state(sessionId)
     p.frames.push(data)
     p.bytes += data.length
@@ -62,18 +63,18 @@ export class OutputScheduler {
     if (p.timer === undefined) p.timer = this.setTimer(() => this.flush(sessionId), this.coalesceMs)
   }
 
-  priorityOf(sessionId: string): Tier {
+  priorityOf(sessionId: SessionId): Tier {
     return this.state(sessionId).tier
   }
 
-  setPriority(sessionId: string, tier: Tier): void {
+  setPriority(sessionId: SessionId, tier: Tier): void {
     const p = this.state(sessionId)
     if (p.tier === tier) return
     p.tier = tier
     if (p.frames.length > 0) this.flush(sessionId) // don't strand buffered output across a tier change
   }
 
-  private flush(sessionId: string): void {
+  private flush(sessionId: SessionId): void {
     const p = this.pending.get(sessionId)
     if (!p) return
     if (p.timer !== undefined) { this.clearTimer(p.timer); p.timer = undefined }
@@ -85,7 +86,7 @@ export class OutputScheduler {
     this.deps.flush(sessionId, frames)
   }
 
-  remove(sessionId: string): void {
+  remove(sessionId: SessionId): void {
     this.flush(sessionId) // flush already clears+nulls the timer
     this.pending.delete(sessionId)
   }

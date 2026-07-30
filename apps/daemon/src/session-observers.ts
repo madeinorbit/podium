@@ -27,7 +27,7 @@ import type {
   ObservationInputOrigin,
 } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { AgentKind, TranscriptItem } from '@podium/model'
+import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentSession } from '@podium/pty'
 import {
   createSharedStatTick,
@@ -68,14 +68,14 @@ export interface SessionObserversDeps {
   /** Test seam for deterministically fencing an in-flight Claude bootstrap capture. */
   captureClaudeTranscript?: typeof captureClaudeTranscript
   /** Persist and replay an exact process-derived Codex P→T binding until acked. */
-  onExactCodexBinding?: (sessionId: string, nativeId: string) => Promise<void>
+  onExactCodexBinding?: (sessionId: SessionId, nativeId: string) => Promise<void>
   /** Paces each tail's FIRST backfill read (the expensive part of a reattach
    *  burst) — narrow concurrency, and held until the burst's bridge wiring has
    *  settled (POD-612). Omitted (tests) = seeds run immediately. */
   tailSeedGate?: (fn: () => Promise<void>) => Promise<void>
   /** Draft Sync v2 (POD-859): agent-idle transitions, so the composer engine only
    *  scrapes/injects while the composer is the live input. Omitted (tests) = no-op. */
-  onIdleState?: (sessionId: string, idle: boolean) => void
+  onIdleState?: (sessionId: SessionId, idle: boolean) => void
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -118,19 +118,19 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
   // Per-session pending →idle wire emissions. Cancelled on non-idle transition
   // or session teardown so timers never leak across sessions.
-  const pendingIdleEmits = new Map<string, ReturnType<typeof setTimeout>>()
+  const pendingIdleEmits = new Map<SessionId, ReturnType<typeof setTimeout>>()
   // Live structured-transcript tails, keyed by Podium session id. Adapters point
   // the tail at their harness's live file (claude via hook payloads and the
   // resume-transcript bootstrap; grok/codex/cursor once their observer learns
   // the harness session id), so reattached chat gets history before new activity.
-  const tails = new Map<string, TranscriptTailer>()
+  const tails = new Map<SessionId, TranscriptTailer>()
   // One live observation per session — the adapter-owned watch over the
   // harness's native session store (state observers, tail bootstrap, and for
   // codex the hook re-pin policy). The adapter rides along so the hook ingest
   // can resolve the session's resumeKind and record mapper without per-agent
   // branches.
   const observations = new Map<
-    string,
+    SessionId,
     { adapter: HarnessAdapter; observation: HarnessObservation }
   >()
   type CausalLease = HarnessObservationLease & {
@@ -154,7 +154,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const causalLeases = new Map<string, CausalLease>()
   const claudeCausal = new Map<string, ClaudeCausalTracker>()
   const pendingRebinds = new Map<
-    string,
+    SessionId,
     {
       request: HarnessProviderRebind
       observerGeneration: number
@@ -183,7 +183,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   >()
 
   const emitLiveConfirmation = (
-    sessionId: string,
+    sessionId: SessionId,
     providerCursor: AgentObservation['providerCursor'],
   ): void => {
     const lease = causalLeases.get(sessionId)
@@ -238,7 +238,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     pendingObservationDeliveries.delete(key)
   }
 
-  const cancelSessionObservationDeliveries = (sessionId: string): void => {
+  const cancelSessionObservationDeliveries = (sessionId: SessionId): void => {
     for (const pending of [...pendingObservationDeliveries.values()]) {
       if (pending.observation.podiumSessionId === sessionId) {
         cancelObservationDelivery(pending.observation)
@@ -299,7 +299,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const emitObservation = (
-    sessionId: string,
+    sessionId: SessionId,
     observation: Extract<DaemonMessage, { type: 'agentObservation' }>['observation'],
   ): void => {
     const pending = pendingRebinds.get(sessionId)
@@ -369,7 +369,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const startClaudeCausal = async (
-    sessionId: string,
+    sessionId: SessionId,
     payload: unknown,
     bufferInitialPayload = true,
   ): Promise<void> => {
@@ -541,7 +541,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const authoritativeClaudeCheckpoint = (
-    sessionId: string,
+    sessionId: SessionId,
     causal: ClaudeCausalTracker,
     msg: Extract<ControlMessage, { type: 'agentObservationAck' }>,
   ): SessionObservationCheckpointV1 | null => {
@@ -559,7 +559,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const rebootClaudeFromCheckpoint = (
-    sessionId: string,
+    sessionId: SessionId,
     causal: ClaudeCausalTracker,
     checkpoint: SessionObservationCheckpointV1,
   ): void => {
@@ -584,7 +584,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const requestClaudeAuthorityRecovery = (
-    sessionId: string,
+    sessionId: SessionId,
     causal: ClaudeCausalTracker,
     transitionId: string,
   ): void => {
@@ -721,7 +721,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
-  function cancelPendingRebind(sessionId: string): void {
+  function cancelPendingRebind(sessionId: SessionId): void {
     const pending = pendingRebinds.get(sessionId)
     if (!pending) return
     if (pending.retryTimer !== undefined) clearTimeout(pending.retryTimer)
@@ -729,7 +729,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   function transmitPendingRebind(
-    sessionId: string,
+    sessionId: SessionId,
     pending: typeof pendingRebinds extends Map<string, infer P> ? P : never,
   ): void {
     const lease = causalLeases.get(sessionId)
@@ -763,7 +763,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }, delay)
   }
 
-  function sendProviderRebind(sessionId: string, rebind: HarnessProviderRebind): void {
+  function sendProviderRebind(sessionId: SessionId, rebind: HarnessProviderRebind): void {
     const lease = causalLeases.get(sessionId)
     if (!lease) return
     const pending = pendingRebinds.get(sessionId)
@@ -877,7 +877,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   const recordInputOrigin = (
-    sessionId: string,
+    sessionId: SessionId,
     origin: ObservationInputOrigin | undefined,
   ): void => {
     if (!origin) return
@@ -901,7 +901,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const TAIL_SEED_MAX_ITEMS = 2000
 
   const ensureTranscriptTail = (
-    sessionId: string,
+    sessionId: SessionId,
     path: string,
     recordToItems: (record: unknown) => TranscriptItem[],
   ): void => {
@@ -947,18 +947,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       ),
     )
   }
-  const stopTranscriptTail = (sessionId: string): void => {
+  const stopTranscriptTail = (sessionId: SessionId): void => {
     tails.get(sessionId)?.stop()
     tails.delete(sessionId)
   }
-  const cancelPendingIdleEmit = (sessionId: string): void => {
+  const cancelPendingIdleEmit = (sessionId: SessionId): void => {
     const timer = pendingIdleEmits.get(sessionId)
     if (timer === undefined) return
     clearTimeout(timer)
     pendingIdleEmits.delete(sessionId)
   }
   const applyTrackedState = (
-    sessionId: string,
+    sessionId: SessionId,
     next: AgentRuntimeState,
     emitLegacyWireState: boolean,
   ): void => {
@@ -992,13 +992,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     deps.onIdleState?.(sessionId, next.phase === 'idle')
   }
 
-  const applyCausalAgentState = (sessionId: string, next: AgentRuntimeState): void => {
+  const applyCausalAgentState = (sessionId: SessionId, next: AgentRuntimeState): void => {
     // The causal observation is the server wire authority; this local fold is
     // solely for daemon consumers such as Draft Sync's idle injection gate.
     applyTrackedState(sessionId, next, false)
   }
 
-  const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
+  const applyAgentStateEvents = (sessionId: SessionId, events: AgentStateEvent[]): void => {
     for (const event of events) {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
@@ -1010,7 +1010,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   // The daemon services an adapter's observation drives, closed over one
   // session. Every per-agent difference is behind these five callbacks.
-  const hostFor = (sessionId: string, adapter: HarnessAdapter): HarnessObserverHost => ({
+  const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => ({
     tailFile: (path) => ensureTranscriptTail(sessionId, path, recordToItemsForKind(adapter.kind)),
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
@@ -1052,12 +1052,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     },
   })
 
-  const stopObservation = (sessionId: string): void => {
+  const stopObservation = (sessionId: SessionId): void => {
     observations.get(sessionId)?.observation.stop()
     observations.delete(sessionId)
   }
   const startObservation = (
-    sessionId: string,
+    sessionId: SessionId,
     adapter: HarnessAdapter,
     input: HarnessObserveInput,
   ): void => {
@@ -1082,7 +1082,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // richer verdict). Guarded on phase still 'unknown' so a real hook that already
   // landed always wins; best-effort, hooks remain authoritative.
   const seedBootState = async (
-    sessionId: string,
+    sessionId: SessionId,
     provider: AgentStateProvider,
     cwd: string,
     resumeValue?: string,
@@ -1270,7 +1270,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
    *  state events no-op without a tracker). No discovery floor: the harness
    *  session id is always known here, so observers pin rather than discover. */
   const bindHeadlessSession = (
-    sessionId: string,
+    sessionId: SessionId,
     agentKind: AgentKind,
     cwd: string,
     resumeValue: string,
@@ -1291,7 +1291,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // The session's live observation carries its adapter, so the routing is
   // generic: the adapter names the resume kind and the record mapper, and
   // `bindHookThread` (codex) owns the re-pin policy.
-  const onHookPayload = (sessionId: string, payload: unknown): void => {
+  const onHookPayload = (sessionId: SessionId, payload: unknown): void => {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
     // A tracker implies an adapter (the provider comes off the adapter) and the
@@ -1383,11 +1383,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   /** Current tracked agent state, if the session has a live tracker. */
-  const trackedState = (sessionId: string): AgentRuntimeState | undefined =>
+  const trackedState = (sessionId: SessionId): AgentRuntimeState | undefined =>
     trackers.get(sessionId)?.state
 
   /** Tear down every observer + tail + tracker one session holds (exit/kill path). */
-  const clearSession = (sessionId: string): void => {
+  const clearSession = (sessionId: SessionId): void => {
     cancelPendingIdleEmit(sessionId)
     gitCapture.clearSession(sessionId)
     trackers.delete(sessionId)
@@ -1433,7 +1433,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     disposeObservers,
     /** The live observation's adapter — how sessionId-scoped services (browser-
      *  open classification) reach harness-specific behavior. */
-    adapterFor: (sessionId: string): HarnessAdapter | undefined =>
+    adapterFor: (sessionId: SessionId): HarnessAdapter | undefined =>
       observations.get(sessionId)?.adapter,
   }
 }

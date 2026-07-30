@@ -1,3 +1,4 @@
+import type { SessionId } from '@podium/model'
 import { hookBoolean, hookEventName, isGrokHookPayload } from './hook-payload'
 
 /** Delivers issue mail at each harness's blocking boundary. Claude/Codex block Stop;
@@ -34,9 +35,9 @@ function mailBlockReason(unread: number, senders: string[]): string {
 }
 
 export function createMailInjector(
-  relay: (sessionId: string) => Promise<{ ok: boolean; result?: unknown }>,
+  relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
-): { respondTo(sessionId: string, payload: unknown): Promise<string | null> } {
+): { respondTo(sessionId: SessionId, payload: unknown): Promise<string | null> } {
   const lastBlockedAt = new Map<string, number>()
   return {
     async respondTo(sessionId, payload) {
@@ -77,9 +78,9 @@ export function createMailInjector(
  * beyond the standard loop guard and cooldown; afterward the steward owns it.
  */
 export function createAckReminderInjector(
-  relay: (sessionId: string) => Promise<{ ok: boolean; result?: unknown }>,
+  relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
-): { respondTo(sessionId: string, payload: unknown): Promise<string | null> } {
+): { respondTo(sessionId: SessionId, payload: unknown): Promise<string | null> } {
   const lastBlockedAt = new Map<string, number>()
   return {
     async respondTo(sessionId, payload) {
@@ -122,8 +123,8 @@ export function createAckReminderInjector(
 
 /** First non-null response wins; a responder that throws is skipped (fail-open). */
 export function composeResponders(
-  ...fns: Array<(sessionId: string, payload: unknown) => Promise<string | null>>
-): (sessionId: string, payload: unknown) => Promise<string | null> {
+  ...fns: Array<(sessionId: SessionId, payload: unknown) => Promise<string | null>>
+): (sessionId: SessionId, payload: unknown) => Promise<string | null> {
   return async (sessionId, payload) => {
     for (const fn of fns) {
       try {

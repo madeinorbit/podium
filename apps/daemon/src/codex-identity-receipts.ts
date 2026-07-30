@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ResumeRef } from '@podium/model'
+import { asSessionId } from '@podium/model'
+import type { ResumeRef, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol'
 
 const RECEIPT_NAME = /^([\w.-]+)\.json$/
 const CLAIM_NAME = /^([\w.-]+?)\.json\.\d+\.[0-9a-f-]+\.ack$/
 
 export interface CodexIdentityBinding {
-  sessionId: string
+  sessionId: SessionId
   nativeId: string
 }
 
@@ -17,13 +18,13 @@ export interface CodexIdentityBinding {
 export class CodexIdentityReceipts {
   constructor(readonly dir: string) {}
 
-  pathFor(sessionId: string): string | undefined {
+  pathFor(sessionId: SessionId): string | undefined {
     return /^[\w.-]+$/.test(sessionId) ? join(this.dir, `${sessionId}.json`) : undefined
   }
 
   /** Persist an exact non-hook binding (for example Linux process→rollout
    * ownership) in the same acked spool the shell hook writes. */
-  async record(sessionId: string, nativeId: string): Promise<boolean> {
+  async record(sessionId: SessionId, nativeId: string): Promise<boolean> {
     const path = this.pathFor(sessionId)
     if (!path || nativeId.length === 0) return false
     await mkdir(this.dir, { recursive: true, mode: 0o700 })
@@ -44,7 +45,7 @@ export class CodexIdentityReceipts {
     }
   }
 
-  private async read(path: string, sessionId: string): Promise<CodexIdentityBinding | undefined> {
+  private async read(path: string, sessionId: SessionId): Promise<CodexIdentityBinding | undefined> {
     try {
       const payload = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
       const nativeId = payload.session_id
@@ -86,7 +87,8 @@ export class CodexIdentityReceipts {
       if (!entry.isFile()) continue
       const match = CLAIM_NAME.exec(entry.name)
       if (!match) continue
-      const path = this.pathFor(match[1] as string)
+      // DECODE EDGE: the session id is embedded in the receipt FILENAME.
+      const path = this.pathFor(asSessionId(match[1] as string))
       if (!path) continue
       await this.restoreClaim(join(this.dir, entry.name), path)
       recoveredClaim = true
@@ -98,7 +100,8 @@ export class CodexIdentityReceipts {
       if (!entry.isFile()) continue
       const match = RECEIPT_NAME.exec(entry.name)
       if (!match) continue
-      const binding = await this.read(join(this.dir, entry.name), match[1] as string)
+      // DECODE EDGE: as above — the id comes out of the filename.
+      const binding = await this.read(join(this.dir, entry.name), asSessionId(match[1] as string))
       if (binding) bindings.push(binding)
     }
     return bindings
@@ -127,7 +130,7 @@ export class CodexIdentityReceipts {
    * disk. A newer hook may have replaced the file while an older ack was in
    * flight; that newer native id must remain pending.
    */
-  async acknowledge(sessionId: string, resume: ResumeRef): Promise<boolean> {
+  async acknowledge(sessionId: SessionId, resume: ResumeRef): Promise<boolean> {
     if (resume.kind !== 'codex-thread') return false
     const path = this.pathFor(sessionId)
     if (!path) return false
