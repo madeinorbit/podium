@@ -305,7 +305,7 @@ export class Outbox {
   private mutations: Promise<unknown> = Promise.resolve()
   /** Per-span accumulated view and staged events, so several outbox changes in
    *  ONE transaction compose instead of overwriting each other. */
-  private readonly spanViews = new WeakMap<SyncSpan, readonly OutboxRecord[]>()
+  private readonly spanDeltas = new WeakMap<SyncSpan, OutboxStoreMutation[]>()
   private readonly spanEvents = new WeakMap<SyncSpan, OutboxEvent[]>()
 
   private constructor(config: OutboxConfig, records: readonly OutboxRecord[]) {
@@ -997,16 +997,23 @@ export class Outbox {
    *   a second browser tab. Staging from a stale in-memory base and writing a
    *   whole snapshot silently deleted the other writer's queued work. It is also
    *   what makes `mutationId` uniqueness global rather than per-instance.
-   * - **Inside a span, rebase on the span's own accumulated view.** Enrolled
-   *   writes have not landed yet, so a re-read would return the pre-span state and
-   *   the second retirement in one span would resurrect the first. One span
-   *   therefore keeps one staged view and publishes ONCE, on commit — a feed frame
-   *   can carry several provenance retirements.
+   * - **Inside a span, rebase on fresh truth PLUS the span's own accumulated
+   *   deltas.** Enrolled writes have not landed yet, so a plain re-read would return
+   *   the pre-span state and the second retirement in one span would resurrect the
+   *   first. One span therefore accumulates record-level deltas and publishes ONCE,
+   *   on commit — a feed frame can carry several provenance retirements.
+   *
+   * Adoption at commit is a record-level MERGE onto the LATEST memory, never a
+   * replacement with the span's snapshot. That distinction is a bug I shipped:
+   * replacing memory with a snapshot taken when the span opened erased any
+   * independent user action that had committed while it was open, so an
+   * acknowledged, durable enqueue vanished from `pending()` and never drained until
+   * something else rebased. Deltas merge; snapshots overwrite.
    */
   private async stage<T>(body: (draft: OutboxDraft) => T, span?: SyncSpan): Promise<T> {
-    const base = span
-      ? (this.spanViews.get(span) ?? (await this.store.read()))
-      : await this.store.read()
+    const staged = span ? this.spanDeltas.get(span) : undefined
+    const truth = await this.store.read()
+    const base = staged ? staged.reduce(applyMutation, [...truth]) : truth
     const draft = new OutboxDraft(base)
     const result = body(draft)
     const next = draft.sealed()
@@ -1019,7 +1026,9 @@ export class Outbox {
       for (const event of draft.events) this.emit(event)
       return result
     }
-    this.spanViews.set(span, next)
+    const accumulated = this.spanDeltas.get(span)
+    if (accumulated) accumulated.push(delta)
+    else this.spanDeltas.set(span, [delta])
     const pending = this.spanEvents.get(span)
     if (pending) pending.push(...draft.events)
     else {
@@ -1028,15 +1037,17 @@ export class Outbox {
       // emission happen from `onCommit` so nothing escapes to a subscriber before
       // the outer transaction is durable (POD-369's amendment 2).
       span.onCommit(() => {
-        const view = this.spanViews.get(span)
-        if (view) this.records = view
+        // MERGE the span's deltas onto current memory, which by now may already
+        // include an independent user action that committed while the span was open.
+        const deltas = this.spanDeltas.get(span) ?? []
+        this.records = deltas.reduce(applyMutation, [...this.records])
         for (const event of this.spanEvents.get(span) ?? []) this.emit(event)
-        this.spanViews.delete(span)
+        this.spanDeltas.delete(span)
         this.spanEvents.delete(span)
       })
       // No abort hook, and none needed: nothing is adopted and nothing is emitted
       // until `onCommit` runs, so an aborted span leaves this instance exactly as
-      // it was. The staged view is keyed by the span object in a WeakMap, so an
+      // it was. The staged deltas are keyed by the span object in a WeakMap, so an
       // abandoned span's staging is collected rather than lingering — there is no
       // cleanup a forgotten callback could skip.
     }
@@ -1050,6 +1061,26 @@ export class Outbox {
   private emit(event: OutboxEvent): void {
     for (const listener of this.listeners) listener(event)
   }
+}
+
+/**
+ * Apply one record-level mutation to a record list, preserving insertion order: a
+ * first `put` appends, a replacing `put` keeps its position, `remove` deletes by id,
+ * and anything unmentioned is untouched. The in-memory twin of what the store does,
+ * used to rebase a span's view and to MERGE its deltas into memory at commit.
+ */
+const applyMutation = (records: OutboxRecord[], mutation: OutboxStoreMutation): OutboxRecord[] => {
+  const next = [...records]
+  for (const id of mutation.remove ?? []) {
+    const idx = next.findIndex((r) => r.mutationId === id)
+    if (idx !== -1) next.splice(idx, 1)
+  }
+  for (const record of mutation.put ?? []) {
+    const idx = next.findIndex((r) => r.mutationId === record.mutationId)
+    if (idx === -1) next.push(record)
+    else next[idx] = record
+  }
+  return next
 }
 
 /** The observable consequence of each transition. Kept beside the table rather

@@ -1373,6 +1373,39 @@ describe('review round 2 — one physical store, several writers', () => {
     expect(types(events)).not.toContain('retired')
   })
 
+  it('enrolls RETIREMENT only: a COMMITTED span keeps the independent enqueue in memory too', async () => {
+    // The commit counterpart of the abort test above, and it caught a real bug: span
+    // adoption used to REPLACE memory with the snapshot taken when the span opened,
+    // so an independent enqueue that committed while the span was open was erased
+    // from `all()`/`pending()` on commit. Durable state was right, memory was wrong,
+    // and the acknowledged command never drained until something else rebased. The
+    // abort test could not see it because `onCommit` never runs there.
+    const uow = new InMemoryUnitOfWork()
+    const store = new InMemoryOutboxStore()
+    const clock = new ManualClock()
+    const { outbox, authority, events } = await harness(() => applied, { store, clock })
+    const retiring = await outbox.enqueue(close('POD-1'))
+    await outbox.drain()
+
+    let independent: OutboxRecord | undefined
+    await uow.transact(async (span) => {
+      await outbox.retireApplied(retiring.mutationId, span)
+      independent = await outbox.enqueue(close('POD-2'))
+    })
+
+    const id = independent?.mutationId as MutationId
+    // Durable AND in-memory agree: the retirement landed, the enqueue survived.
+    expect(store.durable().map((r) => [r.mutationId, r.state])).toEqual([[id, 'queued']])
+    expect(outbox.all().map((r) => [r.mutationId, r.state])).toEqual([[id, 'queued']])
+    expect(outbox.pending().map((r) => r.mutationId)).toEqual([id])
+    expect(types(events)).toEqual(['local-ack', 'sending', 'applied', 'local-ack', 'retired'])
+
+    // And it actually drains, which is the consequence the user would have noticed.
+    await outbox.drain()
+    expect(authority.envelopes.map((e) => e.mutationId)).toContain(id)
+    expect(outbox.find(id)?.state).toBe('applied')
+  })
+
   it('refuses to retire an id the same span has already retired', async () => {
     // Within one span the staged view is authoritative for that span, so a second
     // batch cannot retire what the first already removed. This used to be written

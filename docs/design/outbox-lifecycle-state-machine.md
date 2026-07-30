@@ -81,7 +81,7 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | The batch shape POD-369 submits | two provenance matches commit as **exactly one** enrolled write with entity + cursor present; abort preserves both entries, the OLD entity/cursor and emits no observation; a second batch extends the span draft (bootstrap across two buffered frames); a bad id fails the whole batch before staging |
 | Shared span, two principals | both stage keyed mutations in ONE span and both survive; a cross-principal key write is refused with `OutboxInvariantError` |
 | Store-level isolation | an aborted span cannot delete another transaction's committed value (overlapping key, no dirty read); an aborted removal restores record order byte for byte; a staged precondition that goes stale before commit publishes nothing; two concurrent spans on disjoint keys both survive, with the double modelling a real adapter's async commit gap so the per-store commit lock is actually exercised |
-| Concurrent writers on the CONFIGURED unit-of-work path | the same two races with a separate transaction per tab: the id collision re-stages through a typed commit conflict and fails with `duplicate mutationId` rather than a generic error, and discard-versus-drain still settles both successfully; a late precondition failure leaves nothing of the transaction behind (durable, memory, events, and a cold rehydrate); an earlier enrolled write is rolled back when a later one fails |
+| Explicit-span atomicity and conflict propagation | a commit-time conflict reaches the caller who OWNS the span and is not retried into existence by the kernel; a staged precondition going stale before commit publishes nothing while the outside commit survives; a late failure leaves nothing of the transaction behind (durable, memory, events, and a cold rehydrate); a span that commits MERGES its deltas onto current memory, so an independent user enqueue made while it was open survives in `all()`/`pending()` and still drains, and the aborted counterpart keeps the enqueue while undoing the retirement |
 | Concurrent writers (deterministic, barrier-driven) | two instances racing the same explicit `mutationId`: exactly one fulfils, the loser is refused and emits no local-ack; discard-versus-drain across two tabs: the user's decision is durable, the contested entry is never submitted, and BOTH calls still settle successfully; two different ids racing both land; a permanent conflict surfaces after five attempts instead of spinning |
 
 ## Privacy is a binding, not a filter
@@ -153,7 +153,7 @@ before the envelope goes out.
 inside the native transaction, by which point there is no caller left to answer. So the transaction
 rejects with `SyncCommitConflict` — neutral, beside the span types, so the Replica can raise and
 recognise it too. Both shapes mean "another writer won" and both re-stage. A commit-time conflict
-arriving through the CALLER's own ambient span is not ours to retry, so it propagates: their
+arriving through a CALLER-OWNED explicit span is not ours to retry, so it propagates: their
 transaction is already dead and retrying our part alone would be meaningless.
 
 ### The transaction rule, as clarified with POD-369
