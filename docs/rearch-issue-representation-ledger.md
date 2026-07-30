@@ -465,6 +465,16 @@ lie about it.
 capture that retained only its last 12 lines, so grepping for the failing test names returned nothing
 — not "no match" but "the match was discarded". Re-run into a log this session controlled.
 
+**A red control beside every green assertion.** Three separate instrument failures in this run share
+one shape — a never-applied mutant reading as a survivor, a `grep` silenced by NUL bytes, and a
+five-case type probe whose green cases could equally mean "the check is absent" or "I mis-set up every
+case". In all three the instrument was **silent and the silence was read as a result**. The cheap
+general defence is a red control: the five-case spread probe is trustworthy *because three of its cases
+red*, and the single-case `crud.ts` test that preceded it was not. Related, and the reason the spread
+finding got corrected at all: **a mutation result that contradicts your stated expectation is a finding
+about your model of the system even when the suite behaves.** POD-366 expected a survivor, got a kill,
+and reported the kill instead of banking it.
+
 **Mutation protocol, and why the survivor-shaped result was re-checked.** A mutant that FAILS TO APPLY
 is indistinguishable from a mutant that survives — both print a green suite, and the bias is toward the
 most intricate code, whose coverage you most wanted to prove (POD-366's finding, broadcast by the
