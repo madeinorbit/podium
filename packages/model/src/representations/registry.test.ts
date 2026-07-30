@@ -280,3 +280,69 @@ describe('the live registry', () => {
     }
   })
 })
+
+/**
+ * THE SCHEMA WALKER MUST NOT ANSWER "CLEAN" FOR A SHAPE IT CANNOT READ.
+ *
+ * POD-1153 made HandoffManifest a discriminated union, and `topLevelKeys` handled
+ * only ZodObject — so it answered `[]`, which the per-user-state check read as
+ * "carries none of the forbidden keys". A false green on a live representation, and
+ * its own docstring claimed the caller surfaced unreadable schemas when nothing did.
+ * Found by probing the detector rather than by reading it: the positive control
+ * proves the check CAN fire, so the union case answering nothing was a real blind
+ * spot and not a broken probe.
+ */
+describe('the per-user-state walker sees through a union, and refuses to guess', () => {
+  const base = {
+    entity: 'session',
+    site: 'probe.ts',
+    role: 'R4',
+    purpose: 'p',
+    distinctSemantics: 'd',
+    composition: { state: 'declared-legitimate-restatement', reason: 'r', enforcedBy: 'e' },
+    matrixRow: ROW.sessionIdentity,
+    visibility: 'personal',
+  } as unknown as RetainedRepresentation
+  const perUserKey = 'readAt'
+
+  it('fires on a plain object carrying a per-user key — the positive control', () => {
+    const v = representationViolations([
+      { ...base, symbol: 'PlainObj', schema: z.object({ [perUserKey]: z.string() }) },
+    ])
+    expect(v.some((x) => x.kind === 'per-user-state-member')).toBe(true)
+  })
+
+  it('fires on a per-user key hidden in ONE ARM of a discriminated union', () => {
+    // The arm without the key is the counterfactual: an intersection-of-arms walker
+    // would report clean here, which is exactly how a v2 arm could smuggle a
+    // singleton past the gate while v1 stayed innocent.
+    const v = representationViolations([
+      {
+        ...base,
+        symbol: 'UnionRep',
+        schema: z.discriminatedUnion('format', [
+          z.object({ format: z.literal(1), ok: z.string() }),
+          z.object({ format: z.literal(2), [perUserKey]: z.string() }),
+        ]),
+      },
+    ])
+    expect(v.some((x) => x.kind === 'per-user-state-member')).toBe(true)
+  })
+
+  it('reports an unreadable schema as a FINDING rather than passing it', () => {
+    const v = representationViolations([
+      { ...base, symbol: 'Opaque', schema: z.string() },
+    ])
+    expect(v.some((x) => x.kind === 'unreadable-schema')).toBe(true)
+  })
+
+  it('does NOT cry unreadable on the shapes it genuinely reads', () => {
+    // Without this, the two assertions above would pass for a walker that called
+    // everything unreadable.
+    const v = representationViolations([
+      { ...base, symbol: 'PlainOk', schema: z.object({ title: z.string() }) },
+      { ...base, symbol: 'UnionOk', schema: HandoffManifest },
+    ])
+    expect(v.some((x) => x.kind === 'unreadable-schema')).toBe(false)
+  })
+})

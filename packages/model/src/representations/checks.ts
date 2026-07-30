@@ -170,6 +170,9 @@ export interface RepresentationViolation {
     | 'per-user-state-member'
     | 'capability-snapshot'
     | 'instance-partition'
+    // The schema-reading checks could not run. Deliberately a FINDING and not a
+    // silent skip — see `topLevelKeys`.
+    | 'unreadable-schema'
   readonly detail: string
 }
 
@@ -272,7 +275,28 @@ export function representationViolations(
     //     silently skipped here.
     if (!rep.schema) continue
 
+    // A schema this walker cannot read must be REPORTED, never treated as clean.
+    // `topLevelKeys` used to answer `[]` for anything non-object and its docstring
+    // claimed the caller surfaced that — it did not, so a discriminated union read
+    // as "carries none of the per-user keys". POD-1153 turned HandoffManifest into
+    // exactly such a union, which made this gate silently green on it. The walker
+    // now unions the arms, and this guard is the general protection for the next
+    // wrapper nobody anticipated: an unreadable schema is its own finding.
     const shape = topLevelKeys(rep.schema)
+    if (shape === null) {
+      out.push({
+        representation: at,
+        kind: 'unreadable-schema',
+        detail:
+          'the key-set walker cannot read this schema, so the per-user-state and vocabulary ' +
+          'checks below could not run over it. Reported rather than passed: a detector that ' +
+          'answers "no keys" for a shape it does not understand is indistinguishable from one ' +
+          'answering "no violations", and that false green is the failure this registry exists ' +
+          'to prevent. Extend topLevelKeys for the wrapper, or exclude the representation with ' +
+          'a recorded reason.',
+      })
+      continue
+    }
     for (const key of PER_USER_STATE_KEYS) {
       if (shape.includes(key)) {
         out.push({
@@ -317,19 +341,47 @@ export function representationViolations(
 }
 
 /** Top-level key names of a zod object, seen through the wrappers that do not
- *  change the key set. Returns `[]` for anything that is not an object — a
- *  representation this cannot read is reported as such by the caller, never as
- *  clean. */
-function topLevelKeys(schema: z.ZodTypeAny): string[] {
+ *  change the key set, and through a union by taking the UNION OF ITS ARMS' keys.
+ *
+ *  Returns `null` — never `[]` — for a shape it cannot read, and the caller turns
+ *  that into an `unreadable-schema` finding. The distinction is the whole point:
+ *  `[]` means "read it, found no keys", which is a CLEAN verdict, and returning it
+ *  for an unrecognised wrapper is a false green. This function previously answered
+ *  `[]` in both cases while its docstring claimed the caller separated them.
+ *
+ *  Unions take the union of arms rather than the intersection because these checks
+ *  ask "can this representation EVER carry a forbidden key" — a key present in one
+ *  arm is carried by that arm, and an intersection would let a v2 arm smuggle a
+ *  per-user singleton past the gate as long as v1 lacked it. */
+function topLevelKeys(schema: z.ZodTypeAny): string[] | null {
   let cur: z.ZodTypeAny = schema
   for (let i = 0; i < 8; i++) {
-    const def = cur._def as { typeName?: string; innerType?: z.ZodTypeAny; schema?: z.ZodTypeAny }
+    const def = cur._def as {
+      typeName?: string
+      innerType?: z.ZodTypeAny
+      schema?: z.ZodTypeAny
+      options?: z.ZodTypeAny[]
+    }
     if (def.typeName === 'ZodObject') return Object.keys((cur as unknown as z.AnyZodObject).shape)
+    if (
+      (def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') &&
+      def.options
+    ) {
+      const keys = new Set<string>()
+      for (const option of def.options) {
+        const armKeys = topLevelKeys(option)
+        // One unreadable arm makes the whole answer untrustworthy, so it propagates
+        // rather than silently contributing nothing.
+        if (armKeys === null) return null
+        for (const k of armKeys) keys.add(k)
+      }
+      return [...keys]
+    }
     const next = def.innerType ?? def.schema
-    if (!next) return []
+    if (!next) return null
     cur = next
   }
-  return []
+  return null
 }
 
 /** The declared class of a retained representation BY SYMBOL, resolved
