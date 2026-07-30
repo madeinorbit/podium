@@ -58,6 +58,7 @@
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "audit:sessions": "bun scripts/audit-session-commands.ts --probe && bun scripts/audit-session-commands.ts",
+    "audit:workflows": "bun scripts/audit-workflow-commands.ts --probe && bun scripts/audit-workflow-commands.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
     "fixtures:wire:update": "bun --conditions=@podium/source scripts/update-wire-fixtures.ts",

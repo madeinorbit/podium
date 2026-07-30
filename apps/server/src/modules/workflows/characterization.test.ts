@@ -47,11 +47,15 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AMBIGUOUS_ADVANCE_MESSAGE } from '@podium/commands'
+import { AMBIGUOUS_ADVANCE_MESSAGE, WORKFLOW_CONTRACTS } from '@podium/commands'
 import type { WorkflowStepEvidence } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
-import { type WorkflowCaller, WorkflowService, workflowInputs } from './service'
+import { isWorkflowQueryExposedOn } from './queries'
+import { isWorkflowProcExposedOn } from './registry'
+import { dispatchWorkflowRpc } from './rpc'
+import { type WorkflowCaller, WorkflowService } from './service'
+import { type DrivenWorkflowService, driveWorkflows } from './test-support'
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -187,7 +191,15 @@ function countRows(store: SessionStore, table: 'changes' | 'podium_events'): num
 
 interface Harness {
   store: SessionStore
-  service: WorkflowService
+  /**
+   * POD-732: the eleven three-line shims this suite was written against are
+   * DELETED. `driveWorkflows` forwards each proc name to
+   * `WorkflowService.execute` — the one door tRPC, the relay and the approval
+   * broker all enter through — reordering arguments and nothing else. The suite
+   * therefore measures the shipped path, WITH the contract's parse, rather than
+   * a shim beside it. See `test-support.ts`.
+   */
+  service: DrivenWorkflowService
   notices: Array<{ sessionId: string; text: string }>
   clock: { value: string }
 }
@@ -219,7 +231,7 @@ function makeHarness(path = ':memory:'): Harness {
       },
     },
   )
-  return { store, service, notices, clock }
+  return { store, service: driveWorkflows(service), notices, clock }
 }
 
 /**
@@ -577,7 +589,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('PIN input validation: duplicate step ids are rejected at the schema, not the service', () => {
       expect(() =>
-        workflowInputs.create.parse({
+        WORKFLOW_CONTRACTS.create.input.parse({
           name: 'Invalid',
           scope: 'global',
           steps: [
@@ -588,7 +600,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toThrow('duplicate workflow step id: same')
       // The service itself does NOT re-check: a caller reaching the method
       // directly with duplicate ids is not stopped here.
-      expect(workflowInputs.revise.parse({ workflowId: 'w', steps: [] })).toEqual({
+      expect(WORKFLOW_CONTRACTS.revise.input.parse({ workflowId: 'w', steps: [] })).toEqual({
         workflowId: 'w',
         instructions: '',
         steps: [],
@@ -624,6 +636,21 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: repository workflows require scopeRef | code=undefined')
+      // RE-PINNED (POD-732), and the ONE assertion the cutover changed for a
+      // reason that is not a behaviour change.
+      //
+      // POD-730 pinned `scopeRef: ''` reaching the handler's domain error. It
+      // never could, on any transport: the create schema has had
+      // `.min(1)` since before POD-731 (`scopeInput` in the deleted
+      // `workflowInputs`, and the contract it now points at), so tRPC and the
+      // relay have ALWAYS turned this input into a validation error. The old
+      // pin described a path only the deleted shims could take — they passed
+      // hand-built objects through unparsed.
+      //
+      // The suite now drives the shipped door, which parses. So the assertion
+      // moves to what the wire actually does, and the DOMAIN error keeps its own
+      // pin above via the `repository` arm, where `scopeRef` is legitimately
+      // absent rather than empty and the schema accepts it.
       expect(
         thrown(() =>
           h.service.create(
@@ -638,7 +665,7 @@ describe('POD-730 workflow mutation characterization', () => {
             operator,
           ),
         ),
-      ).toBe('Error: task workflows require scopeRef | code=undefined')
+      ).toContain('ZodError')
     })
 
     /**
@@ -1269,23 +1296,23 @@ describe('POD-730 workflow mutation characterization', () => {
 
       // ARTEFACT: the operator arm is unconstrained — this becomes a cross-user
       // read the moment there is more than one human (3.1.2).
-      expect(h.service.bindings({}, operator)).toHaveLength(6)
+      expect(h.service.bindings(operator)).toHaveLength(6)
       // A session sees: global (always), its own repo, its own session, its own issue.
       expect(
         h.service
-          .bindings({}, agent('s1'))
+          .bindings(agent('s1'))
           .map((b) => `${b.targetKind}:${b.targetId}`)
           .sort(),
       ).toEqual(['global:', 'issue:issue-1', 'repository:repo-a'])
       // s2 additionally sees its own session binding.
       expect(
         h.service
-          .bindings({}, agent('s2'))
+          .bindings(agent('s2'))
           .map((b) => `${b.targetKind}:${b.targetId}`)
           .sort(),
       ).toEqual(['global:', 'issue:issue-1', 'repository:repo-a', 'session:s2'])
       // overrideScope on a session gets the operator's full view.
-      expect(h.service.bindings({}, overriding('s1'))).toHaveLength(6)
+      expect(h.service.bindings(overriding('s1'))).toHaveLength(6)
     })
 
     it('PIN resolveRevision precedence is session → issue → repository → global, first hit wins', () => {
@@ -1417,14 +1444,14 @@ describe('POD-730 workflow mutation characterization', () => {
         machineId: 'm2',
         harness: 'claude-code',
       })
-      expect(h.service.profiles({}, operator)).toHaveLength(1)
+      expect(h.service.profiles(operator)).toHaveLength(1)
       // PIN: profileSave emits NO workflow event at all — profile changes leave
       // no audit trail.
       expect(kinds(h.store)).toEqual([])
     })
 
     it('PIN explicit machineId: null clears the pin; model/effort default to "auto"', () => {
-      const parsed = workflowInputs.profileSave.parse({
+      const parsed = WORKFLOW_CONTRACTS.profileSave.input.parse({
         name: 'Defaults',
         accountId: 'acct',
         harness: 'codex',
@@ -1521,10 +1548,10 @@ describe('POD-730 workflow mutation characterization', () => {
       // A foreign agent session in another repo reads every profile in the
       // instance, including its accountId. Cross-user read the moment there is
       // a second human (3.1.2).
-      expect(h.service.profiles({}, agent('s3', 'issue-2'))).toMatchObject([
+      expect(h.service.profiles(agent('s3', 'issue-2'))).toMatchObject([
         { name: 'Secret', accountId: 'native:codex' },
       ])
-      expect(h.service.profiles({}, { actor: { kind: 'session', id: 'gone' } })).toHaveLength(1)
+      expect(h.service.profiles({ actor: { kind: 'session', id: 'gone' } })).toHaveLength(1)
     })
 
     it('PIN a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', () => {
@@ -3136,17 +3163,31 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('PIN prime for an operator context has no run and says so', () => {
       twoStepRun(h)
-      expect(h.service.prime({}, operator)).toBe(
-        'No workflow is attached to this operator context.',
-      )
-      expect(h.service.prime({}, agent('s3', 'issue-2'))).toBe(
+      expect(h.service.prime(operator)).toBe('No workflow is attached to this operator context.')
+      expect(h.service.prime(agent('s3', 'issue-2'))).toBe(
         'No workflow is attached to this session.',
       )
-      expect(h.service.prime({}, agent('s1'))).toContain('role: coordinator')
-      expect(h.service.prime({}, agent('s2'))).toContain('role: issue participant')
+      expect(h.service.prime(agent('s1'))).toContain('role: coordinator')
+      expect(h.service.prime(agent('s2'))).toContain('role: issue participant')
     })
 
-    it('PIN dispatch() routes by proc name and parses input through the shared schema', async () => {
+    /**
+     * RE-PINNED (POD-732). `WorkflowService.dispatch` is DELETED — it was a
+     * reflective, name-keyed call over `workflowInputs` that served any proc
+     * with a schema, so `relay` was served because a schema existed rather than
+     * because a contract declared it (ADR 3 D3 says the opposite). The relay arm
+     * is now `dispatchWorkflowRpc`, and this pin moves to it UNCHANGED IN WHAT
+     * IT CLAIMS: routes by proc name, parses through the ONE declared schema,
+     * unknown proc is `undefined`, and a schema failure throws SYNCHRONOUSLY out
+     * of dispatch rather than rejecting the returned promise.
+     *
+     * ONE CLAIM IS ADDED, and it is the thing the old shape could not say: a
+     * proc that EXISTS but does not declare this transport is REFUSED, not
+     * absent. `undefined` would fall through to "unknown proc", which tells a
+     * caller a command it may not reach does not exist — and stops telling them
+     * the day someone adds `relay` to the exposure.
+     */
+    it('PIN the relay arm routes by proc name, parses through the declared schema, and is default-closed', async () => {
       const created = h.service.create(
         {
           name: 'Dispatched',
@@ -3159,15 +3200,116 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       await expect(
-        h.service.dispatch(operator, 'get', { id: created.workflow.id }),
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }),
       ).resolves.toMatchObject({
         workflow: { id: created.workflow.id },
       })
-      expect(h.service.dispatch(operator, 'notAProc', {})).toBeUndefined()
-      // PIN: input parsing happens BEFORE the promise is created, so a schema
-      // failure throws SYNCHRONOUSLY out of dispatch rather than rejecting the
-      // returned promise. Any caller that only awaits will not catch it.
-      expect(() => h.service.dispatch(operator, 'get', {})).toThrow('Required')
+      expect(dispatchWorkflowRpc(h.service, operator, 'notAProc', {})).toBeUndefined()
+      expect(() => dispatchWorkflowRpc(h.service, operator, 'get', {})).toThrow('Required')
+    })
+
+    /**
+     * The instrument must be able to say YES: the refusal above is only
+     * meaningful if this transport check can actually fire. `checkpoint`
+     * declares `relay`, so asking about a transport NO workflow contract
+     * declares proves the branch is reached rather than vacuously skipped.
+     */
+    /**
+     * THE REFUSAL ITSELF, not the predicate behind it.
+     *
+     * The pin below checks `isWorkflowProcExposedOn`. That is mechanism
+     * presence: deleting the check from `dispatchWorkflowRpc` entirely left it
+     * green (measured with a mutant). This one drives the DISPATCHER against a
+     * transport no workflow declares, so the branch that refuses is the branch
+     * under test — and the `relay` arm beside it is the counterfactual that
+     * stops the assertion passing against a dispatcher that refuses everything.
+     */
+    it('POD-732 a proc that exists but does not declare the transport is REFUSED, not absent', () => {
+      const created = h.service.create(
+        {
+          name: `Exposure ${Math.random()}`,
+          description: '',
+          scope: 'task',
+          scopeRef: 'issue-1',
+          instructions: '',
+          steps: [],
+        },
+        operator,
+      )
+      expect(() =>
+        dispatchWorkflowRpc(
+          h.service,
+          operator,
+          'publish',
+          { revisionId: created.revision.id },
+          'outbox',
+        ),
+      ).toThrow('workflows.publish is not available over the outbox transport')
+      expect(() =>
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'outbox'),
+      ).toThrow('workflows.get is not available over the outbox transport')
+      // The counterfactual: the SAME calls on a declared transport go through,
+      // so the refusal above is about the transport and not about the call.
+      expect(
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }, 'relay'),
+      ).toBeDefined()
+    })
+
+    /**
+     * ADOPT'S RECORDED DUPLICATE, closed for an IDENTIFIED delivery (POD-732).
+     *
+     * The contract's `advance` note records the hazard: a second adopt supersedes
+     * the run the FIRST one created and starts a third. POD-731 refused to close
+     * it by REFUSING unidentified adopts — that would break six behaviours
+     * POD-730 pinned — and left the ledger as the only close. This proves the
+     * ledger actually closes it, which the contract note alone does not.
+     *
+     * THE COUNTERFACTUAL IS THE POINT: the same second delivery with a DIFFERENT
+     * mutation id must still supersede, or this test would pass against an adopt
+     * that had simply stopped working.
+     */
+    it('POD-732 a replayed adopt is a ledger no-op; a differently-identified one still supersedes', () => {
+      const { run } = twoStepRun(h)
+      const next = h.service.create(
+        {
+          name: `Adopted ${Math.random()}`,
+          description: '',
+          scope: 'task',
+          scopeRef: 'issue-1',
+          instructions: 'v2',
+          steps: [{ id: 'a', title: 'A', instructions: '', completionGuidance: '' }],
+        },
+        operator,
+      )
+      const first = h.service.adopt(
+        { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
+        agent('s1'),
+      )
+      const replay = h.service.adopt(
+        { revisionId: next.revision.id, runId: run.id, mutationId: 'delivery-1' },
+        agent('s1'),
+      )
+      // Same delivery ⇒ the FIRST result, verbatim. No third run.
+      expect(replay.id).toBe(first.id)
+      expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(1)
+
+      // Different delivery ⇒ a real second adopt, which is the behaviour POD-730
+      // pinned and which this close must not have taken away.
+      const second = h.service.adopt(
+        { revisionId: next.revision.id, runId: first.id, mutationId: 'delivery-2' },
+        agent('s1'),
+      )
+      expect(second.id).not.toBe(first.id)
+      expect(readEvents(h.store).filter((e) => e.kind === 'workflow.run_adopted')).toHaveLength(2)
+    })
+
+    it('PIN exposure is default-closed per declaration, not per table membership', () => {
+      expect(isWorkflowProcExposedOn('checkpoint', 'relay')).toBe(true)
+      expect(isWorkflowProcExposedOn('checkpoint', 'outbox')).toBe(false)
+      expect(isWorkflowProcExposedOn('notAProc', 'relay')).toBe(false)
+      expect(isWorkflowQueryExposedOn('get', 'relay')).toBe(true)
+      expect(isWorkflowQueryExposedOn('get', 'outbox')).toBe(false)
+      expect(isWorkflowQueryExposedOn('notAProc', 'relay')).toBe(false)
     })
   })
 
@@ -3354,6 +3496,64 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('attribution', () => {
+    /**
+     * THE COUNTERFACTUAL for the line above (ADR 9 D5 A1).
+     *
+     * `startRun` resolving the human when none was supplied is only safe if an
+     * EXPLICIT `null` — which is A1's REVOCATION value, what `adopt` passes when
+     * a delegation no longer resolves — is never re-resolved to a live human.
+     * That is a `!== undefined` test in the code and it would read identically
+     * to a truthiness test until this case exists: a truthiness test would turn
+     * a revoked run into an attributed one, silently, in an audit trail.
+     *
+     * The DIFFERENT-ACTOR half: the same call with the field ABSENT must record
+     * the human, or this test would pass against a `startRun` that recorded
+     * `null` unconditionally.
+     */
+    it('POD-732 an explicit null onBehalfOf is REVOCATION and is never re-resolved', () => {
+      const revoked = h.service.create(
+        {
+          name: `Revoked ${Math.random()}`,
+          description: '',
+          scope: 'task',
+          scopeRef: 'issue-1',
+          instructions: '',
+          steps: [],
+        },
+        operator,
+      )
+      h.service.startRun({
+        sessionId: 's1',
+        cwd: '/repo-a/wt',
+        issueId: 'issue-1',
+        revisionId: revoked.revision.id,
+        onBehalfOf: null,
+      })
+      // The second subject, same call with the field ABSENT — the actor differs
+      // from the assertion, so a `startRun` that always recorded null fails here.
+      h.service.startRun({
+        sessionId: 's3',
+        cwd: '/repo-b/wt',
+        issueId: 'issue-2',
+        revisionId: h.service.create(
+          {
+            name: `Live ${Math.random()}`,
+            description: '',
+            scope: 'task',
+            scopeRef: 'issue-2',
+            instructions: '',
+            steps: [],
+          },
+          operator,
+        ).revision.id,
+      })
+      expect(
+        readEvents(h.store)
+          .filter((e) => e.kind === 'workflow.run_started')
+          .map((e) => String(e.on_behalf_of)),
+      ).toEqual(['null', 'user:single'])
+    })
+
     it('POD-731 every advance records the PAIR — the actor AND the human it acted for', () => {
       const { run } = twoStepRun(h)
       h.service.assignStep({ runId: run.id, stepId: 'implement', sessionId: 's2' }, agent('s1'))
@@ -3383,15 +3583,20 @@ describe('POD-730 workflow mutation characterization', () => {
       // step?" is answerable from the row rather than unanswerable. The actor
       // column is unchanged — this is a widening, not a substitution, which is
       // the distinction A3 draws.
+      //
+      // POD-732 CLOSES THE LAST HOLE, and this line is the proof. POD-731
+      // recorded `null` on `run_started` because the session-start path had no
+      // caller and inventing a human would be a lie in an audit trail. That
+      // reasoning is inherited: the human is not invented, it is RESOLVED
+      // through the one seam every other apply uses
+      // (`WorkflowAccess.onBehalfOf` → `workflowPrincipal`) for the actor the
+      // event already names. POD-730 §9's ARTEFACT is now closed rather than
+      // narrowed, and every row on this surface carries the pair.
       expect(
         readEvents(h.store).map((e) => `${e.kind}:${e.actor_kind}:${String(e.on_behalf_of)}`),
       ).toEqual([
         'workflow.created:operator:user:single',
-        // …EXCEPT `run_started`, which is the one path with no caller to resolve
-        // a human from. It records `null` rather than inventing one, and that
-        // remains POD-730 §9's open ARTEFACT — narrowed (an ADOPTED run names
-        // its human) but not closed. See `startRun`.
-        'workflow.run_started:session:null',
+        'workflow.run_started:session:user:single',
         'workflow.step_assigned:session:user:single',
         'workflow.step_complete:session:user:single',
         'workflow.step_skipped:operator:user:single',

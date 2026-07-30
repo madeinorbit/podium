@@ -1,116 +1,52 @@
 import { randomUUID } from 'node:crypto'
-import {
-  type AdvanceIdempotencyPort,
-  workflowAdoptInput,
-  workflowAssignInput,
-  workflowAssignStepInput,
-  workflowCheckpointInput,
-  workflowCreateInput,
-  workflowForkInput,
-  workflowProfileSaveInput,
-  workflowPublishInput,
-  workflowRetryInput,
-  workflowReviseInput,
-  workflowSkipInput,
-} from '@podium/commands'
+import type { AdvanceIdempotencyPort } from '@podium/commands'
 import { AgentKind } from '@podium/model'
-import {
-  type ExecutionProfileWire,
-  type WorkflowGitObservation as GitObservation,
-  WorkflowBindingTarget,
-  WorkflowGitObservation,
-  type WorkflowNextActionWire,
-  type WorkflowRevisionWire,
-  type WorkflowRunStepWire,
-  type WorkflowRunWire,
+import type {
+  ExecutionProfileWire,
+  WorkflowGitObservation as GitObservation,
+  WorkflowNextActionWire,
+  WorkflowRevisionWire,
+  WorkflowRunStepWire,
+  WorkflowRunWire,
   WorkflowScope,
-  WorkflowStep,
-  WorkflowStepEvidence,
-  type WorkflowWire,
+  WorkflowWire,
 } from '@podium/protocol'
-import { z } from 'zod'
+import type { z } from 'zod'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow } from '../../store/types'
 import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
-import type {
-  adoptHandler,
-  assignStepHandler,
-  checkpointHandler,
-  retryHandler,
-  skipHandler,
-} from './handlers/advances'
 import {
   NO_RUN,
   WorkflowAccess,
   type WorkflowHandlerContext,
   type WorkflowPolicyPorts,
 } from './handlers/context'
-import type {
-  assignHandler,
-  createHandler,
-  forkHandler,
-  profileSaveHandler,
-  publishHandler,
-  reviseHandler,
-} from './handlers/library'
-import { dispatchWorkflowCommand, type WorkflowProcName } from './registry'
-
-const actorInput = z.object({}).passthrough()
-const workflowSteps = WorkflowStep.array().superRefine((steps, context) => {
-  const seen = new Set<string>()
-  steps.forEach((step, index) => {
-    if (seen.has(step.id)) {
-      context.addIssue({
-        code: 'custom',
-        message: `duplicate workflow step id: ${step.id}`,
-        path: [index, 'id'],
-      })
-    }
-    seen.add(step.id)
-  })
-})
-const scopeInput = z.object({
-  scope: WorkflowScope,
-  scopeRef: z.string().min(1).nullable().optional(),
-})
-const revisionBody = z.object({
-  instructions: z.string().default(''),
-  steps: workflowSteps.default([]),
-})
+import { dispatchWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
 
 /**
- * The transport-facing input table.
+ * THE INPUT TABLE IS GONE (POD-732).
  *
- * THE ELEVEN MUTATIONS NOW POINT AT THEIR CONTRACTS (POD-731). They are not
- * restated here: a second copy of a schema is a second thing to edit, and the
- * copy that does not get edited is the one a transport validates with. What is
- * still written out below is `list`, `get`, `bindings`, `profiles`, `runs`,
- * `prime` and `status` — the QUERIES, which POD-732 folds in with the cutover.
+ * `workflowInputs` restated eighteen schemas beside the router. POD-731 pointed
+ * its eleven mutation entries at their contracts; this issue deletes the table
+ * outright. The eleven validate through `WORKFLOW_CONTRACTS`, the seven queries
+ * through `WORKFLOW_QUERIES` in `./queries.ts`, and each is read by BOTH
+ * transports — which is the property the table could never have, because a
+ * table beside a router is a second declaration of the same surface.
+ *
+ * The query methods below therefore take STRUCTURAL parameter types rather than
+ * `z.infer` of the table that calls them. That is not a loss of checking: the
+ * join is checked at `WORKFLOW_QUERIES`, where a schema whose output stops
+ * matching its method's parameter is a compile error at the entry that pairs
+ * them. It is also what keeps the import acyclic — the table imports this
+ * module, not the other way round.
  */
-export const workflowInputs = {
-  list: z.object({
-    includeArchived: z.boolean().optional(),
-    scope: WorkflowScope.optional(),
-    scopeRef: z.string().optional(),
-  }),
-  get: z.object({ id: z.string().min(1) }),
-  create: workflowCreateInput,
-  revise: workflowReviseInput,
-  fork: workflowForkInput,
-  publish: workflowPublishInput,
-  bindings: actorInput,
-  assign: workflowAssignInput,
-  profiles: actorInput,
-  profileSave: workflowProfileSaveInput,
-  runs: z.object({ includeTerminal: z.boolean().optional() }),
-  prime: actorInput,
-  status: z.object({ runId: z.string().optional() }),
-  checkpoint: workflowCheckpointInput,
-  assignStep: workflowAssignStepInput,
-  skip: workflowSkipInput,
-  retry: workflowRetryInput,
-  adopt: workflowAdoptInput,
-} as const
+
+/** The read-side input shapes, named where the methods that take them live. */
+export interface WorkflowListInput {
+  includeArchived?: boolean | undefined
+  scope?: z.infer<typeof WorkflowScope> | undefined
+  scopeRef?: string | undefined
+}
 
 export interface WorkflowCaller {
   actor: WorkflowActor
@@ -281,13 +217,13 @@ export class WorkflowService implements WorkflowEngine {
     return this.access.canReadWorkflow(caller, workflow)
   }
 
-  list(input: z.infer<(typeof workflowInputs)['list']>, caller: WorkflowCaller) {
+  list(input: WorkflowListInput, caller: WorkflowCaller) {
     return this.deps.store
       .listWorkflows(input)
       .filter((workflow) => this.canReadWorkflow(caller, workflow))
   }
 
-  get(input: z.infer<(typeof workflowInputs)['get']>, caller: WorkflowCaller) {
+  get(input: { id: string }, caller: WorkflowCaller) {
     // ONE site, ONE message for both "no such workflow" and "not yours"
     // (ADR 3 Amendment 1 D20.2) — `assertWorkflowRead` is where that lives, so
     // this no longer resolves the row and then refuses it with a second string.
@@ -295,59 +231,21 @@ export class WorkflowService implements WorkflowEngine {
     return { workflow, revisions: this.deps.store.listRevisions(input.id) }
   }
 
-  create(
-    input: z.infer<(typeof workflowInputs)['create']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof createHandler> {
-    return this.run('create', input, caller)
-  }
-
-  revise(
-    input: z.infer<(typeof workflowInputs)['revise']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof reviseHandler> {
-    return this.run('revise', input, caller)
-  }
-
-  fork(
-    input: z.infer<(typeof workflowInputs)['fork']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof forkHandler> {
-    return this.run('fork', input, caller)
-  }
-
-  publish(
-    input: z.infer<(typeof workflowInputs)['publish']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof publishHandler> {
-    return this.run('publish', input, caller)
-  }
-
   /** QUERY, not a mutation — and one of the three read-shaped operator branches
    *  POD-730 pinned for exactly this reason. It returned EVERY binding in the
-   *  instance; it now asks the same decision every mutation asks. */
-  bindings(_input: z.infer<(typeof workflowInputs)['bindings']>, caller: WorkflowCaller) {
+   *  instance; it now asks the same decision every mutation asks.
+   *
+   *  The ignored `_input` parameter is gone with `workflowInputs`: it existed
+   *  only because the table gave every entry an input schema, and a parameter no
+   *  body reads is a parameter a future caller will believe is honoured. */
+  bindings(caller: WorkflowCaller) {
     return this.access.visibleBindings(caller, this.deps.store.listBindings())
-  }
-
-  assign(
-    input: z.infer<(typeof workflowInputs)['assign']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof assignHandler> {
-    return this.run('assign', input, caller)
   }
 
   /** QUERY. Had NO gate at all and listed every profile — with its
    *  `accountId`, which names managed credentials — to any caller. */
-  profiles(_input: z.infer<(typeof workflowInputs)['profiles']>, caller: WorkflowCaller) {
+  profiles(caller: WorkflowCaller) {
     return this.access.visibleProfiles(caller, this.deps.store.listProfiles())
-  }
-
-  profileSave(
-    input: z.infer<(typeof workflowInputs)['profileSave']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof profileSaveHandler> {
-    return this.run('profileSave', input, caller)
   }
 
   /**
@@ -417,7 +315,7 @@ export class WorkflowService implements WorkflowEngine {
    * `canSeeRun`, the same decision `runFor` takes, so a run you cannot open is
    * a run you cannot list rather than two rules that could disagree.
    */
-  runs(input: z.infer<(typeof workflowInputs)['runs']>, caller: WorkflowCaller) {
+  runs(input: { includeTerminal?: boolean | undefined }, caller: WorkflowCaller) {
     if (caller.actor.kind === 'session' && caller.actor.id !== null) {
       const live = this.liveRunForSession(caller.actor.id)
       if (!live) return []
@@ -566,14 +464,29 @@ export class WorkflowService implements WorkflowEngine {
       runId: run.id,
       kind: input.supersedesRunId ? 'workflow.run_adopted' : 'workflow.run_started',
       actor: { kind: 'session', id: input.sessionId },
-      // ADR 9 D5 A3, as far as this path can carry it. `adopt` passes the
-      // human it resolved; the session-start path has no caller to resolve one
-      // from and records `null` rather than inventing one. POD-730 §9's
-      // ARTEFACT — "startRun hard-codes a SESSION actor, even when the operator
-      // started the run" — is therefore narrowed, not closed: an adopted run
-      // now names its human, a freshly started one still does not, and closing
-      // that needs the start path to carry a principal (POD-732's cutover).
-      onBehalfOf: input.onBehalfOf ?? null,
+      // ADR 9 D5 A3's attribution PAIR, now on both paths (POD-732 closes
+      // POD-730 §9's remaining artefact).
+      //
+      // POD-731 recorded `null` here for the session-start path and said why:
+      // the path takes no caller, and inventing a human would be a lie in an
+      // audit trail. That reasoning is inherited, not overturned — what changed
+      // is that the human is no longer invented. It is RESOLVED, through the
+      // one seam every other apply resolves it through
+      // (`WorkflowAccess.onBehalfOf` → `workflowPrincipal`), for the actor this
+      // event already names: the session the run belongs to. The answer is the
+      // delegation that session runs under — `SINGLE_USER_HUMAN` today,
+      // POD-1075's delegation record the day it lands, with nothing here to
+      // change.
+      //
+      // An EXPLICIT `onBehalfOf` still wins and is not re-derived: `adopt`
+      // resolved its human from a real caller, and `null` from a caller means
+      // REVOKED (A1). Re-resolving that to a live human would be the one
+      // substitution this must never make, which is why the test is
+      // `!== undefined` and not a truthiness check.
+      onBehalfOf:
+        input.onBehalfOf !== undefined
+          ? input.onBehalfOf
+          : this.access.onBehalfOf({ actor: { kind: 'session', id: input.sessionId } }),
       payload: { revisionId: revision.id, subjectKind, subjectId, startStepId: input.startStepId },
       now,
     })
@@ -618,11 +531,11 @@ export class WorkflowService implements WorkflowEngine {
     return run
   }
 
-  status(input: z.infer<(typeof workflowInputs)['status']>, caller: WorkflowCaller) {
+  status(input: { runId?: string | undefined }, caller: WorkflowCaller) {
     return this.runFor(caller, input.runId)
   }
 
-  prime(_input: z.infer<(typeof workflowInputs)['prime']>, caller: WorkflowCaller): string {
+  prime(caller: WorkflowCaller): string {
     if (!caller.actor.id) return 'No workflow is attached to this operator context.'
     const row = this.liveRunForSession(caller.actor.id)
     if (!row) return 'No workflow is attached to this session.'
@@ -643,13 +556,6 @@ export class WorkflowService implements WorkflowEngine {
     const run = this.toRun(row)
     const current = this.currentStep(run)
     return { run, currentStep: current, nextStep: current, message, warnings }
-  }
-
-  checkpoint(
-    input: z.infer<(typeof workflowInputs)['checkpoint']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof checkpointHandler> {
-    return this.run('checkpoint', input, caller)
   }
 
   observationWarningsForRun(
@@ -695,71 +601,49 @@ export class WorkflowService implements WorkflowEngine {
     return warnings
   }
 
-  assignStep(
-    input: z.infer<(typeof workflowInputs)['assignStep']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof assignStepHandler> {
-    return this.run('assignStep', input, caller)
-  }
-
-  skip(
-    input: z.infer<(typeof workflowInputs)['skip']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof skipHandler> {
-    return this.run('skip', input, caller)
-  }
-
-  retry(
-    input: z.infer<(typeof workflowInputs)['retry']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof retryHandler> {
-    return this.run('retry', input, caller)
-  }
-
-  adopt(
-    input: z.infer<(typeof workflowInputs)['adopt']>,
-    caller: WorkflowCaller,
-  ): ReturnType<typeof adoptHandler> {
-    return this.run('adopt', input, caller)
-  }
-
   /**
-   * THE BRIDGE to the contract+handler path (POD-731).
+   * THE ONE DOOR to the eleven (POD-732).
    *
-   * Every one of the eleven mutations above is now three lines that end here:
-   * the contract's schema validates, the framework applies the run-scoped
-   * idempotency, the handler runs. Nothing on this class validates or
-   * authorizes a mutation any more.
+   * ELEVEN SHIMS AND A SECOND DISPATCHER BECAME THIS. POD-731 left
+   * `create/revise/…/adopt` as three-line methods plus `dispatch`, a
+   * name-keyed reflective call over `workflowInputs`; both are deleted here.
+   * Every transport — tRPC (`modules/workflows/trpc.ts`), the relay
+   * (`relay.ts`), and POD-730's oracle — now enters through this single
+   * function, so "which validation ran" and "did the ledger get consulted" have
+   * one answer instead of one per entry point.
    *
-   * The methods survive as thin shims for exactly one issue's worth of time.
-   * They are what lets POD-730's characterization suite — 88 tests written
-   * against `service.checkpoint(input, caller)` — drive the NEW path unedited,
-   * which is the only way "behaviour-preserving" can be a measurement rather
-   * than a claim. POD-732 deletes them along with `workflowInputs` and
-   * `dispatch`.
+   * WHAT IT DOES NOT DO is decide anything. It builds the handler context and
+   * hands the framework its ledger; validation is the CONTRACT's, authorization
+   * is `WorkflowAccess`'s, and idempotency is the framework's. The ledger is
+   * private to this class precisely so that a transport cannot supply a second
+   * one: there is exactly one, wired at the composition root.
+   *
+   * THE INPUT IS ALWAYS PARSED. POD-731 carried a `validated: true` door for
+   * the shims, on the reasoning that re-parsing would turn the oracle's
+   * hand-built objects into ZodErrors and hide real behaviour changes. Measured
+   * rather than assumed: the oracle drives this method WITH the parse and stays
+   * green, because every domain error it pins (`task workflows require
+   * scopeRef`, the unknown-id convergences) is thrown by a handler for input the
+   * schema ACCEPTS. So the unvalidated door is gone rather than inherited — an
+   * escape hatch that exists is one a future caller will use.
    */
-  private run<T>(proc: WorkflowProcName, input: unknown, caller: WorkflowCaller): T {
+  execute<N extends WorkflowProcName>(
+    caller: WorkflowCaller,
+    proc: N,
+    rawInput: unknown,
+  ): ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']> {
     const ctx: WorkflowHandlerContext = {
       caller,
       deps: this.deps,
       access: this.access,
       engine: this,
     }
-    return dispatchWorkflowCommand(proc, ctx, input, {
-      ...(this.ledger ? { ledger: this.ledger } : {}),
-      validated: true,
-    }) as T
-  }
-
-  dispatch(caller: WorkflowCaller, proc: string, raw: unknown): Promise<unknown> | undefined {
-    if (!Object.hasOwn(workflowInputs, proc)) return undefined
-    const schema = workflowInputs[proc as keyof typeof workflowInputs]
-    const input = schema.parse(raw ?? {}) as never
-    const handler = this[proc as keyof WorkflowService]
-    if (typeof handler !== 'function') return undefined
-    return Promise.resolve(
-      (handler as (input: never, caller: WorkflowCaller) => unknown).call(this, input, caller),
-    )
+    return dispatchWorkflowCommand(
+      proc,
+      ctx,
+      rawInput,
+      this.ledger ? { ledger: this.ledger } : {},
+    ) as ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
   }
 
   renderRevisionPrompt(revision: WorkflowRevisionWire): string {
