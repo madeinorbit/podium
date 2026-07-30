@@ -39,8 +39,7 @@ function setup() {
 }
 
 const meta = (sessionId: SessionId): SessionMeta => ({
-  // POD-361-EDGE-CAST: test helper takes a plain string id.
-  sessionId: asSessionId(sessionId),
+  sessionId,
   agentKind: 'claude-code',
   title: 't',
   cwd: '/w',

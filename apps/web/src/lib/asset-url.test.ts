@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { assetUrl, scopedAssetUrl } from './asset-url'
 
@@ -21,7 +21,7 @@ describe('assetUrl', () => {
 })
 
 describe('scopedAssetUrl (artifact scope) [spec:SP-0fc9]', () => {
-  const scope = { kind: 'artifact', issueId: 'iss_1', artifactId: 'abc123' } as const
+  const scope = { kind: 'artifact', issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123') } as const
   const base = { httpOrigin: 'http://h:1/', scope, fileDir: '' }
 
   it('serves relative srcs from the permanent artifact store', () => {

@@ -1,4 +1,4 @@
-import { asArtifactId, asSessionId, type IssuePanelArtifact, type IssueWire, type SessionMeta, type SessionOffer } from '@podium/model'
+import { type ArtifactId, asArtifactId, asSessionId, type IssuePanelArtifact, type IssueWire, type SessionMeta, type SessionOffer } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,10 +17,10 @@ vi.mock('@/app/store', () => ({
     sel({ issues, httpOrigin: 'http://h', openArtifact, openFileInWorktree }),
 }))
 
-const art = (path: string, addedAt: string, artifactId?: string): IssuePanelArtifact => ({
+const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
   path,
   addedAt,
-  ...(artifactId ? { artifactId: asArtifactId(artifactId) } : {}), // // POD-361-EDGE-CAST
+  ...(artifactId ? { artifactId } : {}),
 })
 
 const makeIssue = (artifacts: IssuePanelArtifact[]): IssueWire =>
@@ -85,7 +85,7 @@ describe('OfferArtifactStrip [POD-120]', () => {
   })
 
   it('opens the lightbox on an image click without bubbling to the card', () => {
-    issues = [makeIssue([art('shot.png', '2026-07-21T09:00:00.000Z', 'art_1')])]
+    issues = [makeIssue([art('shot.png', '2026-07-21T09:00:00.000Z', asArtifactId('art_1'))])]
     const cardClick = vi.fn()
     act(() =>
       root.render(
@@ -106,7 +106,7 @@ describe('OfferArtifactStrip [POD-120]', () => {
   })
 
   it('opens a non-media artifact as an artifact file tab', () => {
-    issues = [makeIssue([art('notes/plan.md', '2026-07-21T09:00:00.000Z', 'art_2')])]
+    issues = [makeIssue([art('notes/plan.md', '2026-07-21T09:00:00.000Z', asArtifactId('art_2'))])]
     act(() =>
       root.render(<OfferArtifactStrip offer={offerWith(['notes/plan.md'])} session={session} />),
     )

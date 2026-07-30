@@ -617,14 +617,15 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'has booted one.',
     distinctSemantics:
       'It carries `nowIso` — a clock injected so the builders stay pure — which is not a session ' +
-      'fact but a testability seam. It is also a declared BRAND EDGE: the click handler hands ' +
-      'plain strings, and POD-361 marked the cast here rather than branding inside the builder.',
+      'fact but a testability seam. It is NO LONGER a brand edge: POD-363 branded the shape at ' +
+      'its source, so both id members carry their brands and the builder casts nothing.',
     composition: {
-      state: 'pending',
-      owner: 'POD-363',
-      blocker:
-        'POD-361 left a marked edge-cast (POD-361-EDGE-CAST) to be resolved by branding this ' +
-        'shape AT ITS SOURCE, which is POD-363\'s flip rather than a Pick here',
+      state: 'composed',
+      from:
+        'declared at source with the shared brands (POD-363): `sessionId: SessionId` and ' +
+        '`issueId: IssueId`, both minted by the engine\'s labelled MINT SITE and passed ' +
+        'through unchanged. Not a Pick — the members are the spawn ARGUMENTS, a genuinely ' +
+        'different key set from any session aggregate',
     },
     matrixRow: ROW.sessionIdentity,
     visibility: 'personal',

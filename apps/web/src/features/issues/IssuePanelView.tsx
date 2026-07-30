@@ -546,7 +546,7 @@ export function IssuePanelView({
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   {group.entries.map((entry) => {
-                    const target = issueById.get(asIssueId(entry.id)) // // POD-361-EDGE-CAST
+                    const target = issueById.get(entry.id)
                     return (
                       <button
                         data-pressable

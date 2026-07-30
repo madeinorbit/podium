@@ -38,9 +38,8 @@ const errored = (): AgentRuntimeState => ({
   error: { class: 'api', retryable: true },
 })
 
-function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
+function meta(over: Partial<SessionMeta> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = over
-  // POD-361-EDGE-CAST: fixture builds the wire-INPUT shape and brands once, here.
   return {
     sessionId,
     agentKind: 'claude-code',

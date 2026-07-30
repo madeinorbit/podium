@@ -22,9 +22,16 @@ export interface RowDrop {
   sourceScope: string
   /** Scope it was dropped into (=== sourceScope unless a pinned crossing). */
   targetScope: string
-  /** The dragged issue id. */
+  /** The dragged row's id. DELIBERATELY UNBRANDED, and not a POD-363 sweep
+   *  target: this hook reads every id back out of a `data-drag-key` DOM
+   *  attribute (see `order` below), so the values are document strings, and the
+   *  id SPACE depends on which scope was dragged. Branding here would force one
+   *  entity's brand on a generic row hook — the same false choice POD-362
+   *  refused for `workflowAssignInput.targetId` and `MessageRow.toId`. The
+   *  consumer narrows at its scope discriminant instead. */
   movedId: string
-  /** Ids in the target scope, in the NEW visual order (moved id included). */
+  /** Ids in the target scope, in the NEW visual order (moved id included).
+   *  Read from `data-drag-key`, hence plain strings — see `movedId`. */
   order: string[]
 }
 

@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueId, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,7 +19,7 @@ import {
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 interface Deck {
-  order: string[]
+  order: IssueId[]
   index: number
 }
 

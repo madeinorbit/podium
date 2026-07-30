@@ -1178,14 +1178,20 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
   const { startDrag, settleDrag } = useRowDrag({
     allowedTargets: (sourceScope, movedId) => {
       if (sourceScope === 'pinned') {
-        const moved = issueById.get(asIssueId(movedId)) // // POD-361-EDGE-CAST
+        // NARROWING AT THE DISCRIMINANT, not an adapter cast: `useRowDrag` hands
+        // back ids read out of `data-drag-key` DOM attributes and stays generic
+        // over row kinds by design. `sourceScope === 'pinned'` IS the proof that
+        // this particular id is an issue id, so the brand is applied where that
+        // fact is known rather than at the hook's declaration.
+        const moved = issueById.get(asIssueId(movedId))
         return moved ? [`group:${moved.repoId ?? moved.repoPath}`] : []
       }
       if (sourceScope.startsWith('group:')) return ['pinned']
       return [] // children scopes: strictly within the parent
     },
     onDrop: ({ sourceScope, targetScope, movedId, order }) => {
-      // // POD-361-EDGE-CAST
+      // Same DOM-attribute origin and same narrowing as `allowedTargets` above:
+      // every scope this sidebar drags within is an issue row scope.
       const patches = planReorderKeys(order, movedId, (id) => issueById.get(asIssueId(id))?.sortKey)
       const crossedPinned = sourceScope !== targetScope
       void applySortPatches(

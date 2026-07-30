@@ -22,10 +22,8 @@ const working = (since: string): AgentRuntimeState => ({
   nativeSubagentCount: 0,
 })
 
-function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
+function meta(over: Partial<SessionMeta> & { sessionId: SessionId }): SessionMeta {
   const { sessionId, ...rest } = over
-  // POD-361-EDGE-CAST: a fixture builds the WIRE-INPUT shape (plain string ids) and brands
-  // once here, matching the other fixture builders in this package.
   return {
     sessionId,
     agentKind: 'claude-code',

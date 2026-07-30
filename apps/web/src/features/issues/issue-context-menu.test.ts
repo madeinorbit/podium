@@ -174,19 +174,19 @@ describe('isIssueClosed', () => {
 
 describe('contextMenuTargets', () => {
   it('right-click inside the selection keeps it and targets all selected', () => {
-    const r = contextMenuTargets({ focusId: 'a', selected: ['a', 'b', 'c'] }, 'b')
+    const r = contextMenuTargets({ focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b'), asIssueId('c')] }, asIssueId('b'))
     expect(r.keyState).toEqual({ focusId: 'b', selected: ['a', 'b', 'c'] })
     expect(r.targetIds).toEqual(['a', 'b', 'c'])
   })
 
   it('right-click on an unselected issue re-focuses it and drops the selection', () => {
-    const r = contextMenuTargets({ focusId: 'a', selected: ['a', 'b'] }, 'z')
+    const r = contextMenuTargets({ focusId: asIssueId('a'), selected: [asIssueId('a'), asIssueId('b')] }, asIssueId('z'))
     expect(r.keyState).toEqual({ focusId: 'z', selected: [] })
     expect(r.targetIds).toEqual(['z'])
   })
 
   it('right-click with no selection targets just the clicked issue', () => {
-    const r = contextMenuTargets({ focusId: null, selected: [] }, 'x')
+    const r = contextMenuTargets({ focusId: null, selected: [] }, asIssueId('x'))
     expect(r.keyState).toEqual({ focusId: 'x', selected: [] })
     expect(r.targetIds).toEqual(['x'])
   })

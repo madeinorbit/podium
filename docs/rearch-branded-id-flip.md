@@ -213,8 +213,12 @@ POD-362/POD-363 own that.
 
 ## 7. Edge casts — the list POD-362 and POD-363 delete
 
-Every one is marked in source. **Find them all with `grep -rn POD-361-EDGE-CAST apps packages`** —
-that grep, not this table, is the authority; the counts below were taken at the flip.
+**CLOSED.** Every one is gone: POD-362 took `apps/server` + `apps/daemon` from 32 to 0, and
+POD-363 took the remaining 33 (clients, CLI, `packages/sync`, `packages/model`) to 0. The grep
+`grep -rn POD-361-EDGE-CAST apps packages` now returns nothing, and that grep — not this table —
+remains the authority: a new marker appearing is a regression, not a to-do.
+
+The counts below were taken at the flip and are kept as the historical record.
 
 **63 casts across 41 files** — 43 in product code, 20 in tests.
 
@@ -269,4 +273,4 @@ lane entirely. Pre-existing on the base (identical `package.json`, same imports)
 | Branding changed nothing at runtime | `brands.test.ts`: every touched schema still parses with all its id fields set to `''`, with the counterfactual that the `.min(1)` schema rejects the same value. Mutation: tightening the field factory to `.min(1)` fails 11 assertions. |
 | The `MachineId` carve-out holds | `brands.test.ts` source scan by field-name shape + `MachineWire.id`. Mutants: branding `SessionMeta.machineId` → fails "has no machine-id-shaped field bound to MachineIdField"; branding `MachineWire.id` → fails "brands MachineWire's own `id` with the carve-out". A third assertion proves the scan sees ≥6 sites, so a broken scan cannot read as a clean one. |
 | The keys are injective and fail closed | `keys.test.ts`, 19 tests over hostile parts (separators, backslashes, strings that look like valid keys). Mutants: removing the kind from `userEntityKey` → 4 failures including "separates two entity KINDS that share one id string"; removing the escaping → 7 failures including "is injective"; making the kind check non-throwing → fails "refuses an unknown entity kind on parse — fails closed". |
-| No consumer adopted | 63 marked casts, `grep -rn POD-361-EDGE-CAST`. No `…Field` schema is used outside `packages/model`. |
+| No consumer adopted *(at the flip)* | 63 marked casts. **Closed by POD-362 + POD-363**: the marker grep returns 0 and the `…Field` schemas are now used across `apps/server`, `apps/daemon`, `apps/web`, `apps/mobile`, `packages/client-core`, `packages/terminal-client` and `packages/sync`. |

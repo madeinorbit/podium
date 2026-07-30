@@ -14,9 +14,13 @@
  * "keep the repo green" would have meant editing every fixture literal in every
  * consumer — i.e. doing both sweeps here, badly, and mostly inside test files.
  *
- * WHAT THEY ARE NOT. They are not a way to keep an id unbranded. Every use is a
- * marked boundary (grep `POD-361-EDGE-CAST`), and each is a site POD-362 /
- * POD-363 replaces with a real parse or a branded producer.
+ * WHAT THEY ARE NOT. They are not a way to keep an id unbranded. POD-362 and
+ * POD-363 have both landed, and every marked edge cast they inherited is gone:
+ * the remaining consumers are FIXTURE BUILDERS that construct a wire shape out
+ * of string constants, which is a construction site rather than an adapter.
+ * A NEW use in production code is a bug — the fix is a real parse (see
+ * `optimisticIssuePatch` in packages/sync, which parses each branded key with
+ * its shared field schema) or a branded producer, never this alias.
  *
  * WHAT {@link UnbrandIds} DELIBERATELY DOES NOT WIDEN: closed enums and literal
  * unions. `status: 'live' | 'exited'` stays exactly that, so a fixture with a
