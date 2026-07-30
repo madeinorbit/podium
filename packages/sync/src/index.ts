@@ -55,5 +55,22 @@ export * from './mutation-ledger'
 export * from './outbox'
 export * from './replica/index'
 export * from './adapters/sqlite/sync-repository'
+/**
+ * The WEB replica storage adapter (POD-374) — ADR 6 D1's transactional
+ * IndexedDB, as a sibling of the SQLite adapter and held to the same rule 11:
+ * DOM is named there and nowhere else in this package.
+ *
+ * Exported so POD-307's client wiring can construct it. `./adapters/indexeddb/idb`
+ * comes with it because `browserIndexedDb()` is the composition helper that reads
+ * the global — nothing inside the adapter calls it, which is what keeps the adapter
+ * instantiable in a worker and against a test factory.
+ *
+ * `./adapters/indexeddb/conformance` and `./adapters/indexeddb/test-support` are
+ * deliberately NOT here: the first pulls in the conformance instantiation and the
+ * second imports `fake-indexeddb`, and neither belongs in a shipped browser bundle.
+ */
+export * from './adapters/indexeddb/idb'
+export * from './adapters/indexeddb/schema'
+export * from './adapters/indexeddb/store'
 export * from './upstream'
 export * from './upstream-forwarder'
