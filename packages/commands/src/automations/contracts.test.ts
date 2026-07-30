@@ -37,12 +37,7 @@ import {
   automationPatchInput,
   automationSetEnabledInput,
 } from './contracts'
-import {
-  MIN_SCHEDULE_INTERVAL_MS,
-  minIntervalMs,
-  parseCron,
-  respectsScheduleFloor,
-} from './cron'
+import { MIN_SCHEDULE_INTERVAL_MS, minIntervalMs, parseCron, respectsScheduleFloor } from './cron'
 
 /** The matrix row every automation write lands in. One string, so a typo cannot
  *  make one assertion pass against a different row. */

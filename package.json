@@ -63,6 +63,7 @@
     "audit:workflows": "bun scripts/audit-workflow-commands.ts --probe && bun scripts/audit-workflow-commands.ts",
     "audit:fleet": "bun scripts/audit-fleet-commands.ts --probe && bun scripts/audit-fleet-commands.ts",
     "audit:mail": "bun scripts/audit-mail-commands.ts --probe && bun scripts/audit-mail-commands.ts",
+    "audit:automations": "bun scripts/audit-automation-commands.ts --probe && bun scripts/audit-automation-commands.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
     "fixtures:wire:update": "bun --conditions=@podium/source scripts/update-wire-fixtures.ts",

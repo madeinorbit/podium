@@ -47,11 +47,7 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
-import {
-  isValidCron,
-  respectsScheduleFloor,
-  SCHEDULE_FLOOR_MESSAGE,
-} from './modules/automations/cron'
+import { automationProcedures } from './modules/automations/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
@@ -230,61 +226,6 @@ const cloudMoveSessionInput = z.object({
   hibernateLocal: z.boolean().optional(),
 })
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
-
-/** Scheduled-automation composer input (#470) [spec:SP-17db]. The cron is validated
- *  HERE (not only in the service) so an unparseable expression — or one below the
- *  explicit one-minute floor — comes back as a BAD_REQUEST the composer can render,
- *  never a 500.
- *  `repoPath: null` = a GLOBAL automation: it runs in the home directory, for
- *  cross-repo chores. */
-const automationFields = z.object({
-  name: z.string().min(1),
-  repoPath: z.string().min(1).nullable().optional(),
-  scheduleKind: AutomationScheduleKind.optional(),
-  cron: z.string().nullable().optional(),
-  runAt: z.string().datetime({ offset: true }).nullable().optional(),
-  targetSessionId: z.string().min(1).nullable().optional(),
-  agentKind: AgentKind,
-  model: z.string().optional(),
-  effort: z.string().optional(),
-  prompt: z.string().min(1),
-  enabled: z.boolean().optional(),
-  sessionMode: AutomationSessionMode.optional(),
-})
-
-const automationInput = automationFields.superRefine((input, ctx) => {
-  const scheduleKind = input.scheduleKind ?? 'cron'
-  if (scheduleKind === 'cron') {
-    if (!input.cron || !isValidCron(input.cron)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['cron'],
-        message: 'invalid cron expression — 5 fields: minute hour day month weekday',
-      })
-    } else if (!respectsScheduleFloor(input.cron)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cron'], message: SCHEDULE_FLOOR_MESSAGE })
-    }
-    if (input.runAt != null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['runAt'], message: 'not valid for cron' })
-    }
-  } else {
-    if (input.cron != null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['cron'],
-        message: 'not valid for one-off',
-      })
-    }
-    if (!input.runAt) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['runAt'],
-        message: 'required for one-off',
-      })
-    }
-  }
-})
-const automationPatch = automationFields.partial()
 
 /**
  * THE DERIVED FLEET-FAMILY PROCEDURES (POD-384), built once at module load and
@@ -1158,26 +1099,30 @@ export const appRouter = t.router({
    * appears.
    */
   workflows: t.router(workflowFamilyProcedures()),
-  // Scheduled automations (#470) [spec:SP-17db]: the cron half of the Automations
-  // tab. Operator-only, like the rest of this router — an automation spawns agent
-  // sessions, so it is not an agent-reachable surface.
+  /**
+   * SCHEDULED AUTOMATIONS (#470) [spec:SP-17db] — the cron half of the Automations
+   * tab, and a DERIVED SURFACE since POD-735 (the 3.11 cutover).
+   *
+   * The four writes — create · update · setEnabled · remove — are built from
+   * `AUTOMATION_CONTRACTS` by `modules/automations/trpc.ts`, so there is
+   * deliberately no mutation written out here and
+   * `scripts/audit-automation-commands.ts` fails the build if one appears. The two
+   * READS stay hand-written: a contract's `visibility` classifies what a command
+   * WRITES, and a read writes nothing.
+   *
+   * OPERATOR-ONLY is now a declaration rather than an omission. It was true only
+   * because `RELAY_ALLOWED` happens to have no `automations` key; the contracts say
+   * it (`operatorOnly`, exposure `['trpc']`), the derived builder refuses at module
+   * load to serve a contract that grew an agent transport, and
+   * `automation-cutover.audit.test.ts` drives the real relay gate to prove the
+   * refusal with a positive control beside it.
+   */
   automations: t.router({
     list: t.procedure.query(({ ctx }) => mods(ctx).automations.list()),
-    create: t.procedure
-      .input(automationInput)
-      .mutation(({ ctx, input }) => mods(ctx).automations.create(input)),
-    update: t.procedure
-      .input(z.object({ id: z.string().min(1), patch: automationPatch }))
-      .mutation(({ ctx, input }) => mods(ctx).automations.update(input.id, input.patch)),
-    setEnabled: t.procedure
-      .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
-      .mutation(({ ctx, input }) => mods(ctx).automations.setEnabled(input.id, input.enabled)),
-    remove: t.procedure
-      .input(z.object({ id: z.string().min(1) }))
-      .mutation(({ ctx, input }) => mods(ctx).automations.remove(input.id)),
     runs: t.procedure
       .input(z.object({ automationId: z.string().min(1), limit: z.number().int().optional() }))
       .query(({ ctx, input }) => mods(ctx).automations.runs(input.automationId, input.limit)),
+    ...automationProcedures(),
   }),
   // Approval broker [spec:SP-edbb] (#410): the operator decision surface. The
   // agent side (request/get) rides the issue relay, never this router.

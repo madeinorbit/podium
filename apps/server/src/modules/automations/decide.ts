@@ -5,8 +5,8 @@
  * missed/overlap/re-arm policy table-testable without a database or a PTY.
  */
 
+import { nextAfter, parseCron } from '@podium/commands'
 import type { AutomationScheduleKind } from '@podium/model'
-import { nextAfter, parseCron } from './cron'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as
  *  `missed` and skipped [spec:SP-17db]: an outage must not ambush the user with a
