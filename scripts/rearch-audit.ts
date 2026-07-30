@@ -38,6 +38,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { changeRowRestatements } from './change-row-audit'
 import {
   capabilitySnapshots,
   danglingRegistryEntries,
@@ -498,55 +499,42 @@ export const CHECKS: AuditCheck[] = [
   },
   {
     id: 'change-row-typings',
-    title: 'Parallel change-row typings (strict/lenient/unknown)',
-    // RE-PHASED at POD-368, from POD-302 to POD-308, and this is a deviation
-    // recorded in docs/rearch-deletion-audit.md rather than a convenience.
+    title: 'Hand-restated change-row field lists',
+    // REDEFINED at POD-305, and this is a redefinition rather than a
+    // re-baselining — the code did not change in the commit that moved this
+    // number, the DETECTOR's definition did. Recorded in
+    // docs/rearch-deletion-audit.md with the before/after measurement.
     //
-    // POD-302 is the SEMANTIC VOCABULARY of the session and the issue. This item's
-    // whole subject is `packages/protocol/src/messages/sync.ts`: the strict /
-    // lenient / unknown triple exists so a replica can tolerate an entity kind it
-    // does not know (ADR 2 D9), which is sync-envelope shape, not entity
-    // vocabulary. ADR 1 §10 "Sync infrastructure (not product entities)" files
-    // `changes` and `applied_mutations` there explicitly — neither is a session or
-    // an issue field.
+    // The old detector counted EXPORTED NAMES in
+    // `packages/protocol/src/messages/sync.ts`:
     //
-    // COORDINATOR ADJUDICATION (POD-279): re-phasing ACCEPTED, because it makes
-    // POD-302's gate pass and therefore had to be checked rather than taken. The
-    // decisive evidence is this item's own site list, not the citations: all seven
-    // sites are change-ENVELOPE types in messages/sync.ts, and not one of them
-    // declares a session or issue field. One citation POD-368 offered did NOT hold
-    // and is removed above — POD-364 §12's scope table names machines, superagent
-    // state, messages/workflows, the id-branding sweep and schema moves, but it does
-    // NOT name sync infrastructure. The ADR 1 §10 half stands on its own.
+    //   /^export (?:const|type) (?:MetadataChange|UnknownMetadataChange|SyncChangesSinceResult)/
     //
-    // Also confirmed as POD-368 reported it: the 7 is an OVER-COUNT by at least one,
-    // because the pattern's unanchored name alternation catches `MetadataChangeOp`
-    // — an enum of 'upsert' | 'remove', which is an operation vocabulary rather than
-    // a change-row typing. Left uncorrected deliberately: lowering the count while
-    // re-phasing the item would be two changes wearing one justification, and the
-    // count is a ratchet POD-308 has to drive to zero anyway.
+    // Two things were wrong with it, and neither is fixed by a longer name list.
     //
-    // The duality collapses when one canonical change-row shape lands at the wire
-    // cutover, which is POD-308's — the same issue that owns nesting the
-    // provenance carrier and deleting the `IssueWire.sessions` embed. Deleting it
-    // from inside 1.4 would mean inventing that shape twice.
+    // 1. IT MEASURED THE WRONG THING. The POD-279 review's finding 2 is explicit
+    //    that change data legitimately exists in distinct lifecycle phases — a
+    //    staged spec at commit time, a stored row, a sequenced wire delta — and
+    //    that "the deletion-audit target is hand-restated field lists, not the
+    //    existence of lifecycle types". Keyed on the NAMES of those types, the
+    //    item could only be zeroed by deleting a type that has a reason to exist.
+    // 2. IT WAS BLIND TO THE DEBT IT NAMED. `messages/sync.ts` restated
+    //    seq/entity/id/op/value six times over and the changesSince snapshot arm
+    //    twice, and this item reported the same 7 either way. The over-count
+    //    `docs/rearch-deletion-audit.md` already flagged — `MetadataChangeOp`,
+    //    an op enum rather than a change-row typing — is corrected by the
+    //    redefinition rather than left as a known-wrong number, because POD-305
+    //    owns the item's subject now and correcting it silently was the thing
+    //    the earlier note declined to do.
+    //
+    // The phase stays POD-308: the wire cutover is what collapses the strict /
+    // lenient duality for good. What POD-305 changes is that the item now
+    // measures restatement, so composing a field list registers as the deletion
+    // it is. See `scripts/change-row-audit.ts` for the two spellings it covers
+    // and `change-row-audit.test.ts` for the planted violation of each.
     phase: 'POD-308',
-    unit: 'exported name in the change-row family (const + its inferred type count once)',
-    collect: (ctx) => {
-      const sites = grep(ctx, {
-        roots: ['packages/protocol/src/messages/sync.ts'],
-        pattern:
-          /^export (?:const|type) (?:MetadataChange|UnknownMetadataChange|SyncChangesSinceResult)/,
-      })
-      // `export const X` + `export type X = z.infer<typeof X>` are one shape.
-      const seen = new Set<string>()
-      return sites.filter((s) => {
-        const name = s.text.match(/^export (?:const|type) (\w+)/)?.[1]
-        if (!name || seen.has(name)) return false
-        seen.add(name)
-        return true
-      })
-    },
+    unit: 'a declaration writing out the change-row field list (an `op` key beside ≥2 other change-vocabulary keys) instead of composing the model\'s change field schemas',
+    collect: (ctx) => changeRowRestatements(ctx),
   },
   {
     id: 'local-placeholders',

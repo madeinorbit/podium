@@ -222,6 +222,69 @@ least one. Left alone deliberately: the item now belongs to POD-308, and silentl
 lowering someone else's count while re-phasing it would be two changes wearing one
 justification.
 
+### `change-row-typings` REDEFINED at POD-305 — 7 → 18, and the code did not change
+
+The observation directly above is now resolved, by the issue that owns the item's
+subject. **This is a redefinition, not a re-baselining**, and it is recorded here
+because the two look identical in a baseline diff: the count moved because the
+DETECTOR's definition changed, in a commit that touched no product code. Same act,
+same disclosure, as the earlier `isFrozenFile` narrowing that unfroze
+`migrations/schema.ts` and raised its item 13 → 16.
+
+**Old definition** — count exported NAMES in one file:
+
+```
+/^export (?:const|type) (?:MetadataChange|UnknownMetadataChange|SyncChangesSinceResult)/
+```
+
+**New definition** — count DECLARATIONS that write out the change-row field list
+instead of composing `@podium/model`'s change vocabulary (`scripts/change-row-audit.ts`).
+
+Two reasons, and the second is the one that mattered:
+
+1. **The old one measured the wrong thing.** The POD-279 review's finding 2 is
+   explicit that change data legitimately exists in distinct lifecycle phases — a
+   staged spec at commit time, a stored row, a sequenced wire delta — and that the
+   target is *hand-restated field lists, not the existence of lifecycle types*.
+   Keyed on the NAMES of those types, the item could only be zeroed by deleting a
+   type that has a reason to exist.
+2. **The old one was blind to the debt it named.** `messages/sync.ts` restated
+   `seq`/`entity`/`id`/`op`/`value` six times over and the `changesSince` snapshot
+   arm twice, and the item reported the same 7 whether those restatements were
+   present or composed away. The over-count noted above is corrected by the
+   redefinition rather than left standing as a known-wrong number.
+
+**The phase does not move.** It stays POD-308: the wire cutover is still what
+collapses the strict/lenient duality for good. What changed is that the item now
+measures restatement, so composing a field list registers as the deletion it is.
+
+**Two spellings, both enumerated** — POD-1168's lesson applied before rather than
+after. A restatement can be written in key position (an object literal, a
+`z.object`, an `interface` body, a `type` alias, a drizzle `sqliteTable` column
+map) or as string literals in a type operator (`Pick`/`Omit`/`Extract`, an
+`as const` field-name array). `change-row-audit.test.ts` plants one of EVERY
+spelling and requires each to fire, and carries verbatim pre-POD-305 protocol text
+as its positive control.
+
+**The judgement call, stated rather than buried: DECLARATION versus CONSTRUCTION.**
+The first cut counted any block with an `op` key beside two other change keys and
+reported **76** sites. Reading them showed nearly all were callers *building* a
+spec — `{ entity: 'automation', id: automation.id, op: 'upsert', value: wire }` —
+which is a USE of the shared type, and there are supposed to be many. A ratchet
+that counts uses cannot be driven to zero and would punish the callers composition
+exists to serve. So a block counts only when its `op` member is declared as a type
+or schema, and `change-row-audit.test.ts` pins both sides of that line, including
+the cast case (`op: row.op as 'upsert' | 'remove'` is a construction, despite
+containing a union).
+
+**The 18 the new definition sees**, all genuine second definitions of a change
+row: five strict arms plus the lenient catch-all in `messages/sync.ts`,
+`ScopedChange` in `planes/scoped-feed.ts`, the `changes` drizzle table, three
+inline row shapes in `change-log.ts` and three more in `sync-repository.ts`,
+`EntityChangeSpec` and `StagedRow` in `ledger.ts`, `ChangeEnvelope` in
+`replica/types.ts`, and one test-plumbing `Row`. POD-305 composes the ones it
+owns; the rest are POD-308's at the cutover.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
