@@ -618,7 +618,8 @@ same commit.**
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/sync` | L2 kernel | node-only | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306) |
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
-| `packages/agent-bridge` | L2 kernel | node-only | harness-adapters, pty-port | → **split** into `packages/harness` + `packages/pty` (Phase 5 POD-325) |
+| `packages/agent-bridge` | L2 kernel | node-only | pty-port | POD-397 moved `harness-adapters` out to `packages/harness`; what remains is the harness-AGNOSTIC PTY half → renamed `packages/pty` (POD-396), deleted (POD-399) |
+| `packages/harness` | L2 kernel | node-only | harness-adapters | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/composer` | L2 kernel | browser-safe | composer-driver, prompt-draft | appeared on main after POD-296; the harness composer port (pure, protocol-only) — folds into `packages/harness` with agent-bridge (Phase 5 POD-325) |
 | `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
@@ -634,7 +635,7 @@ same commit.**
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
 `sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`;
-`terminal-client → composer`.
+`harness → runtime`; `harness → transcript`; `terminal-client → composer`.
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
 barrel with node-only concerns behind explicit subpaths, so neither is honestly

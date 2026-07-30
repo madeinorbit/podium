@@ -18,6 +18,7 @@ function declaredObserver(manifest: AgentManifest): HarnessObserver {
     throw new Error(`${manifest.kind} declares observer unsupported: ${manifest.observer.reason}`)
   return manifest.observer.value
 }
+
 import { acceptAgentObservation, type ObservationLease } from './causal'
 import {
   classifyGrokIdleTranscript,

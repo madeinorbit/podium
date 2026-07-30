@@ -4,16 +4,16 @@ import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
-  accountIdentity,
   type AgentManifest,
-  supported,
-  unsupported,
+  accountIdentity,
   isSet,
+  supported,
   type TranscriptSourceInput,
   transcriptFileExists,
+  unsupported,
 } from '../manifest.js'
-import { composeAgentInstructions } from '../instructions.js'
 
 interface GrokAuthRecord {
   key?: unknown

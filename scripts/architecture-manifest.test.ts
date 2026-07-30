@@ -507,10 +507,19 @@ describe('findHarnessBranching', () => {
     expect(find('apps/web/src/x.ts', src)).toEqual([])
   })
 
-  it('does NOT flag branching INSIDE the adapter home', () => {
+  it('does NOT flag branching INSIDE the manifest home', () => {
     expect(
-      find('packages/agent-bridge/src/adapters.ts', `if (kind === 'codex') return codexAdapter`),
+      find('packages/harness/src/registry.ts', `if (kind === 'codex') return codexManifest`),
     ).toEqual([])
+  })
+
+  // The other side of POD-397's re-homing: the PTY half is no longer the home, so
+  // a harness comparison there IS a violation now. packages/pty must not learn
+  // which CLI it is driving — that is the whole point of the split.
+  it('DOES flag branching in the pty half, which is no longer the home', () => {
+    expect(
+      find('packages/agent-bridge/src/session.ts', `if (kind === 'codex') return codexThing`),
+    ).toHaveLength(1)
   })
 
   it('does NOT flag test files', () => {

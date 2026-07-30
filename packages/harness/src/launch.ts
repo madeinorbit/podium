@@ -1,6 +1,6 @@
 import { type AgentKind, agentSupportsInitialPrompt } from '@podium/protocol'
-import type { HarnessLaunchOptions, LaunchSpec } from './manifest.js'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+import type { HarnessLaunchOptions, LaunchSpec } from './manifest.js'
 import { harnessAdapterFor } from './registry.js'
 
 // Re-exported so daemon/launch consumers can import them alongside agentLaunchCommand.

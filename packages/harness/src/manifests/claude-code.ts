@@ -6,6 +6,7 @@ import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transc
 import { claudeCodeStateProvider } from '../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   isSet,
@@ -13,7 +14,6 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../manifest.js'
-import { composeAgentInstructions } from '../instructions.js'
 
 // The claude session_id (resume value) IS the JSONL basename. The locator
 // tries the current-cwd bucket first, then sweeps all buckets — session.cwd is

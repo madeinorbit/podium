@@ -8,16 +8,16 @@ import {
   observeCodexState,
 } from '../agent-state/codex.js'
 import { createCodexConversationProvider } from '../discovery/providers/codex.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
-  accountIdentity,
   type AgentManifest,
-  supported,
-  unsupported,
+  accountIdentity,
   type HarnessObservationLease,
   isSet,
+  supported,
   type TranscriptSourceInput,
+  unsupported,
 } from '../manifest.js'
-import { composeAgentInstructions } from '../instructions.js'
 
 interface CodexAuthFile {
   tokens?: {

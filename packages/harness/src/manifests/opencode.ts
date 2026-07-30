@@ -8,10 +8,10 @@ import {
 } from '@podium/transcript'
 import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
 import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
+import { composeAgentInstructions } from '../instructions.js'
+import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
 import { opencodeBinCandidates, resolveOpencodeBin } from '../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
-import { type AgentManifest, isSet, supported, unsupported } from '../manifest.js'
-import { composeAgentInstructions } from '../instructions.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by

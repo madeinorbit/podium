@@ -7,7 +7,12 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
-import { type HarnessHeadless, type HeadlessExecOptions, harnessAdapterFor } from '@podium/harness'
+import {
+  declaredValue,
+  type HarnessHeadless,
+  type HeadlessExecOptions,
+  harnessAdapterFor,
+} from '@podium/harness'
 import type { HarnessAgent, HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
@@ -243,7 +248,9 @@ export function buildHeadlessExec(
   opts: HeadlessExecOptions,
   bins: HarnessBins,
 ): { cmd: string; args: string[]; env?: Record<string, string> } {
-  const buildExec = harnessAdapterFor(agent)?.headless.buildExec
+  const manifest = harnessAdapterFor(agent)
+  const headless = manifest && declaredValue(manifest.headless)
+  const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
   return buildExec(opts, bins)
 }
@@ -506,7 +513,16 @@ export function runHeadlessTurn(
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
-  const adapter = harnessAdapterFor(spec.agent)
-  if (!adapter) throw new Error(`agent kind ${String(spec.agent)} has no harness adapter`)
-  return DRIVER_IMPLS[adapter.headless.driver](spec, emit, bins)
+  const manifest = harnessAdapterFor(spec.agent)
+  if (!manifest) throw new Error(`agent kind ${String(spec.agent)} has no harness manifest`)
+  const headless = declaredValue(manifest.headless)
+  // No silent default driver: a harness that declares headless unsupported must
+  // fail loudly here rather than being run through, say, the claude-sdk driver.
+  if (!headless)
+    throw new Error(
+      `harness ${manifest.kind} declares headless unsupported: ${
+        manifest.headless.supported ? '' : manifest.headless.reason
+      }`,
+    )
+  return DRIVER_IMPLS[headless.driver](spec, emit, bins)
 }

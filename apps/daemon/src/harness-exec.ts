@@ -21,7 +21,13 @@ export function buildHarnessExec(
   opts: HarnessExecOptions,
   bins: HarnessBins,
 ): HarnessExecSpec {
-  const adapter = harnessAdapterFor(agent)
-  if (!adapter) throw new Error(`no harness adapter for agent kind ${String(agent)}`)
-  return adapter.exec(opts, bins)
+  const manifest = harnessAdapterFor(agent)
+  if (!manifest) throw new Error(`no harness manifest for agent kind ${String(agent)}`)
+  // Declared-unsupported is a DIFFERENT failure from unknown-kind, and the message
+  // says which: the harness exists, it just cannot serve a one-shot turn.
+  if (!manifest.exec.supported)
+    throw new Error(
+      `harness ${manifest.kind} declares one-shot exec unsupported: ${manifest.exec.reason}`,
+    )
+  return manifest.exec.value(opts, bins)
 }

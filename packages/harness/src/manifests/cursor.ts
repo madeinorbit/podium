@@ -5,15 +5,15 @@ import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.j
 import { cursorBinCandidates, resolveCursorBin } from '../cursor/cli.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
 import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
+import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
-  supported,
-  unsupported,
   isSet,
+  supported,
   type TranscriptSourceInput,
   transcriptFileExists,
+  unsupported,
 } from '../manifest.js'
-import { composeAgentInstructions } from '../instructions.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
