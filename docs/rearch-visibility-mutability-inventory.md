@@ -28,7 +28,7 @@ disappearance a scoped feed must be able to signal.
 
 ## What POD-1077 should read off this
 
-1. **36 of 57 classes have mutable visibility.** This is the majority of
+1. **37 of 58 classes have mutable visibility.** This is the majority of
    the matrix, which is the quantitative form of "the machinery is load-bearing
    from day one, not inert" (readiness header decision).
 2. **The `change-log` row is the one the whole inventory is for.** Its delivery
@@ -75,6 +75,7 @@ disappearance a scoped feed must be able to signal.
 | `segments` | Segments / native evidence | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows the conversation. |
 | `blobs` | Blobs (content-addressed) | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: reachability changes with every referencing entity’s grants, so a blob can become visible without any blob row changing. |
 | `repo-prefix` | Repo / prefix (`repos`, `repo_prefixes`) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: the whole per-machine fact set appears/disappears with one machine grant. |
+| `pspec-component` | Project spec component (pspec v1) | owned-compute | `grant-see` `grant-use` `revoke` `transfer-owner` | PHASE 2 MUST HANDLE: like every per-machine fact, the whole spec tree appears or disappears with one machine grant — no per-component act changes who can see it. |
 | `approval-requests` | Approval requests | personal | `share` `unshare` `revoke` | PHASE 2 MUST HANDLE: follows its subject entity. |
 | `automations-and-runs` | Automations / runs | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability. |
 | `workflow-definitions` | Workflow definitions (`workflows`) | personal | `share` `unshare` `revoke` `account-disable` | PHASE 2 MUST HANDLE: disabling an owner’s ACCOUNT must stop their in-flight runs — a live intersection at every apply (ADR 9 D5 A1), not a stored capability. |

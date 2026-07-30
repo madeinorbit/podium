@@ -12,6 +12,7 @@
  */
 
 import { statSync } from 'node:fs'
+import { specsCreateInput, specsRemoveInput, specsSaveInput } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import {
@@ -29,21 +30,31 @@ import { isAllowedRoot } from '../../root-allowlist'
 
 const byRepo = { repoPath: z.string().min(1) }
 
-/** Router-equal input schemas — the tRPC slice mounts these same objects. */
+/**
+ * Router-equal input schemas — the tRPC slice mounts these same objects.
+ *
+ * THE THREE WRITES ARE THE CONTRACT'S SCHEMA INSTANCES, not copies of them
+ * (POD-385). `specs.create`, `specs.save` and `specs.remove` are declared in
+ * `@podium/commands` with their ADR 3 classification, and the objects below are
+ * the very schemas those contracts carry — so the tRPC slice, the daemon relay
+ * and the contract table all validate through ONE definition.
+ *
+ * It has to be identity and not equality, and that is asserted with `toBe` in
+ * `spec-surface.runtime.test.ts`. A schema RESTATED here with the same fields would be
+ * byte-identical on the wire and would pass every golden fixture; only object
+ * identity sees the fork (POD-305). Nothing about the handlers below changes:
+ * this is the same validation the surface already ran.
+ *
+ * The three READS stay declared here. They carry no ADR 3 D1 contract — POD-385's
+ * scope was spec CRUD — and they are authorized by the identical
+ * `requireRepoRoot` call, so the gate does not depend on where the schema lives.
+ */
 export const specsInputs = {
   list: z.object({ ...byRepo }),
   get: z.object({ ...byRepo, id: z.string().min(1) }),
-  create: z.object({ ...byRepo, title: z.string().min(1), parent: z.string() }),
-  save: z.object({
-    ...byRepo,
-    id: z.string().min(1),
-    body: z.string().optional(),
-    title: z.string().optional(),
-    parent: z.string().optional(),
-    order: z.number().optional(),
-    status: z.enum(['active', 'superseded', 'draft']).optional(),
-  }),
-  remove: z.object({ ...byRepo, id: z.string().min(1) }),
+  create: specsCreateInput,
+  save: specsSaveInput,
+  remove: specsRemoveInput,
   search: z.object({ ...byRepo, query: z.string() }),
 } as const
 

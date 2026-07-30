@@ -153,6 +153,18 @@ export {
   superagentUserFocus,
 } from './superagent/contracts'
 export {
+  SPEC_CONTRACT_NAMES,
+  SPEC_CONTRACTS,
+  type SpecContractName,
+  SpecStatus,
+  specsCreateContract,
+  specsCreateInput,
+  specsRemoveContract,
+  specsRemoveInput,
+  specsSaveContract,
+  specsSaveInput,
+} from './specs/contracts'
+export {
   awaitAgentContract,
   awaitAgentInput,
   MAIL_CONTRACTS,
