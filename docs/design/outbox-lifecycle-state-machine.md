@@ -76,6 +76,8 @@ affordance set free of an existence oracle. Withholding a button for one of the 
 | Evicted target resolves inside D9's set | rescope re-bootstrap, then refusal at drain |
 | Secrets never queued | `online-sensitive` / `online-only` refused before any persistence |
 | D12 partitions | FIFO within, concurrent across; a parked head blocks only its own partition, on every later pass |
+| Two writers on one physical store | two principal-bound instances opened BEFORE either write both keep their records; interleaved lifecycles preserved; `mutationId` uniqueness enforced across instances; a second tab's write is picked up on the next rebase |
+| Several retirements in one span | three retirements, one publication, all three durable; an aborted multi-retirement span rolls every one back and emits nothing; an id already retired in the span cannot be resurrected |
 
 ## Privacy is a binding, not a filter
 
@@ -89,13 +91,34 @@ reader filtering correctly. Two principals sharing one physical store get two bo
 blind to the other's entries — and, crucially, neither able to DROP them: a foreign entry is not
 drained here and not observable here, but it survives, because it is that principal's unsent work.
 
-## One writer, staged before it commits
+## One writer, staged before it commits — and writes are RECORD-LEVEL
 
 Every mutation goes through `mutate()`, which serializes against every other mutation, builds a
 DRAFT, writes it, and only then adopts it in memory and emits its events. Consequences that are
 tested rather than asserted: a quota denial or a closed database leaves memory exactly as it was
 (ADR 6 D4.4 — the failing operation does not partially apply), two concurrent `enqueue` calls
 cannot commit out of order, and observability never precedes durability (D4.3).
+
+`OutboxStorePort.apply({put, remove}, span?)` is record-level, not a whole-snapshot write, and the
+difference is a data-loss bug rather than a taste. A snapshot write means "the store now contains
+exactly these records", so any writer holding a stale base silently deletes rows it never knew
+about. Review round 2 demonstrated both consequences: two principal-bound instances over one
+physical store lost one author's queued work outright, and two retirements enrolled in one span
+resurrected the first. Two rebasing rules follow, each with its own regression test:
+
+- **Outside a span, rebase on FRESH truth from the store**, because this instance is not the only
+  writer — a second principal-bound instance (which the privacy model explicitly supports) or a
+  second browser tab (ADR 6 D4.6). This is also what makes `mutationId` uniqueness global rather
+  than per-instance.
+- **Inside a span, rebase on the span's own accumulated view**, because an enrolled write has not
+  landed yet and a re-read would return the pre-span state. One span keeps one staged view and
+  publishes ONCE, on commit; an abort drops it, so nothing is adopted and no event escapes.
+
+Only `retireApplied` takes a span: the span exists to cover the Replica's entity write, cursor
+advance and the retirement that follows from them. Enqueue, discard, retry and edit are USER
+actions and are not part of an entity commit — inside an open span they join it (so they compose
+rather than clobber), but `find`/`require` resolve against published state, so an entry created
+inside a span is not addressable by id until it commits.
 
 Removals are licensed. A draft diffs the ids it started with against the ids it ends with, and
 every id that disappeared must have been removed with one of D9 invariant 1's two licences —
