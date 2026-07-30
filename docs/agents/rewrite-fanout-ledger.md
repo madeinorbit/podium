@@ -1672,3 +1672,28 @@ MEASURED rather than either side's number being carried across. POD-732 lowered 
 did NOT widen the detector's roots, correctly: POD-1180 exists because widening changes everyone's
 number and must be done once across the issues and sessions derived routers too, not by whoever
 happens to notice first.
+
+### The "cannot say NO" class has a SYSTEM-level form: a conformance suite certifying a FIXTURE
+
+POD-306's survey, and the fourth instance of this class in a day. The first three were each one suite:
+POD-351's `OPERATOR` short-circuit, POD-391's unreachable CSWSH branch, POD-732's `Proxy` that answers
+every procedure. This one is a layer up.
+
+The parameterised conformance suite (POD-373) was green — but **rungs 2 and 4 were only reachable
+against a scripted fixture**, because none of `feedId`/epoch minting and persistence, entity revision
+assignment, published `minAvailableSeq`, the bounded send queue, or resync-required emission exists on
+the REAL authority. The fixture was supplying the very behaviour the suite was meant to be certifying.
+Green, credited, and not measuring the kernel.
+
+**This was caught only because POD-305 refused to build those five speculatively and re-homed them with
+a reason instead of leaving them unowned.** Had they been built blind, or dropped at the phase seam,
+the suite would have gone on certifying a fixture until the wire cutover. Unowned items at a handoff
+boundary are how attempts 1 and 2 left half-migrations; naming an item and passing it explicitly is
+what made this findable.
+
+**The bar for wiring a suite onto a real implementation: it must FAIL when the implementation does not
+provide the thing.** Wiring it up and proving it load-bearing are different claims. And beware the swap
+itself — a suite that passed against a fixture and passes against the real kernel on the first try is
+either a triumph or still not reaching the kernel, and those are indistinguishable from outside. Give
+it a guard that fails loudly when it is talking to the fixture (POD-305's shape: bind to the SHIPPED
+matrix, with a check that fails FIRST if it imports empty).
