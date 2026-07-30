@@ -24,9 +24,21 @@
  * more; it must not grow a correlation mechanism of its own.
  */
 
+import type { HandoffManifestV1, ResumeRef } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol'
 import type { Capability } from '../../../issue-authz'
 import type { Session } from '../session'
+
+/**
+ * The harnesses a bundle can carry, DERIVED from the manifest rather than
+ * restated. POD-381 found the general case in its own contracts: a forked
+ * `z.enum` with identical members parses, encodes and passes every golden case
+ * identically, so a fork is invisible to everything except an identity check.
+ * These are TYPES, not schemas — there is nothing to assert `toBe` on — so the
+ * protection has to be the derivation itself: widen the manifest's list and this
+ * follows, fork it and the two drift with nobody watching.
+ */
+type ExportableAgentKind = HandoffManifestV1['agentKind']
 
 /** The four daemon legs, exactly as `DaemonRpcService` already exposes them. */
 export interface HandoffRpcPort {
@@ -41,8 +53,8 @@ export interface HandoffRpcPort {
       sessionId: string
       cwd: string
       fallbackCwd?: string
-      agentKind: 'claude-code' | 'codex'
-      resume: { kind: string; value: string }
+      agentKind: ExportableAgentKind
+      resume: ResumeRef
       branch: string
       baseShas: string[]
       repoId: string
@@ -150,9 +162,9 @@ export interface HandoffPorts {
   toMachine(machineId: string, message: ControlMessage): void
   onWorktreesChanged(repoPath: string, machineId: string): void
   resumeSession(input: {
-    agentKind: 'claude-code' | 'codex'
+    agentKind: ExportableAgentKind
     cwd: string
-    resume: { kind: string; value: string }
+    resume: ResumeRef
     conversationId: string
     title?: string
     machineId: string
