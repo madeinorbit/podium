@@ -202,11 +202,18 @@ export class DiskFullError extends Error {
 }
 
 /**
- * A fault the wrapper can inject. `at` counts WRITE STATEMENTS executed through
- * `run()`, from 0, across the life of the connection.
+ * A fault the wrapper can inject.
+ *
+ * `at` counts WRITE STATEMENTS executed through `run()` SINCE THE FAULT WAS ARMED,
+ * from 0 — not since the connection opened. Absolute indices were the first draft and
+ * they were silently wrong: opening a fresh database file runs the schema stamp
+ * through `run()`, so `{at: 0}` armed after `open()` pointed at a write that had
+ * already happened and the fault never fired. Every case still passed, because a
+ * "commit rejects" assertion that never rejects fails loudly — but the same offset in
+ * a case asserting an ABSENCE would have passed for the wrong reason.
  */
 export interface WriteFault {
-  /** Act on the write at this index. `0` is the first write the connection runs. */
+  /** Act on the write this many statements after arming. `0` is the very next one. */
   readonly at: number
   /**
    * `deny` refuses the write AT `at` — the quota shape, where the engine says no and
@@ -236,6 +243,8 @@ export interface WriteFault {
  */
 export class FaultySqlDatabase implements SqlDatabaseLike {
   private fault: WriteFault | undefined
+  /** `writesIssued` when the current fault was armed — `at` is relative to this. */
+  private armedAt = 0
   private dead: Error | undefined
   /** Write statements passed through to the engine, all transactions. */
   writesIssued = 0
@@ -247,6 +256,7 @@ export class FaultySqlDatabase implements SqlDatabaseLike {
   /** Arm the next fault. Pass `undefined` to disarm. */
   denyWriteAt(fault: WriteFault | undefined): void {
     this.fault = fault
+    this.armedAt = this.writesIssued
   }
 
   /** True once a `crash` fault has poisoned this connection. */
@@ -263,7 +273,7 @@ export class FaultySqlDatabase implements SqlDatabaseLike {
         const index = this.writesIssued
         this.writesIssued += 1
         const fault = this.fault
-        if (fault !== undefined && fault.at === index) {
+        if (fault !== undefined && fault.at === index - this.armedAt) {
           this.fault = undefined
           this.denials += 1
           const error = fault.error ?? new DiskFullError()
