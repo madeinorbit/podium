@@ -45,6 +45,7 @@ function fixture() {
     sessions: reg.modules.sessions,
     store,
     now: () => Date.now(),
+    mutations: reg.modules.mutations,
   })
   /**
    * A principal for an arbitrary user. `capability.scope` is `owned`/`self` for
@@ -422,6 +423,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
       sessions: reg.modules.sessions,
       store,
       now: () => Date.now(),
+      mutations: reg.modules.mutations,
     })
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const svc = reg.modules.sessions as unknown as {

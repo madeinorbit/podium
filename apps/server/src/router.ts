@@ -121,6 +121,7 @@ function presenceProc<Out = void>(name: string) {
       sessions: mods(ctx).sessions,
       store: ctx.registry.sessionStore,
       now: () => Date.now(),
+      mutations: mods(ctx).mutations,
     })
     const result = registry.execute(name, input, presencePrincipal(ctx), 'trpc')
     if (result.outcome === 'invalid-input') {

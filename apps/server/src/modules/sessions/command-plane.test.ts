@@ -99,6 +99,7 @@ function ctxFor(
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     ownership: opts.ownership ?? ownershipFromMachines(modules.machines),
+    mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
 }

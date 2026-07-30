@@ -328,15 +328,28 @@ describe('queueText (durable outbox sends)', () => {
   })
 })
 
-describe('withMutation (idempotency wrapper)', () => {
+/**
+ * FRAMEWORK IDEMPOTENCY as the REGISTRY exposes it (POD-382).
+ *
+ * These cases were written against `SessionsService.withMutation` and now run
+ * against `modules.mutations` — `@podium/sync`'s `MutationLedger`, the one
+ * implementation — over the SAME durable table. Renamed rather than duplicated:
+ * a case left wearing the old name would claim a wrapper that no longer exists.
+ *
+ * The ledger's own semantics are unit-tested in
+ * packages/sync/src/mutation-ledger.test.ts; what these add is that the wiring in
+ * the composition root reaches it, and that a replay through it does not
+ * double-type into a real PTY.
+ */
+describe('framework idempotency (modules.mutations)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', () => {
     const reg = new SessionRegistry()
     let runs = 0
-    const first = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
+    const first = reg.modules.mutations.once('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
+    const replay = reg.modules.mutations.once('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -345,7 +358,7 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(replay).toEqual(first) // deep-equal via the JSON round-trip
 
     // A different id runs again.
-    const other = reg.modules.sessions.withMutation('m-2', 'test.proc', () => {
+    const other = reg.modules.mutations.once('m-2', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['c'] }
     })
@@ -353,11 +366,11 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(other).toEqual({ ok: true, ids: ['c'] })
 
     // No id at all = today's behavior: always runs.
-    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
+    reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
-    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
+    reg.modules.mutations.once(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
@@ -373,8 +386,8 @@ describe('withMutation (idempotency wrapper)', () => {
       runs += 1
       return { id: 'issue-1', title: 'once' }
     }
-    const first = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
-    const replay = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
+    const first = await reg.modules.mutations.once('m-async', 'issues.create', fn)
+    const replay = await reg.modules.mutations.once('m-async', 'issues.create', fn)
     expect(runs).toBe(1)
     expect(first).toEqual({ id: 'issue-1', title: 'once' })
     expect(replay).toEqual(first)
@@ -393,7 +406,7 @@ describe('withMutation (idempotency wrapper)', () => {
       reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
       const send = () =>
-        reg.modules.sessions.withMutation('send-1', 'sessions.sendText', () =>
+        reg.modules.mutations.once('send-1', 'sessions.sendText', () =>
           reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
       expect(send()).toEqual({ ok: true })

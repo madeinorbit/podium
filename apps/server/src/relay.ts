@@ -4,7 +4,7 @@ import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
 import type { LiveServerMessage } from '@podium/protocol'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
 import { formatIssueRef, isExposedOn, sessionCommandPlane, sessionTitleRule } from '@podium/protocol'
-import { Ledger } from '@podium/sync'
+import { Ledger, MutationLedger } from '@podium/sync'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
@@ -147,6 +147,10 @@ export interface RegistryModules {
   /** Switch-latency perf registry [POD-701] — the process-level singleton,
    *  exposed here so router procs reach it through the module seam. */
   perf: PerfRegistry
+  /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
+   *  module seam so a transport wires the framework's implementation rather than
+   *  reaching into a service for it. */
+  mutations: MutationLedger
 }
 
 /**
@@ -256,6 +260,20 @@ export class SessionRegistry {
     let issueSessionLifecycle!: IssueSessionLifecycle
     let workflows!: WorkflowService
     let automations!: AutomationsService
+    /**
+     * FRAMEWORK IDEMPOTENCY, ONE INSTANCE (POD-382). Every command envelope that
+     * honours a `mutationId` — the session presence class, the session command
+     * plane and the issue registry — dedupes through THIS object. It replaces
+     * `SessionsService.withMutation`, whose per-proc wrapper form was a per-proc
+     * chance to forget (POD-379's idempotency oracle exists because of it) and
+     * which made the issue family reach the session service for a property that
+     * belongs to neither.
+     *
+     * Built here, at the composition root, ahead of every consumer: an envelope
+     * that constructed its own would be a second dedup cache, and two caches over
+     * one durable table is how a replay applies twice.
+     */
+    const mutations = new MutationLedger(this.store.sync, this.now)
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
@@ -378,7 +396,7 @@ export class SessionRegistry {
       isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
       forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
       upstreamIssueRepoPaths: () => upstreamIssues.repoPaths(),
-      withMutation: (mutationId, proc, fn) => sessionsSvc.withMutation(mutationId, proc, fn),
+      mutations,
       listSessions: () => sessionsSvc.listSessions(),
       repoPaths: () => this.store.repos.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
@@ -1335,6 +1353,7 @@ export class SessionRegistry {
       issueArtifacts,
       automations,
       perf,
+      mutations,
     }
   }
 

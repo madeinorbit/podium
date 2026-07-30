@@ -35,6 +35,7 @@ import type { AgentKind } from '@podium/model'
 import type { CommandDef } from '@podium/protocol'
 import { sessionCommandPlane, sessionCommandPlaneInputs } from '@podium/protocol'
 import type { z } from 'zod'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
 import {
@@ -76,7 +77,6 @@ export type SessionCommandServices = Pick<
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
-  | 'withMutation'
 >
 
 /** The substrate both chat paths ride (#237) [spec:SP-34d7]. */
@@ -93,6 +93,16 @@ export interface SessionCommandDeps {
   ): { id: string }
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
+  /**
+   * FRAMEWORK IDEMPOTENCY (POD-382) — applied by {@link dispatchSessionCommand}
+   * for EVERY command in the table, after its gates and before its handler.
+   *
+   * It used to be `ctx.sessions.withMutation(input.mutationId, proc, …)` written
+   * out inside three of the nine handlers, which is the per-proc shape POD-312
+   * exists to delete: the other six were correct only because their inputs carry
+   * no `mutationId`, and the tenth handler added would have had to remember.
+   */
+  mutations: MutationLedgerPort
 }
 
 /** Per-call execution context: who is calling, and what they may reach. */
@@ -279,12 +289,11 @@ function substrateSend(ctx: SessionCommandCtx, input: SendInput, lifecycle: 'wai
  * the transports differ, not because the check does.
  */
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
-  return (ctx: SessionCommandCtx, input: SendInput) =>
-    ctx.sessions.withMutation(input.mutationId, proc, () => {
-      const target = ctx.target(input.sessionId, proc)
-      if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
-      return substrateSend(ctx, input, lifecycle)
-    })
+  return (ctx: SessionCommandCtx, input: SendInput) => {
+    const target = ctx.target(input.sessionId, proc)
+    if (!target && ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+    return substrateSend(ctx, input, lifecycle)
+  }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the table is heterogeneous by construction
@@ -296,31 +305,30 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  * contract declares — is a compile error rather than a 404 at runtime.
  */
 export const SESSION_COMMAND_HANDLERS = {
-  create: (ctx: SessionCommandCtx, input: CreateInput) =>
-    ctx.sessions.withMutation(input.mutationId, 'sessions.create', async () => {
-      const { draftIssue, mutationId: _mutationId, ...rest } = input
-      // Explicit placement is gated BEFORE the target is prepared, because
-      // preparing may clone a repository onto the target machine — a side effect
-      // a denied principal must never cause.
-      if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-      const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
-      const issueId =
-        rest.issueId ??
-        (draftIssue
-          ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
-          : undefined)
-      // The draft-issue vessel path produces an OWNED draft, not an ownerless
-      // one: the session and its vessel resolve the same owner because they
-      // resolve it from the same principal.
-      void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
-      return ctx.sessions.createSession({
-        ...rest,
-        ...target,
-        ...(issueId ? { issueId } : {}),
-        use: ctx.machineUse,
-        spawnedBy: spawnedByFor(ctx.principal),
-      })
-    }),
+  create: async (ctx: SessionCommandCtx, input: CreateInput) => {
+    const { draftIssue, mutationId: _mutationId, ...rest } = input
+    // Explicit placement is gated BEFORE the target is prepared, because
+    // preparing may clone a repository onto the target machine — a side effect
+    // a denied principal must never cause.
+    if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
+    const target = await ctx.sessions.prepareSessionTarget({ ...rest, use: ctx.machineUse })
+    const issueId =
+      rest.issueId ??
+      (draftIssue
+        ? ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId).id
+        : undefined)
+    // The draft-issue vessel path produces an OWNED draft, not an ownerless
+    // one: the session and its vessel resolve the same owner because they
+    // resolve it from the same principal.
+    void createdOwnership(ctx.principal, issueId ? { id: issueId } : undefined)
+    return ctx.sessions.createSession({
+      ...rest,
+      ...target,
+      ...(issueId ? { issueId } : {}),
+      use: ctx.machineUse,
+      spawnedBy: spawnedByFor(ctx.principal),
+    })
+  },
 
   resume: (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
@@ -400,7 +408,26 @@ export function dispatchSessionCommand<K extends SessionCommandKey>(
     ctx: SessionCommandCtx,
     input: unknown,
   ) => SessionCommandResult<K>
-  return handler(ctx, contract.input.parse(rawInput))
+  const input = contract.input.parse(rawInput)
+  const name = `sessions.${key}`
+  // IDEMPOTENCY, FRAMEWORK-OWNED AND APPLIED HERE FOR EVERY COMMAND (POD-382).
+  //
+  // AFTER the parse and INSIDE the handler's gates: the handler runs its machine
+  // `use` and owner checks, so a replay whose grant was revoked is refused by
+  // those gates on the way in rather than served out of the dedup cache (ADR 3 D8
+  // / readiness §3.1.3 A1). The ledger is entered before the handler and the
+  // handler is what re-authorizes, which is the same order the presence envelope
+  // states explicitly.
+  //
+  // A command whose input carries no `mutationId` passes through unchanged — the
+  // ledger's own documented no-dedup case — so this is behaviour-identical for the
+  // six lifecycle commands and identical-by-construction for the three that do.
+  const mutationId = (input as { mutationId?: unknown }).mutationId
+  return ctx.deps.mutations.once(
+    typeof mutationId === 'string' ? mutationId : undefined,
+    name,
+    () => handler(ctx, input),
+  ) as SessionCommandResult<K>
 }
 
 /** Is this proc one of the migrated command-plane commands? */
