@@ -110,8 +110,35 @@ const EMPTY_ID_PAYLOADS: Array<
     GitRepositoryWire,
     { path: '/p', kind: 'repository', machineId: '', repoId: '' },
   ],
+  // POD-1153: BOTH format arms, and the v2 one is the reason this entry matters
+  // now — its `owner` and `exported.by.onBehalfOf` are `UserIdField`, so a brand
+  // that started rejecting the empty string would break bundle READING, in the
+  // one representation whose inputs are files already on disk.
   [
-    'HandoffManifest',
+    'HandoffManifest (format 2)',
+    HandoffManifest,
+    {
+      format: 2,
+      sessionId: '',
+      agentKind: 'claude-code',
+      resume: { kind: '', value: '' },
+      transcriptFilename: 'f.jsonl',
+      repoId: '',
+      branch: 'b',
+      headSha: 'a'.repeat(40),
+      snapshotSha: null,
+      snapshotFlattened: true,
+      worktreeName: 'w',
+      bundleBase: [],
+      issueId: '',
+      sourceMachineId: '',
+      exported: { at: 'now', by: { actor: { kind: 'agent', id: '' }, onBehalfOf: '' } },
+      owner: '',
+      visibility: 'personal',
+    },
+  ],
+  [
+    'HandoffManifest (format 1)',
     HandoffManifest,
     {
       format: 1,

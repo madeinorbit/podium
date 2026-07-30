@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
 import { asMatrixRowId } from '../annotations/ownership'
 import { IssueGraphNode, IssueWire, OrphanIssue } from '../entities/issue'
-import { HandoffManifest } from '../entities/handoff'
+import { HandoffManifest, HandoffManifestV1, HandoffManifestV2 } from '../entities/handoff'
 import { SessionMeta } from '../entities/session'
 import {
   type RetainedRepresentation,
@@ -259,7 +259,11 @@ describe('the live registry', () => {
     expect(OrphanIssue.shape.id).toBe(IssueWire.shape.id)
     expect(IssueGraphNode.shape.id).toBe(IssueWire.shape.id)
     expect(OrphanIssue.shape.seq).toBe(IssueWire.shape.seq)
-    expect(HandoffManifest.shape.sessionId).toBe(SessionMeta.shape.sessionId)
+    // POD-1153: asserted on BOTH format arms, because the registry documents the
+    // union. A composition claim that held on v1 only would be a true statement
+    // about the arm nobody will edit again.
+    expect(HandoffManifestV1.shape.sessionId).toBe(SessionMeta.shape.sessionId)
+    expect(HandoffManifestV2.shape.sessionId).toBe(SessionMeta.shape.sessionId)
   })
 
   it('names an owner and a blocker for every entry still pending composition', () => {
