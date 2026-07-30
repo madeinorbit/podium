@@ -91,9 +91,14 @@ token is refused even if a build lists it as supported.
 
 ## What is deliberately not here
 
-- **`owner` and `grants` values.** The types carry both; the `machines` table has neither
-  (POD-1079 / POD-318). Every resolution reports `owner: null` today, and
-  `machineUseAllowed` therefore grants `use` to **nobody** — the fail-closed direction.
+- **`owner` and `grants` values, ON THIS PORT.** The types carry both, and since POD-1079
+  the `machines` table carries both too — but `gateway/machine-directory.ts` still reports
+  `owner: null` for every resolution, and that is deliberate rather than pending: the
+  SUBJECT here is an authenticating daemon peer, and no daemon may inherit a human's
+  execute rights. `machineUseAllowed` therefore grants `use` to **nobody** through this
+  port — the fail-closed direction. The COMMAND layer reads the real column and the real
+  grant edges (`apps/server/src/machine-access.ts`), which is where a human principal
+  exists to resolve them against.
 - **The console strategy's production binding** (POD-1075), and the human half of
   attribution having a value to carry (POD-1075 + POD-323 for delegation lifecycle).
 - **A node acceptor**, and any hub behaviour ([spec:SP-0371], POD-353).
