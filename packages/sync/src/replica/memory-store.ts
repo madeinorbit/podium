@@ -28,6 +28,7 @@ import type {
   ReplicaCacheStore,
   SyncSpan,
   SyncSpanParticipant,
+  SyncUnitOfWork,
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
 import type { Cursor, EntityRecord } from './types'
@@ -363,6 +364,7 @@ class InMemorySpan implements OwnedSyncSpan {
  */
 export class InMemoryReplicaStore {
   private transactionCount = 0
+  private transactQueue: Promise<unknown> = Promise.resolve()
   private readonly views = new Map<string, StoreView>()
   readonly cache: StoreView['cache']
   readonly outbox: InMemoryOutbox
@@ -386,6 +388,43 @@ export class InMemoryReplicaStore {
     return new InMemorySpan(() => {
       this.transactionCount += 1
     })
+  }
+
+  /**
+   * ADR 2 D10's unit of work over this physical store (POD-1158).
+   *
+   * A storage adapter owes this alongside its ports: the Replica is a PARTICIPANT and
+   * needs a transaction boundary handed to it, and the boundary belongs to whoever
+   * owns the physical store. POD-374 (IndexedDB) and POD-375 (SQLite) owe the same
+   * object over their own native transactions.
+   *
+   * The body sees the span NARROWED to `SyncSpan`, so no participant can settle a
+   * transaction it did not open; only this closure holds `commit`/`abort`. Independent
+   * calls are SERIALIZED rather than joined — there is deliberately no ambient
+   * "current span" to pick up, because a process-wide flag cannot tell lexical nesting
+   * from an unrelated concurrent caller, and a mutation absorbed into a stranger's
+   * transaction reports success before durability and then vanishes when that
+   * transaction aborts.
+   */
+  readonly unitOfWork: SyncUnitOfWork = {
+    transact: async <T>(body: (span: SyncSpan) => Promise<T>): Promise<T> => {
+      const run = this.transactQueue.then(async () => {
+        const span = this.beginSpan()
+        try {
+          const result = await body(span)
+          span.commit()
+          return result
+        } catch (error) {
+          span.abort()
+          throw error
+        }
+      })
+      this.transactQueue = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      return await run
+    },
   }
 
   /** Simulate ADR 6 D4.5 corruption / D7 rung 5. */

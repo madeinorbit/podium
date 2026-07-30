@@ -97,11 +97,16 @@ export interface ReplicaCacheStore {
   /**
    * Open a span over the physical store this port is a view of (D10 clause 1).
    *
-   * It is the CACHE port that opens it, and that is not a licence to reach the
-   * outbox: the span is an opaque handle, so this port can enrol its own region in
-   * a shared commit without gaining any way to name, read or clear another one.
-   * `discardCache()` still cannot touch the outbox, which is the property this
-   * file exists to hold.
+   * FOR THE ADAPTER, NOT FOR THE REPLICA (POD-1158). A storage adapter builds its
+   * `SyncUnitOfWork` out of this; the Replica is handed `ReplicaParticipantStore`,
+   * which omits it, so the Replica cannot open or settle a transaction. It used to
+   * call this directly and commit synchronously, which made it impossible for an
+   * asynchronous participant — every durable outbox store — to enrol at all.
+   *
+   * Opening a span here is still not a licence to reach the outbox: the span is an
+   * opaque handle, so this port can enrol its own region in a shared commit without
+   * gaining any way to name, read or clear another one. `discardCache()` still cannot
+   * touch the outbox, which is the property this file exists to hold.
    */
   beginSpan(): OwnedSyncSpan
   /**
@@ -134,6 +139,23 @@ export interface ReplicaCacheStore {
   /** ADR 6 D4 — surfaced, never silent. */
   durability(): 'durable' | 'degraded-memory' | 'unavailable'
 }
+
+/**
+ * WHAT THE REPLICA IS HANDED: the cache port MINUS any way to open a transaction
+ * (POD-1158, constraint 1).
+ *
+ * The Replica is a PARTICIPANT in a unit of work, never its owner. It receives a
+ * `SyncSpan` — which carries no `commit` and no `abort` — from
+ * `SyncUnitOfWork.transact`, and it must be structurally unable to obtain an
+ * `OwnedSyncSpan` and settle a transaction somebody else composed. Omitting
+ * `beginSpan` here is what makes that a type error rather than a comment.
+ *
+ * A storage adapter still implements the full `ReplicaCacheStore` — the physical
+ * store legitimately opens spans, and that is how a `SyncUnitOfWork` is built over
+ * it. It simply hands the Replica this narrower view. Structural typing means an
+ * adapter needs no second class: the full port already satisfies this one.
+ */
+export type ReplicaParticipantStore = Omit<ReplicaCacheStore, 'beginSpan'>
 
 /**
  * Thrown by a store whose contents cannot be read or written (ADR 2 D7 rung 5).
