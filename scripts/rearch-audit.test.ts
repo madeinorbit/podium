@@ -15,6 +15,9 @@ import {
   isTestFile,
   loadContext,
   runAudit,
+  UPSTREAM_RETIREMENT_CONTROLS,
+  UPSTREAM_RETIREMENT_PATTERN,
+  upstreamRetirementControlMisses,
   type SourceFile,
   stripComments,
 } from './rearch-audit'
@@ -522,8 +525,25 @@ describe('CLI exit codes', () => {
     expect(run(['--phase', 'POD-309', '--update-baseline'])).toBe(2)
   })
 
-  it('gates a phase whose items are still alive', () => {
-    expect(run(['--phase', 'POD-309'])).toBe(1)
+  // POD-309 used to be this case's subject. It retired UpstreamSync/UpstreamForwarder
+  // and drove `upstream-sync-forwarder` to 0, so `--phase POD-309` now exits 0 — which is
+  // what a FINISHED phase is supposed to look like. Rather than swap the literal and lose
+  // the signal, both directions are asserted: a phase with live items gates, and the
+  // phase that reached zero does not. A single-direction test here cannot distinguish a
+  // working `--phase` gate from one that exits 1 unconditionally.
+  //
+  // THE LIVE SUBJECT HAS AN EXPIRY, and it is worth naming so the next author looks for
+  // it at the right moment. `--phase POD-308` gates because POD-308 still owns live
+  // items; the day its LAST item reaches zero this case reds, and the fix is the same
+  // shape rather than a deletion — pick a phase that is still live and KEEP both
+  // directions. POD-308's own agent reports (unverified from here, since it is on their
+  // branch) that after `publish-computed-fanout` clears it retains a scheduled
+  // `legacy-wire-v1-adapter` item, which would push that moment out to Phase 7 when the
+  // N-1 adapter is finally deleted. Either way the trigger is "POD-308 goes fully
+  // clear", not any one item.
+  it('gates a phase whose items are still alive, and clears one that reached zero', () => {
+    expect(run(['--phase', 'POD-308'])).toBe(1)
+    expect(run(['--phase', 'POD-309'])).toBe(0)
   })
 
   it('an output flag cannot disable the gate', () => {
@@ -552,6 +572,91 @@ describe('CLI exit codes', () => {
 // ---------------------------------------------------------------------------
 // Live repo: the audit must actually bind to this codebase.
 // ---------------------------------------------------------------------------
+
+/**
+ * THE GUARD BEHIND `upstream-sync-forwarder`'s ZERO_BY_DESIGN EXEMPTION (POD-309).
+ *
+ * The exemption removes the only assertion that was watching this detector, so the
+ * detector has to watch itself — and this suite is what watches THAT. It exists because
+ * the guard was written once and then silently reverted by an over-broad `git checkout --`
+ * while a hand-run mutant was being cleaned up: the audit still exited 0, the exemption
+ * still read as earned, and nothing anywhere went red. A guard whose only evidence is a
+ * mutant somebody ran once is a guard with no evidence a week later.
+ *
+ * EACH CONTROL IS PROVEN LOAD-BEARING SEPARATELY, which is POD-308's finding applied here:
+ * two controls that can only ever fail together are one control wearing two names. Each
+ * case below breaks ONE branch of the pattern and asserts that EXACTLY the controls
+ * covering that branch are reported — so a control that could never fail on its own shows
+ * up as a case that cannot be made to fail.
+ */
+describe('upstream-sync-forwarder: the anchor behind its ZERO_BY_DESIGN exemption', () => {
+  const DECL = UPSTREAM_RETIREMENT_CONTROLS.declaration
+  const CONS = UPSTREAM_RETIREMENT_CONTROLS.construction
+
+  it('the SHIPPED pattern matches every control — the positive, first', () => {
+    // Without this, every "breaking X reports Y" case below is satisfiable by a pattern
+    // that matches nothing at all.
+    expect(upstreamRetirementControlMisses(UPSTREAM_RETIREMENT_PATTERN.source)).toEqual([])
+    expect([...DECL, ...CONS]).toHaveLength(4)
+  })
+
+  it('losing the DECLARATION branch reports exactly its two controls', () => {
+    const constructionOnly = 'new (?:UpstreamSync|UpstreamForwarder)\\s*\\('
+    expect(upstreamRetirementControlMisses(constructionOnly).sort()).toEqual([...DECL].sort())
+  })
+
+  it('losing the CONSTRUCTION branch reports exactly its two controls', () => {
+    const declarationOnly = '^export class (?:UpstreamSync|UpstreamForwarder)\\b'
+    expect(upstreamRetirementControlMisses(declarationOnly).sort()).toEqual([...CONS].sort())
+  })
+
+  // Within a branch the two NAMES are independent too — dropping one alternative must
+  // report one control, not zero and not both.
+  it('losing one NAME inside a branch reports exactly that one control', () => {
+    const noForwarderDecl =
+      '^export class UpstreamSync\\b|new (?:UpstreamSync|UpstreamForwarder)\\s*\\('
+    expect(upstreamRetirementControlMisses(noForwarderDecl)).toEqual([
+      'export class UpstreamForwarder {',
+    ])
+    const noSyncConstruction =
+      '^export class (?:UpstreamSync|UpstreamForwarder)\\b|new UpstreamForwarder\\s*\\('
+    expect(upstreamRetirementControlMisses(noSyncConstruction)).toEqual([
+      'const f = new UpstreamSync({})',
+    ])
+  })
+
+  it('a pattern that matches nothing reports ALL FOUR, not the first', () => {
+    // The throw has to name which half of the regex died, so the function returns every
+    // miss. A first-miss-wins implementation passes the two branch cases above and fails
+    // exactly here.
+    expect(upstreamRetirementControlMisses('zzz-matches-nothing')).toHaveLength(4)
+  })
+
+  it('collect THROWS on a context whose roots match no files', () => {
+    const check = CHECKS.find((c) => c.id === 'upstream-sync-forwarder')
+    expect(check).toBeDefined()
+    // The positive first: a context WITH files under the roots must not throw, or this
+    // case would pass against a collect that throws unconditionally.
+    expect(() => check?.collect(ctxOf({ 'apps/server/src/a.ts': 'const x = 1' }))).not.toThrow()
+    expect(() => check?.collect(ctxOf({ 'docs/elsewhere.ts': 'const x = 1' }))).toThrow(
+      /scanning nothing/,
+    )
+  })
+
+  it('collect still FINDS a re-grown forwarder — the anchor did not replace the detector', () => {
+    const check = CHECKS.find((c) => c.id === 'upstream-sync-forwarder')
+    const sites = check?.collect(
+      ctxOf({
+        'packages/sync/src/upstream-forwarder.ts': 'export class UpstreamForwarder {}',
+        'apps/server/src/server.ts': 'const f = new UpstreamSync({})',
+      }),
+    )
+    expect(sites?.map((s) => s.file).sort()).toEqual([
+      'apps/server/src/server.ts',
+      'packages/sync/src/upstream-forwarder.ts',
+    ])
+  })
+})
 
 describe('against the live repo', () => {
   const repoRoot = new URL('..', import.meta.url).pathname
@@ -595,6 +700,15 @@ describe('against the live repo', () => {
       // 'the entity-id detector still binds to the live tree' below, against
       // the population rather than the subset it reports.
       'raw-string-entity-ids',
+      // POD-309 retired UpstreamSync/UpstreamForwarder: 4 → 0, all VANISHED (no file in
+      // the repo declares or constructs either, and a destination grep finds no code
+      // home). Exempt on the same terms as `send-turn-duplicate` and no looser — its
+      // `collect` THROWS when its anchor stops matching. Having no surviving code to
+      // anchor on, it anchors on its own scan instead: it throws when its roots match no
+      // files, and when its pattern stops matching the four control strings it is
+      // supposed to match. Both are asserted below, so an item added to this list
+      // without that guard still reds.
+      'upstream-sync-forwarder',
     ])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue

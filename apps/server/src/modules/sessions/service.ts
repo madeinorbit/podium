@@ -213,9 +213,6 @@ function normalizeAgentName(
   return { ok: true, name: clean }
 }
 
-/** Rejection every command path returns for a hub-mirrored session (spec §2.3). */
-export const UPSTREAM_COMMAND_REJECTION = 'remote session — managed via the hub'
-
 /** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
  *  `commit` binds a session row write and its declared change into one
  *  transaction; `reconcile` diffs the full restored truth at boot (including
@@ -314,7 +311,7 @@ interface SessionsServiceDeps {
    *  snapshot). Mutually recursive with the broadcast pipeline by design — the
    *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
   publishIssues(sessions: SessionMeta[]): void
-  /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
+  /** The issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
@@ -900,7 +897,7 @@ export class SessionsService {
    * Stamp the derived permanent `displayRef` onto a session's wire meta (#474).
    * PURE READ — allocation happens at the deliberate naming points
    * (spawn / first attach / boot backfill), never inside serialization.
-   * Upstream/mirrored sessions have no local Session and keep their own ref.
+   * Sessions with no local Session row keep their own ref.
    */
   private stampRef(session: Session, meta: SessionMeta): SessionMeta {
     const displayRef = this.computeSessionDisplayRef(session)
@@ -1118,9 +1115,10 @@ export class SessionsService {
     }
     // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
     // flag-on path resumes with the persisted rev/origin/history after a restart.
-    for (const [sessionId, d] of Object.entries(
-      this.store.sessions.loadDraftDocs(),
-    ) as [SessionId, StoredDraftDoc][]) {
+    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs()) as [
+      SessionId,
+      StoredDraftDoc,
+    ][]) {
       this.draftDocs.set(sessionId, {
         sessionId,
         text: d.text,
@@ -1389,127 +1387,19 @@ export class SessionsService {
     const local: SessionMeta[] = [...this.sessions.values()].map((s) =>
       this.sessionWire(s, forPrincipal),
     )
-    if (this.upstreamSessions.size === 0) return local
-    // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
-    // viaHub (set at ingest) and, while the hub link is down, upstreamStale —
-    // applied at read time so a staleness flip needs no rewrite of the mirror.
-    // A local id always wins a collision; the retained upstream entry is revealed
-    // if that local session is later removed.
-    const localIds = new Set(local.map((s) => s.sessionId))
-    const upstream = [...this.upstreamSessions.values()]
-      .filter((s) => !localIds.has(s.sessionId))
-      .map((s) => (this.upstreamStale ? { ...s, upstreamStale: true } : s))
-    return [...local, ...upstream]
+    return local
   }
 
-  // ---- upstream mirror (node⇄hub sync, docs/spec/node-hub-sync.md §2.3) ----
-  // Entities mirrored FROM the hub this node syncs against. They are display/read
-  // surfaces: never in this.sessions (so PTY/command paths can't touch them), never
-  // pushed back upstream (viaHub provenance), and retained-but-stale on hub loss.
-  private readonly upstreamSessions = new Map<SessionId, SessionMeta>()
-  private upstreamStale = false
-  /** machineIds that ARE this node (its daemon may also be paired with the hub in
-   *  some topologies) — hub entries for them are echoes and are dropped at ingest. */
-  private upstreamOwnMachineIds = new Set<string>()
-
-  setUpstreamOwnMachineIds(ids: Iterable<string>): void {
-    this.upstreamOwnMachineIds = new Set(ids)
-  }
-
-  /** True when `sessionId` is a hub-mirrored (read-only) session. */
-  isUpstreamSession(sessionId: SessionId): boolean {
-    return !this.sessions.has(sessionId) && this.upstreamSessions.has(sessionId)
-  }
-
-  /** `{ ok: false, reason }` for a hub-mirrored session, else null — the shared
-   *  guard every ok/reason command path checks first. */
-  private upstreamRejection(sessionId: SessionId): { ok: false; reason: string } | null {
-    if (this.sessions.has(sessionId) || !this.upstreamSessions.has(sessionId)) return null
-    return { ok: false, reason: UPSTREAM_COMMAND_REJECTION }
-  }
-
-  /**
-   * Replace the mirrored session list with the hub's truth. Own-machine entries are
-   * excluded (echo filter — this node's daemon registered with the hub would reflect
-   * its own sessions back). Entries colliding with a local session id are retained
-   * behind the local value so the latest upstream truth can be revealed later.
-   * Entries are stamped `viaHub` at ingest so provenance travels with the value —
-   * the P7b push path and the UI both key off it. Flows through the normal
-   * broadcast/oplog pipeline so node clients see hub sessions live.
-   */
-  private upstreamWire(session: SessionMeta): SessionMeta {
-    return this.upstreamStale ? { ...session, upstreamStale: true } : session
-  }
-
-  setUpstreamSessions(list: SessionMeta[]): void {
-    const previous = new Map(this.upstreamSessions)
-    this.upstreamSessions.clear()
-    for (const session of list) {
-      if (session.machineId !== undefined && this.upstreamOwnMachineIds.has(session.machineId)) {
-        continue
-      }
-      this.upstreamSessions.set(session.sessionId, { ...session, viaHub: true })
-    }
-    const specs: EntityChangeSpec[] = [...this.upstreamSessions.values()]
-      .filter((session) => !this.sessions.has(session.sessionId))
-      .map((session) => ({
-        entity: 'session',
-        id: session.sessionId,
-        op: 'upsert',
-        value: this.upstreamWire(session),
-      }))
-    for (const id of previous.keys()) {
-      if (!this.upstreamSessions.has(id) && !this.sessions.has(id)) {
-        specs.push({ entity: 'session', id, op: 'remove' })
-      }
-    }
-    try {
-      this.captureSessionSpecs(specs)
-    } catch (err) {
-      this.upstreamSessions.clear()
-      for (const [id, session] of previous) this.upstreamSessions.set(id, session)
-      throw err
-    }
-    this.broadcastSessions()
-  }
-
-  /**
-   * Hub reachability flip for the SESSION mirror. Unreachable → mirrored entries
-   * are KEPT and marked stale (spec §2.3: degrade to stale-visible, never to
-   * blank); local entities are never affected. Returns false when the flag did
-   * not change — the composition root uses that to skip the conversation/issue
-   * mirror rebroadcasts (they read the flag via isUpstreamStale()).
-   */
-  setUpstreamStale(stale: boolean): boolean {
-    if (this.upstreamStale === stale) return false
-    const previous = this.upstreamStale
-    this.upstreamStale = stale
-    try {
-      this.captureSessionSpecs(
-        [...this.upstreamSessions.values()]
-          .filter((session) => !this.sessions.has(session.sessionId))
-          .map((session) => ({
-            entity: 'session',
-            id: session.sessionId,
-            op: 'upsert',
-            value: this.upstreamWire(session),
-          })),
-      )
-    } catch (err) {
-      this.upstreamStale = previous
-      throw err
-    }
-    if (this.upstreamSessions.size > 0) this.broadcastSessions()
-    // The conversation/issue mirrors follow via the bus (they read the flag
-    // through isUpstreamStale() at publish time and rebroadcast on the flip).
-    this.bus.emit('upstream.staleChanged', { stale })
-    return true
-  }
-
-  /** Current hub-staleness flag — read by the conversation/issue mirrors at publish time. */
-  isUpstreamStale(): boolean {
-    return this.upstreamStale
-  }
+  // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —
+  // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the
+  // `setUpstreamSessions` ingest that stamped `viaHub`, the stale-visible flip, and
+  // the `upstreamRejection` guard that refused commands against a mirrored session.
+  // Federation is deferred ([spec:SP-0371]) and `UpstreamSync` — the ONLY producer of
+  // any of it — is deleted, so every one of those maps was permanently empty and every
+  // guard reading them was permanently false. What survives is the SEAM, and it is not
+  // here: authority/feed identity (packages/sync/src/feed), the change envelope's
+  // origin/causation/mutation identity (packages/model/src/provenance), and the
+  // reserved node-peer capabilities (packages/protocol/src/handshake).
 
   /**
    * Snooze a session for ONE USER (POD-380). Snooze is per-user state keyed
@@ -1883,7 +1773,6 @@ export class SessionsService {
    * can't inject text into a healthy prompt.
    */
   continueSession({ sessionId }: { sessionId: SessionId }): { ok: boolean } {
-    if (this.upstreamRejection(sessionId)) return { ok: false }
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false }
     // Status gate as well as phase: a session can read 'errored' while its
@@ -1920,8 +1809,6 @@ export class SessionsService {
     queued?: boolean
     reason?: string
   } {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
       return this.queueText({ sessionId, text, inputOrigin })
@@ -1949,8 +1836,6 @@ export class SessionsService {
     queued?: boolean
     reason?: string
   } {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
@@ -2436,8 +2321,6 @@ export class SessionsService {
     inputOrigin?: ObservationInputOrigin
     mutationId?: string
   }): { ok: boolean; queued?: boolean; reason?: string } {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     // A parked session we can never wake would hold the message forever with no
@@ -2786,7 +2669,13 @@ export class SessionsService {
     return this.sessions.get(sessionId)?.issueId ?? null
   }
 
-  setWorkState({ sessionId, workState }: { sessionId: SessionId; workState: WorkState | null }): void {
+  setWorkState({
+    sessionId,
+    workState,
+  }: {
+    sessionId: SessionId
+    workState: WorkState | null
+  }): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.workState = workState ?? undefined
     })
@@ -2815,8 +2704,6 @@ export class SessionsService {
     worktreeFreed?: boolean
     deferredKill?: boolean
   }> {
-    const rejected = this.upstreamRejection(input.sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
 
@@ -3152,8 +3039,6 @@ export class SessionsService {
     sessionId: SessionId
     requireTerminalProof?: boolean
   }): { ok: boolean; reason?: string } {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status !== 'live' && session.status !== 'reconnecting')
@@ -3425,10 +3310,7 @@ export class SessionsService {
    * nothing is published or persisted ahead of time (export → transfer → import
    * all happen inside this one request, refs deleted before it returns).
    */
-  async fetchWorkspace(input: {
-    sourceSessionId: SessionId
-    callerSessionId: SessionId
-  }): Promise<{
+  async fetchWorkspace(input: { sourceSessionId: SessionId; callerSessionId: SessionId }): Promise<{
     path: string
     sameMachine: boolean
     sourceMachine: string
@@ -3570,8 +3452,6 @@ export class SessionsService {
     ok: boolean
     reason?: string
   } {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status === 'live' && session.queuedMessageCount === 0) {
@@ -3591,8 +3471,6 @@ export class SessionsService {
   }: {
     sessionId: SessionId
   }): Promise<{ ok: boolean; reason?: string }> {
-    const rejected = this.upstreamRejection(sessionId)
-    if (rejected) return Promise.resolve(rejected)
     const session = this.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -3732,20 +3610,11 @@ export class SessionsService {
     }
   }
 
-  /** Durable union transition for removing a local session. A retained upstream
-   *  collision is revealed in the same ordered append as the local remove. */
+  /** Durable transition for removing a local session. POD-309 removed the second
+   *  spec this used to push: a retained hub-mirror entry colliding on the same id was
+   *  revealed in the same ordered append. There is no mirror to reveal any more. */
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {
-    const specs: EntityChangeSpec[] = [{ entity: 'session', id: sessionId, op: 'remove' }]
-    const revealedUpstream = this.upstreamSessions.get(sessionId)
-    if (revealedUpstream) {
-      specs.push({
-        entity: 'session',
-        id: sessionId,
-        op: 'upsert',
-        value: this.upstreamWire(revealedUpstream),
-      })
-    }
-    return specs
+    return [{ entity: 'session', id: sessionId, op: 'remove' }]
   }
 
   /** Prepare deletion of every LOCAL session belonging to an issue. The caller
@@ -3845,11 +3714,6 @@ export class SessionsService {
   }
 
   killSession(input: { sessionId: SessionId }): void {
-    // Read-only surface (node-hub-sync §2.3): killing a hub-mirrored session here
-    // would fabricate a kill for a PTY this server doesn't own — reject loudly.
-    if (this.isUpstreamSession(input.sessionId)) {
-      throw new Error(UPSTREAM_COMMAND_REJECTION)
-    }
     const session = this.sessions.get(input.sessionId)
     // Capture before the row is tombstoned — the reap after cleanup needs it.
     const issueId = session?.issueId
@@ -5431,7 +5295,7 @@ export class SessionsService {
   private globalPublicationIds(): readonly string[] {
     const cached = this.globalPublicationIdsCache
     if (cached?.generation === this.sessionsGeneration_) return cached.ids
-    const ids = [...new Set([...this.sessions.keys(), ...this.upstreamSessions.keys()])].sort()
+    const ids = [...this.sessions.keys()].sort()
     this.globalPublicationIdsCache = { generation: this.sessionsGeneration_, ids }
     return ids
   }

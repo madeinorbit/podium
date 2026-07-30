@@ -92,7 +92,7 @@ export function ephemeralTunnelWarning(url: string): string | undefined {
  * `podium set-server <url-or-join-code>` — rotate ONLY the server URL a daemon/client box
  * dials (issue #19: a rotated tunnel URL must not force a re-setup that wholesale-replaces
  * config). Patches `serverUrl` (and `pairCode` when a join code was pasted) and preserves
- * everything else — updateChannel, persistence, port, upstream — and never touches
+ * everything else — updateChannel, persistence, port — and never touches
  * daemon.json (identity/token), so a re-pair is NOT required after a URL rotation.
  * Accepts ws(s):// or http(s):// (http(s) is ws-ified) or a full join code.
  */
@@ -186,7 +186,7 @@ export function applySetup(input: {
  * / `podium setup`) and the web setup's `setup.join` tRPC. Throws on a malformed token.
  * PATCHES the existing config (issue #20 — a wholesale replace made `install.sh --channel
  * edge --join …` silently revert to stable): preserves updateChannel, port, persistence,
- * updateFeed, upstream; drops only the host-mode fields a daemon must not keep (publicUrl)
+ * updateFeed; drops only the host-mode fields a daemon must not keep (publicUrl)
  * and any stale pairCode.
  */
 export function applyJoin(token: string): { name: string; warning?: string } {

@@ -127,13 +127,15 @@ export const REAUTHORIZATION =
  * must-not-change — so declaring the tag would open a transport nothing serves. ADR 3
  * D3 rule 2 permits the tag only for this class; permission is not wiring.
  *
- * THE DURABILITY THAT DOES EXIST IS A DIFFERENT OBJECT, and confusing the two is the
- * exact mistake ADR 3 D4 rule 4 was written to prevent. `IssueCommandCtx.issueWrite`
- * forwards a mutation whose target is a hub-mirrored issue to the upstream forwarder
- * and answers `{ queued: true }` when the hub is unreachable. That is a SERVER-side
+ * THE DURABILITY THAT USED TO EXIST WAS A DIFFERENT OBJECT, and confusing the two is
+ * the exact mistake ADR 3 D4 rule 4 was written to prevent. `IssueCommandCtx.issueWrite`
+ * forwarded a mutation whose target was a hub-mirrored issue to the upstream forwarder
+ * and answered `{ queued: true }` when the hub was unreachable. That was a SERVER-side
  * queue for an already-authorized online command — D4 rule 4's "delivery mechanism",
- * not a client Outbox class — and it is re-authorized on arrival at the hub, which
- * runs this same registry.
+ * not a client Outbox class. POD-309 retired it with the rest of the federation
+ * half-build, so the distinction is now historical: there is no queue on this path at
+ * all, and `offline-eligible` above still buys nothing until a client outbox serves
+ * issues.
  */
 export const WRITE_DELIVERY: DeliveryPolicy = {
   class: 'offline-eligible',

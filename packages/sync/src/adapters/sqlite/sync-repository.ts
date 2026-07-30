@@ -3,7 +3,8 @@
  * the metadata oplog (`changes`, docs/spec/oplog-read-path.md), the outbox
  * write path (`applied_mutations` + `queued_messages`,
  * docs/spec/outbox-write-path.md) and the node⇄hub issue-write outbox
- * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
+ * (`upstream_outbox` — ARCHIVED at POD-309: read-only, see
+ * `listParkedUpstreamMutations`).
  */
 
 import type { SessionId } from '@podium/model'
@@ -92,11 +93,7 @@ export class SyncRepository {
    * recur inside every bounded delete unit. Rows appended after the snapshot are
    * intentionally handled by the next job.
    */
-  planChangePrune(opts: {
-    keepRows: number
-    maxAgeMs: number
-    now: number
-  }): ChangePrunePlan {
+  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan {
     const rowCapSeq = this.maxChangeSeq() - opts.keepRows
     const aged = this.db
       .prepare(
@@ -224,47 +221,30 @@ export class SyncRepository {
     this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
   }
 
-  // ---- upstream issue-write outbox (docs/spec/node-hub-issues.md §2.2) ----
+  // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----
 
-  /** Enqueue an issue mutation bound for the hub. The mutationId IS the PK, so a
-   *  replayed enqueue is a no-op. Returns false when the id already existed. */
-  enqueueUpstreamMutation(row: {
-    mutationId: string
-    proc: string
-    input: string
-    queuedAt: number
-  }): boolean {
-    const r = this.db
-      .prepare(
-        'INSERT OR IGNORE INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(row.mutationId, row.proc, row.input, row.queuedAt)
-    return Number(r.changes) > 0
-  }
-
-  /** The full outbox, FIFO (drain order — serial, oldest first). */
-  listUpstreamOutbox(): { mutationId: string; proc: string; input: string; attempts: number }[] {
+  /**
+   * Rows still sitting in `upstream_outbox` — issue mutations a NODE queued for a hub
+   * it could not reach, at the moment federation was deferred ([spec:SP-0371]).
+   *
+   * The enqueue / delete / attempt-bump half of this table is GONE with
+   * `UpstreamForwarder`; this read survives alone, and deliberately. ADR 5 D8 permits
+   * archiving the schema but forbids "silent discard of poison/pending work", so the
+   * rows are parked exactly where they are and `reportParkedUpstreamMutations` (server
+   * boot) tells the operator they exist. A read with no writer cannot resurrect the
+   * forwarding path; a table quietly dropped would have taken the evidence with it.
+   */
+  listParkedUpstreamMutations(): { mutationId: string; proc: string; queuedAt: number }[] {
     const rows = this.db
       .prepare(
-        'SELECT mutation_id, proc, input, attempts FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',
+        'SELECT mutation_id, proc, queued_at FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',
       )
       .all() as Record<string, unknown>[]
     return rows.map((r) => ({
       mutationId: r.mutation_id as string,
       proc: r.proc as string,
-      input: r.input as string,
-      attempts: r.attempts as number,
+      queuedAt: Number(r.queued_at),
     }))
-  }
-
-  deleteUpstreamMutation(mutationId: string): void {
-    this.db.prepare('DELETE FROM upstream_outbox WHERE mutation_id = ?').run(mutationId)
-  }
-
-  bumpUpstreamMutationAttempts(mutationId: string): void {
-    this.db
-      .prepare('UPDATE upstream_outbox SET attempts = attempts + 1 WHERE mutation_id = ?')
-      .run(mutationId)
   }
 
   // ---- feed identity (ADR 2 D1) ----

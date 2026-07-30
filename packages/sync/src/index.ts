@@ -1,8 +1,8 @@
 /**
- * @podium/sync — the node⇄hub sync layer (issue #196): the durable metadata
- * change log + outbox write path (SyncRepository, Ledger), the node→hub
- * dialer and issue write forwarder (UpstreamSync, UpstreamForwarder), and the
- * transcript-lake mirror (MirrorService). Depends only on @podium/protocol and
+ * @podium/sync — the sync kernel: the Authority write funnel, the durable metadata
+ * change log + outbox write path (SyncRepository, Ledger), the Replica and Outbox
+ * roles, feed identity, the parameterized conformance suite, and the transcript-lake
+ * mirror (MirrorService). Depends only on @podium/protocol and
  * @podium/runtime — never apps/*; apps/server injects its store repositories
  * through the narrow interfaces each class declares. The change-log internals
  * (./change-log.ts) are private to the package.
@@ -95,5 +95,10 @@ export * from './adapters/sqlite/sync-repository'
 export * from './adapters/indexeddb/idb'
 export * from './adapters/indexeddb/schema'
 export * from './adapters/indexeddb/store'
-export * from './upstream'
-export * from './upstream-forwarder'
+// RETIRED at POD-309: `./upstream` (UpstreamSync — the node→hub dialer) and
+// `./upstream-forwarder` (UpstreamForwarder — the node→hub issue write path) were
+// exported here. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1), and
+// the SEAM that keeps it possible is exported ABOVE this line rather than by them:
+// `./conformance/index` (parameterized by instantiation, S5), `./authority/index` and
+// `./feed/visibility` (authority + feed identity, S1), and `./outbox` + `./replica/index`
+// (kernel ports with no transport or storage baked in, S4).

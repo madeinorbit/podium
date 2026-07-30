@@ -106,18 +106,14 @@ export const PodiumConfig = z.object({
    * persistence and replaces the field with `persistence` (issue #20).
    */
   pendingPersistence: z.enum(['systemd', 'detached']).optional(),
-  /**
-   * Node⇄hub sync (docs/spec/node-hub-sync.md §2.1): when present, this server is a NODE
-   * that mirrors the hub at `url` (http(s):// or ws(s):// base) through the thin-client
-   * protocol, authenticating with `token` — a hub-minted long-lived client-session token
-   * (`scripts/mint-upstream-token.ts` on the hub). Absent = today's behavior, byte-identical.
-   */
-  upstream: z
-    .object({
-      url: z.string(),
-      token: z.string(),
-    })
-    .optional(),
+  // RETIRED at POD-309 (ADR 5 D8 "Retirement"): `upstream: { url, token }` named the hub
+  // a NODE dialed. Federation is deferred ([spec:SP-0371]), the dialer is deleted, and a
+  // config key nothing reads is a promise the binary does not keep. The key is NOT
+  // re-reserved as an inert optional: zod objects strip unknown keys by default, so an
+  // operator's stale `upstream` block loads WITHOUT crash-looping the box (it is dropped
+  // from the file on the next `saveConfig`, which is the honest outcome for a retired
+  // key rather than a field pretending to still do something). `config.test.ts` pins
+  // both halves. A future hub (POD-353) re-declares it, with a live reader.
   /**
    * Operator feature-flag overrides [spec:SP-f4b9]. Keys are stable feature ids
    * from the protocol registry (`FEATURES`); values force enable/disable and

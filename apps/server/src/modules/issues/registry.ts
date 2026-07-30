@@ -102,12 +102,6 @@ export interface IssueCommandDeps {
   deleteIssue(id: string): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
   restoreIssue(id: string): unknown
-  /** True when `id` is a hub-mirrored issue (modules/issues/upstream). */
-  isUpstreamIssue(id: string): boolean
-  /** Forward one issue mutation to the hub (viaHub write forwarding, §2.2). */
-  forwardIssueMutation(proc: string, input: Record<string, unknown>): Promise<unknown>
-  /** repoPaths that exist among hub issues (create's hub-only repo check). */
-  upstreamIssueRepoPaths(): Set<string>
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
    *
@@ -159,9 +153,9 @@ export type IssueCommandKind = 'query' | 'mutation'
  *
  * `target` is the old SCOPED_TARGET extractor: how to read the target EXISTING
  * issue id from the RAW, unparsed input. It stays on the server side because it
- * feeds two server mechanisms and no client one — the capability guard's subtree
- * check ({@link guardIssueCommand}) and the viaHub forwarding detection
- * ({@link commandTarget}, consumed by modules/issues/upstream.ts).
+ * feeds the capability guard's subtree check ({@link guardIssueCommand}). It also
+ * backed the retired viaHub forwarding detection; POD-309 deleted that consumer and
+ * {@link commandTarget} survives for the guard alone.
  *
  * THE SEAM INVARIANT, which is asserted rather than assumed: an extractor is
  * present if and only if the contract declares `policy.resource === 'issue'`.
@@ -220,10 +214,7 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   d: {
     kind: K
     target?: (input: Record<string, unknown>) => string | undefined
-    handler: (
-      ctx: IssueCommandCtx,
-      input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>,
-    ) => Out
+    handler: (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => Out
   },
 ): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out> {
   const contract = ISSUE_CONTRACTS[name]
@@ -270,33 +261,13 @@ export class IssueCommandCtx {
     return this.deps.mutations.once(mutationId, `issues.${this.name}`, fn)
   }
 
-  /**
-   * viaHub write forwarding (docs/spec/node-hub-issues.md §2.2): a mutation whose
-   * target is a hub-mirrored issue is handed to the upstream forwarder instead of
-   * the local IssueService — `{ queued: true }` when the hub is unreachable, the
-   * hub's own result when it is. Only the unconstrained operator may act on hub
-   * issues; node-side agents/assistants never do (§2.3).
-   */
-  issueWrite<R>(
-    input: Record<string, unknown>,
-    local: () => R,
-  ): R | Promise<Awaited<R> | { queued: true }> {
-    const target = this.targetOf?.(input)
-    if (typeof target === 'string' && this.deps.isUpstreamIssue(target)) {
-      if (this.caller.capability.scope.kind !== 'all') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'issue is managed via the hub — agents cannot act on hub issues from this node',
-        })
-      }
-      // The hub runs the same registry, so its result IS this command's result
-      // shape — plus the offline `{ queued: true }` outcome (spec §2.2).
-      return this.deps.forwardIssueMutation(this.name, input) as Promise<
-        Awaited<R> | { queued: true }
-      >
-    }
-    return local()
-  }
+  // RETIRED at POD-309: `issueWrite(input, local)` sat between every issue mutation
+  // and its handler, routing a mutation whose target was a hub-mirrored issue to
+  // `UpstreamForwarder` instead of `IssueService`. With federation deferred there is no
+  // second authority to forward to, so the wrapper's only remaining behaviour was
+  // `return local()`. It was UNWRAPPED at its 28 call sites rather than left as a
+  // pass-through: a wrapper with no content still reads as a policy seam, and the next
+  // author to add a branch to it would be re-growing the forwarding path by accident.
 
   /** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
    *  for a subtree-scoped agent, else 'operator'. */
@@ -533,10 +504,7 @@ const defs = {
    *  comments live on the hub, so this returns []. */
   comments: def('comments', {
     kind: 'query',
-    handler: (ctx, input) => {
-      if (ctx.deps.isUpstreamIssue(input.id)) return []
-      return ctx.issues.comments(input.id)
-    },
+    handler: (ctx, input) => ctx.issues.comments(input.id),
   }),
   events: def('events', {
     kind: 'query',
@@ -559,64 +527,48 @@ const defs = {
   setState: def('setState', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.setState(input.id, input.text)),
+    handler: (ctx, input) => ctx.issues.setState(input.id, input.text),
   }),
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
   panelApply: def('panelApply', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
-        // add pulls a snapshot from the owning daemon before the panel commit;
-        // remove also deletes the snapshot dir.
-        if (input.op === 'artifact-add') {
-          if (!input.path) throw new Error('artifact-add requires a path')
-          return ctx.issues.panelArtifactAdd(
-            input.id,
-            {
-              path: input.path,
-              ...(input.title ? { title: input.title } : {}),
-              ...(input.extraPaths ? { extraPaths: input.extraPaths } : {}),
-            },
-            ctx.caller.capability.actorSessionId
-              ? { actorSessionId: ctx.caller.capability.actorSessionId }
-              : undefined,
-          )
-        }
-        if (input.op === 'artifact-remove') {
-          if (input.index == null) throw new Error('artifact-remove requires an index')
-          return ctx.issues.panelArtifactRemove(input.id, input.index)
-        }
-        return ctx.issues.panelApply(input.id, {
-          op: input.op,
-          text: input.text,
-          index: input.index,
-          path: input.path,
-          title: input.title,
-        } as never)
-      }),
+    handler: (ctx, input) => {
+      // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
+      // add pulls a snapshot from the owning daemon before the panel commit;
+      // remove also deletes the snapshot dir.
+      if (input.op === 'artifact-add') {
+        if (!input.path) throw new Error('artifact-add requires a path')
+        return ctx.issues.panelArtifactAdd(
+          input.id,
+          {
+            path: input.path,
+            ...(input.title ? { title: input.title } : {}),
+            ...(input.extraPaths ? { extraPaths: input.extraPaths } : {}),
+          },
+          ctx.caller.capability.actorSessionId
+            ? { actorSessionId: ctx.caller.capability.actorSessionId }
+            : undefined,
+        )
+      }
+      if (input.op === 'artifact-remove') {
+        if (input.index == null) throw new Error('artifact-remove requires an index')
+        return ctx.issues.panelArtifactRemove(input.id, input.index)
+      }
+      return ctx.issues.panelApply(input.id, {
+        op: input.op,
+        text: input.text,
+        index: input.index,
+        path: input.path,
+        title: input.title,
+      } as never)
+    },
   }),
   // write — filing/decomposing is additive; scope gates writes to EXISTING issues,
   // not creation (no `target`).
   create: def('create', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
-      // repo mapping — spec §2.2). A repoPath that exists only among the hub's
-      // mirrored issues is detectable: reject it clearly instead of silently
-      // filing a local issue against a repo this node doesn't have.
-      // (hub check first: with no upstream issues this never touches the repo list —
-      // the no-upstream-config inertness invariant, and test stubs stay happy.)
-      if (
-        ctx.deps.upstreamIssueRepoPaths().has(input.repoPath) &&
-        !ctx.deps.repoPaths().includes(input.repoPath)
-      ) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: `repo ${input.repoPath} exists only on the hub — create the issue on the hub itself`,
-        })
-      }
       // #198 [spec:SP-a859]: two provenance axes, both derived HERE so they can't be forged.
       //  - origin  = WHO CREATED it: the unconstrained operator (scope 'all', i.e.
       //    the web UI / human) → 'human'; any constrained agent → 'agent'.
@@ -707,65 +659,60 @@ const defs = {
   start: def('start', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
-        // filed under a proposed parent cannot be started to run work under an
-        // unapproved proposal, so the ancestor chain is checked, not just the row.
-        assertNotProposedForAgent(ctx, input.id, 'start')
-        if (ctx.caller.capability.scope.kind !== 'all') {
-          for (const anc of ctx.issues.ancestorIds(input.id)) {
-            assertNotProposedForAgent(ctx, anc, 'start work under')
-          }
+    handler: (ctx, input) => {
+      // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
+      // filed under a proposed parent cannot be started to run work under an
+      // unapproved proposal, so the ancestor chain is checked, not just the row.
+      assertNotProposedForAgent(ctx, input.id, 'start')
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        for (const anc of ctx.issues.ancestorIds(input.id)) {
+          assertNotProposedForAgent(ctx, anc, 'start work under')
         }
-        return ctx.issues.start(input.id, input.agentKind, {
-          spawnedBy: ctx.spawnProvenance(),
-          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-        })
-      }),
+      }
+      return ctx.issues.start(input.id, input.agentKind, {
+        spawnedBy: ctx.spawnProvenance(),
+        ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+      })
+    },
   }),
   update: def('update', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () => {
-          // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
-          // lane through MORE than `stage` — archived (dismissal), closedReason
-          // (close), parentId (no longer top-level). All of them are lifecycle
-          // moves and all take the same operator-only guard.
-          const p = input.patch
-          const movesLifecycle =
-            (p.stage != null && p.stage !== 'proposed') ||
-            p.archived !== undefined ||
-            p.closedReason !== undefined ||
-            p.parentId !== undefined
-          if (movesLifecycle) assertNotProposedForAgent(ctx, input.id, 'promote')
-          return ctx.issues.update(input.id, input.patch, {
-            actorSessionId: ctx.caller.capability.actorSessionId,
-          })
-        }),
-      ),
+      ctx.withMutation(input.mutationId, () => {
+        // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
+        // lane through MORE than `stage` — archived (dismissal), closedReason
+        // (close), parentId (no longer top-level). All of them are lifecycle
+        // moves and all take the same operator-only guard.
+        const p = input.patch
+        const movesLifecycle =
+          (p.stage != null && p.stage !== 'proposed') ||
+          p.archived !== undefined ||
+          p.closedReason !== undefined ||
+          p.parentId !== undefined
+        if (movesLifecycle) assertNotProposedForAgent(ctx, input.id, 'promote')
+        return ctx.issues.update(input.id, input.patch, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+        })
+      }),
   }),
   promote: def('promote', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      // issueWrite like every sibling mutation: hub forwarding + store gating.
-      ctx.issueWrite(input, () => {
-        if (ctx.caller.capability.scope.kind !== 'all') {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'only an operator may promote a proposed issue',
-          })
-        }
-        const issue = ctx.issues.get(input.id)
-        if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + input.id })
-        if (issue.stage !== 'proposed') {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
-        }
-        return ctx.issues.update(input.id, { stage: 'backlog' })
-      }),
+    handler: (ctx, input) => {
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'only an operator may promote a proposed issue',
+        })
+      }
+      const issue = ctx.issues.get(input.id)
+      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + input.id })
+      if (issue.stage !== 'proposed') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
+      }
+      return ctx.issues.update(input.id, { stage: 'backlog' })
+    },
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
   // onto an existing issue or a fresh sub-issue. sessionId comes from the daemon
@@ -797,62 +744,41 @@ const defs = {
     // Agent posture: allow in subtree; require --outside-scope confirmation
     // elsewhere. Archiving is reversible and no more destructive than close.
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        assertNotProposedForAgent(ctx, input.id, 'archive')
-        return ctx.issues.archive(input.id)
-      }),
+    handler: (ctx, input) => {
+      assertNotProposedForAgent(ctx, input.id, 'archive')
+      return ctx.issues.archive(input.id)
+    },
   }),
   delete: def('delete', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.deleteIssue(input.id)),
+    handler: (ctx, input) => ctx.deleteIssue(input.id),
   }),
   restore: def('restore', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.restoreIssue(input.id)),
+    handler: (ctx, input) => ctx.restoreIssue(input.id),
   }),
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.action(input.id, input.kind)),
+    handler: (ctx, input) => ctx.issues.action(input.id, input.kind),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
-  // closing agent may clean up after itself. Scope-gated like its siblings but
-  // deliberately NOT issueWrite-forwarded (P7b write forwarding): cleanup acts on
-  // LOCAL git state — it removes a worktree directory and deletes a branch via
-  // THIS node's daemon. The hub cannot clean this node's worktree, and this node
-  // must not delete another machine's. Hub-mirrored issues get a hard refusal
-  // here instead of falling through to a misleading local 'unknown issue'.
+  // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
+  // worktree directory and deletes a branch via THIS machine's daemon.
   cleanup: def('cleanup', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
-      if (ctx.deps.isUpstreamIssue(input.id)) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'cleanup is local-only: this issue is managed via the hub — run cleanup on the machine that owns its worktree',
-        })
-      }
-      return ctx.issues.cleanup(input.id)
-    },
+    handler: (ctx, input) => ctx.issues.cleanup(input.id),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
   // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
-  // outside needs --outside-scope). Local-only — hub-mirrored issues refuse.
+  // outside needs --outside-scope). Acts on THIS machine's sessions and worktree.
   stop: def('stop', {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      if (ctx.deps.isUpstreamIssue(input.id)) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'stop is local-only: this issue is managed via the hub — run stop on the machine that owns its sessions',
-        })
-      }
       if (!ctx.deps.stopIssueSessions) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -875,93 +801,73 @@ const defs = {
       return r
     },
   }),
-  // Write, not manage: builds/reset a dedicated integration worktree+branch only —
+  // Write, not manage: builds/resets a dedicated integration worktree+branch only —
   // never touches child branches, the root checkout, or the parent branch. Spawns
-  // nothing, so no confirm gate beyond the write role gate. Like cleanup,
-  // deliberately NOT issueWrite-forwarded: integrate rebuilds a LOCAL integration
-  // worktree/branch via THIS node's daemon. Hub-mirrored issues get a hard refusal.
+  // nothing, so no confirm gate beyond the write role gate. Like cleanup, it rebuilds
+  // a LOCAL integration worktree/branch via THIS machine's daemon.
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => {
-      if (ctx.deps.isUpstreamIssue(input.id)) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            'integrate is local-only: this issue is managed via the hub — run integrate on the machine that owns its worktrees',
-        })
-      }
-      return ctx.issues.integrate(input.id)
-    },
+    handler: (ctx, input) => ctx.issues.integrate(input.id),
   }),
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.issues.addSession(input.id, input.agentKind, {
-          spawnedBy: ctx.spawnProvenance(),
-          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-        }),
-      ),
+      ctx.issues.addSession(input.id, input.agentKind, {
+        spawnedBy: ctx.spawnProvenance(),
+        ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+      }),
   }),
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.issues.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
-      ),
+    handler: (ctx, input) => ctx.issues.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.applySuggestion(input.id)),
+    handler: (ctx, input) => ctx.issues.applySuggestion(input.id),
   }),
   dismissSuggestion: def('dismissSuggestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.dismissSuggestion(input.id)),
+    handler: (ctx, input) => ctx.issues.dismissSuggestion(input.id),
   }),
   refreshAssistant: def('refreshAssistant', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.refreshAssistant(input.id)),
+    handler: (ctx, input) => ctx.issues.refreshAssistant(input.id),
   }),
   setLabels: def('setLabels', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.setLabels(input.id, input.labels)),
+    handler: (ctx, input) => ctx.issues.setLabels(input.id, input.labels),
   }),
   addComment: def('addComment', {
     kind: 'mutation',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
-          ctx.issues.addComment(input.id, input.author, input.body),
-        ),
+      ctx.withMutation(input.mutationId, () =>
+        ctx.issues.addComment(input.id, input.author, input.body),
       ),
   }),
   depAdd: def('depAdd', {
     kind: 'mutation',
     target: (i) => i.fromId as string,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.addDep(input.fromId, input.toId, input.type)),
+    handler: (ctx, input) => ctx.issues.addDep(input.fromId, input.toId, input.type),
   }),
   depRemove: def('depRemove', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
     target: (i) => i.fromId as string,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.removeDep(input.fromId, input.toId, input.type)),
+    handler: (ctx, input) => ctx.issues.removeDep(input.fromId, input.toId, input.type),
   }),
   defer: def('defer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.defer(input.id, input.until)),
+    handler: (ctx, input) => ctx.issues.defer(input.id, input.until),
   }),
   // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
   // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
@@ -969,20 +875,18 @@ const defs = {
   undefer: def('undefer', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.undefer(input.id)),
+    handler: (ctx, input) => ctx.issues.undefer(input.id),
   }),
   // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
-  // Node-local read-tracking — deliberately NOT issueWrite (never hub-forwarded)
-  // and 'read' authority only (reading marks read), despite being a mutation on
-  // the wire.
+  // Read-tracking carries 'read' authority only (reading marks read), despite being
+  // a mutation on the wire.
   markRead: def('markRead', {
     kind: 'mutation',
     handler: (ctx, input) =>
       ctx.withMutation(input.mutationId, () => ctx.issues.markIssueRead(input.id)),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
-  // `unread` back to true. Node-local like markRead (NOT issueWrite / never
-  // hub-forwarded) — read-tracking needs only 'read'.
+  // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
     handler: (ctx, input) =>
@@ -990,8 +894,7 @@ const defs = {
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
-  // node-local like markRead (deliberately NOT issueWrite / never hub-forwarded)
-  // and 'read' authority, despite being a mutation on the wire.
+  // 'read' authority like markRead, despite being a mutation on the wire.
   setTucked: def('setTucked', {
     kind: 'mutation',
     handler: (ctx, input) =>
@@ -1021,12 +924,10 @@ const defs = {
             'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
         })
       }
-      return ctx.issueWrite(input, () =>
-        ctx.issues.setNeedsHuman(input.id, input.question ?? null, {
-          ...(input.options ? { options: input.options } : {}),
-          ...(askedBy ? { askedBy } : {}),
-        }),
-      )
+      return ctx.issues.setNeedsHuman(input.id, input.question ?? null, {
+        ...(input.options ? { options: input.options } : {}),
+        ...(askedBy ? { askedBy } : {}),
+      })
     },
   }),
   /** Web-callable Tray answer (issue #53): deliver `answer` to the asking
@@ -1037,71 +938,68 @@ const defs = {
   answerQuestion: def('answerQuestion', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, async () => {
-        const issue = ctx.issues.getMeta(input.id)
-        if (!issue) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
-        }
-        if (!issue.needsHuman) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'issue has no pending question',
-          })
-        }
-        if (!issue.humanQuestionAskedBy) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              'question has no asking session recorded — reply in the session, then clearNeedsHuman',
-          })
-        }
-        if (!ctx.deps.answerSessionQuestion) {
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: 'answer delivery is not wired on this node',
-          })
-        }
-        const r = await ctx.deps.answerSessionQuestion(issue.humanQuestionAskedBy, input.answer)
-        if (!r.ok) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `answer not delivered: ${r.message}`,
-          })
-        }
-        return { issue: ctx.issues.clearNeedsHuman(input.id), deliveredVia: r.via }
-      }),
+    handler: async (ctx, input) => {
+      const issue = ctx.issues.getMeta(input.id)
+      if (!issue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
+      }
+      if (!issue.needsHuman) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'issue has no pending question',
+        })
+      }
+      if (!issue.humanQuestionAskedBy) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'question has no asking session recorded — reply in the session, then clearNeedsHuman',
+        })
+      }
+      if (!ctx.deps.answerSessionQuestion) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'answer delivery is not wired on this node',
+        })
+      }
+      const r = await ctx.deps.answerSessionQuestion(issue.humanQuestionAskedBy, input.answer)
+      if (!r.ok) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `answer not delivered: ${r.message}`,
+        })
+      }
+      return { issue: ctx.issues.clearNeedsHuman(input.id), deliveredVia: r.via }
+    },
   }),
   clearNeedsHuman: def('clearNeedsHuman', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.clearNeedsHuman(input.id)),
+    handler: (ctx, input) => ctx.issues.clearNeedsHuman(input.id),
   }),
   reparent: def('reparent', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // This lets an agent repair its own planning hierarchy without recreating issues.
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        // B2 [spec:SP-6144]: reparenting a proposal pulls it out of the lane's
-        // structural definition (top-level), and reparenting work UNDER a
-        // proposal runs activity beneath an unapproved item — both operator-only.
-        assertNotProposedForAgent(ctx, input.id, 'reparent')
-        if (input.parentId != null) {
-          assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
-        }
-        return ctx.issues.reparent(input.id, input.parentId)
-      }),
+    handler: (ctx, input) => {
+      // B2 [spec:SP-6144]: reparenting a proposal pulls it out of the lane's
+      // structural definition (top-level), and reparenting work UNDER a
+      // proposal runs activity beneath an unapproved item — both operator-only.
+      assertNotProposedForAgent(ctx, input.id, 'reparent')
+      if (input.parentId != null) {
+        assertNotProposedForAgent(ctx, input.parentId, 'nest work under')
+      }
+      return ctx.issues.reparent(input.id, input.parentId)
+    },
   }),
   claim: def('claim', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        assertNotProposedForAgent(ctx, input.id, 'claim')
-        return ctx.issues.claim(input.id, input.assignee)
-      }),
+    handler: (ctx, input) => {
+      assertNotProposedForAgent(ctx, input.id, 'claim')
+      return ctx.issues.claim(input.id, input.assignee)
+    },
   }),
   /** Claim / set / clear the issue's designated coordinator session
    *  (docs/agent-comms-target.html §05 q1). Actionable issue-addressed mail
@@ -1109,63 +1007,59 @@ const defs = {
   setCoordinator: def('setCoordinator', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        let sessionId: SessionId | null
-        if (input.claim) {
-          const actor = ctx.caller.capability.actorSessionId
-          if (!actor) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: 'coordinator --claim requires a session-bound caller',
-            })
-          }
-          sessionId = actor
-        } else if (input.sessionId !== undefined) {
-          sessionId = input.sessionId
-        } else {
+    handler: (ctx, input) => {
+      let sessionId: SessionId | null
+      if (input.claim) {
+        const actor = ctx.caller.capability.actorSessionId
+        if (!actor) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
-            message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
+            message: 'coordinator --claim requires a session-bound caller',
           })
         }
-        return ctx.issues.setCoordinator(input.id, sessionId)
-      }),
+        sessionId = actor
+      } else if (input.sessionId !== undefined) {
+        sessionId = input.sessionId
+      } else {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
+        })
+      }
+      return ctx.issues.setCoordinator(input.id, sessionId)
+    },
   }),
   close: def('close', {
     kind: 'mutation',
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        assertNotProposedForAgent(ctx, input.id, 'close')
-        return ctx.withMutation(input.mutationId, () =>
-          ctx.issues.close(input.id, input.reason, {
-            actorSessionId: ctx.caller.capability.actorSessionId,
-          }),
-        )
-      }),
+    handler: (ctx, input) => {
+      assertNotProposedForAgent(ctx, input.id, 'close')
+      return ctx.withMutation(input.mutationId, () =>
+        ctx.issues.close(input.id, input.reason, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+        }),
+      )
+    },
   }),
   supersede: def('supersede', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is oldId; newId remains a relation destination.
     target: (i) => i.oldId as string,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        assertNotProposedForAgent(ctx, input.oldId, 'supersede')
-        return ctx.issues.supersede(input.oldId, input.newId)
-      }),
+    handler: (ctx, input) => {
+      assertNotProposedForAgent(ctx, input.oldId, 'supersede')
+      return ctx.issues.supersede(input.oldId, input.newId)
+    },
   }),
   duplicate: def('duplicate', {
     kind: 'mutation',
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is id; canonicalId remains a relation destination.
     target: targetId,
-    handler: (ctx, input) =>
-      ctx.issueWrite(input, () => {
-        assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
-        return ctx.issues.duplicate(input.id, input.canonicalId)
-      }),
+    handler: (ctx, input) => {
+      assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
+      return ctx.issues.duplicate(input.id, input.canonicalId)
+    },
   }),
 
   // ---- agent mail (issue #103). Local-only (never hub-forwarded): message ids
@@ -1342,8 +1236,7 @@ export const issueRegistry = defineCommands('issues', defs)
 export type IssueRegistryDefs = typeof issueRegistry.defs
 
 /** The target EXISTING-issue id a command mutates, per its registry definition —
- *  the replacement for indexing the old SCOPED_TARGET map by proc name (viaHub
- *  forwarding + upstream outbox folding read through this). */
+ *  the replacement for indexing the old SCOPED_TARGET map by proc name. */
 export function commandTarget(name: string, input: Record<string, unknown>): string | undefined {
   return (issueRegistry.defs as Record<string, AnyIssueCommandDef | undefined>)[name]?.target?.(
     input,

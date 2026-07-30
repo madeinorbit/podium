@@ -67,6 +67,7 @@
     "audit:router-mutations": "bun scripts/audit-router-mutations.ts --probe && bun scripts/audit-router-mutations.ts",
     "audit:scoped-feed": "bun scripts/audit-scoped-feed.ts --probe && bun scripts/audit-scoped-feed.ts",
     "audit:machine-grants": "bun scripts/audit-machine-grants.ts --probe && bun scripts/audit-machine-grants.ts",
+    "audit:seam": "bun scripts/audit-federation-seam.ts --probe && bun scripts/audit-federation-seam.ts",
     "audit:spec": "bun scripts/audit-spec-commands.ts --probe && bun scripts/audit-spec-commands.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",

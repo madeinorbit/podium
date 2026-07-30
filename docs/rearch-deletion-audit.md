@@ -130,6 +130,37 @@ So detectors must not key on things that move for unrelated reasons:
 in the live tree, which catches total drift. It cannot catch partial
 under-counting — that is what the rules above are for.
 
+### What an item that reaches ZERO owes (POD-309)
+
+The anchor rule above bites hardest the moment an item is genuinely finished,
+because from then on its count can only ever be zero — and "nothing found" is
+also what a broken detector reports. `rearch-audit.test.ts`'s live-anchor
+assertion would red forever, so a finished item has to be exempted, and the
+exemption is where a real detector quietly turns into a decoration.
+
+**The rule, set by `send-turn-duplicate` and followed by `upstream-sync-forwarder`:
+an item may join `ZERO_BY_DESIGN` only if its `collect` THROWS when its anchor
+stops matching.** Nothing looser. The exemption removes the only assertion that
+was watching the detector, so the detector must watch itself.
+
+`send-turn-duplicate` could anchor on surviving code — one procedure still
+forwards to `sendTurn`, so zero matches means the anchor moved.
+`upstream-sync-forwarder` (POD-309) has no surviving code at all: both classes
+and both construction sites are gone. It therefore anchors on the two facts its
+zero DEPENDS on, neither of which deletion can satisfy:
+
+1. **its roots still resolve to files** — a package move or a layout change
+   would otherwise read as "the forwarder is still deleted";
+2. **its pattern still matches control strings it is supposed to match** — an
+   edit that breaks the regex (an unescaped brace, a lost alternation) would
+   otherwise report a serene zero forever.
+
+The generalisation, for the next item to reach zero: ask what would have to be
+true for this zero to be MEANINGFUL, and assert that. If the answer is "nothing
+— the code is gone", the detector's own machinery (its roots, its pattern) is
+what is left to check, and checking it is not ceremony: it is the difference
+between an item that is done and an item nobody is measuring.
+
 ## Baseline reconciliations
 
 A baseline bump is the one edit that can retire this guardrail, so every bump is

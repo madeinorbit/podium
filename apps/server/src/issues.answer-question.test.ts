@@ -42,9 +42,6 @@ function harness(
     issues: () => svc,
     deleteIssue: () => undefined,
     restoreIssue: () => undefined,
-    isUpstreamIssue: () => false,
-    forwardIssueMutation: async () => undefined,
-    upstreamIssueRepoPaths: () => new Set(),
     // A ledger with no durable store: never dedupes, so every call runs — the
     // pass-through this file's cases assume. Idempotency itself is characterized
     // in packages/sync/src/mutation-ledger.test.ts, not here.
@@ -156,7 +153,11 @@ describe('issues.answerQuestion (issue #53)', () => {
     // alone would allow it) is refused: answerQuestion would later deliver the
     // human's answer INTO that session.
     await expect(
-      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') }, worker),
+      call(
+        'setNeedsHuman',
+        { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
+        worker,
+      ),
     ).rejects.toThrow(/askedBy is server-authoritative/)
     expect(svc.get(a.id)!.needsHuman).toBe(false) // nothing was flagged
     // Own session passes, explicitly or by default.
@@ -167,7 +168,11 @@ describe('issues.answerQuestion (issue #53)', () => {
       capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
     }
     await expect(
-      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') }, sessionless),
+      call(
+        'setNeedsHuman',
+        { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
+        sessionless,
+      ),
     ).rejects.toThrow(/askedBy is server-authoritative/)
   })
 })

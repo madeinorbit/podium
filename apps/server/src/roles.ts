@@ -3,9 +3,10 @@
  *
  * One server codebase, composed by role:
  *
- *  - `core` — everything a single-user node needs: store, registry (relay),
- *    sessions, sync (incl. DIALING an upstream hub), search, web-serving,
- *    transcripts, issues, settings, notify, superagent, login auth.
+ *  - `core` — everything a single-user server needs: store, registry (relay),
+ *    sessions, sync, search, web-serving, transcripts, issues, settings, notify,
+ *    superagent, login auth. (It used to also list "DIALING an upstream hub";
+ *    POD-309 retired that dialer with the rest of the federation half-build.)
  *  - `hub`  — only when this server is the rendezvous point for OTHER machines
  *    and nodes: inbound daemon pairing, fleet admin (rename/revoke machines,
  *    join-command minting).
@@ -78,23 +79,30 @@ export function isCompositionRoot(relPath: string): boolean {
 export interface ServerRoleConfig {
   /**
    * Hub surfaces: inbound daemon pairing (`pair` handshake + machines.pairingCode)
-   * and fleet admin (machines.rename/revoke). Off = this server is a plain NODE:
-   * other machines cannot join it; its own local daemon (hello) and everything
-   * core — including dialing an upstream hub — is unaffected.
+   * and fleet admin (machines.rename/revoke). Off = other machines cannot join this
+   * server; its own local daemon (hello) and everything core is unaffected. Reachable
+   * only by an explicit role config since POD-309 — see {@link resolveServerRole}.
    */
   hub: boolean
 }
 
 /**
- * Resolve the process role: an explicit config wins; otherwise the presence of
- * `config.upstream` decides — a server dialing an upstream hub is a NODE, and a
- * node is not a rendezvous point (the architecture's "node = same binary with
- * the upstream sync client enabled and inbound pairing disabled"). No upstream
- * = today's all-in-one/hub deployment: core + hub, the historical behavior.
+ * Resolve the process role: an explicit config wins; otherwise **hub surfaces are on**.
+ *
+ * RETIREMENT DECISION (POD-309, ADR 5 D2 + D8). This used to read `config.upstream`:
+ * a server dialing a hub was a NODE, so inbound pairing was switched off for it. That
+ * heuristic named an H2 deployment shape, and H2 is deferred ([spec:SP-0371]) — with
+ * the dialer deleted there is no such server, and a heuristic whose input can no longer
+ * exist is a branch that reads as policy while being dead code.
+ *
+ * What replaces it is what ADR 5 D2 already says about H1: the single server IS the
+ * rendezvous point for its console clients and its N paired machine daemons, and
+ * "daemon pairing and fleet admin STAY" (D5 invariant). So the default is `hub: true` —
+ * byte-identical to the behaviour every non-node deployment already had. The explicit
+ * override survives untouched: an operator (or a test) can still stand up a
+ * pairing-less server, which is the only way `hub: false` was ever reachable
+ * deliberately rather than as a side effect of configuring an upstream.
  */
-export function resolveServerRole(
-  explicit: Partial<ServerRoleConfig> | undefined,
-  config: { upstream?: unknown },
-): ServerRoleConfig {
-  return { hub: explicit?.hub ?? !config.upstream }
+export function resolveServerRole(explicit?: Partial<ServerRoleConfig>): ServerRoleConfig {
+  return { hub: explicit?.hub ?? true }
 }

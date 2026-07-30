@@ -1,7 +1,4 @@
-import {
-  type ConversationSummaryWireInput,
-  type ConversationSummaryWire,
-} from '@podium/model'
+import { type ConversationSummaryWireInput, type ConversationSummaryWire } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -287,21 +284,6 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const since = delta.inbox.slice(before)
     expect(since.some((m) => m.type === 'conversationsChanged')).toBe(false)
     expect(deltaConversationChanges(since).some((c) => c.id === 'c1')).toBe(true)
-  })
-
-  it('upstream mirror paths reconcile the local ∪ upstream UNION (removes included)', () => {
-    const registry = makeRegistry()
-    registry.gateway.attachDaemon('m1', () => {})
-    push(registry, [conv('c1')])
-    const cursor = cursorOf(registry)
-    registry.modules.conversations.setUpstreamConversations([conv('hub-1')])
-    const added = conversationChangesSince(registry, cursor)
-    expect(added.some((c) => c.id === 'hub-1' && c.op === 'upsert')).toBe(true)
-    expect(added.some((c) => c.id === 'c1')).toBe(false) // local rows already recorded — union dedups
-    // Hub drops the conversation → the union reconcile records the remove.
-    registry.modules.conversations.setUpstreamConversations([])
-    const removed = conversationChangesSince(registry, cursor)
-    expect(removed.some((c) => c.id === 'hub-1' && c.op === 'remove')).toBe(true)
   })
 
   it('replaying the whole durable log folds to the live conversation list', () => {

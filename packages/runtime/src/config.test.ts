@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -100,18 +100,23 @@ describe('podium config', () => {
   it('rejects an invalid updateChannel', () => {
     expect(() => saveConfig({ updateChannel: 'nightly' } as never)).toThrow()
   })
-  it('round-trips the upstream hub target (node⇄hub sync §2.1)', () => {
-    saveConfig({
-      mode: 'server',
-      upstream: { url: 'https://hub.example:18787', token: 'tok_abc' },
-    })
-    expect(loadConfig()).toEqual({
-      mode: 'server',
-      upstream: { url: 'https://hub.example:18787', token: 'tok_abc' },
-    })
+  // POD-309 retired the `upstream` key with the node⇄hub dialer. These two replace the
+  // round-trip pair that used to live here, and they assert the RETIREMENT rather than
+  // the field: the first proves the key is gone from the schema (a re-declared
+  // `upstream` makes it fail), the second proves an operator whose config.json still
+  // carries the retired block still BOOTS — the failure mode that matters, because
+  // `.strict()` here would exit-2 crash-loop every node that ever configured one.
+  it('the retired `upstream` key is no longer part of the schema', () => {
+    saveConfig({ mode: 'server', upstream: { url: 'https://hub', token: 't' } } as never)
+    expect(loadConfig()).toEqual({ mode: 'server' })
   })
-  it('rejects a partial upstream block (url and token are both required)', () => {
-    expect(() => saveConfig({ upstream: { url: 'https://hub' } } as never)).toThrow()
+  it('a config file still carrying a retired `upstream` block loads instead of throwing', () => {
+    writeFileSync(
+      configPath(),
+      JSON.stringify({ mode: 'server', upstream: { url: 'https://hub', token: 'tok_abc' } }),
+    )
+    expect(inspectConfig().state).toBe('ok')
+    expect(loadConfig()).toEqual({ mode: 'server' })
   })
 })
 

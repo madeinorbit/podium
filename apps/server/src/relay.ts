@@ -1,10 +1,8 @@
 import { isExposedOn, sessionCommandPlane } from '@podium/commands'
-import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness'
-import { asSessionId } from '@podium/model'
-import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/model'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import type { AgentKind, SessionMeta } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
@@ -30,11 +28,10 @@ import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
-import { UpstreamIssuesService } from './modules/issues/upstream'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
-import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
+import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { mailPolicy } from './modules/messages/handlers/context'
 import {
@@ -69,33 +66,10 @@ import { StewardService } from './steward'
 import { SessionStore } from './store'
 import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
-// Re-exported so server.ts/tests keep importing the forwarder seam from './relay'.
-export type { IssueUpstreamForwarder } from './modules/issues/upstream'
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
 export type { OpResult, ScanReposResult, ScanResult } from './modules/machines/rpc'
 export type { MemoryBreakdown }
-
-/**
- * The upstream-token mint primitive (node⇄hub sync §2.1): a long-lived, revocable
- * client_sessions row; the plaintext is returned exactly once (only its sha-256 is
- * stored). Standalone (auth-repo-only) so `scripts/mint-upstream-token.ts` can run it
- * against a hub's DB without constructing a full registry — a second registry's
- * boot reconciliation would append oplog rows behind a live server's back.
- */
-export function mintUpstreamTokenInto(
-  auth: Pick<SessionStore['auth'], 'createClientSession'>,
-  nowMs: number = Date.now(),
-): string {
-  const token = randomBytes(32).toString('base64url')
-  // 10 years ≈ non-expiring, while keeping the ordinary expiry machinery (and
-  // revocation via deleteClientSession) intact.
-  const expiresAt = new Date(nowMs + 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
-  // An upstream mirror token is a DEVICE session like any other, owned by the
-  // instance's one account until per-user login lands (POD-315).
-  auth.createClientSession(sha256(token), FIRST_ADMIN_USER_ID, expiresAt)
-  return token
-}
 
 interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
@@ -135,7 +109,6 @@ export interface RegistryModules {
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
-  upstreamIssues: UpstreamIssuesService
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
@@ -161,25 +134,6 @@ export interface RegistryModules {
    *  module seam so a transport wires the framework's implementation rather than
    *  reaching into a service for it. */
   mutations: MutationLedger
-}
-
-/**
- * The upstream-mirror surface (node⇄hub sync) is spread across the modules that
- * own each entity — sessions (live-session list + hub-staleness flag),
- * conversations (summaries), and upstreamIssues (the issue mirror). This composes
- * them back into the single `UpstreamMirror` seam `UpstreamSync` consumes, so the
- * spread stays an internal detail of the module graph.
- */
-export function upstreamMirrorFor(modules: RegistryModules) {
-  return {
-    setUpstreamSessions: (list: SessionMeta[]) => modules.sessions.setUpstreamSessions(list),
-    setUpstreamConversations: (list: ConversationSummaryWire[]) =>
-      modules.conversations.setUpstreamConversations(list),
-    setUpstreamIssues: (list: IssueWire[]) => modules.upstreamIssues.setUpstreamIssues(list),
-    setUpstreamStale: (stale: boolean) => {
-      modules.sessions.setUpstreamStale(stale)
-    },
-  }
 }
 
 /**
@@ -375,13 +329,6 @@ export class SessionRegistry {
     // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
-    const upstreamIssues = new UpstreamIssuesService({
-      store: this.store.events,
-      now: () => this.now(),
-      localIssueExists: (id) => issues?.has(id) ?? false,
-      publish: () => publisher.publishIssues(publisher.safeIssuesList()),
-      upstreamStale: () => sessionsSvc.isUpstreamStale(),
-    })
     // The write-seam change log ([spec:SP-3fe2] #255/#256/#257): issue, session
     // AND conversation writes append their change rows ATOMICALLY with the
     // entity write (one transact span on the shared connection). One changes
@@ -411,7 +358,6 @@ export class SessionRegistry {
     })
     const publisher = new IssuePublisher({
       allWire: (sessionList) => issues?.allWire(sessionList),
-      withUpstreamIssues: (local) => upstreamIssues.withUpstreamIssues(local),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
@@ -426,9 +372,6 @@ export class SessionRegistry {
       issues: () => issues,
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
-      isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
-      forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
-      upstreamIssueRepoPaths: () => upstreamIssues.repoPaths(),
       mutations,
       listSessions: () => sessionsSvc.listSessions(),
       repoPaths: () => this.store.repos.listRepoPaths(),
@@ -1076,7 +1019,7 @@ export class SessionRegistry {
       conversations: () => conversations,
       issues: () => issues,
       publishIssues: (sessions) => publisher.publishIssues(publisher.safeIssuesList(sessions)),
-      issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.currentIssuesList()),
+      issuesWire: () => publisher.currentIssuesList(),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       onWorktreesChanged: broadcastWorktreesChanged,
@@ -1089,12 +1032,6 @@ export class SessionRegistry {
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
-    // Hub-staleness flips fan out over the bus: the conversation and issue
-    // mirrors follow the sessions-owned flag (spec §2.3 stale-visible).
-    this.bus.on('upstream.staleChanged', () => {
-      conversations.rebroadcastUpstream()
-      upstreamIssues.rebroadcastUpstream()
-    })
     // Boot: hydrate sessions (and reconcile the restored state against the
     // write-seam ledger — boot reconciliation lives in the sessions module now).
     sessionsSvc.loadFromStore()
@@ -1104,7 +1041,7 @@ export class SessionRegistry {
         store: this.store,
         now: () => this.now(),
         // Conversation writes commit through the write-seam ledger (#257):
-        // discovery/meta commits + upstream-union reconciles append durably at
+        // discovery/meta commits + list reconciles append durably at
         // the write, then the funnel fans out ONLY the legacy snapshot (delta
         // clients ride the ordered onAppended pipe).
         ledger,
@@ -1430,7 +1367,6 @@ export class SessionRegistry {
       notify,
       issues,
       issueSessionLifecycle,
-      upstreamIssues,
       issuePublisher: publisher,
       issueCommands,
       specs,
@@ -1513,17 +1449,6 @@ export class SessionRegistry {
   /** The backing store — shared with services that persist their own tables (superagent). */
   get sessionStore(): SessionStore {
     return this.store
-  }
-
-  /**
-   * Mint a long-lived client-session token for a NODE to sync against this server
-   * as its hub (spec §2.1 provisioning). The token rides as the `podium_session`
-   * cookie on the node's /client WS upgrade and /trpc calls — a normal, revocable
-   * client_sessions row (delete it to cut the node off). Printed once; only the
-   * sha-256 is stored.
-   */
-  mintUpstreamToken(): string {
-    return mintUpstreamTokenInto(this.store.auth, this.now())
   }
 
   dispose(): void {
