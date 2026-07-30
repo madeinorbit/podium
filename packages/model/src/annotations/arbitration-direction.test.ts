@@ -117,9 +117,7 @@ describe('the detector itself (deliberate-violation probes)', () => {
         'packages/client-core/src/replica/apply.ts',
         "import { conflictRuleFor } from '@podium/model'\n",
       ),
-    ).toEqual([
-      { file: 'packages/client-core/src/replica/apply.ts', symbols: ['conflictRuleFor'] },
-    ])
+    ).toEqual([{ file: 'packages/client-core/src/replica/apply.ts', symbols: ['conflictRuleFor'] }])
   })
 
   it('catches the web client, the mobile client and the daemon', () => {
@@ -136,17 +134,26 @@ describe('the detector itself (deliberate-violation probes)', () => {
     // The case a prefix allowlist alone would MISS: packages/sync holds both the
     // kernel and the replica.
     expect(
-      violation('packages/sync/src/replica/store.ts', "import { FIELD_LWW_CLOCK } from '@podium/model'\n"),
+      violation(
+        'packages/sync/src/replica/store.ts',
+        "import { FIELD_LWW_CLOCK } from '@podium/model'\n",
+      ),
     ).toHaveLength(1)
     // ... while the kernel in the same package is allowed.
     expect(
-      violation('packages/sync/src/kernel/funnel.ts', "import { FIELD_LWW_CLOCK } from '@podium/model'\n"),
+      violation(
+        'packages/sync/src/kernel/funnel.ts',
+        "import { FIELD_LWW_CLOCK } from '@podium/model'\n",
+      ),
     ).toEqual([])
   })
 
   it('catches a type-only import and an aliased import', () => {
     expect(
-      violation('apps/web/src/x.ts', "import type { ConflictRule, conflictRuleFor } from '@podium/model'\n"),
+      violation(
+        'apps/web/src/x.ts',
+        "import type { ConflictRule, conflictRuleFor } from '@podium/model'\n",
+      ),
     ).toHaveLength(1)
     expect(
       violation('apps/web/src/y.ts', "import { conflictRuleFor as decide } from '@podium/model'\n"),
@@ -164,7 +171,10 @@ describe('the detector itself (deliberate-violation probes)', () => {
 
   it('catches the relative import path too, so moving the module cannot disable it', () => {
     expect(
-      violation('packages/client-core/src/a.ts', "import { conflictRuleFor } from '../annotations/arbitration'\n"),
+      violation(
+        'packages/client-core/src/a.ts',
+        "import { conflictRuleFor } from '../annotations/arbitration'\n",
+      ),
     ).toHaveLength(1)
   })
 

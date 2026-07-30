@@ -247,10 +247,12 @@ export const workflowCreateContract = {
     rationale:
       'Creating a task- or repository-scoped workflow writes personal content owned by the acting ' +
       'agent’s human (ADR 9 D5 A4), so a member may do it. The GLOBAL arm is not a member’s to take: ' +
-      'a global library entry is deployment substrate (readiness §3.1.1), so `scope: "global"` is ' +
-      'decided as `workflow-library-entry` and needs the admin grade — which is why the role floor ' +
+      'a global library entry is substrate-shaped (readiness §3.1.1), so `scope: "global"` is decided ' +
+      'as `workflow-library-entry` and its WRITE needs the admin grade — which is why the role floor ' +
       'here is a floor on ATTEMPTING and not the whole decision. The shipped code returned EARLY for ' +
-      '`scope === "global"`, letting any caller create instance-wide content; that ambient arm is gone.',
+      '`scope === "global"`, letting any caller create instance-wide content; that ambient arm is gone. ' +
+      'Its READ is NOT widened to tenant-visible: that is ADR 1 Amendment 1 D9.3’s one-way ratchet and ' +
+      'POD-1071’s to turn, and ADR 9 D2’s explicit grant edge reaches the same reach revocably.',
   },
   exposure: SERVED_ON,
   delivery: LIBRARY_DELIVERY,
@@ -258,8 +260,9 @@ export const workflowCreateContract = {
   ownership: OWNED_BY_HUMAN(
     ['workflow-definition', 'workflow-revision'],
     'The definition and its v1 revision are owned by the creating principal’s human; the revision ' +
-      'inherits the definition. A GLOBAL definition is substrate and has no personal owner — its ' +
-      'accountability is the admin who created it, recorded through attribution.',
+      'inherits the definition. A GLOBAL definition is owned by the ADMIN who created it and is shared ' +
+      'by an explicit read grant, not by an ambient arm — so the library stays exactly as readable as ' +
+      'it is today, through an edge a reader can be shown and an owner can revoke.',
   ),
   attribution: ATTRIBUTION,
   errorConsistency: {

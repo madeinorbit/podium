@@ -152,11 +152,14 @@ export type WorkflowDecision = 'allowed' | 'denied'
  *  1. NO LIVE HUMAN ⇒ DENIED. A1: rights are the delegation resolved now. This
  *     is first so that a revoked human cannot be rescued by an admin role the
  *     revoked account still nominally carries, nor by owning the row.
- *  2. A LIBRARY ENTRY IS SUBSTRATE. Readiness §3.1.1: a global entry is closer
+ *  2. A LIBRARY WRITE IS ADMIN-GRADE. Readiness §3.1.1: a global entry is closer
  *     to deployment substrate than to personal content, so its WRITE path is
- *     admin-grade and ownership is irrelevant to it. Reads are handled by
- *     {@link canReadWorkflowEntity}, which is where substrate's tenant
- *     visibility lives.
+ *     admin-grade and ownership is irrelevant to it. The shipped code had NO
+ *     brake here at all — `assertCreateScope` and `assertWorkflowWrite` both
+ *     returned early on `scope === 'global'`, so any caller could create and
+ *     revise instance-wide content. Only `verb === 'write'` takes this arm:
+ *     reads fall through to the ordinary owner-or-grant decision, for the reason
+ *     {@link canReadWorkflowEntity} gives at length.
  *  3. OWNER WINS. ADR 9 D5 A4 — the row belongs to the human its creator acted
  *     for.
  *  4. AN EXPLICIT GRANT WINS. D2: sharing is explicit and it is an edge.
@@ -174,7 +177,7 @@ export function workflowDecision(
 ): WorkflowDecision {
   const human = principal.onBehalfOf
   if (human === null) return 'denied'
-  if (entity.kind === 'workflow-library-entry') {
+  if (entity.kind === 'workflow-library-entry' && verb === 'write') {
     return principal.role === 'admin' ? 'allowed' : 'denied'
   }
   if (port.ownerOf(entity) === human) return 'allowed'
@@ -183,26 +186,41 @@ export function workflowDecision(
 }
 
 /**
- * The READ side, which differs from {@link workflowDecision} in exactly one
- * place and only for one class.
+ * The READ side.
  *
- * A global library entry is deployment substrate: its write path is admin-grade
- * (rule 2 above) while its READ may reasonably be tenant-visible, because a
- * library nobody can read is a library nobody can run. That asymmetry is the
- * decision this issue was asked to record rather than to inherit — the shipped
- * code reached the same read outcome through `canReadWorkflow`'s ambient
- * `return true`, which ALSO opened the write path. Splitting them is what
- * closes the hole while keeping the library usable.
+ * IT IS THE SAME DECISION, and that is the finding rather than a shortcut.
  *
- * Every other class routes to the same default-closed decision as a write.
+ * The brief offered a tenant-visible read for the global library — "its write
+ * path should be at least admin-grade while its read may reasonably be
+ * tenant-visible" — and the tempting shape here was an ambient `return true`
+ * for `workflow-library-entry`. That shape is refused, for a reason the brief
+ * could not have known:
+ *
+ * TENANT-VISIBLE IS A RATCHET SOMEONE ELSE HOLDS. ADR 1 Amendment 1 D9.3 makes
+ * the substrate set one-way, `matrix.test.ts` asserts the membership list
+ * EXHAUSTIVELY, and its comment says in as many words that a new member is a
+ * widening needing an ADR 1 amendment. POD-1071 owns that amendment; POD-731
+ * does not. Widening a cross-cutting ratchet from inside a feature issue is how
+ * a default-closed rule stops being one.
+ *
+ * AND THE EXPLICIT-GRANT ROUTE COSTS NOTHING. ADR 9 D2 already has the
+ * mechanism: sharing is an EDGE. An admin who publishes a global revision
+ * grants read on it, and the library is exactly as readable as it was — through
+ * a grant a reader can be shown and an owner can revoke, rather than through an
+ * ambient arm nobody can see or withdraw. The single-user present is unaffected
+ * either way, because one human owns everything.
+ *
+ * So `canReadWorkflowEntity` delegates in full. It survives as a named function
+ * because the READ question is asked at different sites from the WRITE one and
+ * a caller that had to remember to pass `'read'` would eventually pass
+ * `'write'` — and because the asymmetry, if POD-1071 ever grants it, belongs
+ * here rather than being reintroduced at eleven call sites.
  */
 export function canReadWorkflowEntity(
   principal: WorkflowPrincipal,
   entity: WorkflowEntityRef,
   port: WorkflowOwnershipPort,
 ): boolean {
-  if (principal.onBehalfOf === null) return false
-  if (entity.kind === 'workflow-library-entry') return true
   return workflowDecision(principal, entity, 'read', port) === 'allowed'
 }
 

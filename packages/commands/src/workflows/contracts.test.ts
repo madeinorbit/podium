@@ -247,10 +247,26 @@ describe('the workflow decision — default-closed', () => {
     expect(workflowDecision(admin, orphan, 'read', port())).toBe('allowed')
   })
 
-  it('makes a global library entry admin-grade to WRITE and tenant-visible to READ', () => {
+  it('makes a global library WRITE admin-grade even for the row’s own owner', () => {
+    // The counterfactual that makes this an admin rule and not an ownership
+    // one: `wf_g` is unowned here, so a member is refused. `wf_1` IS owned by
+    // OWNER and a member write on it is allowed above — so the denial below is
+    // the library arm firing, not the owner check failing.
+    const owned = { kind: 'workflow-library-entry', id: 'wf_1' } as const
+    expect(workflowDecision(member(OWNER), owned, 'write', port())).toBe('denied')
     expect(workflowDecision(member(OWNER), library, 'write', port())).toBe('denied')
     expect(workflowDecision(admin, library, 'write', port())).toBe('allowed')
-    expect(canReadWorkflowEntity(member(OWNER), library, port())).toBe(true)
+  })
+
+  it('reads a library entry through an explicit GRANT, never an ambient arm', () => {
+    // The read side is the ordinary decision — no `return true` for global.
+    // Widening the tenant-visible floor is ADR 1 Amendment 1 D9.3's ratchet and
+    // POD-1071's to turn; ADR 9 D2's grant edge gets the same result revocably.
+    expect(canReadWorkflowEntity(member(OTHER), library, port())).toBe(false)
+    const shared = port([[OTHER, 'wf_g:read']])
+    expect(canReadWorkflowEntity(member(OTHER), library, shared)).toBe(true)
+    // …and a read grant on a library entry still does not open its WRITE path.
+    expect(workflowDecision(member(OTHER), library, 'write', shared)).toBe('denied')
   })
 
   it('keeps the single-user present unchanged — one human owns everything', () => {

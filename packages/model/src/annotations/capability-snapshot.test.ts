@@ -49,7 +49,11 @@ describe('findCapabilitySnapshotKeys', () => {
   it('names a capability field inside a discriminated-union arm, in every arm', () => {
     const planted = z.discriminatedUnion('format', [
       z.object({ format: z.literal(1), sessionId: z.string(), scope: z.string() }),
-      z.object({ format: z.literal(2), sessionId: z.string(), effectiveRights: z.array(z.string()) }),
+      z.object({
+        format: z.literal(2),
+        sessionId: z.string(),
+        effectiveRights: z.array(z.string()),
+      }),
     ])
     expect(findCapabilitySnapshotKeys(planted)).toEqual(['scope', 'effectiveRights'])
   })
